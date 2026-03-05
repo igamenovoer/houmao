@@ -46,6 +46,21 @@ coverage.xml
 tmp/
 *.log
 .agentsys/
+tmp/agents-runtime/
+tmp/cao-home/
+tmp/cao-server/
+tmp/brains/
+
+# Local credential/state paths under fixtures and user-provided libraries
+tests/fixtures/agents/brains/api-creds/**/env/*.env
+tests/fixtures/agents/brains/api-creds/**/files/credentials.json
+tests/fixtures/agents/brains/api-creds/**/files/auth.json
+tests/fixtures/agents/brains/api-creds/**/files/oauth_creds.json
+tests/fixtures/agents/brains/api-creds/**/files/.claude.json
+**/.claude.json
+**/.gemini/
+**/.codex/
+**/.aws/cli-agent-orchestrator/
 
 # Generated docs
 site/

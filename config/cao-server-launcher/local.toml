@@ -1,0 +1,6 @@
+base_url = "http://localhost:9889"
+runtime_root = "tmp/agents-runtime"
+home_dir = "/data/agents/cao-home"
+proxy_policy = "clear"
+startup_timeout_seconds = 15
+

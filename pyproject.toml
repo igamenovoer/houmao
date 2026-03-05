@@ -1,42 +1,29 @@
 [project]
 name = "gig-agents"
 version = "0.1.0"
-description = "Distributed AI agent orchestration — dynamic, markdown-driven, built on CAO"
+description = "Standalone runtime package for brain launch and CAO launcher workflows"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
+authors = [{ name = "igamenovoer", email = "igamenovoer@xx.com" }]
 license = { file = "LICENSE" }
-keywords = ["ai", "agents", "orchestration", "llm", "cli", "tmux", "cao"]
+keywords = ["agents", "runtime", "cao", "tmux", "cli"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # CAO provides the foundational tmux + MCP layer
-    "cli-agent-orchestrator>=1.1.0",
-    # Web framework for HTTP endpoints
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    # CLI
-    "click>=8.0.0",
-    # TUI (Textual for the terminal dashboard)
-    "textual>=0.80.0",
-    # Markdown parsing for instruction broadcaster
-    "python-frontmatter>=1.1.0",
-    "watchdog>=6.0.0",
-    # Data / models
-    "pydantic>=2.10.0",
+  "pydantic>=2.12,<3",
+  "PyYAML>=6.0,<7",
 ]
 
 [project.scripts]
-"gig" = "gig_agents.cli.main:cli"
-"gig-server" = "gig_agents.api.main:main"
+gig-agents-cli = "gig_agents.cli:main"
+gig-cao-server = "gig_agents.cao_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/igamenovoer/gig-agents"
@@ -47,21 +34,79 @@ Issues = "https://github.com/igamenovoer/gig-agents/issues"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+  "tests/**",
+  "scripts/**",
+  "docs/**",
+  "openspec/**",
+  "examples/**",
+  "tmp/**",
+  "config/**",
+  ".agentsys/**",
+  "**/*.env",
+  "**/credentials.json",
+  "**/auth.json",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gig_agents"]
 
-[dependency-groups]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.26.0",
-    "ruff>=0.9.0",
-    "mypy>=1.0.0",
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/gig_agents/**",
+  "README.md",
+  "LICENSE",
+  "NOTICE",
+  "pyproject.toml",
+]
+exclude = [
+  "tests/**",
+  "scripts/**",
+  "docs/**",
+  "openspec/**",
+  "examples/**",
+  "tmp/**",
+  "config/**",
+  ".agentsys/**",
+  "**/*.env",
+  "**/credentials.json",
+  "**/auth.json",
 ]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+gig_agents = { path = ".", editable = true }
+build = ">=1.3.0,<2"
+twine = ">=6.2.0,<7"
+types-PyYAML = ">=6.0.12.20250915,<7"
+
+[tool.pixi.dependencies]
+python = "3.13.*"
+pytest = ">=9.0.2,<10"
+ruff = ">=0.15.0,<0.16"
+mypy = ">=1.19.1,<2"
+pip = ">=25,<26"
+
+[tool.pixi.tasks]
+format = { cmd = "ruff format src tests docs scripts", description = "Format runtime source, tests, docs, and scripts" }
+lint = { cmd = "ruff check src tests docs scripts", description = "Run Ruff lint checks" }
+typecheck = { cmd = "mypy src", description = "Run strict mypy checks" }
+test = { cmd = "python -m pytest tests/unit", description = "Run destination unit tests" }
+test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
+build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
+check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }

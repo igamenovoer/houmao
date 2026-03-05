@@ -1,0 +1,19 @@
+You are running inside the agent-definition directory directory.
+
+Create exactly one runnable Python file at `{{OUTPUT_FILE_REL}}` with this exact content:
+
+```python
+def main() -> None:
+    print("{{SENTINEL}}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Rules:
+- Do not modify any tracked repository files.
+- Only create/update `{{OUTPUT_FILE_REL}}`.
+- Do not run git commands.
+
+After writing the file, reply with one short line that starts with `DONE:` and includes the file path.

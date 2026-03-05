@@ -1,0 +1,12 @@
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex                           │
+╰───────────────────────────────────────────╯
+> You are in /home/huangzhe/tmp/agent-system-dissect/demo
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection.
+
+› 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue

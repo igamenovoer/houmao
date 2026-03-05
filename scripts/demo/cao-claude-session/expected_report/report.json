@@ -1,0 +1,9 @@
+{
+  "backend": "cao_rest",
+  "generated_at_utc": "<TIMESTAMP>",
+  "response_text": "<NON_EMPTY_RESPONSE>",
+  "session_manifest": "<SESSION_MANIFEST_PATH>",
+  "status": "ok",
+  "tool": "claude",
+  "workspace": "<WORKSPACE_PATH>"
+}

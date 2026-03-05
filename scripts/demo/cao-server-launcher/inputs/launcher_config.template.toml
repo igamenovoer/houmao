@@ -1,0 +1,5 @@
+base_url = "__BASE_URL__"
+runtime_root = "__RUNTIME_ROOT__"
+home_dir = "__HOME_DIR__"
+proxy_policy = "__PROXY_POLICY__"
+startup_timeout_seconds = __STARTUP_TIMEOUT_SECONDS__

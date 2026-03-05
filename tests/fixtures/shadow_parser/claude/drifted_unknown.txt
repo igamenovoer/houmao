@@ -1,0 +1,3 @@
+<claude-output-vnext>
+phase=streaming
+opaque_payload=true

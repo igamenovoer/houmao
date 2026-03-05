@@ -1,0 +1,3 @@
+OpenAI Codex (v0.98.0)
+You are running Codex in a new folder.
+Allow Codex to work in this folder? [y/n]

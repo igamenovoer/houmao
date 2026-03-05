@@ -1,0 +1,11 @@
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.98.0)                 │
+│ model: gpt-5.3-codex high                 │
+│ directory: ~/project                      │
+╰───────────────────────────────────────────╯
+› summarize recent changes
+• Updated parser stack wiring.
+• Added explicit output probes.
+
+› 
+  ? for shortcuts                     100% context left

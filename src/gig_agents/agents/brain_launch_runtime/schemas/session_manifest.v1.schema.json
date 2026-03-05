@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "CaoSectionV1": {
+      "additionalProperties": false,
+      "description": "Persisted CAO backend section.",
+      "properties": {
+        "api_base_url": {
+          "title": "Api Base Url",
+          "type": "string"
+        },
+        "profile_name": {
+          "title": "Profile Name",
+          "type": "string"
+        },
+        "profile_path": {
+          "title": "Profile Path",
+          "type": "string"
+        },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "turn_index": {
+          "default": 0,
+          "title": "Turn Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_base_url",
+        "session_name",
+        "terminal_id",
+        "profile_name",
+        "profile_path"
+      ],
+      "title": "CaoSectionV1",
+      "type": "object"
+    },
+    "CodexSectionV1": {
+      "additionalProperties": false,
+      "description": "Persisted codex backend section.",
+      "properties": {
+        "pid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pid"
+        },
+        "process_started_at_utc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Process Started At Utc"
+        },
+        "thread_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thread Id"
+        },
+        "turn_index": {
+          "title": "Turn Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "thread_id",
+        "turn_index"
+      ],
+      "title": "CodexSectionV1",
+      "type": "object"
+    },
+    "HeadlessSectionV1": {
+      "additionalProperties": false,
+      "description": "Persisted headless backend section.",
+      "properties": {
+        "role_bootstrap_applied": {
+          "title": "Role Bootstrap Applied",
+          "type": "boolean"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "turn_index": {
+          "title": "Turn Index",
+          "type": "integer"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "turn_index",
+        "role_bootstrap_applied",
+        "working_directory"
+      ],
+      "title": "HeadlessSectionV1",
+      "type": "object"
+    },
+    "LaunchPlanHomeSelectorV1": {
+      "additionalProperties": false,
+      "description": "`home_selector` payload for `launch_plan.v1`.",
+      "properties": {
+        "env_var": {
+          "title": "Env Var",
+          "type": "string"
+        },
+        "home_path": {
+          "title": "Home Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env_var",
+        "home_path"
+      ],
+      "title": "LaunchPlanHomeSelectorV1",
+      "type": "object"
+    },
+    "LaunchPlanPayloadV1": {
+      "additionalProperties": false,
+      "description": "Persisted `launch_plan.v1` payload.",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "backend": {
+          "enum": [
+            "codex_headless",
+            "codex_app_server",
+            "claude_headless",
+            "gemini_headless",
+            "cao_rest"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "env_var_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Var Names",
+          "type": "array"
+        },
+        "executable": {
+          "title": "Executable",
+          "type": "string"
+        },
+        "home_selector": {
+          "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "role_injection": {
+          "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "tool",
+        "executable",
+        "args",
+        "working_directory",
+        "home_selector",
+        "env_var_names",
+        "role_injection",
+        "metadata"
+      ],
+      "title": "LaunchPlanPayloadV1",
+      "type": "object"
+    },
+    "LaunchPlanRoleInjectionV1": {
+      "additionalProperties": false,
+      "description": "`role_injection` payload for `launch_plan.v1`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "native_developer_instructions",
+            "native_append_system_prompt",
+            "bootstrap_message",
+            "cao_profile"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "role_name": {
+          "title": "Role Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "role_name"
+      ],
+      "title": "LaunchPlanRoleInjectionV1",
+      "type": "object"
+    }
+  },
+  "$id": "session_manifest.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Persisted `session_manifest.v1` payload.",
+  "properties": {
+    "backend": {
+      "enum": [
+        "codex_headless",
+        "codex_app_server",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "backend_state": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Backend State",
+      "type": "object"
+    },
+    "brain_manifest_path": {
+      "title": "Brain Manifest Path",
+      "type": "string"
+    },
+    "cao": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CaoSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "codex": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodexSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "created_at_utc": {
+      "title": "Created At Utc",
+      "type": "string"
+    },
+    "headless": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HeadlessSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "launch_plan": {
+      "$ref": "#/$defs/LaunchPlanPayloadV1"
+    },
+    "role_name": {
+      "title": "Role Name",
+      "type": "string"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "working_directory": {
+      "title": "Working Directory",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "backend",
+    "tool",
+    "role_name",
+    "created_at_utc",
+    "working_directory",
+    "brain_manifest_path",
+    "launch_plan",
+    "backend_state"
+  ],
+  "title": "SessionManifestPayloadV1",
+  "type": "object"
+}

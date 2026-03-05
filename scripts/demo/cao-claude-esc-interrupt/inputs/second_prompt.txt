@@ -1,0 +1,1 @@
+Reply with exactly one short sentence confirming recovery after an interrupt.

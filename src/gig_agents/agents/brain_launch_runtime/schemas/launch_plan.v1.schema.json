@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "LaunchPlanHomeSelectorV1": {
+      "additionalProperties": false,
+      "description": "`home_selector` payload for `launch_plan.v1`.",
+      "properties": {
+        "env_var": {
+          "title": "Env Var",
+          "type": "string"
+        },
+        "home_path": {
+          "title": "Home Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env_var",
+        "home_path"
+      ],
+      "title": "LaunchPlanHomeSelectorV1",
+      "type": "object"
+    },
+    "LaunchPlanRoleInjectionV1": {
+      "additionalProperties": false,
+      "description": "`role_injection` payload for `launch_plan.v1`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "native_developer_instructions",
+            "native_append_system_prompt",
+            "bootstrap_message",
+            "cao_profile"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "role_name": {
+          "title": "Role Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "role_name"
+      ],
+      "title": "LaunchPlanRoleInjectionV1",
+      "type": "object"
+    }
+  },
+  "$id": "launch_plan.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Persisted `launch_plan.v1` payload.",
+  "properties": {
+    "args": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Args",
+      "type": "array"
+    },
+    "backend": {
+      "enum": [
+        "codex_headless",
+        "codex_app_server",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "env_var_names": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Env Var Names",
+      "type": "array"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "string"
+    },
+    "home_selector": {
+      "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "role_injection": {
+      "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "working_directory": {
+      "title": "Working Directory",
+      "type": "string"
+    }
+  },
+  "required": [
+    "backend",
+    "tool",
+    "executable",
+    "args",
+    "working_directory",
+    "home_selector",
+    "env_var_names",
+    "role_injection",
+    "metadata"
+  ],
+  "title": "LaunchPlanPayloadV1",
+  "type": "object"
+}

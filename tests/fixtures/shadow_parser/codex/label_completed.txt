@@ -1,0 +1,5 @@
+Codex CLI v0.1.0
+You summarize this module
+assistant: first line
+second line
+❯ 
