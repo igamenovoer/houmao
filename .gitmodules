@@ -1,0 +1,4 @@
+[submodule "magic-context"]
+	path = magic-context
+	url = https://github.com/igamenovoer/magic-context
+	branch = main
