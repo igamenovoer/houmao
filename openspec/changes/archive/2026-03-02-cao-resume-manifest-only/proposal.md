@@ -25,7 +25,7 @@ Today, CAO-backed sessions already persist the CAO API base URL in the session m
 
 ## Impact
 
-- `src/agent_system_dissect/agents/brain_launch_runtime/`: CLI and resume orchestration signature changes for CAO flows.
+- `src/gig_agents/agents/brain_launch_runtime/`: CLI and resume orchestration signature changes for CAO flows.
 - `docs/reference/brain_launch_runtime.md`: update examples to remove `--cao-base-url` from resumed operations.
 - `scripts/demo/*`: update CAO demo packs and any helper scripts that currently pass `--cao-base-url` for resumed operations.
 - Downstream scripts and docs that call `send-prompt`/`stop-session` with `--cao-base-url` must be updated.

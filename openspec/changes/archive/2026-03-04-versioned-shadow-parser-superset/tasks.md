@@ -39,7 +39,7 @@
   - shadow parser preference/defaults,
   - version preset overrides,
   - how to capture fixtures for new upstream variants.
-- [x] 4.6 Add a note that Gemini parser architecture is deferred to `context/issues/feat-gemini-headless-parser-architecture.md` and is out-of-scope for this change.
+- [x] 4.6 Add a note that Gemini parser architecture is deferred to `context/issues/features/feat-gemini-headless-parser-architecture.md` and is out-of-scope for this change.
 
 ## 5. Manual Verification
 

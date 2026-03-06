@@ -4,7 +4,7 @@
 - [x] 1.2 Define core dataclasses/interfaces (`LaunchPlan`, `InteractiveSession` with streaming output + interrupt/terminate, session config/result/event types)
 - [x] 1.3 Implement loaders for repo inputs (brain recipe / blueprint, role package prompt)
 - [x] 1.4 Define and persist a session manifest JSON (session handle) schema + read/write helpers (audit/resume/stop)
-- [x] 1.5 Add JSON Schema assets for runtime-generated structured artifacts under `src/agent_system_dissect/.../schemas/` (at minimum session manifest and any persisted runtime config payloads)
+- [x] 1.5 Add JSON Schema assets for runtime-generated structured artifacts under `src/gig_agents/.../schemas/` (at minimum session manifest and any persisted runtime config payloads)
 - [x] 1.6 Implement shared schema validation helpers and enforce validation on artifact write/read paths (fail fast on schema errors)
 
 ## 2. Launch Plan Composition

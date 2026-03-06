@@ -1,6 +1,6 @@
 ## 1. CAO Server Launcher Core
 
-- [x] 1.1 Add `src/agent_system_dissect/cao/server_launcher.py` with typed config/result models for `status`/`start`/`stop`
+- [x] 1.1 Add `src/gig_agents/cao/server_launcher.py` with typed config/result models for `status`/`start`/`stop`
 - [x] 1.2 Implement `status_cao_server(...)` (CAO health check via `GET /health`) with a configurable timeout
 - [x] 1.3 Define and implement a minimal launcher config file format (recommend TOML) including: `base_url`, `runtime_root`, `home_dir` (CAO server `HOME`), `proxy_policy`, and startup timeout; config load is schema-validated (unknown keys rejected, actionable error messages); restrict `base_url` to upstream-supported values (`http://localhost:9889` and `http://127.0.0.1:9889`) until CAO host/port configurability is confirmed
 - [x] 1.4 Implement proxy policy handling (`clear` vs `inherit`) for the launched `cao-server` process env:
@@ -12,7 +12,7 @@
 
 ## 2. User-Facing CLI Helper
 
-- [x] 2.1 Add a small CLI entrypoint (for example `python -m agent_system_dissect.cao.tools.cao_server_launcher`) with `start`, `status`, and `stop` subcommands
+- [x] 2.1 Add a small CLI entrypoint (for example `python -m gig_agents.cao.tools.cao_server_launcher`) with `start`, `status`, and `stop` subcommands
 - [x] 2.2 CLI reads a server config file (required) and optionally supports narrow flag overrides for ad-hoc use
 - [x] 2.3 Add structured (JSON) output for `start/status/stop` so scripts can consume pid/log/base-url/health results
 

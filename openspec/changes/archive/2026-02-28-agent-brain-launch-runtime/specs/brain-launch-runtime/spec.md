@@ -118,7 +118,7 @@ The system SHALL schema-validate all runtime-generated structured manifest/confi
 - **THEN** the runtime rejects the operation with an explicit schema-validation error instead of proceeding with undefined behavior
 
 ### Requirement: JSON Schema assets live in `src/` runtime package
-The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/agent_system_dissect/.../schemas/`.
+The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/gig_agents/.../schemas/`.
 
 #### Scenario: Session manifest schema is versioned and discoverable
 - **WHEN** developers inspect the runtime package source

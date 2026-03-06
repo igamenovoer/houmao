@@ -33,8 +33,8 @@ Separately, the repo’s CAO REST integration does not currently match the vendo
 ## Impact
 
 - Affected code:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/**` (manifest I/O, resume logic, CLI JSON output)
-  - `src/agent_system_dissect/cao/**` (shared CAO REST client and models)
+  - `src/gig_agents/agents/brain_launch_runtime/**` (manifest I/O, resume logic, CLI JSON output)
+  - `src/gig_agents/cao/**` (shared CAO REST client and models)
 - Affected tests:
   - `tests/unit/agents/brain_launch_runtime/**`
 - Affected docs:

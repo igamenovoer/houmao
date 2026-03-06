@@ -39,11 +39,11 @@ calls made by runtime-launched agent subprocesses.
 ## Impact
 
 - Affected runtime modules:
-  - `src/agent_system_dissect/cao/server_launcher.py`
-  - `src/agent_system_dissect/cao/rest_client.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/headless_base.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/codex_app_server.py`
+  - `src/gig_agents/cao/server_launcher.py`
+  - `src/gig_agents/cao/rest_client.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/headless_base.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/codex_app_server.py`
 - Affected docs:
   - `docs/reference/cao_server_launcher.md`
   - `docs/reference/brain_launch_runtime.md`

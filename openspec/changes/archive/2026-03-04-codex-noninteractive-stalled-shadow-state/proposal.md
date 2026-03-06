@@ -28,11 +28,11 @@ Codex CAO-backed launches can still hit interactive trust/onboarding prompts whe
 ## Impact
 
 - Runtime launch/backends:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/codex_app_server.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/codex_app_server.py`
   - new/updated Codex bootstrap helper(s) for runtime home config materialization.
 - Shadow parser core/contracts:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/shadow_parser_core.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/shadow_parser_core.py`
   - provider parsers and stack adapters for status propagation.
 - Config and builder surfaces:
   - Codex config profile defaults and/or runtime overlay logic for generated homes.

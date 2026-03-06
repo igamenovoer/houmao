@@ -1,0 +1,6 @@
+# Keep scaffold files and directory layout in git.
+*
+!.gitignore
+!README.md
+!orphan/
+!tracked/

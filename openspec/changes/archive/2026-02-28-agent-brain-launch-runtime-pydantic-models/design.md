@@ -1,10 +1,10 @@
 ## Context
 
-`agent_system_dissect.agents.brain_launch_runtime` currently uses plain dataclasses plus `dict[str, Any]` payloads across several boundaries:
+`gig_agents.agents.brain_launch_runtime` currently uses plain dataclasses plus `dict[str, Any]` payloads across several boundaries:
 
 - Persisted runtime artifacts (`launch_plan` payload and `session_manifest`) are built as dicts and validated via a lightweight, custom JSON Schema validator.
 - Runtime orchestration (`runtime.py`) performs resume-time validation using repeated `isinstance(...)` checks and ad-hoc field extraction.
-- CAO integration uses a shared `agent_system_dissect.cao.rest_client.CaoRestClient` that currently sends JSON request bodies and uses parameter names that do not match the vendored CAO server’s documented/implemented API contract.
+- CAO integration uses a shared `gig_agents.cao.rest_client.CaoRestClient` that currently sends JSON request bodies and uses parameter names that do not match the vendored CAO server’s documented/implemented API contract.
 
 The repo vendors a CAO server implementation under `extern/orphan/cli-agent-orchestrator/` with FastAPI + Pydantic models, and its API contract differs from the current client/backend assumptions (query params like `provider`, `agent_profile`, `message`, and response shapes like `Terminal` and `TerminalOutputResponse`).
 
@@ -83,7 +83,7 @@ Keep internal execution-time types as plain dataclasses when they are not persis
 
 ### 4) CAO REST client contract: match vendored CAO server (query params + typed responses)
 
-**Decision:** Refactor `agent_system_dissect.cao.rest_client` to:
+**Decision:** Refactor `gig_agents.cao.rest_client` to:
 
 - encode request parameters as query parameters with CAO’s names (`provider`, `agent_profile`, `message`, etc.),
 - parse CAO JSON responses into typed Pydantic models (e.g., `Terminal`, `TerminalOutputResponse`) rather than probing for multiple key variants,
@@ -131,7 +131,7 @@ If tmux is unavailable, fail fast with an explicit error (rather than silently l
 - launch CAO-backed sessions for providers CAO supports (`codex`, `claude_code`) and successfully process at least one prompt end-to-end,
 - launch a non-CAO Gemini headless session and successfully process at least one prompt end-to-end (since the vendored CAO provider set does not include Gemini),
 - use local credential profiles under `agents/brains/api-creds/<tool>/<cred-profile>/...`,
-- follow the “Tutorial Pack” pattern described in `magic-context/instructions/explain/make-api-tutorial-pack.md`:
+- follow the “Tutorial Pack” pattern described in `context/instructions/explain/make-api-tutorial-pack.md`:
   - one directory per purpose under `scripts/demo/<purpose-slug>/`,
   - a step-by-step `README.md` (goal, prerequisites, run instructions, verify instructions, troubleshooting, appendix),
   - a single `run_demo.sh` entrypoint that uses a temporary workspace under `tmp/` (non-destructive),

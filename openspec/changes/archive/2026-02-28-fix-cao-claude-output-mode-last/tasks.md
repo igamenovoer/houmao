@@ -8,7 +8,7 @@
 
 ## 2. CAO REST Backend Integration
 
-- [x] 2.1 Update `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py` so Claude Code turn gating does not rely on CAO `GET /terminals/{id}` status (use shadow status derived from `mode=full` instead).
+- [x] 2.1 Update `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py` so Claude Code turn gating does not rely on CAO `GET /terminals/{id}` status (use shadow status derived from `mode=full` instead).
 - [x] 2.2 Update Claude Code output retrieval to use `mode=full` and return extracted plain text; never return raw tmux scrollback as the user-visible answer.
 - [x] 2.3 Remove unsupported `mode=tail` fallback usage and avoid calling CAO `mode=last` for Claude Code turns.
 

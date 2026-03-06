@@ -23,10 +23,10 @@ Our brain-launch runtime currently requires users to address running agents by a
 ## Impact
 
 - Runtime CLI surface:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/cli.py`
+  - `src/gig_agents/agents/brain_launch_runtime/cli.py`
 - CAO/tmux-backed runtime session launch and resolution:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/runtime.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`
+  - `src/gig_agents/agents/brain_launch_runtime/runtime.py`
 - Demos and docs that currently pass `--session-manifest`:
   - `scripts/demo/**`
 - Tests for new identity parsing and tmux env pointer behavior:

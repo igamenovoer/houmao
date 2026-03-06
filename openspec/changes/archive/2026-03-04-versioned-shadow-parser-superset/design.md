@@ -114,4 +114,4 @@ Rollback strategy:
 
 - Should “unknown format” be represented as a distinct status (`unknown_format`) or always as a structured parse error? (Both satisfy “explicit”, but status can be useful for reporting/telemetry.)
 - What is the minimal, stable set of Codex “real TUI” markers we should treat as part of each variant probe (banner, footer chrome, prompt glyphs, assistant marker)?
-- Follow-up tracked separately: `context/issues/feat-gemini-headless-parser-architecture.md`.
+- Follow-up tracked separately: `context/issues/features/feat-gemini-headless-parser-architecture.md`.

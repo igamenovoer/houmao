@@ -16,7 +16,7 @@ We now have a canonical `agents/brains/` + `agents/roles/` layout and a brain bu
   - generates CAO agent profiles at runtime from repo roles (no committed/static CAO profiles)
   - persists a backend-specific session manifest JSON (including reconnect fields such as `session_id`, process identity, or CAO terminal IDs) for audit/resume/stop
   - schema-validates all runtime-generated manifest/config artifacts before write and on read/load
-  - stores JSON Schema files in the runtime package under `src/agent_system_dissect/.../schemas/`
+  - stores JSON Schema files in the runtime package under `src/gig_agents/.../schemas/`
 - Provide a small CLI surface for common operations (build brain, start session, send prompts, stop session).
 
 ## Capabilities
@@ -31,6 +31,6 @@ We now have a canonical `agents/brains/` + `agents/roles/` layout and a brain bu
 
 ## Impact
 
-- New Python modules under `src/agent_system_dissect/` for brain+role composition and interactive session control.
+- New Python modules under `src/gig_agents/` for brain+role composition and interactive session control.
 - Optional integration with a locally running CAO server (`http://localhost:9889`) via REST; no direct imports from CAO runtime are required.
 - New generated runtime artifacts under `tmp/` (homes, manifests, session metadata, transcripts/snapshots depending on backend).

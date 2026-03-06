@@ -83,7 +83,7 @@ Decision options:
 
 > DECISION: Yes. Persist a session manifest JSON (session handle) alongside the brain manifest to support audit/resume/stop without requiring in-memory state.
 
-> DECISION: All runtime-generated structured manifest/config artifacts are schema-validated on write and on read/resume. JSON Schema files are stored under the runtime package in `src/agent_system_dissect/.../schemas/`.
+> DECISION: All runtime-generated structured manifest/config artifacts are schema-validated on write and on read/resume. JSON Schema files are stored under the runtime package in `src/gig_agents/.../schemas/`.
 
 What to align with:
 
@@ -178,7 +178,7 @@ Decision options:
 
 What to specify:
 
-1. Ownership and module location (where it lives under `src/agent_system_dissect/`).
+1. Ownership and module location (where it lives under `src/gig_agents/`).
 2. Minimal endpoint surface and types needed by both runtimes.
 
 ## Proposed “Decide Next” Checklist

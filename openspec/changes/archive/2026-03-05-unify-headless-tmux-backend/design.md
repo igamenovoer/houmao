@@ -226,7 +226,7 @@ Rollback strategy:
 
 All blocking open questions for this change were resolved in:
 
-- `openspec/changes/unify-headless-tmux-backend/discuss/discuss-20260304-155810.md`
+- `openspec/changes/archive/2026-03-05-unify-headless-tmux-backend/discuss/discuss-20260304-155810.md`
 
 Accepted defaults in this change:
 

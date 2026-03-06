@@ -55,8 +55,8 @@ become reliable and repeatable.
 
 ## Impact
 
-- Code: new module(s) under `src/agent_system_dissect/cao/` plus wiring from
-  `src/agent_system_dissect/cao/tools/...` for the user-facing launcher CLI.
+- Code: new module(s) under `src/gig_agents/cao/` plus wiring from
+  `src/gig_agents/cao/tools/...` for the user-facing launcher CLI.
 - Scripts/docs: update interactive/demo entry points to rely on the shared
   launcher; add reference docs for configuration and expected behavior.
 - Runtime behavior: may launch background `cao-server` processes, may override

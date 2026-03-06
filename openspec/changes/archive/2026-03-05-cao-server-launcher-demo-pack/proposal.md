@@ -9,7 +9,7 @@ workflow, run one script, and validate behavior against tracked expectations.
 
 - Add a new demo pack under `scripts/demo/` focused on CAO server launcher usage.
 - Follow the repo's demo pattern and the tutorial-pack guidance from
-  `magic-context/instructions/explain/make-api-tutorial-pack.md`:
+  `context/instructions/explain/make-api-tutorial-pack.md`:
   - tracked `inputs/`
   - tracked `expected_report/`
   - `scripts/sanitize_report.py` for deterministic snapshot updates
@@ -35,6 +35,6 @@ workflow, run one script, and validate behavior against tracked expectations.
 ## Impact
 
 - New OpenSpec capability spec under
-  `openspec/changes/cao-server-launcher-demo-pack/specs/`.
+  `openspec/changes/archive/2026-03-05-cao-server-launcher-demo-pack/specs/`.
 - New demo assets under `scripts/demo/` (runner, README, inputs, expected report, scripts).
 - Improves operational onboarding and regression confidence for launcher behavior.

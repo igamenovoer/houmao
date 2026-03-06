@@ -21,6 +21,6 @@ CAO-backed launches currently leave a bootstrap shell window in the tmux session
 
 ## Impact
 
-- Affected runtime backend code: `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`.
+- Affected runtime backend code: `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`.
 - Affected tests: CAO backend session startup/unit tests under `tests/unit/agents/brain_launch_runtime/`.
 - Affected runtime behavior for manual tmux attach workflows (first attach should land directly on agent window).

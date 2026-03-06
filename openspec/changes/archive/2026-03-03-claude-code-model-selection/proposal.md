@@ -24,7 +24,7 @@ CAO-backed and headless Claude Code sessions currently inherit whatever default 
 
 - Runtime launcher/config:
   - `agents/brains/tool-adapters/claude.yaml` (credential env allowlist expansion).
-  - `src/agent_system_dissect/agents/brain_launch_runtime/...` (documented behavior; potential small adjustments if gaps are found).
+  - `src/gig_agents/agents/brain_launch_runtime/...` (documented behavior; potential small adjustments if gaps are found).
 - Docs:
   - `docs/reference/brain_launch_runtime.md` (add model-selection guidance for Claude Code).
 - Tests:

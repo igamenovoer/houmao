@@ -1,0 +1,4 @@
+# Keep scaffold files; ignore all other content by default.
+*
+!.gitignore
+!README.md

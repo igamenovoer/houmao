@@ -54,7 +54,7 @@ Constraints:
    - This requires the CAO tmux server to be on the same host as the demo script, so the demo should SKIP unless `CAO_BASE_URL` is local default (or another explicitly allowed “local” URL).
 
 4. **Interrupt orchestration uses a small Python driver (not `send-prompt`)**
-   - `agent_system_dissect.agents.brain_launch_runtime send-prompt` blocks until the shadow parser sees `completed`; an `Esc` interrupt may return Claude Code to `idle` without emitting a new response marker, which would cause `send-prompt` to time out.
+   - `gig_agents.agents.brain_launch_runtime send-prompt` blocks until the shadow parser sees `completed`; an `Esc` interrupt may return Claude Code to `idle` without emitting a new response marker, which would cause `send-prompt` to time out.
    - The interrupt demo therefore uses a Python helper script that:
      - uses `CaoRestClient` + `ClaudeCodeShadowParser` to poll `mode=full`,
      - waits for `processing`, sends `Esc`, then waits for `idle`,

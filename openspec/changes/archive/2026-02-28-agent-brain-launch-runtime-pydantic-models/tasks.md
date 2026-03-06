@@ -10,7 +10,7 @@
 ## 2. Typed CAO API Models + REST Client Contract Fix
 
 - [x] 2.1 Add Pydantic models for CAO API responses (health, terminal, output, inbox, success/error) matching `extern/orphan/cli-agent-orchestrator`
-- [x] 2.2 Refactor `agent_system_dissect.cao.rest_client` to use CAO query parameters and correct field names (`provider`, `agent_profile`, `message`, `mode`) instead of JSON bodies
+- [x] 2.2 Refactor `gig_agents.cao.rest_client` to use CAO query parameters and correct field names (`provider`, `agent_profile`, `message`, `mode`) instead of JSON bodies
 - [x] 2.3 Update CAO client methods to return typed responses and to surface CAO `detail` errors as structured exceptions
 - [x] 2.4 Update unit tests for CAO REST client request/response shapes to match the vendored CAO API contract
 
@@ -30,7 +30,7 @@
 
 ## 5. Live Demo Scripts (Manual E2E, Real Providers)
 
-- [x] 5.1 Add tutorial-pack demo suites under `scripts/demo/<purpose-slug>/` following `magic-context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README + one-click `run_demo.sh` + temporary workspace + verification via `expected_report/` + sanitizer or explicit verifier)
+- [x] 5.1 Add tutorial-pack demo suites under `scripts/demo/<purpose-slug>/` following `context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README + one-click `run_demo.sh` + temporary workspace + verification via `expected_report/` + sanitizer or explicit verifier)
 - [x] 5.2 Implement a Codex CAO demo that launches a CAO-backed Codex session, sends a prompt, and prints a non-empty response (uses creds from `agents/brains/api-creds/`)
 - [x] 5.3 Implement a Claude Code CAO demo that launches a CAO-backed Claude Code session, sends a prompt, and prints a non-empty response (uses creds from `agents/brains/api-creds/`)
 - [x] 5.4 Implement a Gemini demo (non-CAO backend) that starts a Gemini session, sends a prompt, and prints a non-empty response (uses creds from `agents/brains/api-creds/`)

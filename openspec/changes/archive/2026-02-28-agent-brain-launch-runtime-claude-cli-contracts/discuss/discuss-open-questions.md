@@ -14,9 +14,9 @@ Primary references:
 ## Ground Truth Snapshot (Current Repo State)
 
 - `agents/brains/cli-configs/claude/default/settings.json` exists and sets `skipDangerousModePermissionPrompt: true`.
-- `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py` seeds `$CLAUDE_CONFIG_DIR/.claude.json` if missing (`hasCompletedOnboarding`, `numStartups`, and `customApiKeyResponses` derived from `ANTHROPIC_API_KEY` suffix).
-- `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py` forwards proxy plus TLS/CA env vars into tmux unconditionally (via `_FORWARDED_ENV_NAMES`).
-- `src/agent_system_dissect/agents/brain_launch_runtime/backends/claude_headless.py` runs Claude in headless mode, and `build_launch_plan()` injects `-p` for `claude_headless`, but there is no `.claude.json` seeding on the headless path today.
+- `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py` seeds `$CLAUDE_CONFIG_DIR/.claude.json` if missing (`hasCompletedOnboarding`, `numStartups`, and `customApiKeyResponses` derived from `ANTHROPIC_API_KEY` suffix).
+- `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py` forwards proxy plus TLS/CA env vars into tmux unconditionally (via `_FORWARDED_ENV_NAMES`).
+- `src/gig_agents/agents/brain_launch_runtime/backends/claude_headless.py` runs Claude in headless mode, and `build_launch_plan()` injects `-p` for `claude_headless`, but there is no `.claude.json` seeding on the headless path today.
 - `agents/brains/tool-adapters/claude.yaml` allowlists only `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`.
 - `agents/brains/tool-adapters/claude.yaml` defines no `credential_projection.file_mappings` (so credential-profile files are not projected into the runtime home).
 
@@ -164,7 +164,7 @@ Option B: Transitional order (safe migration): keep current behavior until expli
 > **DECISION: Follow upstream CAO practice — default to inheriting all env vars from the calling process.**
 > The upstream CAO project (`cli-agent-orchestrator`) creates tmux sessions with `environment = os.environ.copy()` (`clients/tmux.py:create_session`, line 89), inheriting **all** caller env vars. Our CAO backend diverged from this by creating bare tmux sessions and manually injecting only curated vars — then we had to add `_FORWARDED_ENV_NAMES` as a bugfix to compensate for our own stricter isolation.
 >
-> **Architecture clarification:** Our project does not import or depend on the upstream `cli-agent-orchestrator` as a library. The `extern/orphan/cli-agent-orchestrator/` clone is reference-only (gitignored). The `uv tool` installation (`cao-server`) runs the CAO REST server, which our own `agent_system_dissect.cao.rest_client` talks to over HTTP. Critically, our `cao_rest.py` backend **manages tmux sessions directly** via `subprocess.run(["tmux", ...])`, bypassing upstream's `TmuxClient` entirely. So when our backend creates a terminal, the upstream `os.environ.copy()` code path never runs — our own `_create_tmux_session` creates a bare session, and `_set_tmux_session_environment` injects only curated vars. The proxy forwarding gap was a consequence of this architecture.
+> **Architecture clarification:** Our project does not import or depend on the upstream `cli-agent-orchestrator` as a library. The `extern/orphan/cli-agent-orchestrator/` clone is reference-only (gitignored). The `uv tool` installation (`cao-server`) runs the CAO REST server, which our own `gig_agents.cao.rest_client` talks to over HTTP. Critically, our `cao_rest.py` backend **manages tmux sessions directly** via `subprocess.run(["tmux", ...])`, bypassing upstream's `TmuxClient` entirely. So when our backend creates a terminal, the upstream `os.environ.copy()` code path never runs — our own `_create_tmux_session` creates a bare session, and `_set_tmux_session_environment` injects only curated vars. The proxy forwarding gap was a consequence of this architecture.
 >
 > Rather than maintaining a parallel, more restrictive tmux env model and then patching it with selective forwarding lists, **follow upstream's established practice as a design principle**: pass the calling process environment to the tmux session by default. This:
 > - Aligns with the proven upstream CAO approach to tmux env management

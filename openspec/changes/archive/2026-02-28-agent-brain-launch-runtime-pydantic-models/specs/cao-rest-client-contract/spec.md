@@ -56,7 +56,7 @@ The system SHALL map runtime tool identities to CAO provider identifiers explici
 ### Requirement: Live demo scripts prove end-to-end prompt processing with real providers
 In addition to unit tests, the repo SHALL include opt-in demo tutorial packs under `scripts/demo/<purpose-slug>/...` that demonstrate launching sessions and processing prompts end-to-end against real cloud providers using local credential profiles under `agents/brains/api-creds/`.
 
-Each demo SHALL follow the tutorial-pack guidance in `magic-context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README, one-click `run_demo.sh`, temporary workspace, tracked minimal inputs, and a verification story via `expected_report/` + sanitizer or an explicit verifier).
+Each demo SHALL follow the tutorial-pack guidance in `context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README, one-click `run_demo.sh`, temporary workspace, tracked minimal inputs, and a verification story via `expected_report/` + sanitizer or an explicit verifier).
 
 #### Scenario: Codex CAO demo launches and returns a real response
 - **WHEN** a developer runs the Codex CAO demo script with valid Codex/OpenAI credentials present under `agents/brains/api-creds/`

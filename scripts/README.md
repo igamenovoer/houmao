@@ -8,3 +8,7 @@ This directory contains:
 - Utility programs
 
 Scripts should be designed for both user convenience and automation.
+
+Archive hygiene:
+- `scripts/openspec/audit_archive_history.sh` validates migrated OpenSpec
+  archives for legacy/non-local reference regressions.

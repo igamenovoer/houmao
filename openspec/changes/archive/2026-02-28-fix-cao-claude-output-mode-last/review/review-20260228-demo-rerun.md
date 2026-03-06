@@ -47,7 +47,7 @@ runtime raised the observed error.
 
 ## Bugfix
 
-**File:** `src/agent_system_dissect/agents/brain_launch_runtime/backends/claude_code_shadow.py`
+**File:** `src/gig_agents/agents/brain_launch_runtime/backends/claude_code_shadow.py`
 
 `_is_idle_prompt_line` now returns `True` for any line starting with an idle
 prompt character followed by a space, regardless of trailing content (ghost text,

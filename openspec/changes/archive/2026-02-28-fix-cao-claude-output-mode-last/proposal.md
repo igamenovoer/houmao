@@ -25,6 +25,6 @@ This breaks the expectation that `mode=last` returns a plain, unstyled assistant
 ## Impact
 
 - Brain launch runtime behavior (Claude Code output + status handling):
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
-- Add runtime-side parser module(s) under `src/agent_system_dissect/` (no CAO edits).
+  - `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`
+- Add runtime-side parser module(s) under `src/gig_agents/` (no CAO edits).
 - Add/update unit tests to pin the expected parsing behavior against representative Claude Code v2.1.62 outputs.

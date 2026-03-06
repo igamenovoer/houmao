@@ -25,7 +25,7 @@ The system SHALL ship versioned JSON Schema files for persisted runtime artifact
 
 #### Scenario: Schemas are discoverable in the runtime package
 - **WHEN** a developer inspects the runtime package source
-- **THEN** they can find versioned schema files under `agent_system_dissect/agents/brain_launch_runtime/schemas/` (for example `session_manifest.v1.schema.json`)
+- **THEN** they can find versioned schema files under `gig_agents/agents/brain_launch_runtime/schemas/` (for example `session_manifest.v1.schema.json`)
 
 ### Requirement: Public runtime interfaces remain dataclass-first
 The system SHALL keep the runtime’s public execution-time interfaces dataclass-first (for example events and control results), and SHALL NOT require callers to construct Pydantic models to use the runtime.

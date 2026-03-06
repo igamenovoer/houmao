@@ -41,7 +41,7 @@ env -u NO_PROXY -u no_proxy \
   HTTP_PROXY=http://127.0.0.1:65535 \
   HTTPS_PROXY=http://127.0.0.1:65535 \
   ALL_PROXY=socks5://127.0.0.1:65535 \
-  pixi run python -m agent_system_dissect.cao.tools.cao_server_launcher status --config <temp-config>
+  pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config <temp-config>
 ```
 
 Observed result:
@@ -59,7 +59,7 @@ env -u NO_PROXY -u no_proxy \
   HTTPS_PROXY=http://127.0.0.1:65535 \
   ALL_PROXY=socks5://127.0.0.1:65535 \
   AGENTSYS_PRESERVE_NO_PROXY_ENV=1 \
-  pixi run python -m agent_system_dissect.cao.tools.cao_server_launcher status --config <temp-config>
+  pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config <temp-config>
 ```
 
 Observed result:
@@ -78,7 +78,7 @@ env -u NO_PROXY -u no_proxy \
   HTTPS_PROXY=http://127.0.0.1:65535 \
   ALL_PROXY=socks5://127.0.0.1:65535 \
   pixi run python - <<'PY'
-from agent_system_dissect.cao.rest_client import CaoRestClient
+from gig_agents.cao.rest_client import CaoRestClient
 print(CaoRestClient("http://localhost:9889", timeout_seconds=3.0).health().model_dump())
 PY
 ```
@@ -98,7 +98,7 @@ env -u NO_PROXY -u no_proxy \
   ALL_PROXY=socks5://127.0.0.1:65535 \
   AGENTSYS_PRESERVE_NO_PROXY_ENV=1 \
   pixi run python - <<'PY'
-from agent_system_dissect.cao.rest_client import CaoApiError, CaoRestClient
+from gig_agents.cao.rest_client import CaoApiError, CaoRestClient
 try:
     CaoRestClient("http://localhost:9889", timeout_seconds=3.0).health()
 except CaoApiError as exc:

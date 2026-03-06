@@ -29,7 +29,7 @@ Constraints:
   - select the correct tool home (e.g., `CODEX_HOME`)
   - apply allowlisted credential env vars at launch time
 - Ensure runtime-generated structured artifacts (manifests/configs) are schema-validated on write and read.
-- Keep JSON Schema assets versioned in the runtime package under `src/agent_system_dissect/.../schemas/`.
+- Keep JSON Schema assets versioned in the runtime package under `src/gig_agents/.../schemas/`.
 - Keep the API usable if CAO is swapped out (ports/adapters).
 
 **Non-Goals:**
@@ -155,7 +155,7 @@ All runtime-generated structured artifacts (for example session manifests and ge
 
 Schema location and packaging:
 
-- store schema files under the runtime Python package at `src/agent_system_dissect/.../schemas/`,
+- store schema files under the runtime Python package at `src/gig_agents/.../schemas/`,
 - version schemas explicitly (for example `session_manifest.v1.schema.json`),
 - include schema version fields in generated artifacts so validators select the correct schema.
 

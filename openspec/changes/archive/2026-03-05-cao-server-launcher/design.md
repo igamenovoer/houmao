@@ -1,7 +1,7 @@
 ## Context
 
 This repo already supports CAO-backed sessions via `backend=cao_rest` in
-`agent_system_dissect.agents.brain_launch_runtime`. That flow assumes:
+`gig_agents.agents.brain_launch_runtime`. That flow assumes:
 
 - a `cao-server` is already running and reachable at `--cao-base-url`, and
 - CAO will accept the requested `--workdir`.
@@ -58,8 +58,8 @@ Constraints:
 
 ## Decisions
 
-- **Implement a new launcher module under `src/agent_system_dissect/cao/`.**
-  - `agent_system_dissect.cao.server_launcher` will expose a typed config object
+- **Implement a new launcher module under `src/gig_agents/cao/`.**
+  - `gig_agents.cao.server_launcher` will expose a typed config object
     and `status/start/stop` functions.
   - A small CLI wrapper (module `python -m ...`) will be added for scripts and
     manual use.

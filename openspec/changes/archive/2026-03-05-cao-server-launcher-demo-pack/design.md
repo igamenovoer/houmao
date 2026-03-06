@@ -27,7 +27,7 @@ Constraints:
 - Capture structured launcher JSON outputs and validate them through a tracked
   expected report contract.
 - Provide a step-by-step README that mirrors tutorial-pack guidance in
-  `magic-context/instructions/explain/make-api-tutorial-pack.md`.
+  `context/instructions/explain/make-api-tutorial-pack.md`.
 
 **Non-Goals:**
 

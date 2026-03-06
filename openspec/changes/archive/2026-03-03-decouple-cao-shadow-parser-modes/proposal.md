@@ -29,16 +29,16 @@ Our CAO-backed runtime currently has asymmetric parsing behavior: Claude Code us
 ## Impact
 
 - Affected runtime backend:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`
 - New/updated parser modules under:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/`
+  - `src/gig_agents/agents/brain_launch_runtime/backends/`
 - Session/launch metadata surfaces that carry parser-mode selection/provenance:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/cli.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/runtime.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/models.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/launch_plan.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/manifest.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/boundary_models.py`
-  - `src/agent_system_dissect/agents/brain_launch_runtime/schemas/session_manifest*.json`
+  - `src/gig_agents/agents/brain_launch_runtime/cli.py`
+  - `src/gig_agents/agents/brain_launch_runtime/runtime.py`
+  - `src/gig_agents/agents/brain_launch_runtime/models.py`
+  - `src/gig_agents/agents/brain_launch_runtime/launch_plan.py`
+  - `src/gig_agents/agents/brain_launch_runtime/manifest.py`
+  - `src/gig_agents/agents/brain_launch_runtime/boundary_models.py`
+  - `src/gig_agents/agents/brain_launch_runtime/schemas/session_manifest*.json`
 - Unit tests for CAO runtime mode behavior and Codex shadow parsing:
   - `tests/unit/agents/brain_launch_runtime/`

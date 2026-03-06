@@ -33,7 +33,7 @@ We want one headless execution pattern for Claude Code, Gemini, and Codex that m
 
 ## Impact
 
-- Runtime backend changes under `src/agent_system_dissect/agents/brain_launch_runtime/`:
+- Runtime backend changes under `src/gig_agents/agents/brain_launch_runtime/`:
   - new/updated headless backends and shared tmux utilities
   - updated session start/resume/control wiring and identity resolution
 - Session manifests stay on `session_manifest.v2` in this change and gain additive `backend_state` fields to bind headless sessions to tmux identity and resume handle.
