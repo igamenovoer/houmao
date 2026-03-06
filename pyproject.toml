@@ -110,3 +110,19 @@ test = { cmd = "python -m pytest tests/unit", description = "Run destination uni
 test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
 build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
 check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }
+
+[tool.pixi.feature.pg-hosting.dependencies]
+postgresql = ">=18.3,<19"
+pgvector = ">=0.8.1,<0.9"
+pgcli = ">=4.4.0,<5"
+
+[tool.pixi.feature.pg-hosting.tasks]
+pg-init = { cmd = 'bash -lc "mkdir -p tmp/pg-hosting; printf \"%s\" \"postgres\" > tmp/pg-hosting/pwfile; chmod 600 tmp/pg-hosting/pwfile; rm -rf tmp/pg-hosting/pgdata; initdb -D tmp/pg-hosting/pgdata --username=postgres --pwfile=tmp/pg-hosting/pwfile --auth-host=scram-sha-256 --auth-local=trust"', description = "Initialize a fresh local Postgres cluster under tmp/pg-hosting with dev credentials" }
+pg-start = { cmd = "bash -lc 'ROOT=\"$(pwd)/tmp/pg-hosting\"; mkdir -p \"$ROOT/sock\"; pg_ctl -D \"$ROOT/pgdata\" -l \"$ROOT/postgres.log\" -o \"-p 55432 -k $ROOT/sock -c listen_addresses=127.0.0.1\" start'", description = "Start Postgres in background on localhost using non-default port 55432" }
+pg-stop = { cmd = 'bash -lc "pg_ctl -D tmp/pg-hosting/pgdata stop -m fast"', description = "Stop local Postgres started from tmp/pg-hosting" }
+pg-ready = { cmd = "bash -lc 'ROOT=\"$(pwd)/tmp/pg-hosting\"; pg_isready -h 127.0.0.1 -p 55432 && pg_isready -h \"$ROOT/sock\" -p 55432'", description = "Check Postgres readiness over TCP and unix socket" }
+pg-enable-vector = { cmd = 'bash -lc "psql \"postgresql://postgres:postgres@127.0.0.1:55432/postgres\" -c \"CREATE EXTENSION IF NOT EXISTS vector;\""', description = "Enable pgvector extension in target database" }
+pg-psql = { cmd = 'bash -lc "psql \"postgresql://postgres:postgres@127.0.0.1:55432/postgres\""', description = "Open psql against local pg-hosting instance over TCP" }
+
+[tool.pixi.environments]
+pg-hosting = { features = ["pg-hosting"], no-default-feature = true }

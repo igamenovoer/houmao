@@ -51,6 +51,13 @@ pixi install
 pixi shell
 ```
 
+Optional Postgres + pgvector environment (mirrors main workspace `pg-hosting` setup):
+
+```bash
+pixi install -e pg-hosting --manifest-path pyproject.toml
+pixi run -e pg-hosting pg-init
+```
+
 Or editable install:
 
 ```bash
@@ -296,28 +303,51 @@ gig-agents-cli start-session \
 
 ```mermaid
 flowchart TB
-    subgraph defdir ["Agent Definition Directory"]
-        brains["brains/"]
-        roles["roles/"]
-        blueprints["blueprints/ (optional)"]
+    subgraph agentdef ["Agent Definition Directory"]
+        adapter["Tool Adapter<br/>per-tool build & launch rules"]
+        recipe["Brain Recipe<br/>tool + skills + config & cred profiles"]
+        role["Role<br/>system prompt package"]
+        blueprint["Blueprint  (optional)<br/>recipe + role binding"]
     end
 
-    subgraph cli ["CLI"]
-        agentscli["gig-agents-cli"]
-        caocli["gig-cao-server"]
+    subgraph buildphase ["① Build Phase"]
+        builder["Brain Builder"]
+        artifact["Brain Manifest<br/>& Runtime Home"]
+        builder --> artifact
     end
 
-    builder["Brain builder"]
-    runtime["Runtime session driver"]
-    tmux["tmux (local)"]
-    caoserver["cao-server (optional)"]
+    subgraph runphase ["② Run Phase"]
+        runtime["Session Driver"]
+        subgraph backends ["Launch Backend  (pick one)"]
+            direction LR
+            tmux_b["tmux<br/>(local)"]
+            cao_b["CAO REST<br/>(optional)"]
+        end
+        toolcli["Tool CLI Process<br/>codex · claude · gemini"]
+        runtime --> tmux_b & cao_b --> toolcli
+    end
 
-    defdir --> builder --> runtime
+    extcao(["CAO Server<br/>(optional external)"])
+    caocli["gig-cao-server"]
+    agentscli["gig-agents-cli<br/>build · start · prompt · stop"]
+
+    %% Build inputs
+    adapter --> builder
+    recipe --> builder
+    blueprint -. "shorthand: recipe + role" .-> builder
+
+    %% Phase handoff
+    artifact --> runtime
+    role --> runtime
+    blueprint -. "role ref" .-> runtime
+
+    %% CAO path
+    cao_b <--> extcao
+    caocli --> extcao
+
+    %% CLI orchestrates both phases
     agentscli --> builder
     agentscli --> runtime
-    runtime --> tmux
-    caocli --> caoserver
-    runtime --> caoserver
 ```
 
 ### Sequence (UML)
