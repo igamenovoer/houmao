@@ -8,12 +8,14 @@ This demo validates that a CAO-managed Claude Code session can be interrupted wi
 - `tmux` is installed and available on `PATH`.
 - Local CAO server access is available at `http://localhost:9889` or `http://127.0.0.1:9889`.
   - If not already running, the demo auto-starts local `cao-server` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
+  - If launcher start reuses a healthy local server with unknown ownership (`pid` unresolved), the demo retries with launcher `stop`/`start` and skips with explicit ownership diagnostics if still untracked.
 - Credential profile exists under `$AGENT_DEF_DIR/brains/api-creds/claude/personal-a-default/env/vars.env`.
 
 ## What It Does
 
 1. Builds a Claude brain manifest with `build-brain`.
 2. Starts a `cao_rest` runtime session.
+   - The session passes `--cao-profile-store` aligned with launcher home (`$CAO_LAUNCHER_HOME_DIR/.aws/cli-agent-orchestrator/agent-store` by default).
 3. Runs `scripts/interrupt_driver.py` to:
    - submit a long-ish first prompt,
    - wait for `processing`,
@@ -40,6 +42,7 @@ scripts/demo/cao-claude-esc-interrupt/run_demo.sh --snapshot-report
 - This demo is intentionally local-only because it injects a key into local tmux.
 - If `CAO_BASE_URL` is not `http://localhost:9889` or `http://127.0.0.1:9889`, the script exits `0` with a `SKIP:` message.
 - If processing is not observed quickly after first prompt, the script exits `0` with `SKIP:` to avoid flaky false failures.
+- If CAO cannot load the generated runtime profile, the script exits `0` with `SKIP: CAO profile store mismatch` (not `missing credentials`).
 
 ## Debugging
 

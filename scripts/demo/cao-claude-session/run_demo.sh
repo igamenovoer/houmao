@@ -14,6 +14,7 @@ CAO_BASE_URL="${CAO_BASE_URL:-http://localhost:9889}"
 CAO_BASE_URL="${CAO_BASE_URL%/}"
 CAO_LAUNCHER_CONFIG_PATH="$WORKSPACE_DIR/cao-server-launcher.toml"
 CAO_LAUNCHER_HOME_DIR="${CAO_LAUNCHER_HOME_DIR:-$WORKSPACE_ROOT}"
+CAO_PROFILE_STORE="${CAO_PROFILE_STORE:-$CAO_LAUNCHER_HOME_DIR/.aws/cli-agent-orchestrator/agent-store}"
 DEMO_TIMEOUT_SECONDS="${DEMO_TIMEOUT_SECONDS:-180}"
 CAO_SERVER_STARTED=0
 SESSION_MANIFEST=""
@@ -82,37 +83,189 @@ cao_url_is_local_default() {
 ensure_cao_server() {
   write_cao_launcher_config
 
-  if is_cao_server_healthy; then
-    log "CAO server is healthy at ${CAO_BASE_URL}"
-    return 0
-  fi
-
-  if ! cao_url_is_local_default; then
-    skip "CAO server is unavailable at ${CAO_BASE_URL} (demo auto-starts only for CAO_BASE_URL=http://localhost:9889)"
-  fi
-
   if ! command -v cao-server >/dev/null 2>&1; then
     fail "cao-server not found on PATH"
+  fi
+
+  if ! cao_url_is_local_default && ! is_cao_server_healthy; then
+    skip "CAO server is unavailable at ${CAO_BASE_URL} (demo auto-starts only for CAO_BASE_URL=http://localhost:9889)"
   fi
 
   local server_log_path="$WORKSPACE_DIR/cao-server.log"
   local launcher_output_path="$WORKSPACE_DIR/cao-start.json"
   local launcher_error_path="$WORKSPACE_DIR/cao-start.err"
-  log "starting cao-server via launcher (log: $server_log_path)"
-  if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
-    --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
-    fail "cao-server launcher start failed (see $launcher_error_path)"
-  fi
-  CAO_SERVER_STARTED="$(
-    pixi run python - "$launcher_output_path" <<'PY'
+  local launcher_state=""
+  local started_new_process="0"
+  local reused_existing_process="0"
+  local resolved_pid=""
+  local killed_count="0"
+
+  parse_launcher_start_state() {
+    local output_path="$1"
+    pixi run python - "$output_path" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print("1" if payload.get("started_new_process") else "0")
+started = "1" if payload.get("started_new_process") else "0"
+reused = "1" if payload.get("reused_existing_process") else "0"
+pid = payload.get("pid")
+pid_text = "" if pid is None else str(pid)
+print(f"{started}:{reused}:{pid_text}")
 PY
-  )"
+  }
+
+  terminate_local_cao_server_on_base_url() {
+    pixi run python - "$CAO_BASE_URL" <<'PY'
+from __future__ import annotations
+
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+from urllib.parse import urlsplit
+
+parsed = urlsplit(sys.argv[1].strip().rstrip("/"))
+port = parsed.port
+if port is None:
+    print("0")
+    raise SystemExit(0)
+
+def _iter_listener_inodes(table_path: str) -> set[str]:
+    path = Path(table_path)
+    if not path.exists():
+        return set()
+
+    inodes: set[str] = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+        columns = line.split()
+        if len(columns) < 10:
+            continue
+        local_address = columns[1]
+        state = columns[3]
+        inode = columns[9]
+        if state != "0A":  # LISTEN
+            continue
+
+        host_hex, port_hex = local_address.split(":")
+        if int(port_hex, 16) != port:
+            continue
+
+        if table_path.endswith("tcp"):
+            if host_hex not in {"0100007F", "00000000"}:  # 127.0.0.1 / 0.0.0.0
+                continue
+        else:
+            if host_hex not in {
+                "00000000000000000000000000000001",  # ::1
+                "00000000000000000000000000000000",  # ::
+            }:
+                continue
+
+        inodes.add(inode)
+    return inodes
+
+listener_inodes = _iter_listener_inodes("/proc/net/tcp") | _iter_listener_inodes("/proc/net/tcp6")
+if not listener_inodes:
+    print("0")
+    raise SystemExit(0)
+
+pids: set[int] = set()
+for proc_entry in Path("/proc").iterdir():
+    if not proc_entry.name.isdigit():
+        continue
+    fd_dir = proc_entry / "fd"
+    if not fd_dir.exists():
+        continue
+    try:
+        fd_entries = list(fd_dir.iterdir())
+    except OSError:
+        continue
+
+    for fd_entry in fd_entries:
+        try:
+            target = os.readlink(fd_entry)
+        except OSError:
+            continue
+        if not target.startswith("socket:["):
+            continue
+        inode = target[8:-1]
+        if inode in listener_inodes:
+            pids.add(int(proc_entry.name))
+            break
+
+killed: list[int] = []
+for pid in sorted(pids):
+    cmdline_path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        cmdline = cmdline_path.read_bytes().decode("utf-8", errors="replace").replace("\x00", " ")
+    except OSError:
+        continue
+    if "cao-server" not in cmdline:
+        continue
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        continue
+    killed.append(pid)
+
+alive = killed[:]
+deadline = time.monotonic() + 5.0
+while alive and time.monotonic() < deadline:
+    still_alive: list[int] = []
+    for pid in alive:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            still_alive.append(pid)
+            continue
+        still_alive.append(pid)
+    if not still_alive:
+        break
+    alive = still_alive
+    time.sleep(0.1)
+
+for pid in alive:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+print(str(len(killed)))
+PY
+  }
+
+  log "starting cao-server via launcher (log: $server_log_path)"
+  if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+    --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
+    fail "cao-server launcher start failed (see $launcher_error_path)"
+  fi
+
+  launcher_state="$(parse_launcher_start_state "$launcher_output_path")"
+  IFS=":" read -r started_new_process reused_existing_process resolved_pid <<<"$launcher_state"
+
+  if cao_url_is_local_default && [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
+    log "detected an untracked healthy CAO server at ${CAO_BASE_URL}; restarting to align demo runtime context"
+    killed_count="$(terminate_local_cao_server_on_base_url || echo "0")"
+    log "terminated ${killed_count} existing local cao-server process(es) on ${CAO_BASE_URL}"
+
+    if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+      --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
+      fail "cao-server launcher restart failed (see $launcher_error_path)"
+    fi
+
+    launcher_state="$(parse_launcher_start_state "$launcher_output_path")"
+    IFS=":" read -r started_new_process reused_existing_process resolved_pid <<<"$launcher_state"
+  fi
+
+  if [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
+    fail "launcher reused an untracked CAO server at ${CAO_BASE_URL}; stop the existing server and retry"
+  fi
+
+  CAO_SERVER_STARTED="$started_new_process"
 }
 
 stop_cao_server_if_started() {
@@ -141,8 +294,12 @@ cleanup() {
 
 classify_skip_reason() {
   local log_path="$1"
-  if grep -Eiq "Missing credential profile|Missing credential env file|Missing file|Agent profile not found|Failed to load agent profile" "$log_path"; then
+  if grep -Eiq "Missing credential profile|Missing credential env file|Missing file" "$log_path"; then
     echo "missing credentials"
+    return 0
+  fi
+  if grep -Eiq "Agent profile not found|Failed to load agent profile" "$log_path"; then
+    echo "CAO profile store mismatch"
     return 0
   fi
   if grep -Eiq "401|403|unauthori[sz]ed|forbidden|invalid api key|authentication" "$log_path"; then
@@ -209,6 +366,7 @@ mkdir -p "$WORKSPACE_DIR"
 log "workspace: $WORKSPACE_DIR"
 log "workspace root override via DEMO_WORKSPACE_PARENT/DEMO_WORKSPACE_SUBDIR"
 log "using allowlisted env names: ANTHROPIC_API_KEY ANTHROPIC_BASE_URL"
+log "CAO profile store: $CAO_PROFILE_STORE"
 
 trap cleanup EXIT
 
@@ -242,6 +400,7 @@ run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-se
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url "$CAO_BASE_URL" \
+  --cao-profile-store "$CAO_PROFILE_STORE" \
   --workdir "$WORKSPACE_DIR"
 
 SESSION_MANIFEST="$(extract_json_field "$WORKSPACE_DIR/start.log" session_manifest)"

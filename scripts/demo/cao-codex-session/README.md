@@ -8,6 +8,7 @@ This tutorial pack demonstrates a real CAO-backed Codex session: build a brain h
 - `tmux` is installed and available on `PATH`.
 - `cao-server` is installed and available on `PATH`.
   - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
+  - If launcher start reuses a healthy local server with unknown ownership (`pid` unresolved), the demo retries with launcher `stop`/`start` and then fails fast with explicit ownership diagnostics if still untracked.
   - If you set `CAO_BASE_URL` to a non-default URL, the demo expects that server to already be running.
 - Credential profile exists under `$AGENT_DEF_DIR/brains/api-creds/codex/personal-a-default/`.
 
@@ -15,6 +16,7 @@ This tutorial pack demonstrates a real CAO-backed Codex session: build a brain h
 
 1. Uses `build-brain` for tool `codex` with local config + creds profile.
 2. Starts a `cao_rest` runtime session.
+   - The session passes `--cao-profile-store` aligned with launcher home (`$CAO_LAUNCHER_HOME_DIR/.aws/cli-agent-orchestrator/agent-store` by default).
 3. Sends one prompt from [`inputs/prompt.txt`](inputs/prompt.txt).
 4. Verifies the generated report against [`expected_report/report.json`](expected_report/report.json).
 
@@ -46,6 +48,7 @@ The demo exits `0` with a `SKIP:` message when:
 
 - credentials are missing,
 - credentials are invalid/unauthorized,
-- CAO/service connectivity is unavailable.
+- CAO/service connectivity is unavailable,
+- CAO profile-store/context mismatch during terminal startup.
 
 Unexpected failures (for example invalid script assumptions or missing required binaries) exit non-zero.

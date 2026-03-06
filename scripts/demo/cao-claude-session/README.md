@@ -8,6 +8,7 @@ This tutorial pack demonstrates a real CAO-backed Claude Code session: build a b
 - `tmux` is installed and available on `PATH`.
 - `cao-server` is installed and available on `PATH`.
   - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
+  - If an untracked local `cao-server` is already healthy on `:9889`, the demo restarts it to ensure runtime/profile-store alignment.
   - If you set `CAO_BASE_URL` to a non-default URL, the demo expects that server to already be running.
 - Credential profile exists under `$AGENT_DEF_DIR/brains/api-creds/claude/personal-a-default/`.
 
@@ -15,6 +16,7 @@ This tutorial pack demonstrates a real CAO-backed Claude Code session: build a b
 
 1. Uses `build-brain` for tool `claude` with local config + creds profile.
 2. Starts a `cao_rest` runtime session.
+   - The session writes the generated CAO agent profile to the same store used by the launched server (`$CAO_LAUNCHER_HOME_DIR/.aws/cli-agent-orchestrator/agent-store` by default).
 3. Sends one prompt from [`inputs/prompt.txt`](inputs/prompt.txt).
 4. Verifies the generated report against [`expected_report/report.json`](expected_report/report.json).
 

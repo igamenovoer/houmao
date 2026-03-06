@@ -12,6 +12,7 @@ CAO_BASE_URL="${CAO_BASE_URL:-http://localhost:9889}"
 CAO_BASE_URL="${CAO_BASE_URL%/}"
 CAO_LAUNCHER_CONFIG_PATH="$WORKSPACE_DIR/cao-server-launcher.toml"
 CAO_LAUNCHER_HOME_DIR="${CAO_LAUNCHER_HOME_DIR:-$(dirname "$REPO_ROOT")}"
+CAO_PROFILE_STORE="${CAO_PROFILE_STORE:-$CAO_LAUNCHER_HOME_DIR/.aws/cli-agent-orchestrator/agent-store}"
 DEMO_TIMEOUT_SECONDS="${DEMO_TIMEOUT_SECONDS:-180}"
 CAO_SERVER_STARTED=0
 SESSION_MANIFEST=""
@@ -46,25 +47,19 @@ startup_timeout_seconds = 15
 EOF
 }
 
-is_cao_server_healthy() {
-  pixi run python - "$CAO_BASE_URL" <<'PY'
+parse_launcher_start_state() {
+  local output_path="$1"
+  pixi run python - "$output_path" <<'PY'
 import json
 import sys
-import urllib.error
-import urllib.request
+from pathlib import Path
 
-url = sys.argv[1].rstrip("/") + "/health"
-try:
-    with urllib.request.urlopen(url, timeout=3) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
-    raise SystemExit(1)
-
-if payload.get("status") != "ok":
-    raise SystemExit(1)
-if payload.get("service") not in ("cli-agent-orchestrator", None):
-    raise SystemExit(1)
-raise SystemExit(0)
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+started = "1" if payload.get("started_new_process") else "0"
+reused = "1" if payload.get("reused_existing_process") else "0"
+pid = payload.get("pid")
+pid_text = "" if pid is None else str(pid)
+print(f"{started}:{reused}:{pid_text}")
 PY
 }
 
@@ -86,34 +81,65 @@ require_local_cao() {
 
 ensure_cao_server() {
   write_cao_launcher_config
-
-  if is_cao_server_healthy; then
-    log "CAO server is healthy at ${CAO_BASE_URL}"
-    return 0
-  fi
+  log "CAO launcher home: $CAO_LAUNCHER_HOME_DIR"
+  log "CAO profile store: $CAO_PROFILE_STORE"
 
   if ! command -v cao-server >/dev/null 2>&1; then
     skip "CAO server unavailable at ${CAO_BASE_URL} and cao-server not found on PATH"
   fi
 
-  local server_log_path="$WORKSPACE_DIR/cao-server.log"
+  local launcher_status_output_path="$WORKSPACE_DIR/cao-status.json"
+  local launcher_status_error_path="$WORKSPACE_DIR/cao-status.err"
+  local status_healthy=0
+  if pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
+    --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_status_output_path" 2>"$launcher_status_error_path"; then
+    status_healthy=1
+  fi
+
+  if [[ "$status_healthy" -eq 1 ]]; then
+    log "CAO server is already healthy at ${CAO_BASE_URL}; verifying launcher ownership via start"
+  fi
+
   local launcher_output_path="$WORKSPACE_DIR/cao-start.json"
   local launcher_error_path="$WORKSPACE_DIR/cao-start.err"
-  log "starting cao-server via launcher (log: $server_log_path)"
+  local launcher_retry_output_path="$WORKSPACE_DIR/cao-start-retry.json"
+  local launcher_retry_error_path="$WORKSPACE_DIR/cao-start-retry.err"
+  local launcher_stop_output_path="$WORKSPACE_DIR/cao-stop-untracked.json"
+  local launcher_stop_error_path="$WORKSPACE_DIR/cao-stop-untracked.err"
+  local launcher_state=""
+  local started_new_process="0"
+  local reused_existing_process="0"
+  local resolved_pid=""
+
+  log "starting/attaching CAO server via launcher"
   if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
     skip "CAO connectivity unavailable (launcher start failed, see $launcher_error_path)"
   fi
-  CAO_SERVER_STARTED="$(
-    pixi run python - "$launcher_output_path" <<'PY'
-import json
-import sys
-from pathlib import Path
 
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print("1" if payload.get("started_new_process") else "0")
-PY
-  )"
+  launcher_state="$(parse_launcher_start_state "$launcher_output_path")"
+  IFS=":" read -r started_new_process reused_existing_process resolved_pid <<<"$launcher_state"
+  log "launcher start result: started_new_process=$started_new_process reused_existing_process=$reused_existing_process pid=${resolved_pid:-unknown}"
+
+  if [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
+    log "ownership mismatch: launcher reused untracked CAO server at ${CAO_BASE_URL}"
+    log "retrying via launcher stop/start to restore managed context"
+    pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+      --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_stop_output_path" 2>"$launcher_stop_error_path" || true
+    if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+      --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_retry_output_path" 2>"$launcher_retry_error_path"; then
+      skip "CAO connectivity unavailable (launcher retry failed after ownership mismatch, see $launcher_retry_error_path)"
+    fi
+    launcher_state="$(parse_launcher_start_state "$launcher_retry_output_path")"
+    IFS=":" read -r started_new_process reused_existing_process resolved_pid <<<"$launcher_state"
+    log "launcher retry result: started_new_process=$started_new_process reused_existing_process=$reused_existing_process pid=${resolved_pid:-unknown}"
+  fi
+
+  if [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
+    skip "CAO server ownership mismatch at ${CAO_BASE_URL}; stop external server and retry (home=${CAO_LAUNCHER_HOME_DIR}, profile_store=${CAO_PROFILE_STORE})"
+  fi
+
+  CAO_SERVER_STARTED="$started_new_process"
 }
 
 stop_cao_server_if_started() {
@@ -142,8 +168,12 @@ cleanup() {
 
 classify_skip_reason() {
   local log_path="$1"
-  if grep -Eiq "Missing credential profile|Missing credential env file|Missing file|Agent profile not found|Failed to load agent profile" "$log_path"; then
+  if grep -Eiq "Missing credential profile|Missing credential env file|Missing file" "$log_path"; then
     echo "missing credentials"
+    return 0
+  fi
+  if grep -Eiq "Agent profile not found|Failed to load agent profile" "$log_path"; then
+    echo "CAO profile store mismatch"
     return 0
   fi
   if grep -Eiq "401|403|unauthori[sz]ed|forbidden|invalid api key|authentication" "$log_path"; then
@@ -196,6 +226,7 @@ PY
 mkdir -p "$WORKSPACE_DIR"
 log "workspace: $WORKSPACE_DIR"
 log "using allowlisted env names: ANTHROPIC_API_KEY ANTHROPIC_BASE_URL"
+log "CAO profile store: $CAO_PROFILE_STORE"
 
 trap cleanup EXIT
 
@@ -233,6 +264,7 @@ run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-se
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url "$CAO_BASE_URL" \
+  --cao-profile-store "$CAO_PROFILE_STORE" \
   --workdir "$REPO_ROOT"
 
 SESSION_MANIFEST="$(extract_json_field "$WORKSPACE_DIR/start.log" session_manifest)"

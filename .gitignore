@@ -60,6 +60,7 @@ tests/fixtures/agents/brains/api-creds/**/files/.claude.json
 **/.claude.json
 **/.gemini/
 **/.codex/
+**/.claude/
 **/.aws/cli-agent-orchestrator/
 
 # Generated docs
