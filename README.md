@@ -65,6 +65,21 @@ Or editable install:
 pip install -e .
 ```
 
+### CAO (optional)
+
+CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from the official repository:
+
+```bash
+uv tool install git+https://github.com/awslabs/cli-agent-orchestrator.git@main --upgrade
+```
+
+Verify the required executables are available:
+
+```bash
+command -v cao-server
+command -v tmux
+```
+
 ## Usage Guide
 
 ### CLI Entry Points
