@@ -6,26 +6,28 @@ This tutorial pack answers one concrete question:
 
 > "How do I launch a long-running Claude-on-CAO session as `alice`, send manual prompts, inspect the live session, and stop it cleanly when I'm done?"
 
-Success means you can run the wrapper commands from this repository checkout, keep one stable workspace under `tmp/cao_interactive_full_pipeline_demo`, and use `run_demo.sh inspect` or `run_demo.sh verify` as advanced follow-up tools instead of as the primary walkthrough.
+Success means you can run the wrapper commands from this repository checkout, let `launch_alice.sh` create an isolated per-run root under `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, and use `run_demo.sh inspect` or `run_demo.sh verify` as advanced follow-up tools instead of as the primary walkthrough.
 
 ## Prerequisites Checklist
 
 - [ ] `pixi` is installed.
 - [ ] The repo environment is installed (`pixi install` once).
 - [ ] `tmux` is available on `PATH`.
-- [ ] A healthy CAO server is reachable at `http://127.0.0.1:9889`, or `cao-server` is available on `PATH` so the demo can launch one locally if needed.
+- [ ] `cao-server` is available on `PATH`, or you are prepared to let the demo replace an already-healthy local `cao-server` at `http://127.0.0.1:9889`.
 - [ ] Claude credentials exist under `$AGENT_DEF_DIR/brains/api-creds/claude/personal-a-default/`.
 - [ ] You are running from this repository checkout.
 
 Important notes:
 
 - The workflow is intentionally pinned to `http://127.0.0.1:9889`; `CAO_BASE_URL` overrides are ignored for this demo pack.
-- The wrapper scripts delegate to `run_demo.sh`, which keeps the workspace, launcher home, and other shell defaults aligned with the underlying Python workflow engine.
+- The wrapper scripts delegate to `run_demo.sh`, which keeps the repo-root-derived workspace, launcher home, worktree, and other shell defaults aligned with the underlying Python workflow engine.
+- By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir.
+- If a verified local `cao-server` is already serving `http://127.0.0.1:9889`, startup prompts before replacing it. Pass `-y` to any wrapper script to skip that confirmation.
 
 ## Implementation Idea
 
 1. Launch the tutorial agent with a wrapper that delegates to `run_demo.sh start --agent-name alice`.
-2. Persist session state, turn artifacts, and runtime metadata in one stable workspace so follow-up commands reuse the same interactive session.
+2. Persist session state, turn artifacts, and runtime metadata in one per-run workspace so follow-up commands reuse the same interactive session through the recorded current-run marker.
 3. Use `run_demo.sh inspect` whenever you want tmux attach and log-tail commands for the live session.
 4. Stop explicitly when you are done; only maintainers need the optional `verify` step, and it remains a minimum two-turn regression check.
 
@@ -67,7 +69,11 @@ Expected JSON excerpt:
 }
 ```
 
-If the previous state is still marked active, the launch flow first stops the earlier session and then replaces it with the new `alice` session metadata.
+By default, the launch flow creates a fresh run root under `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, writes state and logs there, and starts the interactive session from the nested git worktree at `<run-root>/wktree`.
+
+If a verified local `cao-server` is already running on the fixed loopback target, the launch flow prompts before replacing it. Use `launch_alice.sh -y` for non-interactive reruns.
+
+Before launch, the demo also resets stale `AGENTSYS-alice` state: it tries to stop the prior session, kills any leftover tmux session with that canonical name, and clears prior-run turn/report artifacts from the previously recorded run root so the replacement behaves like a fresh start.
 
 ## Step 2: Inspect the Live Session
 
@@ -86,7 +92,7 @@ tmux_attach: tmux attach -t AGENTSYS-alice
 terminal_log_tail: tail -f ~/.aws/cli-agent-orchestrator/logs/terminal/<terminal-id>.log
 ```
 
-This is the advanced interface mentioned throughout the tutorial. The new wrappers and `run_demo.sh inspect` operate on the same persisted workspace state.
+This is the advanced interface mentioned throughout the tutorial. The new wrappers and `run_demo.sh inspect` operate on the current run root recorded under `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt`.
 
 ## Step 3: Send Prompts Manually
 
@@ -149,6 +155,10 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
   - This is expected; the runtime canonicalizes the wrapper-friendly name before persisting state.
 - CAO connectivity errors against `127.0.0.1:9889`
   - Confirm the fixed local CAO target is healthy, or ensure `cao-server` is available on `PATH` so the demo can launch one locally.
+- `error: Startup aborted because the existing verified local \`cao-server\` was not replaced.`
+  - Re-run `launch_alice.sh` and answer `y`, or pass `-y` to bypass the prompt.
+- `error: The fixed loopback target is occupied by a process that could not be safely verified as \`cao-server\`.`
+  - Stop the non-demo process on `127.0.0.1:9889` before retrying.
 - `stop_demo.sh` reports stale or missing remote state
   - The local state will still be marked inactive when the failure matches the demo's tolerated stale-session markers.
 
@@ -159,10 +169,13 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
 | CAO base URL | `http://127.0.0.1:9889` | Fixed loopback target used by this demo pack. |
 | Tutorial agent input | `alice` | Name passed by `launch_alice.sh`. |
 | Persisted runtime identity | `AGENTSYS-alice` | Canonicalized identity recorded in `state.json`, `inspect`, and turn artifacts. |
-| Workspace root | `tmp/cao_interactive_full_pipeline_demo` | Stable workspace for state, turns, report, logs, and runtime files. Override with `DEMO_WORKSPACE_ROOT=/abs/path`. |
+| Workspace root | `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/` | Fresh per-run workspace for state, turns, report, logs, runtime files, and launcher config. Override with `DEMO_WORKSPACE_ROOT=/abs/path`. |
+| Current-run marker | `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt` | Follow-up wrapper commands resolve the active/latest run root from here when `DEMO_WORKSPACE_ROOT` is omitted. |
 | Agent definitions | `tests/fixtures/agents` | Default agent-definition root. Override with `AGENT_DEF_DIR=/path`. |
-| Launcher home | `tmp/cao_interactive_full_pipeline_demo` | Default launcher home used for CAO profile-store alignment. Override with `CAO_LAUNCHER_HOME_DIR=/path`. |
+| Launcher home | `<workspace-root>` | Default launcher home used for CAO profile-store alignment. Override with `CAO_LAUNCHER_HOME_DIR=/path`. |
+| Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session. Override with `DEMO_WORKDIR=/abs/path`. |
 | Role name | `gpu-kernel-coder` | Default role passed through `run_demo.sh`. Override with `DEMO_ROLE_NAME=<name>`. |
+| Demo-wide yes flag | `-y` | Accepted by `run_demo.sh`, `launch_alice.sh`, `send_prompt.sh`, and `stop_demo.sh`; bypasses prompts such as fixed-port CAO replacement. |
 | Verify contract | minimum two successful turns | Optional maintainer check, not part of the main tutorial flow. |
 
 ## Appendix: File Inventory
@@ -190,6 +203,7 @@ Implementation files:
 
 Generated workspace outputs (untracked):
 
+- `current_run_root.txt` under `tmp/demo/cao-interactive-full-pipeline-demo/`
 - `state.json`
 - `turns/turn-*.json`
 - `turns/turn-*.events.jsonl`
@@ -197,4 +211,5 @@ Generated workspace outputs (untracked):
 - `report.json` after `verify`
 - `runtime/`
 - `logs/`
+- `wktree/`
 - `cao-server-launcher.toml`

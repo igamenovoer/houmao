@@ -2,3 +2,7 @@
 	path = magic-context
 	url = https://github.com/igamenovoer/magic-context
 	branch = main
+[submodule "extern/tracked/cli-agent-orchestrator"]
+	path = extern/tracked/cli-agent-orchestrator
+	url = git@github.com:imsight-forks/cli-agent-orchestrator.git
+	branch = hz-dev

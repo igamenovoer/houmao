@@ -17,6 +17,7 @@ from gig_agents.demo.cao_interactive_full_pipeline_demo import (
     TurnRecord,
     load_demo_state,
     load_turn_records,
+    main,
     save_demo_state,
     send_turn,
     start_demo,
@@ -29,20 +30,32 @@ def _make_paths(tmp_path: Path) -> DemoPaths:
     return DemoPaths.from_workspace_root(tmp_path / "workspace")
 
 
-def _make_env(tmp_path: Path) -> DemoEnvironment:
+def _make_env(
+    tmp_path: Path,
+    *,
+    launcher_home_dir: Path | None = None,
+    workdir: Path | None = None,
+    yes_to_all: bool = False,
+    provision_worktree: bool = False,
+) -> DemoEnvironment:
     repo_root = tmp_path / "repo"
     agent_def_dir = repo_root / "tests" / "fixtures" / "agents"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
+    demo_base_root = repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo"
     return DemoEnvironment(
         repo_root=repo_root,
+        demo_base_root=demo_base_root,
+        current_run_root_path=demo_base_root / "current_run_root.txt",
         agent_def_dir=agent_def_dir,
-        launcher_home_dir=tmp_path / "launcher-home",
-        workdir=repo_root,
+        launcher_home_dir=launcher_home_dir or (tmp_path / "launcher-home"),
+        workdir=workdir or repo_root,
         role_name="gpu-kernel-coder",
         config_profile="default",
         credential_profile="personal-a-default",
         skills=("openspec-apply-change",),
         timeout_seconds=30.0,
+        yes_to_all=yes_to_all,
+        provision_worktree=provision_worktree,
     )
 
 
@@ -66,7 +79,9 @@ def _seed_state(
         brain_home=str(paths.runtime_root / "brains" / "home"),
         brain_manifest=str(paths.runtime_root / "brains" / "brain.json"),
         cao_base_url=FIXED_CAO_BASE_URL,
-        cao_profile_store=str(paths.workspace_root / ".aws" / "cli-agent-orchestrator" / "agent-store"),
+        cao_profile_store=str(
+            paths.workspace_root / ".aws" / "cli-agent-orchestrator" / "agent-store"
+        ),
         launcher_config_path=str(paths.launcher_config_path),
         updated_at="2026-03-06T00:00:00+00:00",
         turn_count=turn_count,
@@ -99,6 +114,40 @@ class FakeRunner:
     def __init__(self, tmp_path: Path) -> None:
         self.m_tmp_path = tmp_path
         self.m_calls: list[tuple[str, ...]] = []
+        self.m_tmux_sessions: set[str] = set()
+        self.m_launcher_status_responses: list[tuple[int, dict[str, object]]] = [
+            (
+                2,
+                {
+                    "operation": "status",
+                    "base_url": FIXED_CAO_BASE_URL,
+                    "healthy": False,
+                    "health_status": None,
+                    "service": None,
+                    "error": "connection refused",
+                },
+            )
+        ]
+        self.m_launcher_start_response: tuple[int, dict[str, object]] = (
+            0,
+            {
+                "started_new_process": True,
+                "reused_existing_process": False,
+                "pid": 4242,
+            },
+        )
+        self.m_launcher_stop_responses: list[tuple[int, dict[str, object]]] = [
+            (
+                0,
+                {
+                    "stopped": True,
+                    "already_stopped": False,
+                    "verification_passed": True,
+                    "pid": 4242,
+                    "signal_sent": "SIGTERM",
+                },
+            )
+        ]
 
     @property
     def calls(self) -> list[tuple[str, ...]]:
@@ -116,74 +165,89 @@ class FakeRunner:
         stdout = ""
         stderr = ""
         returncode = 0
-        module = command[4]
-        subcommand = command[5]
 
-        if module == "gig_agents.cao.tools.cao_server_launcher":
-            if subcommand == "status":
-                returncode = 1
-            elif subcommand == "start":
-                stdout = json.dumps(
-                    {
-                        "started_new_process": True,
-                        "reused_existing_process": False,
-                        "pid": 4242,
-                    }
-                )
-        elif module == "gig_agents.agents.brain_launch_runtime":
-            if subcommand == "build-brain":
-                runtime_root = Path(self._argument_value(command, "--runtime-root"))
-                manifest_path = runtime_root / "brains" / "brain-manifest.json"
-                home_path = runtime_root / "brains" / "home"
-                manifest_path.parent.mkdir(parents=True, exist_ok=True)
-                manifest_path.write_text("{}", encoding="utf-8")
-                home_path.mkdir(parents=True, exist_ok=True)
-                stdout = json.dumps(
-                    {
-                        "home_id": "brain-home",
-                        "home_path": str(home_path),
-                        "manifest_path": str(manifest_path),
-                        "launch_helper_path": str(home_path / "launch.py"),
-                    }
-                )
-            elif subcommand == "start-session":
-                runtime_root = Path(self._argument_value(command, "--runtime-root"))
-                session_manifest = runtime_root / "sessions" / "cao_rest" / "interactive-session.json"
-                session_manifest.parent.mkdir(parents=True, exist_ok=True)
-                agent_identity = self._argument_value(command, "--agent-identity")
-                session_manifest.write_text(
-                    json.dumps(
+        if command[0] == "tmux":
+            subcommand = command[1]
+            session_name = command[-1]
+            if subcommand == "has-session":
+                returncode = 0 if session_name in self.m_tmux_sessions else 1
+            elif subcommand == "kill-session":
+                self.m_tmux_sessions.discard(session_name)
+                returncode = 0
+        elif command[0] == "git":
+            worktree_path = Path(command[4])
+            worktree_path.mkdir(parents=True, exist_ok=True)
+            (worktree_path / ".git").write_text("gitdir: fake\n", encoding="utf-8")
+        else:
+            module = command[4]
+            subcommand = command[5]
+
+            if module == "gig_agents.cao.tools.cao_server_launcher":
+                if subcommand == "status":
+                    returncode, payload = self.m_launcher_status_responses.pop(0)
+                    stdout = json.dumps(payload)
+                elif subcommand == "start":
+                    returncode, payload = self.m_launcher_start_response
+                    stdout = json.dumps(payload)
+                elif subcommand == "stop":
+                    returncode, payload = self.m_launcher_stop_responses.pop(0)
+                    stdout = json.dumps(payload)
+            elif module == "gig_agents.agents.brain_launch_runtime":
+                if subcommand == "build-brain":
+                    runtime_root = Path(self._argument_value(command, "--runtime-root"))
+                    manifest_path = runtime_root / "brains" / "brain-manifest.json"
+                    home_path = runtime_root / "brains" / "home"
+                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                    manifest_path.write_text("{}", encoding="utf-8")
+                    home_path.mkdir(parents=True, exist_ok=True)
+                    stdout = json.dumps(
                         {
-                            "cao": {
-                                "session_name": agent_identity,
-                                "terminal_id": "term-123",
-                            }
+                            "home_id": "brain-home",
+                            "home_path": str(home_path),
+                            "manifest_path": str(manifest_path),
+                            "launch_helper_path": str(home_path / "launch.py"),
                         }
-                    ),
-                    encoding="utf-8",
-                )
-                stdout = json.dumps(
-                    {
-                        "session_manifest": str(session_manifest),
-                        "agent_identity": agent_identity,
-                    }
-                )
-            elif subcommand == "send-prompt":
-                prompt = self._argument_value(command, "--prompt")
-                stdout = "\n".join(
-                    [
-                        json.dumps({"kind": "submitted", "message": "submitted"}),
-                        json.dumps({"kind": "done", "message": f"echo: {prompt}"}),
-                    ]
-                )
-            elif subcommand == "stop-session":
-                stdout = json.dumps(
-                    {
-                        "status": "ok",
-                        "action": "terminate",
-                        "detail": "Deleted CAO terminal and session",
-                    }
-                )
+                    )
+                elif subcommand == "start-session":
+                    runtime_root = Path(self._argument_value(command, "--runtime-root"))
+                    session_manifest = (
+                        runtime_root / "sessions" / "cao_rest" / "interactive-session.json"
+                    )
+                    session_manifest.parent.mkdir(parents=True, exist_ok=True)
+                    agent_identity = self._argument_value(command, "--agent-identity")
+                    session_manifest.write_text(
+                        json.dumps(
+                            {
+                                "cao": {
+                                    "session_name": agent_identity,
+                                    "terminal_id": "term-123",
+                                }
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    stdout = json.dumps(
+                        {
+                            "session_manifest": str(session_manifest),
+                            "agent_identity": agent_identity,
+                        }
+                    )
+                elif subcommand == "send-prompt":
+                    prompt = self._argument_value(command, "--prompt")
+                    stdout = "\n".join(
+                        [
+                            json.dumps({"kind": "submitted", "message": "submitted"}),
+                            json.dumps({"kind": "done", "message": f"echo: {prompt}"}),
+                        ]
+                    )
+                elif subcommand == "stop-session":
+                    stdout = json.dumps(
+                        {
+                            "status": "ok",
+                            "action": "terminate",
+                            "detail": "Deleted CAO terminal and session",
+                        }
+                    )
 
         stdout_path.parent.mkdir(parents=True, exist_ok=True)
         stderr_path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,12 +275,18 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
     paths = _make_paths(tmp_path)
     env = _make_env(tmp_path)
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
-    _seed_state(paths, active=True, agent_identity="AGENTSYS-old")
+    _seed_state(paths, active=True, agent_identity="AGENTSYS-demo")
+    env.current_run_root_path.parent.mkdir(parents=True, exist_ok=True)
+    env.current_run_root_path.write_text(f"{paths.workspace_root}\n", encoding="utf-8")
     runner = FakeRunner(tmp_path)
 
     monkeypatch.setattr(
         "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
         lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
     )
 
     payload = start_demo(
@@ -231,16 +301,246 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
     assert state.active is True
     assert state.agent_identity == "AGENTSYS-demo"
     assert state.cao_base_url == FIXED_CAO_BASE_URL
-    assert payload["replaced_previous_agent_identity"] == "AGENTSYS-old"
+    assert payload["replaced_previous_agent_identity"] == "AGENTSYS-demo"
 
     stop_call = next(call for call in runner.calls if "stop-session" in call)
     assert stop_call[5] == "stop-session"
     assert "--agent-identity" in stop_call
-    assert stop_call[stop_call.index("--agent-identity") + 1] == "AGENTSYS-old"
+    assert stop_call[stop_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
     start_call = next(call for call in runner.calls if "start-session" in call)
     assert start_call[start_call.index("--cao-base-url") + 1] == FIXED_CAO_BASE_URL
     assert start_call[start_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
+
+
+def test_main_start_uses_repo_root_anchored_per_run_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    runner = FakeRunner(tmp_path)
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
+        lambda: "20260309-120000-000000Z",
+    )
+
+    exit_code = main(
+        ["--repo-root", str(repo_root), "start", "--agent-name", "alice"],
+        run_command=runner,
+    )
+
+    assert exit_code == 0
+
+    workspace_root = (
+        repo_root
+        / "tmp"
+        / "demo"
+        / "cao-interactive-full-pipeline-demo"
+        / "20260309-120000-000000Z"
+    )
+    state = load_demo_state(DemoPaths.from_workspace_root(workspace_root).state_path)
+    assert state is not None
+    assert Path(state.workspace_dir) == workspace_root
+    assert (
+        Path(state.cao_profile_store)
+        == workspace_root / ".aws" / "cli-agent-orchestrator" / "agent-store"
+    )
+
+    current_run_root_path = (
+        repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
+    )
+    assert current_run_root_path.read_text(encoding="utf-8").strip() == str(workspace_root)
+
+    worktree_call = next(call for call in runner.calls if call[:3] == ("git", "worktree", "add"))
+    assert Path(worktree_call[4]) == workspace_root / "wktree"
+
+    start_call = next(call for call in runner.calls if "start-session" in call)
+    assert start_call[start_call.index("--workdir") + 1] == str(workspace_root / "wktree")
+    assert start_call[start_call.index("--agent-def-dir") + 1] == str(
+        repo_root / "tests" / "fixtures" / "agents"
+    )
+
+
+def test_start_demo_resets_previous_run_artifacts_and_stale_tmux(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    previous_paths = DemoPaths.from_workspace_root(tmp_path / "previous-run")
+    previous_paths.turns_dir.mkdir(parents=True, exist_ok=True)
+    previous_paths.report_path.write_text("{}", encoding="utf-8")
+    (previous_paths.turns_dir / "turn-001.json").write_text("{}", encoding="utf-8")
+    _seed_state(previous_paths, active=True, agent_identity="AGENTSYS-alice")
+
+    next_paths = DemoPaths.from_workspace_root(tmp_path / "next-run")
+    env = _make_env(
+        tmp_path,
+        launcher_home_dir=next_paths.workspace_root,
+        workdir=next_paths.workspace_root / "wktree",
+        provision_worktree=True,
+    )
+    env.current_run_root_path.parent.mkdir(parents=True, exist_ok=True)
+    env.current_run_root_path.write_text(f"{previous_paths.workspace_root}\n", encoding="utf-8")
+    runner = FakeRunner(tmp_path)
+    runner.m_tmux_sessions.add("AGENTSYS-alice")
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+
+    payload = start_demo(
+        paths=next_paths,
+        env=env,
+        agent_name="alice",
+        run_command=runner,
+    )
+
+    previous_state = load_demo_state(previous_paths.state_path)
+    assert previous_state is not None
+    assert previous_state.active is False
+    assert payload["replaced_previous_agent_identity"] == "AGENTSYS-alice"
+    assert not previous_paths.report_path.exists()
+    assert list(previous_paths.turns_dir.glob("*.json")) == []
+    assert any(call[:2] == ("tmux", "has-session") for call in runner.calls)
+    assert any(call[:2] == ("tmux", "kill-session") for call in runner.calls)
+
+
+def test_start_demo_replaces_verified_cao_server_with_yes_to_all(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path, yes_to_all=True)
+    runner = FakeRunner(tmp_path)
+    runner.m_launcher_status_responses = [
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        )
+    ]
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._prompt_yes_no",
+        lambda _: pytest.fail("unexpected confirmation prompt"),
+    )
+
+    start_demo(
+        paths=paths,
+        env=env,
+        agent_name="demo",
+        run_command=runner,
+    )
+
+    assert any(
+        call[4] == "gig_agents.cao.tools.cao_server_launcher" and call[5] == "stop"
+        for call in runner.calls
+        if len(call) > 5
+    )
+
+
+def test_start_demo_aborts_when_verified_cao_replacement_is_declined(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    runner = FakeRunner(tmp_path)
+    runner.m_launcher_status_responses = [
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        )
+    ]
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._prompt_yes_no",
+        lambda _: False,
+    )
+
+    with pytest.raises(DemoWorkflowError, match="existing verified local `cao-server`"):
+        start_demo(
+            paths=paths,
+            env=env,
+            agent_name="demo",
+            run_command=runner,
+        )
+
+    assert not paths.state_path.exists()
+
+
+def test_start_demo_fails_when_existing_service_does_not_verify_as_cao_server(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    runner = FakeRunner(tmp_path)
+    runner.m_launcher_status_responses = [
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "other-service",
+                "error": None,
+            },
+        )
+    ]
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+
+    with pytest.raises(DemoWorkflowError, match="did not verify as `cao-server`"):
+        start_demo(
+            paths=paths,
+            env=env,
+            agent_name="demo",
+            run_command=runner,
+        )
 
 
 def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> None:

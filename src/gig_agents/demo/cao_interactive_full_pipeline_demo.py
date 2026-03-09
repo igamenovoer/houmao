@@ -28,9 +28,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import signal
+import socket
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,13 +48,18 @@ from gig_agents.agents.brain_launch_runtime.agent_identity import (
 
 FIXED_CAO_BASE_URL = "http://127.0.0.1:9889"
 DEFAULT_AGENT_NAME = "cao-interactive-demo"
+DEFAULT_CAO_SERVICE_NAME = "cli-agent-orchestrator"
 DEFAULT_CONFIG_PROFILE = "default"
 DEFAULT_CREDENTIAL_PROFILE = "personal-a-default"
+DEFAULT_DEMO_ROOT_DIRNAME = "cao-interactive-full-pipeline-demo"
 DEFAULT_ROLE_NAME = "gpu-kernel-coder"
+DEFAULT_WORKTREE_DIRNAME = "wktree"
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_TOOL_NAME = "claude"
 DEFAULT_SKILLS: tuple[str, ...] = ("openspec-apply-change",)
 DEFAULT_TERMINAL_LOG_ROOT = "~/.aws/cli-agent-orchestrator/logs/terminal"
+PORT_LISTEN_STATE = "0A"
+CURRENT_RUN_ROOT_FILENAME = "current_run_root.txt"
 EMPTY_RESPONSE_ERROR = "interactive CAO turn returned an empty response"
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "agent not found",
@@ -238,6 +247,8 @@ class DemoEnvironment:
     """Resolved operator configuration for one CLI invocation."""
 
     repo_root: Path
+    demo_base_root: Path
+    current_run_root_path: Path
     agent_def_dir: Path
     launcher_home_dir: Path
     workdir: Path
@@ -246,6 +257,16 @@ class DemoEnvironment:
     credential_profile: str
     skills: tuple[str, ...]
     timeout_seconds: float
+    yes_to_all: bool
+    provision_worktree: bool
+
+
+@dataclass(frozen=True)
+class DemoInvocation:
+    """Resolved path and environment inputs for one CLI command."""
+
+    paths: DemoPaths
+    env: DemoEnvironment
 
 
 @dataclass(frozen=True)
@@ -289,18 +310,9 @@ def main(
 
     parser = _build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
-    paths = DemoPaths.from_workspace_root(args.workspace_root)
-    env = DemoEnvironment(
-        repo_root=args.repo_root.expanduser().resolve(),
-        agent_def_dir=args.agent_def_dir.expanduser().resolve(),
-        launcher_home_dir=args.launcher_home_dir.expanduser().resolve(),
-        workdir=args.workdir.expanduser().resolve(),
-        role_name=str(args.role_name),
-        config_profile=str(args.config_profile),
-        credential_profile=str(args.credential_profile),
-        skills=tuple(args.skills or DEFAULT_SKILLS),
-        timeout_seconds=float(args.timeout_seconds),
-    )
+    invocation = _resolve_demo_invocation(args)
+    paths = invocation.paths
+    env = invocation.env
     runner = run_command or run_subprocess_command
 
     try:
@@ -354,28 +366,24 @@ def start_demo(
 ) -> dict[str, object]:
     """Start or replace the interactive CAO demo session."""
 
-    _ensure_workspace(paths)
     _require_tool("pixi")
     _require_tool("tmux")
+    _ensure_workspace(paths)
+    if env.provision_worktree:
+        _provision_default_worktree(paths=paths, env=env, run_command=run_command)
 
-    previous_state = load_demo_state(paths.state_path)
-    replaced_agent_identity: str | None = None
-    if previous_state is not None and previous_state.active:
-        replaced_agent_identity = previous_state.agent_identity
-        _stop_remote_session(
-            paths=paths,
-            env=env,
-            state=previous_state,
-            run_command=run_command,
-            tolerate_stale=True,
-            log_prefix="replacement-stop",
-        )
+    normalized_identity = normalize_agent_identity_name(agent_name)
+    replaced_agent_identity = _reset_demo_startup_state(
+        paths=paths,
+        env=env,
+        agent_identity=normalized_identity.canonical_name,
+        run_command=run_command,
+    )
 
     _reset_turn_artifacts(paths)
     _write_launcher_config(paths.launcher_config_path, env=env, runtime_root=paths.runtime_root)
     _ensure_cao_server(paths=paths, env=env, run_command=run_command)
 
-    normalized_identity = normalize_agent_identity_name(agent_name)
     build_payload = _build_brain(paths=paths, env=env, run_command=run_command)
     runtime_payload = _start_runtime_session(
         paths=paths,
@@ -422,6 +430,7 @@ def start_demo(
         turn_count=0,
     )
     save_demo_state(paths.state_path, state)
+    _write_current_run_root(env.current_run_root_path, paths.workspace_root)
     payload: dict[str, object] = {
         "state": state.model_dump(mode="json"),
         "replaced_previous_agent_identity": replaced_agent_identity,
@@ -482,8 +491,7 @@ def send_turn(
 
     if result.returncode != 0:
         raise DemoWorkflowError(
-            "send-turn failed via `brain_launch_runtime send-prompt` "
-            f"(see `{stderr_path}`)"
+            f"send-turn failed via `brain_launch_runtime send-prompt` (see `{stderr_path}`)"
         )
     if not response_text.strip():
         raise DemoWorkflowError(EMPTY_RESPONSE_ERROR)
@@ -542,9 +550,7 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
 
     state = load_demo_state(paths.state_path)
     if state is None:
-        raise DemoWorkflowError(
-            "No interactive demo state was found. Run `start` before `verify`."
-        )
+        raise DemoWorkflowError("No interactive demo state was found. Run `start` before `verify`.")
 
     turn_records = load_turn_records(paths.turns_dir)
     if len(turn_records) < 2:
@@ -565,9 +571,7 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
                 f"Turn {record.turn_index} exited non-zero ({record.exit_status})."
             )
         if not record.response_text.strip():
-            raise DemoWorkflowError(
-                f"Turn {record.turn_index} has an empty response_text."
-            )
+            raise DemoWorkflowError(f"Turn {record.turn_index} has an empty response_text.")
         summaries.append(
             VerificationTurnSummary(
                 turn_index=record.turn_index,
@@ -606,16 +610,14 @@ def stop_demo(
 
     state = load_demo_state(paths.state_path)
     if state is None:
-        raise DemoWorkflowError(
-            "No interactive demo state was found. Run `start` before `stop`."
-        )
+        raise DemoWorkflowError("No interactive demo state was found. Run `start` before `stop`.")
     if not state.active:
         raise DemoWorkflowError("Interactive demo state is already inactive.")
 
     result = _stop_remote_session(
         paths=paths,
         env=env,
-        state=state,
+        agent_identity=state.agent_identity,
         run_command=run_command,
         tolerate_stale=True,
         log_prefix="stop",
@@ -714,38 +716,51 @@ def run_subprocess_command(
 def _build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for the interactive demo."""
 
-    parser = argparse.ArgumentParser(
-        description="Interactive CAO full-pipeline demo commands."
-    )
+    parser = argparse.ArgumentParser(description="Interactive CAO full-pipeline demo commands.")
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path.cwd(),
-        help="Repository root used as command cwd and default workdir.",
+        default=None,
+        help="Repository root used as command cwd and as the base for omitted defaults.",
     )
     parser.add_argument(
         "--workspace-root",
         type=Path,
-        default=Path.cwd() / "tmp" / "cao_interactive_full_pipeline_demo",
-        help="Stable workspace root for state, turns, and reports.",
+        default=None,
+        help=(
+            "Workspace root for state, turns, reports, runtime files, and launcher config. "
+            "Defaults to the current per-run demo root."
+        ),
     )
     parser.add_argument(
         "--agent-def-dir",
         type=Path,
-        default=Path.cwd() / "tests" / "fixtures" / "agents",
+        default=None,
         help="Agent definition root for runtime commands.",
     )
     parser.add_argument(
         "--launcher-home-dir",
         type=Path,
-        default=Path.cwd() / "tmp" / "cao_interactive_full_pipeline_demo",
-        help="Home directory used by the CAO launcher-managed profile store.",
+        default=None,
+        help=(
+            "Home directory used by the CAO launcher-managed profile store. "
+            "Defaults to the resolved workspace root."
+        ),
     )
     parser.add_argument(
         "--workdir",
         type=Path,
-        default=Path.cwd(),
-        help="Working directory passed to `brain_launch_runtime start-session`.",
+        default=None,
+        help=(
+            "Working directory passed to `brain_launch_runtime start-session`. "
+            "Defaults to a provisioned `<launcher-home>/wktree` git worktree."
+        ),
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Assume yes for demo confirmation prompts such as CAO replacement.",
     )
     parser.add_argument(
         "--role-name",
@@ -800,6 +815,139 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_demo_invocation(args: argparse.Namespace) -> DemoInvocation:
+    """Resolve parser arguments into concrete demo paths and environment values."""
+
+    repo_root = _resolve_repo_root(getattr(args, "repo_root", None))
+    demo_base_root = repo_root / "tmp" / "demo" / DEFAULT_DEMO_ROOT_DIRNAME
+    current_run_root_path = demo_base_root / CURRENT_RUN_ROOT_FILENAME
+    workspace_root = _resolve_workspace_root(
+        command=str(args.command),
+        demo_base_root=demo_base_root,
+        current_run_root_path=current_run_root_path,
+        workspace_root=getattr(args, "workspace_root", None),
+    )
+
+    launcher_home_dir_arg = getattr(args, "launcher_home_dir", None)
+    launcher_home_dir = (
+        launcher_home_dir_arg.expanduser().resolve()
+        if isinstance(launcher_home_dir_arg, Path)
+        else workspace_root
+    )
+
+    workdir_arg = getattr(args, "workdir", None)
+    provision_worktree = workdir_arg is None
+    workdir = (
+        workdir_arg.expanduser().resolve()
+        if isinstance(workdir_arg, Path)
+        else launcher_home_dir / DEFAULT_WORKTREE_DIRNAME
+    )
+
+    agent_def_dir_arg = getattr(args, "agent_def_dir", None)
+    agent_def_dir = (
+        agent_def_dir_arg.expanduser().resolve()
+        if isinstance(agent_def_dir_arg, Path)
+        else repo_root / "tests" / "fixtures" / "agents"
+    )
+
+    env = DemoEnvironment(
+        repo_root=repo_root,
+        demo_base_root=demo_base_root,
+        current_run_root_path=current_run_root_path,
+        agent_def_dir=agent_def_dir,
+        launcher_home_dir=launcher_home_dir,
+        workdir=workdir,
+        role_name=str(args.role_name),
+        config_profile=str(args.config_profile),
+        credential_profile=str(args.credential_profile),
+        skills=tuple(args.skills or DEFAULT_SKILLS),
+        timeout_seconds=float(args.timeout_seconds),
+        yes_to_all=bool(args.yes),
+        provision_worktree=provision_worktree,
+    )
+    return DemoInvocation(paths=DemoPaths.from_workspace_root(workspace_root), env=env)
+
+
+def _resolve_repo_root(repo_root: Path | None) -> Path:
+    """Resolve the effective repository root for demo defaults."""
+
+    if repo_root is not None:
+        return repo_root.expanduser().resolve()
+    return Path(__file__).resolve().parents[3]
+
+
+def _resolve_workspace_root(
+    *,
+    command: str,
+    demo_base_root: Path,
+    current_run_root_path: Path,
+    workspace_root: Path | None,
+) -> Path:
+    """Resolve the effective workspace root for the requested command."""
+
+    if workspace_root is not None:
+        return workspace_root.expanduser().resolve()
+    if command == "start":
+        return demo_base_root / _run_timestamp_slug()
+
+    resolved = _read_current_run_root(current_run_root_path)
+    if resolved is not None:
+        return resolved
+
+    latest_run_root = _latest_demo_run_root(demo_base_root)
+    if latest_run_root is not None:
+        return latest_run_root
+
+    raise DemoWorkflowError(
+        "No interactive demo workspace was found. Run `start` before this command "
+        "or provide `--workspace-root`."
+    )
+
+
+def _read_current_run_root(path: Path) -> Path | None:
+    """Read the recorded current-run workspace root when available."""
+
+    if not path.is_file():
+        return None
+    raw_value = path.read_text(encoding="utf-8").strip()
+    if not raw_value:
+        return None
+    resolved = Path(raw_value).expanduser().resolve()
+    if not resolved.exists():
+        return None
+    return resolved
+
+
+def _write_current_run_root(path: Path, workspace_root: Path) -> None:
+    """Persist the latest workspace root used by wrapper-driven follow-up commands."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{workspace_root}\n", encoding="utf-8")
+
+
+def _latest_demo_run_root(demo_base_root: Path) -> Path | None:
+    """Return the newest demo run directory under the default demo root."""
+
+    if not demo_base_root.exists():
+        return None
+    candidates = sorted(
+        (
+            path
+            for path in demo_base_root.iterdir()
+            if path.is_dir() and path.name != DEFAULT_WORKTREE_DIRNAME
+        ),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _run_timestamp_slug() -> str:
+    """Return a filesystem-safe UTC slug for per-run demo roots."""
+
+    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%fZ")
+
+
 def _resolve_prompt_text(args: argparse.Namespace) -> str:
     """Resolve prompt text from inline or file-based CLI inputs."""
 
@@ -829,6 +977,126 @@ def _reset_turn_artifacts(paths: DemoPaths) -> None:
     paths.turns_dir.mkdir(parents=True, exist_ok=True)
     if paths.report_path.exists():
         paths.report_path.unlink()
+
+
+def _provision_default_worktree(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+) -> None:
+    """Create the default git worktree used as the demo session workdir."""
+
+    if env.workdir.exists():
+        git_dir = env.workdir / ".git"
+        if git_dir.exists():
+            return
+        raise DemoWorkflowError(
+            f"Default demo workdir already exists and is not a git worktree: `{env.workdir}`."
+        )
+
+    env.workdir.parent.mkdir(parents=True, exist_ok=True)
+    result = run_command(
+        ["git", "worktree", "add", "--detach", str(env.workdir), "HEAD"],
+        env.repo_root,
+        paths.logs_dir / "provision-worktree.stdout",
+        paths.logs_dir / "provision-worktree.stderr",
+        env.timeout_seconds,
+    )
+    if result.returncode != 0:
+        raise DemoWorkflowError(
+            f"Failed to provision the default demo git worktree (see `{result.stderr_path}`)."
+        )
+
+
+def _reset_demo_startup_state(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    agent_identity: str,
+    run_command: CommandRunner,
+) -> str | None:
+    """Reset prior tutorial state so startup behaves like a fresh run."""
+
+    previous = _load_previous_demo_state(env.current_run_root_path)
+    replaced_agent_identity = (
+        previous.agent_identity if previous is not None and previous.active else None
+    )
+
+    _stop_remote_session(
+        paths=paths,
+        env=env,
+        agent_identity=agent_identity,
+        run_command=run_command,
+        tolerate_stale=True,
+        log_prefix="replacement-stop",
+    )
+    _kill_tmux_session(
+        paths=paths,
+        env=env,
+        session_name=agent_identity,
+        run_command=run_command,
+    )
+
+    if previous is not None:
+        previous_paths = DemoPaths.from_workspace_root(Path(previous.workspace_dir))
+        _reset_turn_artifacts(previous_paths)
+        _mark_state_inactive(previous_paths.state_path, previous)
+
+    if paths.state_path.exists():
+        current_state = load_demo_state(paths.state_path)
+        if current_state is not None:
+            _mark_state_inactive(paths.state_path, current_state)
+
+    return replaced_agent_identity
+
+
+def _load_previous_demo_state(current_run_root_path: Path) -> DemoState | None:
+    """Load the previously recorded demo state from the current-run marker."""
+
+    previous_workspace_root = _read_current_run_root(current_run_root_path)
+    if previous_workspace_root is None:
+        return None
+    return load_demo_state(DemoPaths.from_workspace_root(previous_workspace_root).state_path)
+
+
+def _mark_state_inactive(path: Path, state: DemoState) -> None:
+    """Persist an inactive copy of demo state after cleanup or aborted startup."""
+
+    if state.active:
+        save_demo_state(path, state.model_copy(update={"active": False, "updated_at": _utc_now()}))
+
+
+def _kill_tmux_session(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    session_name: str,
+    run_command: CommandRunner,
+) -> None:
+    """Best-effort kill of a leftover tmux session for the canonical demo identity."""
+
+    has_session_result = run_command(
+        ["tmux", "has-session", "-t", session_name],
+        env.repo_root,
+        paths.logs_dir / "tmux-has-session.stdout",
+        paths.logs_dir / "tmux-has-session.stderr",
+        env.timeout_seconds,
+    )
+    if has_session_result.returncode != 0:
+        return
+
+    kill_result = run_command(
+        ["tmux", "kill-session", "-t", session_name],
+        env.repo_root,
+        paths.logs_dir / "tmux-kill-session.stdout",
+        paths.logs_dir / "tmux-kill-session.stderr",
+        env.timeout_seconds,
+    )
+    if kill_result.returncode != 0:
+        raise DemoWorkflowError(
+            f"Failed to kill stale tmux session `{session_name}` (see `{kill_result.stderr_path}`)."
+        )
 
 
 def _next_turn_index(paths: DemoPaths) -> int:
@@ -869,72 +1137,368 @@ def _ensure_cao_server(
     env: DemoEnvironment,
     run_command: CommandRunner,
 ) -> None:
-    """Ensure the local loopback CAO server is healthy and launcher-owned."""
+    """Ensure the fixed loopback CAO server is fresh for this demo run."""
 
-    status_result = run_command(
+    status_payload = _launcher_status_payload(paths=paths, env=env, run_command=run_command)
+    if bool(status_payload.get("healthy")):
+        if not _launcher_status_is_verified_cao_server(status_payload):
+            service = status_payload.get("service")
+            raise DemoWorkflowError(
+                "The fixed loopback target is already occupied by a process that did not "
+                "verify as `cao-server` "
+                f"(service={service!r}). Stop that process and retry."
+            )
+
+        if not env.yes_to_all and not _prompt_yes_no(
+            f"A verified local `cao-server` is already running at {FIXED_CAO_BASE_URL}. "
+            "Replace it for this demo run? [y/N]: "
+        ):
+            raise DemoWorkflowError(
+                "Startup aborted because the existing verified local `cao-server` was not replaced."
+            )
+        _replace_existing_cao_server(paths=paths, env=env, run_command=run_command)
+    else:
+        if _loopback_port_is_listening(FIXED_CAO_BASE_URL):
+            detail = status_payload.get("error")
+            raise DemoWorkflowError(
+                "The fixed loopback target is occupied by a process that could not be "
+                "safely verified as `cao-server`" + (f": {detail}" if detail else ".")
+            )
+        if shutil.which("cao-server") is None:
+            raise DemoWorkflowError(
+                "CAO server is unavailable at the fixed loopback target and "
+                "`cao-server` is not available on PATH."
+            )
+
+    start_payload = _launcher_start_payload(
+        paths=paths,
+        env=env,
+        run_command=run_command,
+        log_prefix="cao-start",
+    )
+    if bool(start_payload.get("reused_existing_process")):
+        raise DemoWorkflowError(
+            "Interactive demo startup refused to reuse an existing fixed-port `cao-server`; "
+            "replace the server and retry."
+        )
+
+
+def _launcher_status_payload(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+) -> dict[str, object]:
+    """Run launcher `status` and return its parsed JSON payload."""
+
+    result = run_command(
         _launcher_cli_command(["status", "--config", str(paths.launcher_config_path)]),
         env.repo_root,
         paths.logs_dir / "cao-status.stdout",
         paths.logs_dir / "cao-status.stderr",
         env.timeout_seconds,
     )
-    if status_result.returncode != 0 and shutil.which("cao-server") is None:
-        raise DemoWorkflowError(
-            "CAO server is unavailable at the fixed loopback target and "
-            "`cao-server` is not available on PATH."
-        )
+    return _parse_command_json_output(
+        result,
+        context="CAO launcher status output",
+        allow_stderr_json=True,
+    )
 
-    start_result = run_command(
+
+def _launcher_start_payload(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+    log_prefix: str,
+) -> dict[str, object]:
+    """Run launcher `start` and require a healthy replacement server."""
+
+    result = run_command(
         _launcher_cli_command(["start", "--config", str(paths.launcher_config_path)]),
         env.repo_root,
-        paths.logs_dir / "cao-start.stdout",
-        paths.logs_dir / "cao-start.stderr",
+        paths.logs_dir / f"{log_prefix}.stdout",
+        paths.logs_dir / f"{log_prefix}.stderr",
         env.timeout_seconds,
     )
-    if start_result.returncode != 0:
+    if result.returncode != 0:
         raise DemoWorkflowError(
-            "Failed to start or attach the CAO server via launcher "
-            f"(see `{start_result.stderr_path}`)."
+            "Failed to start the fixed loopback `cao-server` via launcher "
+            f"(see `{result.stderr_path}`)."
+        )
+    return _parse_json_output(result.stdout, context="CAO launcher start output")
+
+
+def _launcher_status_is_verified_cao_server(status_payload: dict[str, object]) -> bool:
+    """Return whether launcher status verified a healthy local `cao-server`."""
+
+    if not bool(status_payload.get("healthy")):
+        return False
+    service = status_payload.get("service")
+    return isinstance(service, str) and service.strip() == DEFAULT_CAO_SERVICE_NAME
+
+
+def _parse_command_json_output(
+    result: CommandResult,
+    *,
+    context: str,
+    allow_stderr_json: bool = False,
+) -> dict[str, object]:
+    """Parse a command result as JSON from stdout or, optionally, stderr."""
+
+    if result.stdout.strip():
+        return _parse_json_output(result.stdout, context=context)
+    if allow_stderr_json and result.stderr.strip():
+        return _parse_json_output(result.stderr, context=context)
+    raise DemoWorkflowError(f"Missing JSON in {context}.")
+
+
+def _prompt_yes_no(prompt: str) -> bool:
+    """Prompt for a yes/no answer and treat all non-yes answers as negative."""
+
+    try:
+        response = input(prompt)
+    except EOFError:
+        return False
+    return response.strip().lower() in {"y", "yes"}
+
+
+def _replace_existing_cao_server(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+) -> None:
+    """Stop the currently verified loopback `cao-server` before replacement."""
+
+    if _stop_cao_server_with_known_configs(paths=paths, env=env, run_command=run_command):
+        return
+
+    candidate_pids = _find_listening_pids_for_port(_fixed_cao_port())
+    if len(candidate_pids) != 1:
+        raise DemoWorkflowError(
+            "Refusing to replace the fixed loopback `cao-server` because the listening "
+            "process could not be uniquely identified."
         )
 
-    start_payload = _parse_json_output(
-        start_result.stdout,
-        context="CAO launcher start output",
-    )
-    reused_existing = bool(start_payload.get("reused_existing_process"))
-    pid_value = start_payload.get("pid")
-    if reused_existing and pid_value is None:
-        retry_stop_result = run_command(
-            _launcher_cli_command(["stop", "--config", str(paths.launcher_config_path)]),
+    pid = candidate_pids[0]
+    cmdline = _read_process_cmdline(pid)
+    if cmdline is None or not _looks_like_cao_server_cmdline(cmdline):
+        raise DemoWorkflowError(
+            "Refusing to replace the fixed loopback service because the listening "
+            f"process did not verify as `cao-server` (pid={pid})."
+        )
+
+    _terminate_process(pid)
+    if _loopback_port_is_listening(FIXED_CAO_BASE_URL):
+        raise DemoWorkflowError(
+            "Failed to clear the fixed loopback `cao-server` before replacement."
+        )
+
+
+def _stop_cao_server_with_known_configs(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+) -> bool:
+    """Try launcher-managed stop using the current and previously recorded demo configs."""
+
+    config_paths = _known_launcher_config_paths(paths=paths, env=env)
+    for index, config_path in enumerate(config_paths, start=1):
+        result = run_command(
+            _launcher_cli_command(["stop", "--config", str(config_path)]),
             env.repo_root,
-            paths.logs_dir / "cao-stop-untracked.stdout",
-            paths.logs_dir / "cao-stop-untracked.stderr",
+            paths.logs_dir / f"cao-stop-{index}.stdout",
+            paths.logs_dir / f"cao-stop-{index}.stderr",
             env.timeout_seconds,
         )
-        if retry_stop_result.returncode != 0:
-            # The existing demos treat this as best-effort, so keep going to the retry.
-            pass
-        retry_start_result = run_command(
-            _launcher_cli_command(["start", "--config", str(paths.launcher_config_path)]),
-            env.repo_root,
-            paths.logs_dir / "cao-start-retry.stdout",
-            paths.logs_dir / "cao-start-retry.stderr",
-            env.timeout_seconds,
+        stop_payload = _parse_command_json_output(
+            result,
+            context="CAO launcher stop output",
+            allow_stderr_json=True,
         )
-        if retry_start_result.returncode != 0:
-            raise DemoWorkflowError(
-                "CAO launcher retry failed after ownership mismatch "
-                f"(see `{retry_start_result.stderr_path}`)."
-            )
-        retry_payload = _parse_json_output(
-            retry_start_result.stdout,
-            context="CAO launcher retry start output",
+        if bool(stop_payload.get("stopped")) and not _loopback_port_is_listening(
+            FIXED_CAO_BASE_URL
+        ):
+            return True
+        if not _loopback_port_is_listening(FIXED_CAO_BASE_URL):
+            return True
+    return False
+
+
+def _known_launcher_config_paths(*, paths: DemoPaths, env: DemoEnvironment) -> list[Path]:
+    """Return launcher config candidates that may own the current fixed-port server."""
+
+    candidates: list[Path] = [paths.launcher_config_path]
+    previous_workspace_root = _read_current_run_root(env.current_run_root_path)
+    if previous_workspace_root is not None:
+        candidates.append(
+            DemoPaths.from_workspace_root(previous_workspace_root).launcher_config_path
         )
-        if bool(retry_payload.get("reused_existing_process")) and retry_payload.get("pid") is None:
-            raise DemoWorkflowError(
-                "CAO launcher detected an untracked server on the fixed loopback target. "
-                "Stop the external server and retry."
-            )
+
+    if env.demo_base_root.exists():
+        for candidate_dir in sorted(env.demo_base_root.iterdir(), reverse=True):
+            if not candidate_dir.is_dir():
+                continue
+            config_path = candidate_dir / "cao-server-launcher.toml"
+            if config_path.exists():
+                candidates.append(config_path)
+
+    unique_candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved in seen or not resolved.exists():
+            continue
+        seen.add(resolved)
+        unique_candidates.append(resolved)
+    return unique_candidates
+
+
+def _loopback_port_is_listening(_: str) -> bool:
+    """Return whether the fixed loopback TCP port currently has a listener."""
+
+    parsed = socket.getaddrinfo("127.0.0.1", _fixed_cao_port(), type=socket.SOCK_STREAM)
+    for family, socktype, proto, _, sockaddr in parsed:
+        try:
+            with socket.socket(family, socktype, proto) as sock:
+                sock.settimeout(0.5)
+                if sock.connect_ex(sockaddr) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _fixed_cao_port() -> int:
+    """Return the TCP port used by the fixed loopback CAO base URL."""
+
+    return int(FIXED_CAO_BASE_URL.rsplit(":", maxsplit=1)[1])
+
+
+def _find_listening_pids_for_port(port: int) -> list[int]:
+    """Return process identifiers listening on the given TCP port."""
+
+    inodes = _list_listening_socket_inodes(port)
+    if not inodes:
+        return []
+    return sorted(_find_pids_for_socket_inodes(inodes))
+
+
+def _list_listening_socket_inodes(port: int) -> set[str]:
+    """Collect listening TCP socket inodes for the provided port from `/proc`."""
+
+    proc_paths = (Path("/proc/net/tcp"), Path("/proc/net/tcp6"))
+    target_port = f"{port:04X}"
+    inodes: set[str] = set()
+    for proc_path in proc_paths:
+        if not proc_path.exists():
+            continue
+        for raw_line in proc_path.read_text(encoding="utf-8").splitlines()[1:]:
+            parts = raw_line.split()
+            if len(parts) < 10:
+                continue
+            local_address = parts[1]
+            state = parts[3]
+            inode = parts[9]
+            if ":" not in local_address:
+                continue
+            _, port_hex = local_address.rsplit(":", maxsplit=1)
+            if state == PORT_LISTEN_STATE and port_hex.upper() == target_port:
+                inodes.add(inode)
+    return inodes
+
+
+def _find_pids_for_socket_inodes(inodes: set[str]) -> set[int]:
+    """Map socket inodes back to owning process identifiers."""
+
+    matched_pids: set[int] = set()
+    if not inodes:
+        return matched_pids
+
+    for proc_dir in Path("/proc").iterdir():
+        if not proc_dir.name.isdigit():
+            continue
+        fd_dir = proc_dir / "fd"
+        if not fd_dir.exists():
+            continue
+        for fd_path in fd_dir.iterdir():
+            try:
+                target = os.readlink(fd_path)
+            except OSError:
+                continue
+            if not target.startswith("socket:["):
+                continue
+            inode = target.removeprefix("socket:[").removesuffix("]")
+            if inode in inodes:
+                matched_pids.add(int(proc_dir.name))
+                break
+    return matched_pids
+
+
+def _read_process_cmdline(pid: int) -> str | None:
+    """Read `/proc/<pid>/cmdline` and collapse it into one human-friendly string."""
+
+    cmdline_path = Path("/proc") / str(pid) / "cmdline"
+    if not cmdline_path.exists():
+        return None
+    try:
+        raw = cmdline_path.read_bytes()
+    except OSError:
+        return None
+    if not raw:
+        return ""
+    return " ".join(token for token in raw.decode("utf-8", errors="replace").split("\x00") if token)
+
+
+def _looks_like_cao_server_cmdline(cmdline: str) -> bool:
+    """Return whether a process command line looks like `cao-server`."""
+
+    lowered = cmdline.lower()
+    return "cao-server" in lowered or "cli_agent_orchestrator" in lowered
+
+
+def _terminate_process(pid: int) -> None:
+    """Terminate a process with SIGTERM and SIGKILL fallback."""
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        raise DemoWorkflowError(f"Failed to terminate pid {pid}: {exc}.") from exc
+
+    if _wait_for_process_exit(pid, timeout_seconds=10.0):
+        return
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError as exc:
+        raise DemoWorkflowError(f"Failed to SIGKILL pid {pid}: {exc}.") from exc
+
+    if not _wait_for_process_exit(pid, timeout_seconds=2.0):
+        raise DemoWorkflowError(f"Process {pid} did not exit after replacement shutdown.")
+
+
+def _wait_for_process_exit(pid: int, *, timeout_seconds: float) -> bool:
+    """Wait until a process exits or the timeout budget is exhausted."""
+
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        time.sleep(0.1)
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 def _build_brain(
@@ -970,11 +1534,12 @@ def _build_brain(
     )
     if result.returncode != 0:
         raise DemoWorkflowError(
-            "Failed to build the interactive demo brain manifest "
-            f"(see `{result.stderr_path}`)."
+            f"Failed to build the interactive demo brain manifest (see `{result.stderr_path}`)."
         )
     payload = _parse_json_output(result.stdout, context="build-brain output")
-    _require_non_empty_string(payload.get("manifest_path"), context="build-brain missing manifest_path")
+    _require_non_empty_string(
+        payload.get("manifest_path"), context="build-brain missing manifest_path"
+    )
     _require_non_empty_string(payload.get("home_path"), context="build-brain missing home_path")
     return payload
 
@@ -1021,8 +1586,7 @@ def _start_runtime_session(
     )
     if result.returncode != 0:
         raise DemoWorkflowError(
-            "Failed to start the interactive CAO session "
-            f"(see `{result.stderr_path}`)."
+            f"Failed to start the interactive CAO session (see `{result.stderr_path}`)."
         )
     payload = _parse_json_output(result.stdout, context="start-session output")
     _require_non_empty_string(
@@ -1036,7 +1600,7 @@ def _stop_remote_session(
     *,
     paths: DemoPaths,
     env: DemoEnvironment,
-    state: DemoState,
+    agent_identity: str,
     run_command: CommandRunner,
     tolerate_stale: bool,
     log_prefix: str,
@@ -1050,7 +1614,7 @@ def _stop_remote_session(
                 "--agent-def-dir",
                 str(env.agent_def_dir),
                 "--agent-identity",
-                state.agent_identity,
+                agent_identity,
             ]
         ),
         env.repo_root,
@@ -1063,8 +1627,7 @@ def _stop_remote_session(
     if tolerate_stale and _looks_like_stale_stop_failure(result):
         return result
     raise DemoWorkflowError(
-        "Failed to stop the interactive CAO session "
-        f"(see `{result.stderr_path}`)."
+        f"Failed to stop the interactive CAO session (see `{result.stderr_path}`)."
     )
 
 
