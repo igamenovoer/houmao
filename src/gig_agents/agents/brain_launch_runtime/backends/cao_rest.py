@@ -37,6 +37,7 @@ from .shadow_parser_core import (
     ShadowParserError,
     ShadowParserMetadata,
     ShadowRuntimeStatus,
+    normalize_shadow_output,
 )
 from .shadow_parser_stack import (
     ShadowParser,
@@ -203,12 +204,12 @@ class ShadowOnlyTurnEngine:
             )
         )
 
-        output, shadow_status, completion_anomalies = (
-            self._session._wait_for_shadow_completion(
-                parser=parser,
-                parser_family=parser_family,
-                baseline_pos=baseline_pos,
-            )
+        output, shadow_status, completion_anomalies = self._session._wait_for_shadow_completion(
+            parser=parser,
+            parser_family=parser_family,
+            baseline_pos=baseline_pos,
+            baseline_output=baseline_output.output,
+            prompt=prompt,
         )
         extraction = self._session._extract_shadow_answer(
             parser=parser,
@@ -216,16 +217,15 @@ class ShadowOnlyTurnEngine:
             output=output.output,
             baseline_pos=baseline_pos,
             allow_baseline_fallback=True,
+            baseline_output=baseline_output.output,
+            prompt=prompt,
         )
 
         output_text = extraction.answer_text.strip()
         if not output_text:
-            excerpt = self._session._shadow_tail_excerpt(
-                parser=parser, output=output.output
-            )
+            excerpt = self._session._shadow_tail_excerpt(parser=parser, output=output.output)
             detail = (
-                f"{parser_family} extraction returned an empty answer "
-                "(parsing_mode=shadow_only)"
+                f"{parser_family} extraction returned an empty answer (parsing_mode=shadow_only)"
             )
             if excerpt:
                 detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
@@ -246,9 +246,7 @@ class ShadowOnlyTurnEngine:
             "shadow_selection_source": extraction.metadata.selection_source,
             "shadow_detected_version": extraction.metadata.detected_version,
             "shadow_requested_version": extraction.metadata.requested_version,
-            "shadow_parser_anomalies": self._session._serialize_anomalies(
-                merged_anomalies
-            ),
+            "shadow_parser_anomalies": self._session._serialize_anomalies(merged_anomalies),
             "baseline_invalidated": extraction.metadata.baseline_invalidated,
             "unknown_to_stalled_timeout_seconds": (
                 self._session._shadow_stall_policy.unknown_to_stalled_timeout_seconds
@@ -275,9 +273,7 @@ class ShadowOnlyTurnEngine:
                 "unknown_to_stalled_timeout_seconds": (
                     self._session._shadow_stall_policy.unknown_to_stalled_timeout_seconds
                 ),
-                "stalled_is_terminal": (
-                    self._session._shadow_stall_policy.stalled_is_terminal
-                ),
+                "stalled_is_terminal": (self._session._shadow_stall_policy.stalled_is_terminal),
             },
         )
 
@@ -342,14 +338,11 @@ class _ShadowLifecycleTracker:
                         ShadowParserAnomaly(
                             code=ANOMALY_STALLED_ENTERED,
                             message=(
-                                "Shadow status remained unknown and entered "
-                                "stalled lifecycle state"
+                                "Shadow status remained unknown and entered stalled lifecycle state"
                             ),
                             details={
                                 "phase": self.phase,
-                                "elapsed_unknown_seconds": _format_seconds(
-                                    elapsed_unknown_seconds
-                                ),
+                                "elapsed_unknown_seconds": _format_seconds(elapsed_unknown_seconds),
                                 "parser_family": parser_family,
                             },
                         )
@@ -365,9 +358,7 @@ class _ShadowLifecycleTracker:
                     message="Shadow status recovered from stalled to known state",
                     details={
                         "phase": self.phase,
-                        "elapsed_stalled_seconds": _format_seconds(
-                            elapsed_stalled_seconds
-                        ),
+                        "elapsed_stalled_seconds": _format_seconds(elapsed_stalled_seconds),
                         "parser_family": parser_family,
                         "recovered_to": parser_status,
                     },
@@ -468,9 +459,7 @@ def render_cao_profile(
     return profile_name, markdown
 
 
-def install_cao_profile(
-    *, profile_name: str, markdown: str, agent_store_dir: Path
-) -> Path:
+def install_cao_profile(*, profile_name: str, markdown: str, agent_store_dir: Path) -> Path:
     """Install a rendered CAO profile markdown to the local agent store."""
 
     agent_store_dir.mkdir(parents=True, exist_ok=True)
@@ -751,10 +740,7 @@ class CaoRestSession:
                         during_turn=False,
                     )
                 )
-            if (
-                runtime_status == "stalled"
-                and self._shadow_stall_policy.stalled_is_terminal
-            ):
+            if runtime_status == "stalled" and self._shadow_stall_policy.stalled_is_terminal:
                 raise BackendExecutionError(
                     self._format_shadow_stalled_error(
                         parser=parser,
@@ -778,9 +764,7 @@ class CaoRestSession:
             f"shadow_status={last_runtime_status})"
         )
         if last_output is not None:
-            excerpt = self._shadow_tail_excerpt(
-                parser=parser, output=last_output.output
-            )
+            excerpt = self._shadow_tail_excerpt(parser=parser, output=last_output.output)
             if excerpt:
                 detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
         raise BackendExecutionError(detail)
@@ -791,9 +775,9 @@ class CaoRestSession:
         parser: ShadowParser,
         parser_family: str,
         baseline_pos: int,
-    ) -> tuple[
-        CaoTerminalOutputResponse, _ShadowStatusResult, tuple[ShadowParserAnomaly, ...]
-    ]:
+        baseline_output: str,
+        prompt: str,
+    ) -> tuple[CaoTerminalOutputResponse, _ShadowStatusResult, tuple[ShadowParserAnomaly, ...]]:
         deadline = time.monotonic() + self._timeout_seconds
         last_shadow_status: _ShadowStatusResult | None = None
         last_output: CaoTerminalOutputResponse | None = None
@@ -821,6 +805,15 @@ class CaoRestSession:
             last_output = output
 
             if runtime_status == "completed":
+                if self._shadow_output_is_stale_after_baseline_reset(
+                    parser=parser,
+                    output=output.output,
+                    baseline_output=baseline_output,
+                    prompt=prompt,
+                    metadata=shadow_status.metadata,
+                ):
+                    time.sleep(self._poll_interval_seconds)
+                    continue
                 return output, shadow_status, tuple(lifecycle.anomalies)
             if runtime_status == "waiting_user_answer":
                 raise BackendExecutionError(
@@ -861,6 +854,8 @@ class CaoRestSession:
                         output=output.output,
                         baseline_pos=baseline_pos,
                         allow_baseline_fallback=True,
+                        baseline_output=baseline_output,
+                        prompt=prompt,
                     )
                 except BackendExecutionError:
                     extraction = None
@@ -883,9 +878,7 @@ class CaoRestSession:
             f"shadow_status={status_text})"
         )
         if last_output is not None:
-            excerpt = self._shadow_tail_excerpt(
-                parser=parser, output=last_output.output
-            )
+            excerpt = self._shadow_tail_excerpt(parser=parser, output=last_output.output)
             if excerpt:
                 detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
         raise BackendExecutionError(detail)
@@ -945,16 +938,15 @@ class CaoRestSession:
         output: str,
         baseline_pos: int,
         allow_baseline_fallback: bool = False,
+        baseline_output: str | None = None,
+        prompt: str | None = None,
     ) -> _ShadowExtractionResult:
         try:
             extraction = parser.extract_last_answer(
                 output,
                 baseline_pos=baseline_pos,
             )
-            return _ShadowExtractionResult(
-                answer_text=extraction.answer_text,
-                metadata=extraction.metadata,
-            )
+            metadata = extraction.metadata
         except ShadowParserError as exc:
             if allow_baseline_fallback and baseline_pos > 0:
                 try:
@@ -962,38 +954,126 @@ class CaoRestSession:
                         output,
                         baseline_pos=0,
                     )
-                    metadata = self._metadata_with_baseline_fallback(
-                        extraction.metadata
-                    )
-                    return _ShadowExtractionResult(
-                        answer_text=extraction.answer_text,
-                        metadata=metadata,
-                    )
+                    metadata = self._metadata_with_baseline_fallback(extraction.metadata)
                 except ShadowParserError:
+                    extraction = None
+                    metadata = None
+                else:
                     pass
-            raise BackendExecutionError(
-                self._format_shadow_parse_error(
-                    parser=parser,
-                    parser_family=parser_family,
-                    error=exc,
-                    output=output,
-                )
-            ) from exc
+            else:
+                extraction = None
+                metadata = None
+            if extraction is None or metadata is None:
+                raise BackendExecutionError(
+                    self._format_shadow_parse_error(
+                        parser=parser,
+                        parser_family=parser_family,
+                        error=exc,
+                        output=output,
+                    )
+                ) from exc
+
+        if metadata is None:
+            raise BackendExecutionError("Shadow extraction returned no metadata.")
+
+        if baseline_output is not None and self._shadow_output_is_stale_after_baseline_reset(
+            parser=parser,
+            output=output,
+            baseline_output=baseline_output,
+            prompt=prompt,
+            metadata=metadata,
+        ):
+            excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
+            detail = (
+                "Shadow parser observed a baseline reset, but the extracted answer still "
+                "came from unchanged or truncated pre-submit scrollback. "
+                "Retry the turn after the terminal output advances."
+            )
+            if excerpt:
+                detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
+            raise BackendExecutionError(detail)
+
+        return _ShadowExtractionResult(
+            answer_text=extraction.answer_text,
+            metadata=metadata,
+        )
+
+    def _shadow_output_is_stale_after_baseline_reset(
+        self,
+        *,
+        parser: ShadowParser,
+        output: str,
+        baseline_output: str,
+        prompt: str | None,
+        metadata: ShadowParserMetadata,
+    ) -> bool:
+        """Return whether a baseline-reset snapshot still looks like pre-submit output."""
+
+        if not metadata.baseline_invalidated:
+            return False
+
+        current_clean = normalize_shadow_output(parser.strip_ansi(output)).strip()
+        baseline_clean = normalize_shadow_output(parser.strip_ansi(baseline_output)).strip()
+        if not current_clean or not baseline_clean:
+            return False
+        if current_clean == baseline_clean:
+            return True
+        if current_clean in baseline_clean:
+            return True
+        if prompt is None:
+            return False
+        return not self._shadow_output_contains_prompt_cue(
+            parser=parser,
+            output=output,
+            prompt=prompt,
+        )
+
+    def _shadow_output_contains_prompt_cue(
+        self,
+        *,
+        parser: ShadowParser,
+        output: str,
+        prompt: str,
+    ) -> bool:
+        """Return whether the shadow transcript visibly includes the submitted prompt."""
+
+        prompt_compact = " ".join(normalize_shadow_output(prompt).split())
+        if not prompt_compact:
+            return True
+
+        output_compact = " ".join(normalize_shadow_output(parser.strip_ansi(output)).split())
+        if not output_compact:
+            return False
+
+        candidates = [prompt_compact]
+        if len(prompt_compact) > 48:
+            candidates.extend(
+                [
+                    prompt_compact[:48].rstrip(),
+                    prompt_compact[-48:].lstrip(),
+                ]
+            )
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            if candidate in output_compact:
+                return True
+        return False
 
     @staticmethod
     def _metadata_with_baseline_fallback(
         metadata: ShadowParserMetadata,
     ) -> ShadowParserMetadata:
         if metadata.baseline_invalidated and any(
-            anomaly.code == ANOMALY_BASELINE_INVALIDATED
-            for anomaly in metadata.anomalies
+            anomaly.code == ANOMALY_BASELINE_INVALIDATED for anomaly in metadata.anomalies
         ):
             return metadata
 
         anomalies = list(metadata.anomalies)
-        if not any(
-            anomaly.code == ANOMALY_BASELINE_INVALIDATED for anomaly in anomalies
-        ):
+        if not any(anomaly.code == ANOMALY_BASELINE_INVALIDATED for anomaly in anomalies):
             anomalies.append(
                 ShadowParserAnomaly(
                     code=ANOMALY_BASELINE_INVALIDATED,
@@ -1085,15 +1165,9 @@ class CaoRestSession:
             f"stalled_is_terminal={self._shadow_stall_policy.stalled_is_terminal})"
         )
         if elapsed_unknown_seconds is not None:
-            detail = (
-                f"{detail}, elapsed_unknown_seconds="
-                f"{_format_seconds(elapsed_unknown_seconds)}"
-            )
+            detail = f"{detail}, elapsed_unknown_seconds={_format_seconds(elapsed_unknown_seconds)}"
         if elapsed_stalled_seconds is not None:
-            detail = (
-                f"{detail}, elapsed_stalled_seconds="
-                f"{_format_seconds(elapsed_stalled_seconds)}"
-            )
+            detail = f"{detail}, elapsed_stalled_seconds={_format_seconds(elapsed_stalled_seconds)}"
 
         excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
         if excerpt:
@@ -1102,10 +1176,7 @@ class CaoRestSession:
 
     def _format_cao_waiting_user_answer_error(self, *, during_turn: bool) -> str:
         phase = "during turn execution" if during_turn else "before prompt submission"
-        return (
-            "CAO terminal requires interactive user selection "
-            f"{phase} (parsing_mode=cao_only)."
-        )
+        return f"CAO terminal requires interactive user selection {phase} (parsing_mode=cao_only)."
 
     def _select_shadow_parser(self) -> tuple[ShadowParser, str]:
         stack = self._require_shadow_parser_stack()
@@ -1230,8 +1301,7 @@ class CaoRestSession:
                 bootstrap_window = _read_bootstrap_tmux_window(session_name=session_name)
             except BackendExecutionError as exc:
                 self._record_startup_warning(
-                    "Failed to capture bootstrap tmux window "
-                    f"for session `{session_name}`: {exc}"
+                    f"Failed to capture bootstrap tmux window for session `{session_name}`: {exc}"
                 )
             _set_tmux_session_environment(
                 session_name=session_name,
@@ -1360,9 +1430,7 @@ def generate_cao_session_name(
         Canonical session identity (`AGENTSYS-...`), unique among tmux sessions.
     """
 
-    occupied = (
-        existing_sessions if existing_sessions is not None else _list_tmux_sessions()
-    )
+    occupied = existing_sessions if existing_sessions is not None else _list_tmux_sessions()
     try:
         return generate_tmux_session_name_shared(
             tool=tool,
@@ -1373,9 +1441,7 @@ def generate_cao_session_name(
         raise BackendExecutionError(str(exc)) from exc
 
 
-def _select_cao_session_name(
-    *, tool: str, role_name: str, requested_identity: str | None
-) -> str:
+def _select_cao_session_name(*, tool: str, role_name: str, requested_identity: str | None) -> str:
     """Select a unique canonical CAO tmux session name."""
 
     _ensure_tmux_available()
@@ -1405,8 +1471,7 @@ def _provider_for_tool(tool: str) -> str:
 
     supported = ", ".join(sorted(_CAO_PROVIDER_BY_TOOL))
     raise BackendExecutionError(
-        f"Unsupported CAO provider mapping for tool `{tool}`. "
-        f"Supported tools: {supported}."
+        f"Unsupported CAO provider mapping for tool `{tool}`. Supported tools: {supported}."
     )
 
 
@@ -1444,8 +1509,7 @@ def _credential_env_overlay(plan: LaunchPlan) -> dict[str, str]:
         return parse_env_file(Path(source).resolve())
     except Exception as exc:
         raise BackendExecutionError(
-            "Failed to load credential env overlay for CAO/tmux launch from "
-            f"`{source}`: {exc}"
+            f"Failed to load credential env overlay for CAO/tmux launch from `{source}`: {exc}"
         ) from exc
 
 
@@ -1476,8 +1540,7 @@ def _list_tmux_sessions() -> set[str]:
         return list_tmux_sessions_shared()
     except TmuxCommandError as exc:
         raise BackendExecutionError(
-            "Failed to list tmux sessions for CAO identity allocation: "
-            f"{exc}"
+            f"Failed to list tmux sessions for CAO identity allocation: {exc}"
         ) from exc
 
 
@@ -1495,9 +1558,7 @@ def _create_tmux_session(*, session_name: str, working_directory: Path) -> None:
 
 def _list_tmux_windows(*, session_name: str) -> list[_TmuxWindowRecord]:
     try:
-        result = run_tmux_shared(
-            ["list-windows", "-t", session_name, "-F", _TMUX_WINDOW_FORMAT]
-        )
+        result = run_tmux_shared(["list-windows", "-t", session_name, "-F", _TMUX_WINDOW_FORMAT])
     except TmuxCommandError as exc:
         raise BackendExecutionError(
             f"Failed to run tmux list-windows for session `{session_name}`: {exc}"
@@ -1551,9 +1612,7 @@ def _resolve_tmux_window_by_name(
     if max_attempts <= 0:
         raise BackendExecutionError("tmux window resolution requires max_attempts > 0")
     if retry_sleep_seconds < 0:
-        raise BackendExecutionError(
-            "tmux window resolution requires retry_sleep_seconds >= 0"
-        )
+        raise BackendExecutionError("tmux window resolution requires retry_sleep_seconds >= 0")
 
     for attempt in range(max_attempts):
         windows = _list_tmux_windows(session_name=session_name)
@@ -1599,15 +1658,10 @@ def _tmux_error_detail(result: subprocess.CompletedProcess[str]) -> str:
 
 
 def _describe_tmux_window(window: _TmuxWindowRecord) -> str:
-    return (
-        f"[id={window.window_id}, index={window.window_index}, "
-        f"name={window.window_name!r}]"
-    )
+    return f"[id={window.window_id}, index={window.window_index}, name={window.window_name!r}]"
 
 
-def _set_tmux_session_environment(
-    *, session_name: str, env_vars: dict[str, str]
-) -> None:
+def _set_tmux_session_environment(*, session_name: str, env_vars: dict[str, str]) -> None:
     try:
         set_tmux_session_environment_shared(
             session_name=session_name,

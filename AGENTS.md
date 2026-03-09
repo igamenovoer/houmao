@@ -24,6 +24,7 @@ Use Pixi as the default workflow:
 Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `gig_agents_cli`-style semantics in scripts and commands).
 
 For Markdown documentation, do not hard-wrap lines purely for width; keep paragraphs as natural long lines and only add line breaks for semantic structure (headings, lists, tables, quotes, or code blocks).
+For UML-style diagrams in Markdown, prefer Mermaid fenced code blocks that render inline; avoid plain-text ASCII art and PlantUML unless the user explicitly requests a different format.
 
 ### Python Style (magic-context)
 Follow [`magic-context/instructions/python-coding-guide.md`](/data/ssd1/huangzhe/code/agent-system-dissect/extern/tracked/gig-agents/magic-context/instructions/python-coding-guide.md) for Python implementation details:

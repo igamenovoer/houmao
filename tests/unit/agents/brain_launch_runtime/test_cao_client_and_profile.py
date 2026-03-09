@@ -102,9 +102,7 @@ def _sample_launch_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
         working_directory=tmp_path,
         home_env_var="CODEX_HOME" if tool == "codex" else "CLAUDE_CONFIG_DIR",
         home_path=tmp_path / "home",
-        env={"OPENAI_API_KEY": "secret"}
-        if tool == "codex"
-        else {"ANTHROPIC_API_KEY": "secret"},
+        env={"OPENAI_API_KEY": "secret"} if tool == "codex" else {"ANTHROPIC_API_KEY": "secret"},
         env_var_names=["OPENAI_API_KEY"] if tool == "codex" else ["ANTHROPIC_API_KEY"],
         role_injection=RoleInjectionPlan(
             method="cao_profile",
@@ -129,9 +127,7 @@ def _sample_shadow_policy_launch_plan(
     return plan
 
 
-def _install_fake_clock(
-    monkeypatch: pytest.MonkeyPatch, *, tick_seconds: float
-) -> None:
+def _install_fake_clock(monkeypatch: pytest.MonkeyPatch, *, tick_seconds: float) -> None:
     clock = {"now": 0.0}
 
     def _fake_monotonic() -> float:
@@ -500,9 +496,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
 
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             if parsing_mode == "shadow_only":
-                raise AssertionError(
-                    "shadow_only mode must not call GET /terminals/{id} status"
-                )
+                raise AssertionError("shadow_only mode must not call GET /terminals/{id} status")
             return CaoTerminal(
                 id=terminal_id,
                 name="developer-1",
@@ -512,9 +506,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
                 status="idle",
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -544,15 +536,11 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     def _fake_ensure_tmux_available() -> None:
         captured_tmux["available"] = True
 
-    def _fake_create_tmux_session(
-        *, session_name: str, working_directory: Path
-    ) -> None:
+    def _fake_create_tmux_session(*, session_name: str, working_directory: Path) -> None:
         captured_tmux["session_name"] = session_name
         captured_tmux["working_directory"] = working_directory
 
-    def _fake_set_tmux_session_environment(
-        *, session_name: str, env_vars: dict[str, str]
-    ) -> None:
+    def _fake_set_tmux_session_environment(*, session_name: str, env_vars: dict[str, str]) -> None:
         captured_tmux["env_session_name"] = session_name
         captured_tmux["env_vars"] = env_vars
 
@@ -650,9 +638,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert events[-1].message == "response"
     done_payload = events[-1].payload or {}
     assert done_payload["parsing_mode"] == parsing_mode
-    assert done_payload["output_source_mode"] == (
-        "last" if parsing_mode == "cao_only" else "full"
-    )
+    assert done_payload["output_source_mode"] == ("last" if parsing_mode == "cao_only" else "full")
     assert done_payload["canonical_runtime_status"] == "completed"
     assert "parser_family" in done_payload
 
@@ -701,9 +687,7 @@ def test_cao_backend_startup_prune_failure_warns_but_keeps_launch_successful(
                 status="idle",
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -724,9 +708,7 @@ def test_cao_backend_startup_prune_failure_warns_but_keeps_launch_successful(
         del session_name
         list_window_calls["count"] += 1
         if list_window_calls["count"] == 1:
-            return [
-                SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")
-            ]
+            return [SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")]
         return [
             SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap"),
             SimpleNamespace(window_id="@2", window_index="1", window_name="developer-1"),
@@ -837,9 +819,7 @@ def test_cao_backend_startup_skips_prune_when_bootstrap_and_terminal_share_windo
                 status="idle",
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -860,9 +840,7 @@ def test_cao_backend_startup_skips_prune_when_bootstrap_and_terminal_share_windo
         del session_name
         list_window_calls["count"] += 1
         if list_window_calls["count"] == 1:
-            return [
-                SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")
-            ]
+            return [SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")]
         return [SimpleNamespace(window_id="@1", window_index="0", window_name="developer-1")]
 
     def _fake_select_tmux_window(*, window_id: str) -> None:
@@ -967,9 +945,7 @@ def test_cao_backend_startup_warns_when_terminal_window_name_never_resolves(
                 status="idle",
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -990,9 +966,7 @@ def test_cao_backend_startup_warns_when_terminal_window_name_never_resolves(
         del session_name
         list_window_calls["count"] += 1
         if list_window_calls["count"] == 1:
-            return [
-                SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")
-            ]
+            return [SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap")]
         return [
             SimpleNamespace(window_id="@1", window_index="0", window_name="bootstrap"),
             SimpleNamespace(window_id="@2", window_index="1", window_name="other-window"),
@@ -1133,9 +1107,7 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
                 "Claude shadow path must not call GET /terminals/{id} status for gating"
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1205,6 +1177,113 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
 
+def test_cao_claude_shadow_waits_past_stale_baseline_reset_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    long_prompt = "previous prompt " * 20
+    prior_turn_output = f"Claude Code v2.1.62\n❯ {long_prompt}\n● first answer\n❯ \n"
+    output_sequence = [
+        prior_turn_output,
+        prior_turn_output,
+        "Claude Code v2.1.62\n● first answer\n❯ \n",
+        "Claude Code v2.1.62\n❯ summarize workspace\n● second answer\n❯ \n",
+    ]
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self._output_calls = 0
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="claude_code",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError(
+                "Claude shadow path must not call GET /terminals/{id} status for gating"
+            )
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self, terminal_id: str, mode: str = "full"
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            index = min(self._output_calls, len(output_sequence) - 1)
+            self._output_calls += 1
+            return CaoTerminalOutputResponse(output=output_sequence[index], mode="full")
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.ensure_claude_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=_sample_launch_plan(tmp_path, tool="claude"),
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        session_manifest_path=tmp_path / "session-claude-baseline-reset.json",
+    )
+
+    events = session.send_prompt("summarize workspace")
+
+    assert events[-1].message == "second answer"
+    done_payload = events[-1].payload or {}
+    assert done_payload["mode_diagnostics"]["baseline_invalidated"] is True
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
 def test_cao_claude_backend_surfaces_waiting_user_answer_as_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1251,9 +1330,7 @@ def test_cao_claude_backend_surfaces_waiting_user_answer_as_error(
                 "Claude shadow path must not call GET /terminals/{id} status for gating"
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1308,9 +1385,7 @@ def test_cao_claude_backend_surfaces_waiting_user_answer_as_error(
         session_manifest_path=tmp_path / "session-claude.json",
     )
 
-    with pytest.raises(
-        BackendExecutionError, match="waiting for user interaction"
-    ) as exc_info:
+    with pytest.raises(BackendExecutionError, match="waiting for user interaction") as exc_info:
         session.send_prompt("hello")
 
     assert "1. Keep existing changes" in str(exc_info.value)
@@ -1356,9 +1431,7 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("Codex shadow path must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1467,9 +1540,7 @@ def test_cao_codex_shadow_backend_surfaces_waiting_user_answer(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("Codex shadow path must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1520,9 +1591,7 @@ def test_cao_codex_shadow_backend_surfaces_waiting_user_answer(
         session_manifest_path=tmp_path / "session-codex-shadow-waiting.json",
     )
 
-    with pytest.raises(
-        BackendExecutionError, match="waiting for user interaction"
-    ) as exc_info:
+    with pytest.raises(BackendExecutionError, match="waiting for user interaction") as exc_info:
         session.send_prompt("hello")
     assert "1. Keep existing changes" in str(exc_info.value)
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
@@ -1570,9 +1639,7 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("shadow_only mode must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1641,8 +1708,7 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(
-        item["code"] == ANOMALY_STALLED_ENTERED
-        and item["details"].get("phase") == "readiness"
+        item["code"] == ANOMALY_STALLED_ENTERED and item["details"].get("phase") == "readiness"
         for item in anomalies
     )
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
@@ -1689,9 +1755,7 @@ def test_cao_codex_shadow_terminal_stalled_fails_without_cross_mode_fallback(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("shadow_only mode must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1798,9 +1862,7 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("shadow_only mode must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -1869,8 +1931,7 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(
-        item["code"] == ANOMALY_STALLED_ENTERED
-        and item["details"].get("phase") == "completion"
+        item["code"] == ANOMALY_STALLED_ENTERED and item["details"].get("phase") == "completion"
         for item in anomalies
     )
     assert any(
@@ -1925,9 +1986,7 @@ def test_shadow_only_codex_failure_does_not_fallback_to_cao_only(
         def get_terminal(self, terminal_id: str) -> CaoTerminal:
             raise AssertionError("shadow_only mode must not call terminal status API")
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(
@@ -2027,9 +2086,7 @@ def test_cao_only_failure_does_not_fallback_to_mode_full(
                 status=statuses[index],
             )
 
-        def send_terminal_input(
-            self, terminal_id: str, message: str
-        ) -> CaoSuccessResponse:
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             return CaoSuccessResponse(success=True)
 
         def get_terminal_output(

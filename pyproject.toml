@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.12,<3",
-  "PyYAML>=6.0,<7", "ruff", "mypy", "mkdocs-material>=9.7.4,<10", "omegaconf>=2.3.0,<3", "hydra-core>=1.3.2,<2", "scipy>=1.17.1,<2", "pytest", "mdutils>=1.8.1,<2",
+  "PyYAML>=6.0,<7", "ruff", "mypy", "mkdocs-material>=9.7.4,<10", "omegaconf>=2.3.0,<3", "hydra-core>=1.3.2,<2", "scipy>=1.17.1,<2", "pytest", "mdutils>=1.8.1,<2", "reactivex>=4.1.0,<5",
 ]
 
 [project.scripts]
