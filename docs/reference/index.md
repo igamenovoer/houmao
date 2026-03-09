@@ -1,5 +1,11 @@
 # Runtime Reference
 
+## Developer Deep Dive
+
+- [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
+
+## Reference Pages
+
 - [Brain Launch Runtime](brain_launch_runtime.md)
 - [Agents And Brains](agents_brains.md)
 - [CAO Server Launcher](cao_server_launcher.md)

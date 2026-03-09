@@ -2,6 +2,10 @@
 
 This repository is the canonical documentation home for the extracted runtime subsystem.
 
+## Developer
+
+- [TUI Parsing Developer Guide](developer/tui-parsing/index.md)
+
 ## Reference
 
 - [Runtime CLI and session workflows](reference/brain_launch_runtime.md)

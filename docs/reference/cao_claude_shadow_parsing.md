@@ -2,6 +2,15 @@
 
 This page documents the current `parsing_mode=shadow_only` contract for Claude Code in the CAO-backed runtime.
 
+For the full developer-oriented design guide, see:
+
+- [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
+- [TUI Parsing Architecture](../developer/tui-parsing/architecture.md)
+- [Shared TUI Parsing Contracts](../developer/tui-parsing/shared-contracts.md)
+- [Runtime Lifecycle And State Transitions](../developer/tui-parsing/runtime-lifecycle.md)
+- [Claude Parsing Contract](../developer/tui-parsing/claude.md)
+- [Codex Parsing Contract](../developer/tui-parsing/codex.md)
+
 The important boundary is:
 
 - the Claude shadow parser owns snapshot parsing,
@@ -68,139 +77,11 @@ sequenceDiagram
     TM-->>RT: awaiting_ready / in_progress / blocked / stalled / completed / failed
 ```
 
-## Claude Surface Assessment
+## Quick Contract Summary
 
-`ClaudeSurfaceAssessment` carries:
+- `SurfaceAssessment` answers whether the surface is supported and what it appears to be doing right now.
+- `DialogProjection` returns cleaned visible dialog, not an authoritative answer for the current prompt.
+- `TurnMonitor` decides success terminality from ordered snapshots, not from parser-owned answer extraction.
+- `TailRegexExtractAssociator` is an example of caller-owned extraction layered on top of projected dialog.
 
-- `availability`
-- `activity`
-- `accepts_input`
-- `ui_context`
-- `parser_metadata`
-- `anomalies`
-- `waiting_user_answer_excerpt`
-- `evidence`
-
-### State Facets
-
-| Field | Values |
-|------|--------|
-| `availability` | `supported`, `unsupported`, `disconnected`, `unknown` |
-| `activity` | `ready_for_input`, `working`, `waiting_user_answer`, `unknown` |
-| `ui_context` | `normal_prompt`, `selection_menu`, `slash_command`, `trust_prompt`, `error_banner`, `unknown` |
-
-### What Claude Parser Detects
-
-- idle prompt visibility
-- processing spinner visibility
-- waiting/selection UI
-- slash-command context
-- trust prompt context
-- supported vs unsupported output family
-- disconnected/error-like signals
-
-## Claude Dialog Projection
-
-`ClaudeDialogProjection` carries:
-
-- `raw_text`
-- `normalized_text`
-- `dialog_text`
-- `head`
-- `tail`
-- `projection_metadata`
-- `anomalies`
-- `evidence`
-
-Projection removes Claude-specific chrome such as:
-
-- ANSI styling,
-- banner/version lines,
-- prompt-only idle lines,
-- spinner lines,
-- separator lines.
-
-Projection preserves visible dialog content such as:
-
-- prompt text that remains visible,
-- assistant response lines,
-- selection menu text when Claude is waiting for user action.
-
-> `dialog_text` is a cleaned visible transcript, not an authoritative prompt answer.
-
-## Runtime Turn Lifecycle
-
-The runtime owns completion semantics through `TurnMonitor`.
-
-For `shadow_only`, success terminality is intentionally stronger than “the parser says ready”:
-
-- the surface must return to `ready_for_input`, and
-- runtime must have observed either:
-  - projected dialog change after submit, or
-  - post-submit `working`
-
-That contract prevents the generic “idle immediately after submit” false positive, while staying honest that the runtime still does not prove prompt-to-answer causality from tmux scrollback alone.
-
-```mermaid
-stateDiagram-v2
-    [*] --> AwaitingReady
-    AwaitingReady --> SubmittedWaitingActivity: submit
-    SubmittedWaitingActivity --> InProgress: working
-    SubmittedWaitingActivity --> BlockedWaitingUser: waiting_user_answer
-    SubmittedWaitingActivity --> Completed: ready_for_input<br/>and projection_changed
-    SubmittedWaitingActivity --> Failed: unsupported or disconnected
-    SubmittedWaitingActivity --> Stalled: unknown timeout
-    InProgress --> Completed: ready_for_input
-    InProgress --> BlockedWaitingUser: waiting_user_answer
-    InProgress --> Failed: unsupported or disconnected
-    InProgress --> Stalled: unknown timeout
-    Stalled --> Completed: recovered and completed
-    Stalled --> InProgress: recovered and working
-    Stalled --> BlockedWaitingUser: recovered and waiting
-    Stalled --> Failed: stalled_is_terminal
-```
-
-## Result Payloads
-
-When a Claude `shadow_only` turn completes successfully, the `done` event is intentionally neutral:
-
-- `message = "prompt completed"`
-
-The payload exposes structured parser/runtime data:
-
-- `surface_assessment`
-- `dialog_projection`
-- `projection_slices`
-- `parser_metadata`
-- `mode_diagnostics`
-
-The payload does **not** expose a shadow-mode `output_text` compatibility alias.
-
-If raw transport tail text is retained, it lives in diagnostics-only fields such as `mode_diagnostics.debug_transport_tail_excerpt`.
-
-## Baseline Invalidation
-
-The runtime still captures a pre-submit baseline offset, but baseline handling is now diagnostic rather than answer-extraction-centric.
-
-If the normalized scrollback length falls below the recorded baseline offset:
-
-- parser metadata sets `baseline_invalidated = true`
-- the anomaly list includes `baseline_invalidated`
-
-That signal tells callers the visible transcript was redrawn/truncated relative to the pre-submit baseline.
-
-## Caller-Side Association
-
-If a caller wants “the answer for my prompt,” that is now an explicit higher layer.
-
-One built-in example is `TailRegexExtractAssociator`, which searches a regex over the last `n` characters of projected dialog text.
-
-This is intentionally not part of the core Claude shadow parser guarantee.
-
-## Preset Overrides
-
-Use overrides only as a short-term mitigation while adding a new preset/fixture.
-
-- Claude override: `AGENTSYS_CAO_CLAUDE_CODE_VERSION=<X.Y.Z>`
-
-The env override is the escape hatch when Claude Code updates break preset selection before a new preset lands in the repo.
+Use the developer guide for the detailed state vocabulary, runtime lifecycle graph, and provider contract breakdown.

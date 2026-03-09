@@ -5,6 +5,14 @@ This guide covers runtime-owned CAO shadow parsing for:
 - `tool=codex`
 - `tool=claude`
 
+For the full developer-oriented design guide, see:
+
+- [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
+- [Runtime Lifecycle And State Transitions](../developer/tui-parsing/runtime-lifecycle.md)
+- [Claude Parsing Contract](../developer/tui-parsing/claude.md)
+- [Codex Parsing Contract](../developer/tui-parsing/codex.md)
+- [TUI Parsing Maintenance Guide](../developer/tui-parsing/maintenance.md)
+
 Gemini remains headless-only in this change. Gemini parser architecture follow-up:
 `context/issues/feat-gemini-headless-parser-architecture.md`.
 
@@ -43,29 +51,20 @@ Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` w
 
 ## CAO Startup Window Hygiene
 
-The runtime pre-creates a bootstrap tmux window during CAO session startup and
-then asks CAO to create the real agent terminal window. Startup attempts to
-select the CAO window and prune the bootstrap window (best-effort).
+The runtime pre-creates a bootstrap tmux window during CAO session startup and then asks CAO to create the real agent terminal window. Startup attempts to select the CAO window and prune the bootstrap window (best-effort).
 
 Quick checks:
 
-- `start-session` prints window-hygiene problems as stderr `warning:` lines and
-  keeps JSON stdout unchanged.
-- Success path: `tmux attach -t AGENTSYS-...` lands on the agent terminal, and
-  `tmux list-windows -t AGENTSYS-...` shows only the agent window.
-- Warning path: attach may land on the bootstrap shell window and/or a second
-  window may remain (bootstrap pruning skipped/failed). Shadow parsing is
-  unaffected; this is window selection/pruning hygiene only.
+- `start-session` prints window-hygiene problems as stderr `warning:` lines and keeps JSON stdout unchanged.
+- Success path: `tmux attach -t AGENTSYS-...` lands on the agent terminal, and `tmux list-windows -t AGENTSYS-...` shows only the agent window.
+- Warning path: attach may land on the bootstrap shell window and/or a second window may remain (bootstrap pruning skipped/failed). Shadow parsing is unaffected; this is window selection/pruning hygiene only.
 
 See: [Brain Launch Runtime window-hygiene checklist](./brain_launch_runtime.md#manual-verification-checklist-cao-startup-window-hygiene).
 
 ## Unknown vs Stalled
 
-- `unknown` is parser-owned and means the output format is recognized, but no
-  safe classification (`ready_for_input` / `working` / `waiting_user_answer`)
-  was found.
-- `stalled` is runtime-owned and means `unknown` stayed continuous for at least
-  `unknown_to_stalled_timeout_seconds`.
+- `unknown` is parser-owned and means the output format is recognized, but no safe classification (`ready_for_input` / `working` / `waiting_user_answer`) was found.
+- `stalled` is runtime-owned and means `unknown` stayed continuous for at least `unknown_to_stalled_timeout_seconds`.
 - `stalled_is_terminal=true`: fail immediately at stalled entry.
 - `stalled_is_terminal=false`: keep polling and allow recovery.
 
@@ -205,7 +204,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --cao-parsing-mode shadow_only
 ```
 
-## Debug Workflow for Drift
+## Debug Workflow For Drift
 
 1. Reproduce under `parsing_mode=shadow_only`.
 2. Capture CAO `mode=full` output while the terminal is stuck:
@@ -224,9 +223,9 @@ curl -s "http://localhost:9889/terminals/<terminal-id>/output?mode=full" \
    - parser state,
    - projected visible transcript,
    - diagnostics-only raw tail excerpts.
-6. Add/refresh fixtures and tests (see below).
+6. Add or refresh fixtures and tests.
 
-## Capture a New Drift Fixture
+## Capture A New Drift Fixture
 
 1. Reproduce under `parsing_mode=shadow_only`.
 2. Save raw `mode=full` output for the failing turn:
@@ -239,7 +238,7 @@ curl -s "http://localhost:9889/terminals/<terminal-id>/output?mode=full" \
 3. Add a curated fixture:
    - `tests/fixtures/shadow_parser/codex/<name>.txt`
    - `tests/fixtures/shadow_parser/claude/<name>.txt`
-4. Add/extend unit tests under:
+4. Add or extend unit tests under:
    - `tests/unit/agents/brain_launch_runtime/test_codex_shadow_parser.py`
    - `tests/unit/agents/brain_launch_runtime/test_claude_code_shadow_parser.py`
 5. Run tests:
