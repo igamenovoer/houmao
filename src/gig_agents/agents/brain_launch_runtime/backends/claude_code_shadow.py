@@ -36,7 +36,6 @@ _WAITING_HINT_RE: Final[re.Pattern[str]] = re.compile(
 _WAITING_APPROVAL_RE: Final[re.Pattern[str]] = re.compile(
     r"(?im)^\s*(?:allow|trust)\b.*(?:\[(?:y/n|yes/no)\]|\b(?:y/n|yes/no)\b)"
 )
-_SLASH_COMMAND_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*(?:❯\s*)?/[A-Za-z0-9_-]+\b")
 _TRUST_PROMPT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(?:trust this (?:folder|directory)|allow claude|yes,\s*i trust)"
 )
@@ -303,11 +302,15 @@ class ClaudeCodeShadowParser:
         tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
         waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
         has_processing = self._contains_processing_spinner(tail_lines, compiled)
-        has_idle_prompt = any(
-            self._is_idle_prompt_line(line, compiled.preset) for line in tail_lines
+        active_prompt_payload = self._active_prompt_payload(
+            clean_tail_lines=tail_lines,
+            preset=compiled.preset,
         )
+        has_idle_prompt = active_prompt_payload is not None
         has_trust_prompt = _TRUST_PROMPT_RE.search(clean_output) is not None
-        has_slash_command = _SLASH_COMMAND_RE.search(clean_output) is not None
+        has_slash_command = bool(
+            active_prompt_payload is not None and active_prompt_payload.startswith("/")
+        )
         has_error_banner = _ERROR_BANNER_RE.search(clean_output) is not None
         is_disconnected = _DISCONNECTED_RE.search(clean_output) is not None
         has_response_marker = bool(
@@ -614,6 +617,18 @@ class ClaudeCodeShadowParser:
         if trimmed[0] not in set(preset.idle_prompts):
             return None
         return trimmed[1:].strip()
+
+    @staticmethod
+    def _active_prompt_payload(
+        *,
+        clean_tail_lines: list[str],
+        preset: ClaudeCodeParsingPreset,
+    ) -> str | None:
+        for line in reversed(clean_tail_lines):
+            payload = ClaudeCodeShadowParser._prompt_payload(line, preset)
+            if payload is not None:
+                return payload
+        return None
 
     @staticmethod
     def _waiting_user_answer_excerpt(clean_tail_lines: list[str]) -> str | None:

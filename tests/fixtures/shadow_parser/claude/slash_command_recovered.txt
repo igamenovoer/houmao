@@ -1,0 +1,4 @@
+Claude Code v2.1.62
+❯ /model
+● Set model to Default (claude-sonnet-4-6)
+❯ 

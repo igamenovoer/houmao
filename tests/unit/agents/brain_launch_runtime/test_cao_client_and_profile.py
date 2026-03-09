@@ -1194,6 +1194,245 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
 
+def test_cao_claude_shadow_allows_recovered_slash_command_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    output_sequence = [
+        (
+            "Claude Code v2.1.62\n"
+            "❯ /model\n"
+            "● Set model to Default (claude-sonnet-4-6)\n"
+            "❯ \n"
+        ),
+        (
+            "Claude Code v2.1.62\n"
+            "❯ /model\n"
+            "● Set model to Default (claude-sonnet-4-6)\n"
+            "❯ \n"
+        ),
+        (
+            "Claude Code v2.1.62\n"
+            "❯ /model\n"
+            "● Set model to Default (claude-sonnet-4-6)\n"
+            "❯ hello\n"
+            "✽ Razzmatazzing…\n"
+        ),
+        (
+            "Claude Code v2.1.62\n"
+            "❯ /model\n"
+            "● Set model to Default (claude-sonnet-4-6)\n"
+            "❯ hello\n"
+            "● final answer\n"
+            "❯ \n"
+        ),
+    ]
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self.submitted_messages: list[str] = []
+            self._output_calls = 0
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="claude_code",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError(
+                "Claude shadow path must not call GET /terminals/{id} status for gating"
+            )
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_messages.append(message)
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self, terminal_id: str, mode: str = "full"
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            index = min(self._output_calls, len(output_sequence) - 1)
+            self._output_calls += 1
+            return CaoTerminalOutputResponse(output=output_sequence[index], mode="full")
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.ensure_claude_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=_sample_launch_plan(tmp_path, tool="claude"),
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        session_manifest_path=tmp_path / "session-claude-recovered-slash.json",
+    )
+
+    events = session.send_prompt("hello")
+    done_payload = events[-1].payload or {}
+
+    assert session._client.submitted_messages == ["hello"]  # noqa: SLF001
+    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["ui_context"] == "normal_prompt"
+    assert done_payload["surface_assessment"]["accepts_input"] is True
+    assert "SLASH_COMMAND_CONTEXT" not in done_payload["surface_assessment"]["evidence"]
+    assert done_payload["dialog_projection"]["dialog_text"] == (
+        "/model\nSet model to Default (claude-sonnet-4-6)\nhello\nfinal answer"
+    )
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
+def test_cao_claude_shadow_active_slash_command_surface_blocks_submission(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_clock(monkeypatch, tick_seconds=0.03)
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self.submitted_messages: list[str] = []
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="claude_code",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError(
+                "Claude shadow path must not call GET /terminals/{id} status for gating"
+            )
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_messages.append(message)
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self, terminal_id: str, mode: str = "full"
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            return CaoTerminalOutputResponse(
+                output="Claude Code v2.1.62\n❯ /model\n",
+                mode="full",
+            )
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.ensure_claude_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=_sample_launch_plan(tmp_path, tool="claude"),
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        poll_interval_seconds=0.0,
+        timeout_seconds=0.05,
+        session_manifest_path=tmp_path / "session-claude-active-slash.json",
+    )
+
+    with pytest.raises(BackendExecutionError, match="Timed out waiting for shadow-ready state"):
+        session.send_prompt("hello")
+
+    assert session._client.submitted_messages == []  # noqa: SLF001
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
 def test_cao_claude_shadow_baseline_reset_surfaces_current_projection_without_association(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -1,0 +1,4 @@
+OpenAI Codex (v0.98.0)
+› /model
+assistant: Switched model to gpt-5.3-codex high
+› 

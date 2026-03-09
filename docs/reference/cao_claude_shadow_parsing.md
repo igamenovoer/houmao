@@ -80,6 +80,7 @@ sequenceDiagram
 ## Quick Contract Summary
 
 - `SurfaceAssessment` answers whether the surface is supported and what it appears to be doing right now.
+- Slash-command readiness follows the currently active input surface, not historical `/...` lines still visible in scrollback or projected dialog.
 - `DialogProjection` returns cleaned visible dialog, not an authoritative answer for the current prompt.
 - `TurnMonitor` decides success terminality from ordered snapshots, not from parser-owned answer extraction.
 - `TailRegexExtractAssociator` is an example of caller-owned extraction layered on top of projected dialog.

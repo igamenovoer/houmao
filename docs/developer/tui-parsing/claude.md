@@ -161,7 +161,9 @@ The most important Claude-only contexts to remember are:
 
 - `trust_prompt`: onboarding or approval flow blocks generic completion
 - `selection_menu`: Claude is waiting for an explicit choice
-- `slash_command`: slash-command UI is visible, so the surface is not just a normal prompt
+- `slash_command`: the current editable Claude prompt is still inside slash-command interaction, so the surface is not just a normal prompt
+
+Historical slash-command or model-switch output may remain visible in `dialog_text` after Claude returns to a fresh `❯` prompt. That history must not keep the recovered surface classified as `slash_command`; `accepts_input` should follow the newest active prompt instead.
 
 When the scrollback shrinks below the stored baseline offset, the parser marks `baseline_invalidated = true` and attaches the shared anomaly. That signal is diagnostic: it tells runtime and callers that the visible transcript was redrawn or truncated relative to the pre-submit baseline.
 

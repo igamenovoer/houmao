@@ -122,7 +122,7 @@ def test_claude_shadow_classifies_recognized_unclassifiable_snapshot_as_unknown(
     assert snapshot.dialog_projection.dialog_text == "Partial answer with no idle prompt"
 
 
-def test_claude_shadow_detects_slash_command_context() -> None:
+def test_claude_shadow_detects_active_slash_command_context() -> None:
     parser = ClaudeCodeShadowParser()
 
     snapshot = parser.parse_snapshot(_fixture("slash_command.txt"), baseline_pos=0)
@@ -131,6 +131,20 @@ def test_claude_shadow_detects_slash_command_context() -> None:
     assert snapshot.surface_assessment.ui_context == "slash_command"
     assert snapshot.surface_assessment.accepts_input is False
     assert snapshot.dialog_projection.dialog_text == "/review"
+
+
+def test_claude_shadow_ignores_historical_slash_command_after_prompt_recovery() -> None:
+    parser = ClaudeCodeShadowParser()
+
+    snapshot = parser.parse_snapshot(_fixture("slash_command_recovered.txt"), baseline_pos=0)
+
+    assert snapshot.surface_assessment.activity == "ready_for_input"
+    assert snapshot.surface_assessment.ui_context == "normal_prompt"
+    assert snapshot.surface_assessment.accepts_input is True
+    assert "SLASH_COMMAND_CONTEXT" not in snapshot.surface_assessment.evidence
+    assert snapshot.dialog_projection.dialog_text == (
+        "/model\nSet model to Default (claude-sonnet-4-6)"
+    )
 
 
 def test_claude_shadow_reports_baseline_invalidation_on_projection() -> None:

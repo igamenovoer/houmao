@@ -281,6 +281,10 @@ Behavior:
   - `shadow_only`: readiness/completion from runtime `TurnMonitor` over
     `output?mode=full`, with parser-owned `surface_assessment` and
     `dialog_projection` artifacts instead of parser-owned final-answer extraction.
+    Readiness follows the currently active input surface, not any historical
+    slash-command or model-switch line still visible in scrollback. A recovered
+    normal prompt is sendable again; only an actually active slash-command or
+    waiting-user surface keeps submission blocked.
   - Runtime never mixes parser families in a single turn, and never auto-retries
     under the other parsing mode after mode-specific failure.
 - CAO tmux session names use the canonical `AGENTSYS-<name>` namespace.
@@ -333,6 +337,7 @@ when they are missing from `PATH`.
 - Shared surface assessment facets are:
   - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
   - `activity`: `ready_for_input`, `working`, `waiting_user_answer`, `unknown`
+  - `accepts_input`: whether the active surface is safe for prompt submission
   - `ui_context`: shared base plus provider-specific extensions
 - Runtime success terminality in `shadow_only` requires `ready_for_input` plus
   either post-submit projected-dialog change or observed post-submit `working`.

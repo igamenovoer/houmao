@@ -165,6 +165,8 @@ Codex commonly blocks in two ways:
 - `selection_menu`: menu-style selection UI is visible
 - `approval_prompt`: Codex is asking for approval or directory trust
 
+`slash_command` should only apply while the current editable Codex prompt is still inside slash-command interaction. Historical `/model` output or other command results that remain visible in projected dialog must not keep a later recovered normal prompt in a blocked slash-command state.
+
 The parser also handles both historical label-style output and newer TUI-style bullet output, which makes variant detection especially important when Codex changes its visible UI.
 
 As with Claude, baseline shrinkage sets `baseline_invalidated = true` for diagnostics.

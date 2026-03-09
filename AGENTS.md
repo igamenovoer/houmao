@@ -7,6 +7,7 @@ Core runtime code lives in `src/gig_agents/` (CLI entrypoints, launch/runtime lo
 - `tests/manual/` for non-CI manual scripts
 
 Supporting material is organized as: `docs/` (reference and migration docs), `scripts/` (automation and helper CLIs), `openspec/` (spec-driven change artifacts), and `config/` (project configuration assets).
+External code lives under `extern/`: use `extern/tracked/` for tracked dependencies and `extern/orphan/` for local reference-only checkouts. The RxPY source reference cloned for this workspace is at `extern/orphan/RxPY/`.
 
 ## Build, Test, and Development Commands
 Use Pixi as the default workflow:

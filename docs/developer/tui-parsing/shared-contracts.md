@@ -75,6 +75,8 @@ Both providers share a base vocabulary:
 
 Provider pages describe the extra values each provider adds on top of that base.
 
+`slash_command` is an active-surface classification, not a historical-transcript one. If an earlier `/model` or other slash interaction is still visible in projected dialog but the current editable prompt has already recovered to a normal prompt, `ui_context` should no longer remain `slash_command` and `accepts_input` should follow the recovered active prompt.
+
 ## Metadata And Anomalies
 
 ### `ShadowParserMetadata`

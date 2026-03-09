@@ -185,6 +185,26 @@ Expected diagnostics:
 - output mode remains `full` throughout shadow-only execution,
 - successful `done` payloads still use neutral `message="prompt completed"` and structured projection/state fields.
 
+### 6) Historical `/model` or slash-command history should not wedge readiness
+
+Symptoms:
+
+- a prior manual `/model` or other slash command is still visible in scrollback,
+- but the live prompt has already returned to a blank normal prompt,
+- and `send-prompt` or demo `send-turn` still appears to wait forever for readiness.
+
+Expected behavior:
+
+- recovered normal prompts should parse as `ui_context=normal_prompt`,
+- `accepts_input` should become `true`,
+- historical slash-command output may remain visible in `dialog_projection` without blocking submission.
+
+If readiness is still blocked, inspect `surface_assessment` first. The likely remaining causes are:
+
+- the active prompt is still actually in slash-command interaction,
+- the tool is waiting on a selection/approval surface,
+- or the snapshot no longer matches a supported output variant.
+
 ## Preset Overrides
 
 Use overrides only as a short-term mitigation while adding a new preset/fixture.

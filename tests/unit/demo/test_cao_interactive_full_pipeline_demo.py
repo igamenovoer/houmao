@@ -706,6 +706,84 @@ def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> No
     assert send_call[send_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
 
+def test_send_turn_succeeds_after_recovered_model_switch_history(tmp_path: Path) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    _seed_state(paths, active=True, turn_count=3)
+    paths.turns_dir.mkdir(parents=True, exist_ok=True)
+    for turn_index in range(1, 4):
+        record = _turn_record(paths, turn_index=turn_index)
+        (paths.turns_dir / f"turn-{turn_index:03d}.json").write_text(
+            record.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    def _runner(
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        timeout_seconds: float,
+    ) -> CommandResult:
+        del cwd, timeout_seconds
+        stdout = "\n".join(
+            [
+                json.dumps({"kind": "submitted", "message": "submitted"}),
+                json.dumps(
+                    {
+                        "kind": "done",
+                        "message": "Yes, there is a claude.md file.",
+                        "payload": {
+                            "surface_assessment": {
+                                "activity": "ready_for_input",
+                                "ui_context": "normal_prompt",
+                                "accepts_input": True,
+                                "evidence": ["SUPPORTED_OUTPUT_FAMILY", "IDLE_PROMPT_LINE"],
+                            },
+                            "dialog_projection": {
+                                "dialog_text": (
+                                    "/model\n"
+                                    "Set model to Default (claude-sonnet-4-6)\n"
+                                    "do we have claude.md\n"
+                                    "Yes, there is a claude.md file."
+                                )
+                            },
+                        },
+                    }
+                ),
+            ]
+        )
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        stderr_path.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path.write_text(stdout, encoding="utf-8")
+        stderr_path.write_text("", encoding="utf-8")
+        return CommandResult(
+            args=tuple(command),
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
+
+    turn = send_turn(
+        paths=paths,
+        env=env,
+        prompt="do we have claude.md",
+        run_command=_runner,
+    )
+
+    assert turn.turn_index == 4
+    assert turn.response_text == "Yes, there is a claude.md file."
+    assert turn.events[-1]["payload"]["surface_assessment"]["ui_context"] == "normal_prompt"
+    assert "/model" in turn.events[-1]["payload"]["dialog_projection"]["dialog_text"]
+
+    state = load_demo_state(paths.state_path)
+    assert state is not None
+    assert state.agent_identity == "AGENTSYS-demo"
+    assert state.turn_count == 4
+
+
 def test_main_inspect_with_output_text_passes_requested_tail_chars(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

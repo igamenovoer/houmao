@@ -367,6 +367,8 @@ For `shadow_only`, the runtime SHALL surface projected dialog data derived from 
 For `shadow_only`, success terminality SHALL require a return to `ready_for_input` plus either:
 - projected-dialog change observed after submit, or
 - post-submit observation of `working`.
+For `shadow_only`, readiness SHALL follow the currently active input surface rather than any historical slash-command line still visible in earlier scrollback. Completed slash-command or model-switch output that remains in the projected dialog SHALL NOT keep a later recovered normal prompt in a non-ready state.
+For `shadow_only`, an actually active slash-command or user-selection surface SHALL remain non-ready until the provider returns to a safe normal prompt or the runtime raises the corresponding waiting-user/readiness failure.
 
 The runtime SHALL NOT mix parser families in one turn. If a mode-specific parser/projection step fails, the turn SHALL fail without invoking the other mode in the same turn.
 The runtime SHALL NOT perform an automatic retry under the other parser mode after a mode-specific failure.
@@ -383,6 +385,18 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 - **AND THEN** the system sends direct terminal input only after a shadow-ready state is observed
 - **AND THEN** after turn completion the system surfaces projected dialog data and state/provenance metadata derived from `mode=full`
 - **AND THEN** the system does not require parser-owned prompt-associated answer extraction to complete the turn
+
+#### Scenario: Historical slash-command output does not block recovered shadow readiness
+- **WHEN** a developer previously used a slash command or manual model switch in a CAO-backed session
+- **AND WHEN** that slash-command echo or result is still visible in `output?mode=full`
+- **AND WHEN** the current provider surface has already returned to a normal prompt that accepts input
+- **THEN** the runtime treats the session as shadow-ready
+- **AND THEN** it sends the next direct terminal input instead of waiting for a different surface classification
+
+#### Scenario: Active slash-command surface remains non-ready
+- **WHEN** a `shadow_only` CAO-backed session is still showing an active slash-command surface or command-driven user-selection surface
+- **THEN** the runtime does not submit the next prompt
+- **AND THEN** it continues waiting or raises the corresponding readiness/waiting-user failure until the surface returns to a safe normal prompt
 
 #### Scenario: `shadow_only` does not complete on idle alone when no post-submit evidence exists
 - **WHEN** a `shadow_only` turn returns to `ready_for_input`

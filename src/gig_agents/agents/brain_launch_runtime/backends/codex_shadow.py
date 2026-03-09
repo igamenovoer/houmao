@@ -58,7 +58,6 @@ _PROCESSING_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(thinking|processing|generating|working|running|executing|analyzing|starting|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏)"
 )
 _TUI_PROGRESS_RE: Final[re.Pattern[str]] = re.compile(r"(?i)^\s*•.*\(\d+s\s*•\s*esc to interrupt\)")
-_SLASH_COMMAND_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*(?:[❯›>]\s*)?/[A-Za-z0-9_-]+\b")
 _ERROR_BANNER_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:error|failed|warning)\b")
 _DISCONNECTED_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(?:connection (?:lost|closed)|terminal detached|session ended|reconnect)"
@@ -253,11 +252,14 @@ class CodexShadowParser:
         tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
         waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
         has_processing = any(self._is_processing_line(line) for line in tail_lines)
-        has_idle_prompt = any(_IDLE_PROMPT_RE.match(line) for line in tail_lines)
+        active_prompt_payload = self._active_prompt_payload(tail_lines)
+        has_idle_prompt = active_prompt_payload is not None
         has_approval_prompt = _WAITING_APPROVAL_RE.search(clean_output) is not None or (
             _TRUST_PROMPT_RE.search(clean_output) is not None
         )
-        has_slash_command = _SLASH_COMMAND_RE.search(clean_output) is not None
+        has_slash_command = bool(
+            active_prompt_payload is not None and active_prompt_payload.startswith("/")
+        )
         has_error_banner = _ERROR_BANNER_RE.search(clean_output) is not None
         is_disconnected = _DISCONNECTED_RE.search(clean_output) is not None
         has_assistant_output = bool(self._assistant_matches(clean_output, baseline_pos=0))
@@ -527,6 +529,14 @@ class CodexShadowParser:
         if trimmed.startswith("codex>"):
             return trimmed[len("codex>") :].strip()
         return trimmed[1:].strip()
+
+    @staticmethod
+    def _active_prompt_payload(clean_tail_lines: list[str]) -> str | None:
+        for line in reversed(clean_tail_lines):
+            payload = CodexShadowParser._prompt_payload(line)
+            if payload is not None:
+                return payload
+        return None
 
     def _assistant_matches(self, clean_output: str, *, baseline_pos: int) -> list[_AssistantMatch]:
         matches: list[_AssistantMatch] = []
