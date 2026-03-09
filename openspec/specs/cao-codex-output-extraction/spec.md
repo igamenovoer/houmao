@@ -8,18 +8,20 @@ for Codex when using CAO as a transport layer.
 
 ### Requirement: Codex CAO output supports runtime shadow parsing mode
 For CAO provider `codex`, when a session runs in `parsing_mode=shadow_only`, the system SHALL treat CAO as a transport layer and derive both:
-1) Codex turn status (shadow status), and
-2) the last assistant message (answer text),
+1) Codex surface state, and
+2) projected dialog content,
 from `GET /terminals/{terminal_id}/output?mode=full`.
 
 In `parsing_mode=shadow_only`, the system SHALL NOT rely on:
 - CAO `GET /terminals/{terminal_id}` `status` for turn gating, or
-- CAO `mode=last` output for answer extraction.
+- CAO `mode=last` output for dialog projection.
 
-#### Scenario: Codex shadow mode uses only `mode=full` for gating and extraction
+In `parsing_mode=shadow_only`, the core Codex shadow parser SHALL NOT promise prompt-associated final answer extraction from `mode=full`.
+
+#### Scenario: Codex shadow mode uses only `mode=full` for state and projection
 - **WHEN** a Codex CAO-backed session runs with `parsing_mode=shadow_only`
-- **THEN** readiness/completion is classified from `output?mode=full`
-- **AND THEN** answer extraction is performed from `output?mode=full`
+- **THEN** readiness/completion is derived from runtime-owned Codex surface assessment over `mode=full`
+- **AND THEN** caller-facing dialog projection is derived from `mode=full`
 
 ### Requirement: Codex shadow parsing format contract is versioned and fails explicitly on mismatch
 For Codex `shadow_only` turns, the runtime SHALL use a versioned Codex shadow output format contract (for example `codex_shadow_v1`).
@@ -32,41 +34,63 @@ If `output?mode=full` does not match the expected format contract, the turn SHAL
 - **THEN** the turn fails with an explicit `unsupported_output_format` error
 - **AND THEN** the runtime does not attempt best-effort extraction or fall back to `cao_only` in that turn
 
-### Requirement: Codex shadow status is baseline-aware and output-driven
-The system SHALL compute Codex shadow status from `mode=full` output using a per-turn baseline captured before prompt submission so completion requires post-baseline assistant output.
-
-#### Scenario: Completion requires post-baseline response evidence
-- **WHEN** `mode=full` contains historical assistant output from prior turns
-- **AND WHEN** no new post-baseline assistant output exists for the current turn
-- **THEN** the system does not classify the turn as completed
-
-### Requirement: Codex shadow extraction returns plain assistant text only
-For Codex `shadow_only` turns, the runtime SHALL return extracted plain assistant text and SHALL NOT return raw tmux scrollback as the user-visible answer.
-
-#### Scenario: Extraction strips prompt/UI chrome from output
-- **WHEN** `mode=full` includes Codex prompts, footer chrome, or spinner lines around assistant content
-- **THEN** the extracted answer excludes those UI lines
-- **AND THEN** returned answer text is plain text suitable for caller consumption
-
 ### Requirement: Codex shadow parsing is a functional superset of upstream CAO provider behavior
-For CAO provider `codex`, when a session runs in `parsing_mode=shadow_only`, the runtime-owned Codex shadow parser SHALL support at least the same status detection and answer extraction behaviors as the upstream CAO Codex provider parser for all supported Codex output variants.
+For CAO provider `codex`, when a session runs in `parsing_mode=shadow_only`, the runtime-owned Codex shadow parser SHALL support at least the same status detection and dialog projection behaviors as the upstream CAO Codex provider parser for all supported Codex output variants.
 
 At minimum, the Codex shadow parser SHALL correctly handle:
 
 - label-style outputs that include `assistant:` markers, and
 - interactive/TUI-style outputs that include Codex prompt chrome and bullet-style assistant markers.
 
-#### Scenario: Label-style output is classified and extracted correctly
-- **WHEN** `output?mode=full` contains a Codex turn in a label-style format (for example `You ...` followed by `assistant: ...`)
-- **AND WHEN** the assistant response appears after the per-turn baseline
-- **THEN** shadow status is classified as `completed`
-- **AND THEN** extracted answer text includes only the assistant response content (no prompts, spinners, or footer chrome)
+#### Scenario: Label-style output is classified and projected correctly
+- **WHEN** `output?mode=full` contains a Codex turn in a label-style format
+- **THEN** shadow surface state is classified correctly for that snapshot
+- **AND THEN** projected dialog preserves assistant-visible content without prompt/footer chrome
 
-#### Scenario: TUI-style output is classified and extracted correctly
+#### Scenario: TUI-style output is classified and projected correctly
 - **WHEN** `output?mode=full` contains a Codex turn in an interactive/TUI-style format with prompt/footer chrome and a bullet-style assistant marker
-- **AND WHEN** the assistant response appears after the per-turn baseline
-- **THEN** shadow status is classified as `completed`
-- **AND THEN** extracted answer text includes only the assistant response content (no prompts, spinners, or footer chrome)
+- **THEN** shadow surface state is classified correctly for that snapshot
+- **AND THEN** projected dialog preserves assistant-visible content without prompt/footer chrome
+
+### Requirement: Codex shadow surface classification is output-driven and bounded
+The system SHALL compute Codex shadow surface state from `mode=full` output using a bounded provider-aware window and SHALL classify at least:
+
+- `working` when Codex processing evidence is present,
+- `waiting_user_answer` when Codex approval/selection UI is present,
+- `ready_for_input` when input-ready evidence is present and no higher-priority state matches, and
+- `unknown` when output matches a supported Codex output family but does not satisfy known safe state evidence.
+
+The provider SHALL surface `ui_context` through the Codex surface-assessment contract, including the shared `slash_command` context when applicable and Codex-specific contexts such as `approval_prompt`.
+
+#### Scenario: Ready state does not imply authoritative answer association
+- **WHEN** a Codex snapshot contains input-ready evidence and no higher-priority state evidence
+- **THEN** the system classifies the snapshot as `ready_for_input`
+- **AND THEN** that classification does not by itself claim that visible assistant text belongs to the most recent prompt submission
+
+#### Scenario: Codex slash-command UI is surfaced through the shared context vocabulary
+- **WHEN** a Codex snapshot shows slash-command or command-palette style UI
+- **THEN** the returned Codex surface assessment may use the shared `slash_command` `ui_context`
+- **AND THEN** Codex-specific contexts such as `approval_prompt` remain available for Codex-specific UI states
+
+### Requirement: Codex dialog projection returns normalized dialog content
+For Codex `shadow_only` turns, the runtime SHALL return normalized dialog projection and SHALL NOT return raw tmux scrollback as the caller-facing shadow-mode dialog surface.
+
+The projected dialog SHALL remove Codex-specific prompt/footer/spinner chrome while preserving essential visible dialog content.
+
+#### Scenario: Projection strips Codex UI chrome from the caller-facing dialog surface
+- **WHEN** `mode=full` includes Codex prompts, footer chrome, or spinner lines around visible dialog content
+- **THEN** the projected dialog excludes those UI lines
+- **AND THEN** the returned dialog surface preserves the essential visible dialog content
+
+### Requirement: Core Codex shadow parsing does not own prompt-to-answer association
+For Codex `shadow_only`, prompt-to-answer association SHALL be treated as a separate layer above the core shadow parser.
+
+The core Codex shadow parser MAY provide state, projection, metadata, and diagnostics, but SHALL NOT guarantee that projected dialog content is the authoritative final answer for the most recent prompt submission.
+
+#### Scenario: Historical visible content does not invalidate Codex projection contract
+- **WHEN** a Codex snapshot contains visible dialog from prior turns in addition to current-turn activity
+- **THEN** the parser still returns valid Codex surface assessment and dialog projection
+- **AND THEN** the parser does not claim that the projection uniquely identifies the answer to the most recent prompt
 
 ### Requirement: Codex waiting-user-answer is explicit in shadow mode
 For Codex in `parsing_mode=shadow_only`, if `output?mode=full` indicates that Codex is waiting for a user approval/selection prompt (for example a yes/no approval question), the runtime SHALL classify the shadow status as `waiting_user_answer` and SHALL fail the turn with an explicit waiting-user-answer error.

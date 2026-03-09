@@ -28,7 +28,7 @@ Important notes:
 
 1. Launch the tutorial agent with a wrapper that delegates to `run_demo.sh start --agent-name alice`.
 2. Persist session state, turn artifacts, and runtime metadata in one per-run workspace so follow-up commands reuse the same interactive session through the recorded current-run marker.
-3. Use `run_demo.sh inspect` whenever you want tmux attach and log-tail commands for the live session.
+3. Use `run_demo.sh inspect` whenever you want tmux attach and log-tail commands for the live session, plus the live Claude Code state.
 4. Stop explicitly when you are done; only maintainers need the optional `verify` step, and it remains a minimum two-turn regression check.
 
 ## Critical Example Code (Wrapper Workflow With Inline Comments)
@@ -37,8 +37,11 @@ Important notes:
 # 1) Launch or replace the tutorial session as alice.
 scripts/demo/cao-interactive-full-pipeline-demo/launch_alice.sh
 
-# 2) Show tmux and terminal-log commands for the active session.
+# 2) Show tmux, terminal-log, and live-state details for the active session.
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect
+
+# Optional: include the last 400 characters of clean projected Claude dialog text.
+scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect --with-output-text 400
 
 # 3) Send one inline prompt through the persisted session identity.
 scripts/demo/cao-interactive-full-pipeline-demo/send_prompt.sh \
@@ -58,16 +61,24 @@ scripts/demo/cao-interactive-full-pipeline-demo/launch_alice.sh
 
 The wrapper delegates through `run_demo.sh`, which reuses the pack's default workspace and environment settings. The persisted `state.json` will record the canonicalized runtime identity `AGENTSYS-alice`, even though the wrapper-friendly input name is `alice`.
 
-Expected JSON excerpt:
+During startup, the demo now prints short progress breadcrumbs to `stderr` as it prepares the workspace, ensures CAO availability, builds the brain, and waits for the interactive Claude session to become ready. By default the command finishes with a readable session summary on `stdout`; use `run_demo.sh start --agent-name alice --json` if you need the structured payload.
 
-```json
-{
-  "state": {
-    "active": true,
-    "agent_identity": "AGENTSYS-alice"
-  }
-}
+Expected output shape:
+
+```text
+Interactive CAO Demo Started
+
+Session Summary
+session_status: active
+agent_identity: AGENTSYS-alice
+terminal_id: <terminal-id>
+
+Commands
+tmux_attach: tmux attach -t AGENTSYS-alice
+terminal_log_tail: tail -f /abs/path/to/<run-root>/.aws/cli-agent-orchestrator/logs/terminal/<terminal-id>.log
 ```
+
+If Claude startup takes a while, expect recurring `stderr` wait messages explaining that the demo is still waiting for the interactive session to launch and become ready for input.
 
 By default, the launch flow creates a fresh run root under `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, writes state and logs there, and starts the interactive session from the nested git worktree at `<run-root>/wktree`.
 
@@ -86,13 +97,30 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect
 Expected output shape:
 
 ```text
-active: True
+Interactive CAO Demo Inspect
+
+Session Summary
+session_status: active
+claude_code_state: idle
 agent_identity: AGENTSYS-alice
+terminal_id: <terminal-id>
+
+Commands
 tmux_attach: tmux attach -t AGENTSYS-alice
-terminal_log_tail: tail -f ~/.aws/cli-agent-orchestrator/logs/terminal/<terminal-id>.log
+terminal_log_tail: tail -f /abs/path/to/<run-root>/.aws/cli-agent-orchestrator/logs/terminal/<terminal-id>.log
 ```
 
-This is the advanced interface mentioned throughout the tutorial. The new wrappers and `run_demo.sh inspect` operate on the current run root recorded under `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt`.
+This is the advanced interface mentioned throughout the tutorial. The wrappers and `run_demo.sh inspect` operate on the current run root recorded under `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt`, and the printed `tail -f` command resolves from the active launcher's effective home directory instead of assuming your login-shell `~/.aws/...` tree.
+
+When the live CAO terminal is still reachable, `claude_code_state` reflects the current CAO terminal status such as `idle`, `processing`, `waiting_user_answer`, `completed`, or `error`. If the live lookup is unavailable, `inspect` still prints the persisted metadata and falls back to `claude_code_state: unknown`.
+
+If you want a clean text tail from the current Claude UI without raw ANSI or tmux scrollback noise, request it explicitly:
+
+```bash
+scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect --with-output-text 500
+```
+
+That option fetches live CAO `mode=full` output, projects it through the runtime-owned Claude dialog parser, and prints only the last requested characters as `output_text_tail`. If live output or projection is unavailable, the command keeps the normal inspect metadata and reports that the clean output-text tail is unavailable instead of falling back to raw scrollback.
 
 ## Step 3: Send Prompts Manually
 

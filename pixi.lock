@@ -402,7 +402,7 @@ packages:
 - pypi: ./
   name: gig-agents
   version: 0.1.0
-  sha256: 7b1ecaa25a757ef8385cc7e9e155ce09e4a0b20735917ff717c2785bf6b18eb1
+  sha256: 1115006634ae6ee165ccbc9cf1ad4f031d175cee310487de2d979809e5e1a260
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7
@@ -415,6 +415,7 @@ packages:
   - pytest
   - mdutils>=1.8.1,<2
   - reactivex>=4.1.0,<5
+  - rich>=14.3.3,<15
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/c6/50/e0edd38dcd63fb26a8547f13d28f7a008bc4a3fd4eb4ff030673f22ad41a/hydra_core-1.3.2-py3-none-any.whl
   name: hydra-core

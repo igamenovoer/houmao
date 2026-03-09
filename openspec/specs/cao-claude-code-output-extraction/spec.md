@@ -2,27 +2,28 @@
 
 ### Requirement: Claude Code CAO output is parsed by a runtime shadow provider
 For CAO provider `claude_code`, when a session runs in `parsing_mode=shadow_only`, the system SHALL treat CAO as a transport layer and derive both:
-1) Claude Code turn status (shadow status), and
-2) the last assistant message (answer text),
+1) Claude Code surface state, and
+2) projected dialog content,
 from `GET /terminals/{terminal_id}/output?mode=full`.
 
 In `parsing_mode=shadow_only`, the system SHALL NOT rely on:
 - CAO `GET /terminals/{terminal_id}` `status` for turn gating, or
-- CAO `mode=last` output for answer extraction,
-because those behaviors are derived from upstream regexes that are known to drift.
+- CAO `mode=last` output for dialog projection.
 
-In `parsing_mode=cao_only`, the runtime SHALL NOT invoke Claude shadow parsing for turn gating or extraction.
+In `parsing_mode=shadow_only`, the core Claude shadow parser SHALL NOT promise prompt-associated final answer extraction from `mode=full`.
+
+In `parsing_mode=cao_only`, the runtime SHALL NOT invoke Claude shadow parsing for turn gating or projection.
 In `parsing_mode=cao_only`, Claude turns use the CAO-native path: readiness/completion is derived from CAO terminal status and answer extraction uses `output?mode=last`.
 
-#### Scenario: Shadow mode keeps Claude gating/output extraction runtime-owned
+#### Scenario: Shadow mode keeps Claude state/projection runtime-owned
 - **WHEN** a Claude CAO-backed session runs with `parsing_mode=shadow_only`
-- **THEN** readiness/completion is derived from runtime shadow status over `mode=full`
-- **AND THEN** answer extraction uses runtime shadow parsing over `mode=full`
+- **THEN** readiness/completion is derived from runtime-owned Claude surface assessment over `mode=full`
+- **AND THEN** caller-facing dialog projection is derived from runtime-owned Claude projection over `mode=full`
 
 #### Scenario: CAO-only mode uses CAO-native gating/extraction and does not invoke Claude shadow parser
 - **WHEN** a Claude CAO-backed session runs with `parsing_mode=cao_only`
 - **THEN** readiness/completion uses CAO terminal status and answer extraction uses `output?mode=last`
-- **AND THEN** Claude shadow parser logic is not used for gating or extraction in that turn
+- **AND THEN** Claude shadow parser logic is not used for gating or projection in that turn
 - **AND THEN** parser-mode switching requires a new mode selection outside that turn
 
 ### Requirement: Claude shadow parsing mode does not mix parser families in one turn
@@ -79,23 +80,31 @@ When resolving a Claude Code parsing preset based on a detected version signatur
 - **AND THEN** parser metadata includes an explicit anomaly indicating the version mismatch
 
 ### Requirement: Shadow status classification is output-driven and bounded
-The system SHALL compute shadow status for Claude Code from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
+The system SHALL compute Claude Code shadow surface state from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
 
 The system SHALL classify at least:
-- `processing` when a preset-recognized spinner line ending with `…` is present,
-- `waiting_user_answer` when selection UI is present, and
-- `completed` when an idle prompt is present and a preset-recognized response marker appears after the current-turn baseline, and
-- `idle` when an idle prompt is present and no higher-priority state matches.
+- `working` when preset-recognized spinner/progress evidence is present,
+- `waiting_user_answer` when selection UI is present,
+- `ready_for_input` when idle/input-ready evidence is present and no higher-priority state matches, and
+- `unknown` when output matches a supported Claude output family but does not satisfy known safe state evidence.
+
+The provider SHALL surface `ui_context` through the Claude surface-assessment contract, including the shared `slash_command` context when applicable and Claude-specific contexts such as `trust_prompt`.
+Those context details SHALL NOT imply prompt-associated answer extraction.
 
 #### Scenario: Status checks avoid stale scrollback false positives
 - **WHEN** the tmux scrollback contains an old spinner line from a previous turn
 - **AND WHEN** the bounded tail window for the current status check does not include that spinner line
-- **THEN** the system does not classify the terminal as `processing` based on stale output
+- **THEN** the system does not classify the terminal as `working` based on stale output
 
-#### Scenario: Completed shadow state requires a post-baseline response marker
-- **WHEN** the tmux scrollback contains an idle prompt
-- **AND WHEN** the tmux scrollback contains a preset-recognized response marker that appears after the current-turn baseline
-- **THEN** the system classifies the terminal as `completed`
+#### Scenario: Ready state does not imply authoritative answer association
+- **WHEN** the tmux scrollback contains idle/input-ready evidence
+- **THEN** the system classifies the snapshot as `ready_for_input` when no higher-priority state matches
+- **AND THEN** that state classification does not by itself claim that a visible answer belongs to the most recent prompt submission
+
+#### Scenario: Slash-command UI is surfaced as shared context without implying answer ownership
+- **WHEN** a Claude snapshot shows slash-command or command-palette UI
+- **THEN** the returned Claude surface assessment may use the shared `slash_command` `ui_context`
+- **AND THEN** that context classification does not imply prompt-associated answer extraction
 
 ### Requirement: Claude shadow status supports explicit unknown classification
 For Claude Code in `parsing_mode=shadow_only`, if output matches a supported Claude output family but does not satisfy known status evidence for `processing`, `waiting_user_answer`, `completed`, or `idle`, the runtime-owned Claude shadow parser SHALL classify the snapshot status as `unknown`.
@@ -128,30 +137,38 @@ For Claude stalled handling:
 - **AND WHEN** `stalled_is_terminal=true`
 - **THEN** runtime returns an explicit stalled-state failure with parser-family context and tail excerpt
 
-### Requirement: Answer extraction from `mode=full` is preset-scoped, ANSI-stripped, and prompt-bounded
-When extracting the last assistant message for Claude Code from `mode=full` output, the system SHALL:
-1) locate the last assistant response marker match from the resolved parsing preset (for example `●` in newer versions, `⏺` in older versions),
-2) ensure the match is associated with the current turn by applying a baseline cursor captured at prompt submission time, and
-3) extract assistant message text until the next extraction stop boundary, returning plain text with ANSI escape codes removed.
+### Requirement: Claude dialog projection from `mode=full` is preset-scoped, ANSI-stripped, and UI-bounded
+When projecting Claude Code dialog content from `mode=full` output, the system SHALL:
+1) resolve the active parsing preset,
+2) strip ANSI and provider-specific TUI chrome, and
+3) preserve essential visible dialog content without promising prompt-specific answer association.
 
-Baseline cursor representation:
-- Before prompt submission, capture `baseline_pos` as the character offset of the end of the last response marker match in the current `mode=full` output (or `0` if no match exists).
-- If later `mode=full` output is shorter than `baseline_pos` (scrollback reset/truncation), the system SHALL treat the baseline as invalidated and use a safe fallback to avoid extracting an earlier-turn response.
+Projection boundaries SHALL be provider-aware and preset-scoped so version-specific prompt lines, separators, menu chrome, and spinner output can be removed consistently.
 
-Assistant response marker matching SHALL treat markers as a line-start prefix (after optional ANSI), and SHALL require following whitespace.
+#### Scenario: Projection removes Claude prompt chrome but preserves visible dialog
+- **WHEN** tmux scrollback contains Claude prompt lines, ANSI styling, separators, and visible dialog content
+- **THEN** the projected dialog excludes the prompt/UI chrome
+- **AND THEN** the projected dialog preserves the visible dialog content in order
 
-Extraction stop boundaries SHALL include:
-- an idle prompt line defined by the resolved parsing preset, detected by matching against the ANSI-stripped form of the line (to handle ANSI-prefixed prompts), and
-- a separator line containing `────────`.
+### Requirement: Core Claude shadow parsing does not own prompt-to-answer association
+For Claude Code `shadow_only`, prompt-to-answer association SHALL be treated as a separate layer above the core shadow parser.
 
-#### Scenario: Extraction stops at an ANSI-prefixed `❯` prompt
-- **WHEN** tmux scrollback contains a Claude Code response followed by an `❯` idle prompt line that is ANSI-prefixed and additional UI chrome
-- **THEN** the extracted answer excludes the prompt line and any subsequent UI chrome
+The core Claude shadow parser MAY provide state, projection, metadata, and diagnostics, but SHALL NOT guarantee that projected dialog content is the authoritative final answer for the most recent prompt submission.
+
+#### Scenario: Historical visible content does not invalidate projection contract
+- **WHEN** a Claude snapshot contains visible dialog from prior turns in addition to current-turn activity
+- **THEN** the parser still returns valid Claude surface assessment and dialog projection
+- **AND THEN** the parser does not claim that the projection uniquely identifies the answer to the most recent prompt
 
 ### Requirement: Waiting-user-answer is surfaced as an explicit error
 If the system detects `waiting_user_answer` for Claude Code during a turn, it SHALL fail the turn with an explicit error and include an ANSI-stripped excerpt showing the selection options.
 
 ### Requirement: Runtime does not return raw tmux scrollback as the answer
-For Claude Code, the system SHALL not return raw `mode=full` tmux output as the user-facing answer text.
+For Claude Code in `parsing_mode=shadow_only`, the system SHALL not return raw `mode=full` tmux output as caller-facing projected dialog content.
 
-If extraction fails, the system SHALL surface a clear extraction failure instead of returning a styled transcript.
+The system SHALL return normalized dialog projection instead, and SHALL NOT represent that projection as the authoritative final answer for the current prompt unless a separate answer-association layer explicitly does so.
+
+#### Scenario: Completed shadow turn returns projection instead of raw tmux output
+- **WHEN** a Claude `shadow_only` turn reaches runtime completion
+- **THEN** the caller-facing payload contains normalized dialog projection rather than raw `mode=full` tmux scrollback
+- **AND THEN** the payload does not claim authoritative prompt-associated answer extraction by default

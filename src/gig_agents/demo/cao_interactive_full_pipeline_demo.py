@@ -45,6 +45,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from gig_agents.agents.brain_launch_runtime.agent_identity import (
     normalize_agent_identity_name,
 )
+from gig_agents.agents.brain_launch_runtime.backends.claude_code_shadow import (
+    ClaudeCodeShadowParser,
+)
+from gig_agents.cao.rest_client import CaoRestClient
 
 FIXED_CAO_BASE_URL = "http://127.0.0.1:9889"
 DEFAULT_AGENT_NAME = "cao-interactive-demo"
@@ -57,10 +61,14 @@ DEFAULT_WORKTREE_DIRNAME = "wktree"
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_TOOL_NAME = "claude"
 DEFAULT_SKILLS: tuple[str, ...] = ("openspec-apply-change",)
-DEFAULT_TERMINAL_LOG_ROOT = "~/.aws/cli-agent-orchestrator/logs/terminal"
+DEFAULT_LIVE_CAO_TIMEOUT_SECONDS = 5.0
+DEFAULT_STARTUP_HEARTBEAT_INITIAL_DELAY_SECONDS = 2.0
+DEFAULT_STARTUP_HEARTBEAT_INTERVAL_SECONDS = 5.0
+DEFAULT_TERMINAL_LOG_RELATIVE_DIR = Path(".aws") / "cli-agent-orchestrator" / "logs" / "terminal"
 PORT_LISTEN_STATE = "0A"
 CURRENT_RUN_ROOT_FILENAME = "current_run_root.txt"
 EMPTY_RESPONSE_ERROR = "interactive CAO turn returned an empty response"
+UNKNOWN_CLAUDE_CODE_STATE = "unknown"
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "agent not found",
     "does not exist",
@@ -190,6 +198,7 @@ class VerificationReport(_StrictModel):
     session_manifest: str
     workspace_dir: str
     tmux_target: str
+    terminal_id: str
     terminal_log_path: str
     generated_at_utc: str
 
@@ -202,6 +211,7 @@ class VerificationReport(_StrictModel):
         "session_manifest",
         "workspace_dir",
         "tmux_target",
+        "terminal_id",
         "terminal_log_path",
         "generated_at_utc",
     )
@@ -281,10 +291,19 @@ class CommandResult:
     stderr_path: Path
 
 
+@dataclass(frozen=True)
+class OutputTextTailResult:
+    """Best-effort clean output-tail payload for `inspect`."""
+
+    output_text_tail: str | None
+    note: str | None
+
+
 CommandRunner: TypeAlias = Callable[
     [Sequence[str], Path, Path, Path, float],
     CommandResult,
 ]
+ProgressWriter: TypeAlias = Callable[[str], None]
 _ModelT = TypeVar("_ModelT", bound="_StrictModel")
 
 
@@ -323,7 +342,10 @@ def main(
                 agent_name=str(args.agent_name),
                 run_command=runner,
             )
-            _print_json(payload)
+            if bool(getattr(args, "json", False)):
+                _print_json(payload)
+            else:
+                print(_render_start_output(payload=payload))
             return 0
         if args.command == "send-turn":
             turn = send_turn(
@@ -335,7 +357,11 @@ def main(
             _print_json(turn.model_dump(mode="json"))
             return 0
         if args.command == "inspect":
-            inspect_demo(paths=paths, as_json=bool(args.json))
+            inspect_demo(
+                paths=paths,
+                as_json=bool(args.json),
+                output_text_tail_chars=getattr(args, "with_output_text", None),
+            )
             return 0
         if args.command == "verify":
             report = verify_demo(paths=paths)
@@ -366,13 +392,16 @@ def start_demo(
 ) -> dict[str, object]:
     """Start or replace the interactive CAO demo session."""
 
+    _emit_startup_progress("Preparing the interactive demo workspace.")
     _require_tool("pixi")
     _require_tool("tmux")
     _ensure_workspace(paths)
     if env.provision_worktree:
+        _emit_startup_progress("Provisioning the default demo git worktree.")
         _provision_default_worktree(paths=paths, env=env, run_command=run_command)
 
     normalized_identity = normalize_agent_identity_name(agent_name)
+    _emit_startup_progress("Resetting any previous interactive demo session state.")
     replaced_agent_identity = _reset_demo_startup_state(
         paths=paths,
         env=env,
@@ -381,10 +410,14 @@ def start_demo(
     )
 
     _reset_turn_artifacts(paths)
+    _emit_startup_progress("Writing the fixed-loopback CAO launcher configuration.")
     _write_launcher_config(paths.launcher_config_path, env=env, runtime_root=paths.runtime_root)
+    _emit_startup_progress(f"Ensuring local CAO availability at {FIXED_CAO_BASE_URL}.")
     _ensure_cao_server(paths=paths, env=env, run_command=run_command)
 
+    _emit_startup_progress("Building the Claude runtime brain for the interactive demo.")
     build_payload = _build_brain(paths=paths, env=env, run_command=run_command)
+    _emit_startup_progress("Launching the interactive Claude session and waiting for readiness.")
     runtime_payload = _start_runtime_session(
         paths=paths,
         env=env,
@@ -418,7 +451,10 @@ def start_demo(
         session_name=session_name,
         tmux_target=session_name,
         terminal_id=terminal_id,
-        terminal_log_path=_terminal_log_path(terminal_id),
+        terminal_log_path=_terminal_log_path(
+            terminal_id,
+            launcher_home_dir=env.launcher_home_dir,
+        ),
         runtime_root=str(paths.runtime_root),
         workspace_dir=str(paths.workspace_root),
         brain_home=str(Path(str(build_payload["home_path"])).expanduser().resolve()),
@@ -506,7 +542,12 @@ def send_turn(
     return turn
 
 
-def inspect_demo(*, paths: DemoPaths, as_json: bool) -> None:
+def inspect_demo(
+    *,
+    paths: DemoPaths,
+    as_json: bool,
+    output_text_tail_chars: int | None = None,
+) -> None:
     """Render stored inspection metadata for the active or latest session."""
 
     state = load_demo_state(paths.state_path)
@@ -515,34 +556,45 @@ def inspect_demo(*, paths: DemoPaths, as_json: bool) -> None:
             "No interactive demo state was found. Run `start` before `inspect`."
         )
 
-    payload = {
+    terminal_log_path = _resolved_terminal_log_path_for_state(state)
+    client = CaoRestClient(
+        state.cao_base_url,
+        timeout_seconds=DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
+    )
+    payload: dict[str, object] = {
         "active": state.active,
+        "session_status": "active" if state.active else "inactive",
         "agent_identity": state.agent_identity,
+        "session_name": state.session_name,
+        "claude_code_state": _best_effort_claude_code_state(
+            terminal_id=state.terminal_id,
+            client=client,
+        ),
         "session_manifest": state.session_manifest,
         "tmux_target": state.tmux_target,
         "tmux_attach_command": f"tmux attach -t {state.tmux_target}",
         "terminal_id": state.terminal_id,
-        "terminal_log_path": state.terminal_log_path,
-        "terminal_log_tail_command": f"tail -f {state.terminal_log_path}",
+        "terminal_log_path": terminal_log_path,
+        "terminal_log_tail_command": f"tail -f {terminal_log_path}",
         "workspace_dir": state.workspace_dir,
         "runtime_root": state.runtime_root,
         "updated_at": state.updated_at,
     }
+    if output_text_tail_chars is not None:
+        output_text_tail = _best_effort_output_text_tail(
+            terminal_id=state.terminal_id,
+            output_text_tail_chars=output_text_tail_chars,
+            client=client,
+        )
+        payload["output_text_tail_chars_requested"] = output_text_tail_chars
+        payload["output_text_tail"] = output_text_tail.output_text_tail
+        if output_text_tail.note is not None:
+            payload["output_text_tail_note"] = output_text_tail.note
     if as_json:
         _print_json(payload)
         return
 
-    lines = [
-        f"active: {state.active}",
-        f"agent_identity: {state.agent_identity}",
-        f"session_manifest: {state.session_manifest}",
-        f"tmux_attach: tmux attach -t {state.tmux_target}",
-        f"terminal_log_tail: tail -f {state.terminal_log_path}",
-        f"workspace_dir: {state.workspace_dir}",
-        f"runtime_root: {state.runtime_root}",
-        f"updated_at: {state.updated_at}",
-    ]
-    print("\n".join(lines))
+    print(_render_human_inspect_output(payload=payload))
 
 
 def verify_demo(*, paths: DemoPaths) -> VerificationReport:
@@ -593,7 +645,8 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
         session_manifest=state.session_manifest,
         workspace_dir=state.workspace_dir,
         tmux_target=state.tmux_target,
-        terminal_log_path=state.terminal_log_path,
+        terminal_id=state.terminal_id,
+        terminal_log_path=_resolved_terminal_log_path_for_state(state),
         generated_at_utc=_utc_now(),
     )
     _write_json_file(paths.report_path, report.model_dump(mode="json"))
@@ -713,6 +766,75 @@ def run_subprocess_command(
     )
 
 
+def _run_subprocess_command_with_wait_feedback(
+    command: Sequence[str],
+    cwd: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout_seconds: float,
+    *,
+    waiting_message: str,
+    initial_delay_seconds: float = DEFAULT_STARTUP_HEARTBEAT_INITIAL_DELAY_SECONDS,
+    heartbeat_interval_seconds: float = DEFAULT_STARTUP_HEARTBEAT_INTERVAL_SECONDS,
+    progress_writer: ProgressWriter | None = None,
+) -> CommandResult:
+    """Run a subprocess while emitting recurring wait feedback on stderr."""
+
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    stderr_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = progress_writer or _emit_startup_progress
+    started_at = time.monotonic()
+    deadline = started_at + timeout_seconds
+    next_heartbeat = started_at + max(initial_delay_seconds, 0.0)
+    heartbeat_interval = max(heartbeat_interval_seconds, 0.1)
+
+    try:
+        with (
+            stdout_path.open("w", encoding="utf-8") as stdout_handle,
+            stderr_path.open("w", encoding="utf-8") as stderr_handle,
+        ):
+            process = subprocess.Popen(
+                list(command),
+                cwd=str(cwd),
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                text=True,
+            )
+            while True:
+                returncode = process.poll()
+                if returncode is not None:
+                    break
+
+                now = time.monotonic()
+                if now >= deadline:
+                    process.kill()
+                    process.wait()
+                    raise DemoWorkflowError(
+                        f"Command timed out after {timeout_seconds:.1f}s: `{_join_command(command)}`."
+                    )
+
+                if now >= next_heartbeat:
+                    elapsed = _format_elapsed_seconds(now - started_at)
+                    writer(f"{waiting_message} (elapsed: {elapsed})")
+                    next_heartbeat = now + heartbeat_interval
+
+                sleep_seconds = min(0.2, max(0.01, min(deadline - now, next_heartbeat - now)))
+                time.sleep(sleep_seconds)
+    except FileNotFoundError as exc:
+        raise DemoWorkflowError(f"Command not found: `{command[0]}`.") from exc
+
+    stdout = stdout_path.read_text(encoding="utf-8")
+    stderr = stderr_path.read_text(encoding="utf-8")
+    return CommandResult(
+        args=tuple(str(part) for part in command),
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for the interactive demo."""
 
@@ -799,6 +921,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_AGENT_NAME,
         help="Operator-facing agent identity name (canonicalized to AGENTSYS-...).",
     )
+    start.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
     send_turn_parser = subparsers.add_parser(
         "send-turn", help="Send one prompt to the active interactive session"
@@ -809,6 +932,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     inspect = subparsers.add_parser("inspect", help="Show tmux/log inspection commands")
     inspect.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    inspect.add_argument(
+        "--with-output-text",
+        type=_positive_int,
+        metavar="NUM_TAIL_CHARS",
+        help=(
+            "Include the last NUM_TAIL_CHARS of clean projected Claude dialog text "
+            "from the live CAO terminal."
+        ),
+    )
 
     subparsers.add_parser("verify", help="Generate a verification report from recorded turns")
     subparsers.add_parser("stop", help="Stop the active interactive session")
@@ -1577,13 +1709,28 @@ def _start_runtime_session(
             agent_identity,
         ]
     )
-    result = run_command(
-        command,
-        env.repo_root,
-        paths.logs_dir / "start-session.stdout",
-        paths.logs_dir / "start-session.stderr",
-        env.timeout_seconds,
-    )
+    stdout_path = paths.logs_dir / "start-session.stdout"
+    stderr_path = paths.logs_dir / "start-session.stderr"
+    if run_command is run_subprocess_command:
+        result = _run_subprocess_command_with_wait_feedback(
+            command,
+            env.repo_root,
+            stdout_path,
+            stderr_path,
+            env.timeout_seconds,
+            waiting_message=(
+                "Still waiting for the interactive Claude session to launch and become "
+                "ready for input."
+            ),
+        )
+    else:
+        result = run_command(
+            command,
+            env.repo_root,
+            stdout_path,
+            stderr_path,
+            env.timeout_seconds,
+        )
     if result.returncode != 0:
         raise DemoWorkflowError(
             f"Failed to start the interactive CAO session (see `{result.stderr_path}`)."
@@ -1666,10 +1813,234 @@ def _cao_profile_store(launcher_home_dir: Path) -> Path:
     return launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "agent-store"
 
 
-def _terminal_log_path(terminal_id: str) -> str:
-    """Return the conventional CAO terminal log path for a terminal id."""
+def _terminal_log_path(terminal_id: str, *, launcher_home_dir: Path) -> str:
+    """Return the CAO terminal log path under the effective launcher home."""
 
-    return f"{DEFAULT_TERMINAL_LOG_ROOT}/{terminal_id}.log"
+    return str(
+        (
+            launcher_home_dir.expanduser().resolve()
+            / DEFAULT_TERMINAL_LOG_RELATIVE_DIR
+            / f"{terminal_id}.log"
+        )
+    )
+
+
+def _resolved_terminal_log_path_for_state(state: DemoState) -> str:
+    """Resolve the effective terminal log path for persisted demo state."""
+
+    launcher_home_dir = _launcher_home_dir_from_cao_profile_store(state.cao_profile_store)
+    if launcher_home_dir is None:
+        return str(Path(state.terminal_log_path).expanduser())
+    return _terminal_log_path(state.terminal_id, launcher_home_dir=launcher_home_dir)
+
+
+def _launcher_home_dir_from_cao_profile_store(cao_profile_store: str) -> Path | None:
+    """Infer launcher home from the persisted CAO profile-store path."""
+
+    profile_store = Path(cao_profile_store).expanduser()
+    if profile_store.name != "agent-store":
+        return None
+    if profile_store.parent.name != "cli-agent-orchestrator":
+        return None
+    if profile_store.parent.parent.name != ".aws":
+        return None
+    return profile_store.parent.parent.parent
+
+
+def _best_effort_claude_code_state(*, terminal_id: str, client: CaoRestClient) -> str:
+    """Return live CAO terminal status or `unknown` when lookup fails."""
+
+    try:
+        terminal = client.get_terminal(terminal_id)
+    except Exception:
+        return UNKNOWN_CLAUDE_CODE_STATE
+    if terminal.status is None:
+        return UNKNOWN_CLAUDE_CODE_STATE
+    return terminal.status.value
+
+
+def _best_effort_output_text_tail(
+    *,
+    terminal_id: str,
+    output_text_tail_chars: int,
+    client: CaoRestClient,
+) -> OutputTextTailResult:
+    """Return a clean projected Claude dialog tail for live inspection."""
+
+    try:
+        terminal_output = client.get_terminal_output(terminal_id, mode="full")
+    except Exception as exc:
+        return OutputTextTailResult(
+            output_text_tail=None,
+            note=(
+                "clean projected Claude dialog tail unavailable: "
+                f"live CAO output could not be fetched ({exc})"
+            ),
+        )
+
+    try:
+        parsed_snapshot = ClaudeCodeShadowParser().parse_snapshot(
+            terminal_output.output,
+            baseline_pos=0,
+        )
+    except Exception as exc:
+        return OutputTextTailResult(
+            output_text_tail=None,
+            note=(f"clean projected Claude dialog tail unavailable: projection failed ({exc})"),
+        )
+
+    if parsed_snapshot.surface_assessment.availability != "supported":
+        return OutputTextTailResult(
+            output_text_tail=None,
+            note=(
+                "clean projected Claude dialog tail unavailable: "
+                "live output did not match a supported Claude surface"
+            ),
+        )
+
+    dialog_text = parsed_snapshot.dialog_projection.dialog_text
+    return OutputTextTailResult(
+        output_text_tail=dialog_text[-output_text_tail_chars:],
+        note=None,
+    )
+
+
+def _render_human_inspect_output(*, payload: dict[str, object]) -> str:
+    """Render a human-readable inspect surface from the machine payload."""
+
+    lines = [
+        "Interactive CAO Demo Inspect",
+        "",
+        "Session Summary",
+        f"session_status: {payload['session_status']}",
+        f"claude_code_state: {payload['claude_code_state']}",
+        f"agent_identity: {payload['agent_identity']}",
+        f"terminal_id: {payload['terminal_id']}",
+        f"last_updated: {payload['updated_at']}",
+        "",
+        "Commands",
+        f"tmux_attach: {payload['tmux_attach_command']}",
+        f"terminal_log_tail: {payload['terminal_log_tail_command']}",
+        "",
+        "Artifacts",
+        f"session_manifest: {payload['session_manifest']}",
+        f"terminal_log_path: {payload['terminal_log_path']}",
+        f"workspace_dir: {payload['workspace_dir']}",
+        f"runtime_root: {payload['runtime_root']}",
+    ]
+
+    output_text_tail_chars = payload.get("output_text_tail_chars_requested")
+    if isinstance(output_text_tail_chars, int):
+        lines.extend(["", f"Output Text Tail (last {output_text_tail_chars} chars)"])
+        note = payload.get("output_text_tail_note")
+        if isinstance(note, str) and note.strip():
+            lines.append(note)
+        else:
+            output_text_tail = payload.get("output_text_tail")
+            if isinstance(output_text_tail, str) and output_text_tail:
+                lines.extend(_indented_lines(output_text_tail))
+            else:
+                lines.append("  <empty>")
+
+    return "\n".join(lines)
+
+
+def _render_start_output(*, payload: dict[str, object]) -> str:
+    """Render a human-readable startup success surface."""
+
+    state = _require_mapping(payload.get("state"), context="start payload missing state")
+    agent_identity = _require_non_empty_string(
+        state.get("agent_identity"),
+        context="start payload missing state.agent_identity",
+    )
+    tmux_target = _require_non_empty_string(
+        state.get("tmux_target"),
+        context="start payload missing state.tmux_target",
+    )
+    terminal_id = _require_non_empty_string(
+        state.get("terminal_id"),
+        context="start payload missing state.terminal_id",
+    )
+    terminal_log_path = _require_non_empty_string(
+        state.get("terminal_log_path"),
+        context="start payload missing state.terminal_log_path",
+    )
+    session_manifest = _require_non_empty_string(
+        state.get("session_manifest"),
+        context="start payload missing state.session_manifest",
+    )
+    workspace_dir = _require_non_empty_string(
+        state.get("workspace_dir"),
+        context="start payload missing state.workspace_dir",
+    )
+    runtime_root = _require_non_empty_string(
+        state.get("runtime_root"),
+        context="start payload missing state.runtime_root",
+    )
+    brain_manifest = _require_non_empty_string(
+        state.get("brain_manifest"),
+        context="start payload missing state.brain_manifest",
+    )
+    launcher_config_path = _require_non_empty_string(
+        state.get("launcher_config_path"),
+        context="start payload missing state.launcher_config_path",
+    )
+    cao_base_url = _require_non_empty_string(
+        state.get("cao_base_url"),
+        context="start payload missing state.cao_base_url",
+    )
+    updated_at = _require_non_empty_string(
+        state.get("updated_at"),
+        context="start payload missing state.updated_at",
+    )
+
+    lines = [
+        "Interactive CAO Demo Started",
+        "",
+        "Session Summary",
+        "session_status: active",
+        f"agent_identity: {agent_identity}",
+        f"terminal_id: {terminal_id}",
+        f"cao_base_url: {cao_base_url}",
+        f"last_updated: {updated_at}",
+        "",
+        "Commands",
+        f"tmux_attach: tmux attach -t {tmux_target}",
+        f"terminal_log_tail: tail -f {terminal_log_path}",
+        "",
+        "Artifacts",
+        f"session_manifest: {session_manifest}",
+        f"brain_manifest: {brain_manifest}",
+        f"workspace_dir: {workspace_dir}",
+        f"runtime_root: {runtime_root}",
+        f"launcher_config_path: {launcher_config_path}",
+    ]
+
+    replaced_previous_agent_identity = payload.get("replaced_previous_agent_identity")
+    warnings = payload.get("warnings")
+    notes: list[str] = []
+    if (
+        isinstance(replaced_previous_agent_identity, str)
+        and replaced_previous_agent_identity.strip()
+    ):
+        notes.append(f"replaced_previous_agent_identity: {replaced_previous_agent_identity}")
+    if isinstance(warnings, list):
+        for warning in warnings:
+            if isinstance(warning, str) and warning.strip():
+                notes.append(f"warning: {warning}")
+    if notes:
+        lines.extend(["", "Notes", *notes])
+
+    return "\n".join(lines)
+
+
+def _indented_lines(text: str) -> list[str]:
+    """Indent multi-line text for human-readable inspect output."""
+
+    lines = text.splitlines()
+    if not lines:
+        return ["  <empty>"]
+    return [f"  {line}" for line in lines]
 
 
 def _parse_events(*, stdout: str) -> list[dict[str, object]]:
@@ -1764,6 +2135,32 @@ def _join_command(command: Sequence[str]) -> str:
     """Render a subprocess command for diagnostic messages."""
 
     return " ".join(command)
+
+
+def _emit_startup_progress(message: str) -> None:
+    """Print one operator-facing startup progress line on stderr."""
+
+    print(f"[interactive-demo:start] {message}", file=sys.stderr, flush=True)
+
+
+def _format_elapsed_seconds(elapsed_seconds: float) -> str:
+    """Render elapsed time for startup progress heartbeats."""
+
+    if elapsed_seconds < 10.0:
+        return f"{elapsed_seconds:.1f}s"
+    return f"{elapsed_seconds:.0f}s"
+
+
+def _positive_int(raw_value: str) -> int:
+    """Parse a strictly positive integer CLI flag value."""
+
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("expected a positive integer")
+    return parsed
 
 
 def _print_json(payload: dict[str, object]) -> None:

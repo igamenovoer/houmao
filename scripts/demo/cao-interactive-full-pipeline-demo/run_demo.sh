@@ -30,12 +30,15 @@ Usage:
   $(basename "$0") [-y] <subcommand> [options]
 
 Subcommands:
-  start [--agent-name <name>]
-      Start or replace the interactive session.
+  start [--agent-name <name>] [--json]
+      Start or replace the interactive session. By default the command ends
+      with a human-readable summary on stdout; pass --json for a
+      machine-readable payload. Startup progress still prints to stderr.
   send-turn (--prompt <text> | --prompt-file <path>)
       Send one prompt to the active session.
-  inspect [--json]
-      Show tmux/log inspection commands for the current state.
+  inspect [--json] [--with-output-text <num-tail-chars>]
+      Show tmux/log inspection commands for the current state and optionally
+      include a clean projected Claude dialog tail.
   verify [--snapshot-report]
       Generate report.json and optionally refresh the tracked snapshot.
   stop
@@ -59,7 +62,9 @@ Flags:
 
 Examples:
   $(basename "$0") -y start --agent-name alice
+  $(basename "$0") start --agent-name alice --json
   $(basename "$0") inspect
+  $(basename "$0") inspect --with-output-text 400
   $(basename "$0") send-turn --prompt "Hello from the demo"
   $(basename "$0") verify --snapshot-report
   $(basename "$0") stop

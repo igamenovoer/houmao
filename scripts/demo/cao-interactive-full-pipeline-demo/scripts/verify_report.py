@@ -11,7 +11,7 @@ from typing import Any
 
 from gig_agents.demo.cao_interactive_full_pipeline_demo import FIXED_CAO_BASE_URL
 
-_TERMINAL_LOG_PREFIX = "~/.aws/cli-agent-orchestrator/logs/terminal/"
+_TERMINAL_LOG_SUFFIX = Path(".aws") / "cli-agent-orchestrator" / "logs" / "terminal"
 
 
 def _sanitize_turn(turn: dict[str, Any], *, expected_index: int) -> dict[str, Any]:
@@ -106,11 +106,23 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
     if not tmux_target:
         raise ValueError("report.tmux_target must be non-empty")
 
-    terminal_log_path = str(report.get("terminal_log_path", "")).strip()
-    if not terminal_log_path.startswith(_TERMINAL_LOG_PREFIX) or not terminal_log_path.endswith(
-        ".log"
-    ):
-        raise ValueError("report.terminal_log_path must point to a CAO terminal log file")
+    terminal_id = str(report.get("terminal_id", "")).strip()
+    if not terminal_id:
+        raise ValueError("report.terminal_id must be non-empty")
+
+    terminal_log_path_raw = str(report.get("terminal_log_path", "")).strip()
+    if not terminal_log_path_raw:
+        raise ValueError("report.terminal_log_path must be non-empty")
+    if terminal_log_path_raw.startswith("~"):
+        raise ValueError("report.terminal_log_path must be a resolved absolute path")
+    terminal_log_path = Path(terminal_log_path_raw)
+    if not terminal_log_path.is_absolute():
+        raise ValueError("report.terminal_log_path must be absolute")
+    expected_suffix = _TERMINAL_LOG_SUFFIX / f"{terminal_id}.log"
+    if terminal_log_path.parts[-len(expected_suffix.parts) :] != expected_suffix.parts:
+        raise ValueError(
+            "report.terminal_log_path must point to the resolved CAO terminal log file"
+        )
 
     generated_at_utc = str(report.get("generated_at_utc", "")).strip()
     if not generated_at_utc:
@@ -128,7 +140,10 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
         "session_manifest": "<SESSION_MANIFEST_PATH>",
         "workspace_dir": "<WORKSPACE_PATH>",
         "tmux_target": "<TMUX_TARGET>",
-        "terminal_log_path": "~/.aws/cli-agent-orchestrator/logs/terminal/<TERMINAL_ID>.log",
+        "terminal_id": "<TERMINAL_ID>",
+        "terminal_log_path": (
+            "<LAUNCHER_HOME>/.aws/cli-agent-orchestrator/logs/terminal/<TERMINAL_ID>.log"
+        ),
         "generated_at_utc": "<TIMESTAMP>",
     }
 

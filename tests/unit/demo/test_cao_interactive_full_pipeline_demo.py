@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,8 @@ from gig_agents.demo.cao_interactive_full_pipeline_demo import (
     DemoPaths,
     DemoState,
     DemoWorkflowError,
+    inspect_demo,
+    _run_subprocess_command_with_wait_feedback,
     TurnRecord,
     load_demo_state,
     load_turn_records,
@@ -64,8 +67,11 @@ def _seed_state(
     *,
     active: bool,
     agent_identity: str = "AGENTSYS-demo",
+    launcher_home_dir: Path | None = None,
+    terminal_log_path: str | None = None,
     turn_count: int = 0,
 ) -> None:
+    resolved_launcher_home_dir = launcher_home_dir or paths.workspace_root
     state = DemoState(
         active=active,
         agent_identity=agent_identity,
@@ -73,14 +79,22 @@ def _seed_state(
         session_name=agent_identity,
         tmux_target=agent_identity,
         terminal_id="term-001",
-        terminal_log_path="~/.aws/cli-agent-orchestrator/logs/terminal/term-001.log",
+        terminal_log_path=terminal_log_path
+        or str(
+            resolved_launcher_home_dir
+            / ".aws"
+            / "cli-agent-orchestrator"
+            / "logs"
+            / "terminal"
+            / "term-001.log"
+        ),
         runtime_root=str(paths.runtime_root),
         workspace_dir=str(paths.workspace_root),
         brain_home=str(paths.runtime_root / "brains" / "home"),
         brain_manifest=str(paths.runtime_root / "brains" / "brain.json"),
         cao_base_url=FIXED_CAO_BASE_URL,
         cao_profile_store=str(
-            paths.workspace_root / ".aws" / "cli-agent-orchestrator" / "agent-store"
+            resolved_launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "agent-store"
         ),
         launcher_config_path=str(paths.launcher_config_path),
         updated_at="2026-03-06T00:00:00+00:00",
@@ -301,6 +315,14 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
     assert state.active is True
     assert state.agent_identity == "AGENTSYS-demo"
     assert state.cao_base_url == FIXED_CAO_BASE_URL
+    assert state.terminal_log_path == str(
+        env.launcher_home_dir
+        / ".aws"
+        / "cli-agent-orchestrator"
+        / "logs"
+        / "terminal"
+        / "term-123.log"
+    )
     assert payload["replaced_previous_agent_identity"] == "AGENTSYS-demo"
 
     stop_call = next(call for call in runner.calls if "stop-session" in call)
@@ -355,6 +377,9 @@ def test_main_start_uses_repo_root_anchored_per_run_defaults(
         Path(state.cao_profile_store)
         == workspace_root / ".aws" / "cli-agent-orchestrator" / "agent-store"
     )
+    assert Path(state.terminal_log_path) == (
+        workspace_root / ".aws" / "cli-agent-orchestrator" / "logs" / "terminal" / "term-123.log"
+    )
 
     current_run_root_path = (
         repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
@@ -368,6 +393,118 @@ def test_main_start_uses_repo_root_anchored_per_run_defaults(
     assert start_call[start_call.index("--workdir") + 1] == str(workspace_root / "wktree")
     assert start_call[start_call.index("--agent-def-dir") + 1] == str(
         repo_root / "tests" / "fixtures" / "agents"
+    )
+
+
+def test_main_start_emits_stderr_progress_and_human_readable_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    runner = FakeRunner(tmp_path)
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
+        lambda: "20260309-120000-000000Z",
+    )
+
+    exit_code = main(
+        ["--repo-root", str(repo_root), "start", "--agent-name", "alice"],
+        run_command=runner,
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "[interactive-demo:start]" not in captured.out
+    assert "Interactive CAO Demo Started" in captured.out
+    assert "Session Summary" in captured.out
+    assert "agent_identity: AGENTSYS-alice" in captured.out
+    assert "Commands" in captured.out
+    assert "tmux_attach: tmux attach -t AGENTSYS-alice" in captured.out
+    assert "Artifacts" in captured.out
+    assert "[interactive-demo:start]" in captured.err
+    assert "Preparing the interactive demo workspace." in captured.err
+    assert "Ensuring local CAO availability" in captured.err
+    assert "Building the Claude runtime brain for the interactive demo." in captured.err
+    assert "Launching the interactive Claude session and waiting for readiness." in captured.err
+
+
+def test_main_start_json_preserves_machine_readable_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    runner = FakeRunner(tmp_path)
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
+        lambda: "20260309-120000-000000Z",
+    )
+
+    exit_code = main(
+        ["--repo-root", str(repo_root), "start", "--agent-name", "alice", "--json"],
+        run_command=runner,
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["state"]["agent_identity"] == "AGENTSYS-alice"
+    assert "[interactive-demo:start]" not in captured.out
+    assert "Interactive CAO Demo Started" not in captured.out
+    assert "[interactive-demo:start]" in captured.err
+
+
+def test_run_subprocess_command_with_wait_feedback_emits_recurring_heartbeats(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stdout_path = tmp_path / "long-start.stdout"
+    stderr_path = tmp_path / "long-start.stderr"
+
+    result = _run_subprocess_command_with_wait_feedback(
+        ["bash", "-lc", "sleep 0.28; printf 'ready'"],
+        tmp_path,
+        stdout_path,
+        stderr_path,
+        5.0,
+        waiting_message=(
+            "Still waiting for the interactive Claude session to launch and become ready for input."
+        ),
+        initial_delay_seconds=0.05,
+        heartbeat_interval_seconds=0.05,
+    )
+
+    captured = capsys.readouterr()
+    assert result.returncode == 0
+    assert result.stdout == "ready"
+    assert stdout_path.read_text(encoding="utf-8") == "ready"
+    assert stderr_path.read_text(encoding="utf-8") == ""
+    assert (
+        captured.err.count(
+            "Still waiting for the interactive Claude session to launch and become ready for input."
+        )
+        >= 2
     )
 
 
@@ -569,6 +706,155 @@ def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> No
     assert send_call[send_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
 
+def test_main_inspect_with_output_text_passes_requested_tail_chars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    demo_base_root = repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo"
+    workspace_root = demo_base_root / "20260309-120000-000000Z"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    demo_base_root.mkdir(parents=True, exist_ok=True)
+    (demo_base_root / "current_run_root.txt").write_text(
+        f"{workspace_root}\n",
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _inspect_demo(
+        *,
+        paths: DemoPaths,
+        as_json: bool,
+        output_text_tail_chars: int | None = None,
+    ) -> None:
+        captured["paths"] = paths
+        captured["as_json"] = as_json
+        captured["output_text_tail_chars"] = output_text_tail_chars
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.inspect_demo",
+        _inspect_demo,
+    )
+
+    exit_code = main(
+        [
+            "--repo-root",
+            str(repo_root),
+            "inspect",
+            "--json",
+            "--with-output-text",
+            "42",
+        ]
+    )
+
+    assert exit_code == 0
+    assert isinstance(captured["paths"], DemoPaths)
+    assert captured["as_json"] is True
+    assert captured["output_text_tail_chars"] == 42
+    assert captured["paths"].workspace_root == workspace_root
+
+
+def test_inspect_demo_json_reports_live_state_and_clean_output_tail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = _make_paths(tmp_path)
+    launcher_home_dir = tmp_path / "launcher-home"
+    _seed_state(
+        paths,
+        active=True,
+        launcher_home_dir=launcher_home_dir,
+        terminal_log_path="~/.aws/cli-agent-orchestrator/logs/terminal/term-001.log",
+    )
+
+    class FakeCaoRestClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.m_base_url = base_url
+            self.m_timeout_seconds = timeout_seconds
+
+        def get_terminal(self, terminal_id: str) -> SimpleNamespace:
+            assert terminal_id == "term-001"
+            return SimpleNamespace(status=SimpleNamespace(value="processing"))
+
+        def get_terminal_output(self, terminal_id: str, mode: str = "last") -> SimpleNamespace:
+            assert terminal_id == "term-001"
+            assert mode == "full"
+            return SimpleNamespace(output="raw full output")
+
+    class FakeShadowParser:
+        def parse_snapshot(self, scrollback: str, *, baseline_pos: int = 0) -> SimpleNamespace:
+            assert scrollback == "raw full output"
+            assert baseline_pos == 0
+            return SimpleNamespace(
+                surface_assessment=SimpleNamespace(availability="supported"),
+                dialog_projection=SimpleNamespace(dialog_text="User: hi\nClaude: hello there"),
+            )
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.CaoRestClient",
+        FakeCaoRestClient,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.ClaudeCodeShadowParser",
+        FakeShadowParser,
+    )
+
+    inspect_demo(paths=paths, as_json=True, output_text_tail_chars=11)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["claude_code_state"] == "processing"
+    assert payload["output_text_tail"] == "hello there"
+    assert payload["output_text_tail_chars_requested"] == 11
+    assert payload["terminal_log_path"] == str(
+        launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "logs" / "terminal" / "term-001.log"
+    )
+    assert "output_text_tail_note" not in payload
+
+
+def test_inspect_demo_human_output_handles_live_lookup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = _make_paths(tmp_path)
+    _seed_state(paths, active=True)
+
+    class FailingCaoRestClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.m_base_url = base_url
+            self.m_timeout_seconds = timeout_seconds
+
+        def get_terminal(self, terminal_id: str) -> SimpleNamespace:
+            raise RuntimeError(f"terminal lookup failed for {terminal_id}")
+
+        def get_terminal_output(self, terminal_id: str, mode: str = "last") -> SimpleNamespace:
+            raise RuntimeError(f"output lookup failed for {terminal_id} ({mode})")
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.CaoRestClient",
+        FailingCaoRestClient,
+    )
+
+    inspect_demo(paths=paths, as_json=False, output_text_tail_chars=80)
+
+    output = capsys.readouterr().out
+    assert "Interactive CAO Demo Inspect" in output
+    assert "Session Summary" in output
+    assert "session_status: active" in output
+    assert "claude_code_state: unknown" in output
+    assert "Commands" in output
+    assert "tmux_attach: tmux attach -t AGENTSYS-demo" in output
+    assert (
+        "terminal_log_tail: tail -f "
+        f"{paths.workspace_root / '.aws' / 'cli-agent-orchestrator' / 'logs' / 'terminal' / 'term-001.log'}"
+    ) in output
+    assert "Output Text Tail (last 80 chars)" in output
+    assert "clean projected Claude dialog tail unavailable" in output
+
+
 def test_send_turn_fails_on_empty_response_but_still_writes_turn_artifact(
     tmp_path: Path,
 ) -> None:
@@ -669,4 +955,35 @@ def test_verify_demo_requires_reused_agent_identity_across_two_turns(tmp_path: P
     assert report.status == "ok"
     assert report.turn_count == 2
     assert report.unique_agent_identity_count == 1
+    assert report.terminal_id == "term-001"
     assert [turn.turn_index for turn in report.turns] == [1, 2]
+
+
+def test_verify_demo_resolves_terminal_log_path_from_launcher_home(tmp_path: Path) -> None:
+    paths = _make_paths(tmp_path)
+    launcher_home_dir = tmp_path / "custom-launcher-home"
+    _seed_state(
+        paths,
+        active=False,
+        launcher_home_dir=launcher_home_dir,
+        terminal_log_path="~/.aws/cli-agent-orchestrator/logs/terminal/term-001.log",
+        turn_count=2,
+    )
+    paths.turns_dir.mkdir(parents=True, exist_ok=True)
+
+    first = _turn_record(paths, turn_index=1, response_text="one")
+    second = _turn_record(paths, turn_index=2, response_text="two")
+    (paths.turns_dir / "turn-001.json").write_text(
+        first.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (paths.turns_dir / "turn-002.json").write_text(
+        second.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    report = verify_demo(paths=paths)
+
+    assert report.terminal_log_path == str(
+        launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "logs" / "terminal" / "term-001.log"
+    )

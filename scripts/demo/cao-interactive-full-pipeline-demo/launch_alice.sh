@@ -10,7 +10,8 @@ Usage:
 
 Launch or replace the tutorial session as the fixed demo agent \`alice\`.
 \`-y\` bypasses confirmation prompts such as replacing an existing local
-\`cao-server\` on the demo's fixed loopback target.
+\`cao-server\` on the demo's fixed loopback target. Startup progress prints on
+stderr and the command ends with a readable summary on stdout.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh [-y] start --agent-name alice
