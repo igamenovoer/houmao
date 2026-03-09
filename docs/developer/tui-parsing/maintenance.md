@@ -13,7 +13,7 @@ When you update the parser stack, review these inputs together:
 - this developer doc set under `docs/developer/tui-parsing/`
 - short reference and troubleshooting pages under `docs/reference/`
 
-The archived or still-active change notes under `openspec/changes/decouple-shadow-state-from-answer-association/` are historical design inputs, but the maintained explanation should live in the main docs tree once this guide exists.
+The archived design inputs under `openspec/changes/archive/2026-03-09-decouple-shadow-state-from-answer-association/` are useful historical context, but the maintained explanation should live in the main docs tree once this guide exists.
 
 ## When To Update This Doc Set
 

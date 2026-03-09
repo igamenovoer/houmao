@@ -9,6 +9,7 @@ This repository is the canonical documentation home for the extracted runtime su
 ## Reference
 
 - [Runtime CLI and session workflows](reference/brain_launch_runtime.md)
+- [Interactive CAO full-pipeline demo](../scripts/demo/cao-interactive-full-pipeline-demo/README.md)
 - [Brain builder and component library layout](reference/agents_brains.md)
 - [CAO server launcher](reference/cao_server_launcher.md)
 - [CAO shadow parsing](reference/cao_claude_shadow_parsing.md)

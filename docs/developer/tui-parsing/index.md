@@ -29,7 +29,7 @@ This doc set summarizes the active runtime contract from these sources:
 
 - active specs in `openspec/specs/`
 - runtime modules under `src/gig_agents/agents/brain_launch_runtime/backends/`
-- the originating design and contract notes in `openspec/changes/decouple-shadow-state-from-answer-association/`
+- the archived originating design and contract notes in `openspec/changes/archive/2026-03-09-decouple-shadow-state-from-answer-association/`
 
 The most important implementation files are:
 

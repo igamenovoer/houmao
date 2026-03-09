@@ -7,6 +7,7 @@
 ## Reference Pages
 
 - [Brain Launch Runtime](brain_launch_runtime.md)
+- [Interactive CAO Full-Pipeline Demo](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md)
 - [Agents And Brains](agents_brains.md)
 - [CAO Server Launcher](cao_server_launcher.md)
 - [CAO Claude Shadow Parsing](cao_claude_shadow_parsing.md)
