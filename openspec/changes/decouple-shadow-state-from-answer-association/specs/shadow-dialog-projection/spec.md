@@ -39,11 +39,18 @@ Dialog projection SHALL:
 The system SHALL expose stable transcript slices over projected dialog content for shadow-mode callers.
 
 At minimum, the system SHALL support caller-visible head and tail views over the projected dialog.
+The system SHALL NOT expose raw CAO `tail` transport output as a first-class projection slice in the primary caller-facing contract.
+Raw transport tail MAY still exist in diagnostics or internal debugging paths outside the primary projection contract.
 
 #### Scenario: Caller reads head and tail projection slices
 - **WHEN** a shadow-mode turn completes and projected dialog content is available
 - **THEN** the system provides caller-visible head and tail views over that projected dialog
 - **AND THEN** the slices are derived from projected dialog content rather than raw tmux scrollback
+
+#### Scenario: Raw transport tail is not promoted to a primary projection slice
+- **WHEN** a caller receives a shadow-mode projection result
+- **THEN** the primary projection contract exposes projected `head` and `tail` slices rather than raw CAO `tail` output
+- **AND THEN** any retained raw transport tail remains outside the obvious caller-facing projection surface
 
 ### Requirement: Dialog projection does not imply prompt-associated final answer
 The system SHALL NOT represent projected dialog content as the authoritative final answer for the current prompt unless a separate answer-association layer explicitly does so.

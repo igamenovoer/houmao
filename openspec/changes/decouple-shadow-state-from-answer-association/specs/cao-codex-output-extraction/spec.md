@@ -45,10 +45,17 @@ The system SHALL compute Codex shadow surface state from `mode=full` output usin
 - `ready_for_input` when input-ready evidence is present and no higher-priority state matches, and
 - `unknown` when output matches a supported Codex output family but does not satisfy known safe state evidence.
 
+The provider SHALL surface `ui_context` through the Codex surface-assessment contract, including the shared `slash_command` context when applicable and Codex-specific contexts such as `approval_prompt`.
+
 #### Scenario: Ready state does not imply authoritative answer association
 - **WHEN** a Codex snapshot contains input-ready evidence and no higher-priority state evidence
 - **THEN** the system classifies the snapshot as `ready_for_input`
 - **AND THEN** that classification does not by itself claim that visible assistant text belongs to the most recent prompt submission
+
+#### Scenario: Codex slash-command UI is surfaced through the shared context vocabulary
+- **WHEN** a Codex snapshot shows slash-command or command-palette style UI
+- **THEN** the returned Codex surface assessment may use the shared `slash_command` `ui_context`
+- **AND THEN** Codex-specific contexts such as `approval_prompt` remain available for Codex-specific UI states
 
 ### Requirement: Codex dialog projection returns normalized dialog content
 For Codex `shadow_only` turns, the runtime SHALL return normalized dialog projection and SHALL NOT return raw tmux scrollback as the caller-facing shadow-mode dialog surface.

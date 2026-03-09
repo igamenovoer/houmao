@@ -87,6 +87,7 @@ Each Codex preset version `V` supplies concrete detectors for the following plac
 | `CODEX_PROCESSING_SIGNAL(V)` | A line proves Codex is actively working |
 | `CODEX_SELECTION_MENU(V)` | Snapshot contains a selection menu requiring user action |
 | `CODEX_APPROVAL_PROMPT(V)` | Snapshot contains an approval/trust prompt rather than normal prompt flow |
+| `CODEX_SLASH_COMMAND_CONTEXT(V)` | Snapshot shows Codex inside slash-command or command-palette style UI |
 | `CODEX_LABEL_ASSISTANT_LINE(V)` | Snapshot contains supported label-style assistant transcript output |
 | `CODEX_TUI_BULLET_LINE(V)` | Snapshot contains supported TUI-style assistant bullet output |
 | `CODEX_ERROR_BANNER(V)` | Snapshot indicates a visible Codex-side error state |
@@ -140,6 +141,7 @@ Allowed values:
 
 - `normal_prompt`
 - `selection_menu`
+- `slash_command`
 - `approval_prompt`
 - `error_banner`
 - `unknown`
@@ -147,6 +149,7 @@ Allowed values:
 Detection rules:
 
 - `selection_menu` when `CODEX_SELECTION_MENU(V)` is true
+- `slash_command` when `CODEX_SLASH_COMMAND_CONTEXT(V)` is true
 - `approval_prompt` when `CODEX_APPROVAL_PROMPT(V)` is true
 - `error_banner` when `CODEX_ERROR_BANNER(V)` is true
 - `normal_prompt` when input-ready or working evidence is present without a stronger context
@@ -274,6 +277,7 @@ The parser owns transition **detection inputs**, while runtime owns transition *
 The parser can legitimately say:
 
 - the surface changed from `working` to `ready_for_input`
+- the UI moved from `normal_prompt` to `slash_command`
 - the UI moved from `normal_prompt` to `approval_prompt`
 - the snapshot became `unsupported`
 - the projected dialog changed or did not change

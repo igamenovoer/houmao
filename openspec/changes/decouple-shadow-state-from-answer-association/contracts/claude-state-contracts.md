@@ -382,15 +382,16 @@ flowchart TD
     C --> D{Activity state}
     D -->|working| E[Turn in progress]
     D -->|waiting_user_answer| F[Blocked turn]
-    D -->|ready_for_input| G[Terminal state candidate]
+    D -->|ready_for_input| G{Saw projection change<br/>or post-submit working?}
     D -->|unknown| H[Continue or stall]
     D -->|unsupported or disconnected| I[Fail turn]
-    G --> J[Return projected dialog<br/>and provenance]
+    G -->|yes| J[Return projected dialog<br/>and provenance]
+    G -->|no| C
 ```
 
 Important boundary:
 
-- runtime may say a turn is complete enough to surface projected dialog
+- runtime may say a turn is complete enough to surface projected dialog only after `ready_for_input` plus post-submit evidence such as `evt_projection_changed` or prior `working`
 - runtime should not claim the projected dialog is the authoritative current-turn answer unless a separate associator does so
 
 ## Dialog Projection Responsibility
@@ -423,9 +424,11 @@ If a caller needs prompt-specific answer extraction, it should use a separate as
 - runtime turn lifecycle
 - caller knowledge of expected output shape
 
-## Open Design Questions
+## Resolved Design Questions
 
-- Should `waiting_user_answer` and trust/onboarding prompts remain one combined activity state or be split into separate blocking states?
-- Should `slash_command` be standardized in the first cross-provider `ui_context` vocabulary or remain provider-specific metadata?
-- Should the runtime expose raw CAO `tail` snapshots directly alongside projected dialog slices?
-- Should `ready_for_input` require observed `evt_projection_changed` after submit before runtime marks a turn terminal?
+The detailed decision log lives in `../discuss/discuss-20260309-095627.md`.
+
+- `waiting_user_answer` remains one combined blocking activity state; `ui_context` distinguishes `selection_menu` vs `trust_prompt`.
+- `slash_command` is treated as a shared cross-provider `ui_context` concept.
+- Raw CAO `tail` remains available only through non-obvious internal/debugging paths, not as a first-class result field.
+- Runtime success terminality requires `ready_for_input` plus either `evt_projection_changed` or prior post-submit `working`.

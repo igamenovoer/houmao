@@ -14,8 +14,8 @@
 ## 2. Provider Parser Updates
 
 - [ ] 2.1 Refactor the Claude shadow parser to produce `ClaudeSurfaceAssessment` and `ClaudeDialogProjection` from `mode=full` snapshots according to `contracts/claude-state-contracts.md`.
-- [ ] 2.2 Refactor the Codex shadow parser to produce `CodexSurfaceAssessment` and `CodexDialogProjection` from `mode=full` snapshots according to `contracts/codex-state-contracts.md`.
-- [ ] 2.3 Add provider-specific projection/state rules and fixtures so prompt chrome, spinner/footer noise, menu UI, and provider-specific contexts are classified/projected correctly while essential visible dialog content is preserved.
+- [ ] 2.2 Refactor the Codex shadow parser to produce `CodexSurfaceAssessment` and `CodexDialogProjection` from `mode=full` snapshots according to `contracts/codex-state-contracts.md`, including alignment with the shared `slash_command` `ui_context`.
+- [ ] 2.3 Add provider-specific projection/state rules and fixtures so prompt chrome, spinner/footer noise, menu UI, slash-command UI, and provider-specific contexts are classified/projected correctly while essential visible dialog content is preserved.
 
 ## 3. Runtime Turn Monitoring And Result Surface
 

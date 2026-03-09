@@ -52,6 +52,7 @@ This shared post-processing step SHALL NOT sanitize/rewrite `cao_only` extracted
 
 For `shadow_only`, shared post-processing SHALL distinguish projected dialog content from any caller-owned answer association logic, SHALL expose first-class `dialog_projection` and `surface_assessment` payload fields, and SHALL NOT label projected dialog as the authoritative final answer for the current prompt by default.
 For `shadow_only`, shared post-processing SHALL NOT preserve `output_text` as a compatibility alias to projected dialog.
+If raw CAO `tail` text is retained for debugging, it SHALL remain in diagnostics or internal-only fields and SHALL NOT become a first-class caller-facing shadow result field.
 
 #### Scenario: Shared post-processing runs regardless of parsing mode
 - **WHEN** a CAO-backed turn completes in `parsing_mode=cao_only` or `parsing_mode=shadow_only`
@@ -61,4 +62,5 @@ For `shadow_only`, shared post-processing SHALL NOT preserve `output_text` as a 
 - **WHEN** a CAO-backed `shadow_only` turn completes
 - **THEN** the surfaced runtime payload includes projected dialog/provenance data and surface-assessment data as first-class fields
 - **AND THEN** the payload does not include a shadow-mode `output_text` compatibility alias
+- **AND THEN** any retained raw tail debugging data remains outside the primary caller-facing result surface
 - **AND THEN** the runtime does not represent that projection as the authoritative final answer for the submitted prompt by default

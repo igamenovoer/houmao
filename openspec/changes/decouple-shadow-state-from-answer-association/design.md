@@ -53,7 +53,12 @@ Both artifacts will be `@dataclass(frozen=True)` value objects, following the sa
 The shared base shape for `SurfaceAssessment` is:
 
 ```python
-CommonUiContext = Literal["normal_prompt", "selection_menu", "unknown"]
+CommonUiContext = Literal[
+    "normal_prompt",
+    "selection_menu",
+    "slash_command",
+    "unknown",
+]
 
 @dataclass(frozen=True)
 class SurfaceAssessment:
@@ -80,6 +85,7 @@ ClaudeUiContext = Literal[
 CodexUiContext = Literal[
     "normal_prompt",
     "selection_menu",
+    "slash_command",
     "approval_prompt",
     "error_banner",
     "unknown",
@@ -126,7 +132,7 @@ class CodexDialogProjection(DialogProjection):
 
 - `availability`: whether the surface is usable/supported
 - `activity`: whether the tool is ready, working, blocked, or unknown
-- `ui_context`: a small common base vocabulary plus provider-specific subtype extensions
+- `ui_context`: a shared common vocabulary (`normal_prompt`, `selection_menu`, `slash_command`, `unknown`) plus provider-specific subtype extensions
 - `accepts_input`: whether the terminal currently looks safe for prompt submission
 
 `DialogProjection` should preserve essential dialog ordering while removing provider-specific chrome such as ANSI sequences, prompt glyph-only lines, spinners, footer noise, and other non-dialog scaffolding.
@@ -181,6 +187,7 @@ For `shadow_only` results, runtime will expose projected dialog content and tran
 This can appear in event payloads and/or result models, but the core runtime contract will expose `dialog_projection` and `surface_assessment` as first-class fields. `output_text` will be removed from the `shadow_only` result surface rather than preserved as a compatibility alias, because keeping it would continue to imply answer authority that the new contract explicitly rejects.
 
 Head and tail slices are defined over normalized projected dialog, not over raw CAO `mode=full` text.
+Raw CAO `tail` snapshots may still exist for diagnostics or internal debugging, but they are intentionally not part of the obvious first-class caller contract and should not be relied on by normal callers.
 
 Alternative considered:
 - Preserve `output_text` as a compatibility alias to projected dialog text.
@@ -247,6 +254,11 @@ Why not:
 Rollback strategy:
 - Because this is a breaking contract change, rollback would mean restoring the current `shadow_only` answer-extraction API surface, `output_text` behavior, and associated parser methods. The migration should therefore keep parser/state/projection changes isolated enough to revert together if adoption stalls.
 
-## Open Questions
+## Decision Follow-Through
 
-- Should CAO `tail` mode be surfaced directly as part of the projection API, or should runtime derive tail/head slices only from normalized projected dialog?
+The discuss document at `discuss/discuss-20260309-095627.md` resolves the previously open contract questions for this change. In particular:
+
+- `waiting_user_answer` stays as one coarse blocking activity state, with finer reason carried in `ui_context`.
+- `slash_command` is part of the shared `CommonUiContext`, and Codex alignment happens within this same change.
+- raw CAO `tail` remains diagnostics/internal-only rather than becoming a first-class runtime result field.
+- runtime success terminality follows `ready_for_input` plus (`evt_projection_changed` or post-submit `working`).

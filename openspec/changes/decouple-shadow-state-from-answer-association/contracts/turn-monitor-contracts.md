@@ -149,6 +149,7 @@ stateDiagram-v2
     BlockedWaitingUser --> Failed: evt_surface_disconnected
 
     Stalled --> InProgress: evt_stalled_recovered<br/>and evt_working_seen
+    Stalled --> Completed: evt_stalled_recovered<br/>and evt_ready_after_submit<br/>and saw_working_after_submit
     Stalled --> BlockedWaitingUser: evt_stalled_recovered<br/>and evt_waiting_user_answer_seen
     Stalled --> Completed: evt_stalled_recovered<br/>and evt_ready_after_submit<br/>and evt_projection_changed
     Stalled --> Failed: stalled_is_terminal

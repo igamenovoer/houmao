@@ -49,7 +49,7 @@ At minimum, the shared base `SurfaceAssessment` contract SHALL carry:
 - `availability`,
 - `activity`,
 - `accepts_input`,
-- `ui_context` using a common base vocabulary, and
+- `ui_context` using a common base vocabulary that includes at least `normal_prompt`, `selection_menu`, `slash_command`, and `unknown`, and
 - parser metadata/anomalies.
 
 Provider implementations SHALL expose provider-specific subclasses that refine `ui_context` and evidence fields without changing the shared base semantics.
@@ -58,6 +58,11 @@ Provider implementations SHALL expose provider-specific subclasses that refine `
 - **WHEN** the stack returns Claude and Codex surface assessments
 - **THEN** both results expose the same shared base fields for availability/activity/input-safety/metadata
 - **AND THEN** each provider may extend `ui_context` and evidence with provider-specific values
+
+#### Scenario: Shared base `ui_context` includes slash-command context across providers
+- **WHEN** a provider snapshot is classified as being inside slash-command or command-palette UI
+- **THEN** the returned `SurfaceAssessment.ui_context` may use the shared `slash_command` base value
+- **AND THEN** provider-specific subclasses may still add richer context values alongside that shared base
 
 ### Requirement: Dialog projection models use a frozen common base with provider-specific subclasses
 The shadow parser stack SHALL model dialog projection with frozen value objects.

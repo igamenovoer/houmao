@@ -35,7 +35,8 @@ The system SHALL classify at least:
 - `ready_for_input` when idle/input-ready evidence is present and no higher-priority state matches, and
 - `unknown` when output matches a supported Claude output family but does not satisfy known safe state evidence.
 
-The provider MAY include richer version-bound `ui_context` details such as slash-command or menu context in parser metadata, but those details SHALL NOT imply prompt-associated answer extraction.
+The provider SHALL surface `ui_context` through the Claude surface-assessment contract, including the shared `slash_command` context when applicable and Claude-specific contexts such as `trust_prompt`.
+Those context details SHALL NOT imply prompt-associated answer extraction.
 
 #### Scenario: Status checks avoid stale scrollback false positives
 - **WHEN** the tmux scrollback contains an old spinner line from a previous turn
@@ -46,6 +47,11 @@ The provider MAY include richer version-bound `ui_context` details such as slash
 - **WHEN** the tmux scrollback contains idle/input-ready evidence
 - **THEN** the system classifies the snapshot as `ready_for_input` when no higher-priority state matches
 - **AND THEN** that state classification does not by itself claim that a visible answer belongs to the most recent prompt submission
+
+#### Scenario: Slash-command UI is surfaced as shared context without implying answer ownership
+- **WHEN** a Claude snapshot shows slash-command or command-palette UI
+- **THEN** the returned Claude surface assessment may use the shared `slash_command` `ui_context`
+- **AND THEN** that context classification does not imply prompt-associated answer extraction
 
 ### Requirement: Runtime does not return raw tmux scrollback as the answer
 For Claude Code in `parsing_mode=shadow_only`, the system SHALL not return raw `mode=full` tmux output as caller-facing projected dialog content.
