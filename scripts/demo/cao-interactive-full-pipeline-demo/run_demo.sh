@@ -10,14 +10,41 @@ ROLE_NAME="${DEMO_ROLE_NAME:-gpu-kernel-coder}"
 SNAPSHOT_REPORT=0
 FORWARD_ARGS=()
 
-if [[ $# -eq 0 ]]; then
-  exec pixi run python -m gig_agents.demo.cao_interactive_full_pipeline_demo \
-    --repo-root "$REPO_ROOT" \
-    --workspace-root "$WORKSPACE_ROOT" \
-    --agent-def-dir "$AGENT_DEF_DIR" \
-    --launcher-home-dir "$LAUNCHER_HOME_DIR" \
-    --workdir "$REPO_ROOT" \
-    --role-name "$ROLE_NAME"
+show_usage() {
+  cat <<EOF
+Usage:
+  $(basename "$0") <subcommand> [options]
+
+Subcommands:
+  start [--agent-name <name>]
+      Start or replace the interactive session.
+  send-turn (--prompt <text> | --prompt-file <path>)
+      Send one prompt to the active session.
+  inspect [--json]
+      Show tmux/log inspection commands for the current state.
+  verify [--snapshot-report]
+      Generate report.json and optionally refresh the tracked snapshot.
+  stop
+      Stop the active interactive session.
+
+Environment defaults:
+  DEMO_WORKSPACE_ROOT=$WORKSPACE_ROOT
+  AGENT_DEF_DIR=$AGENT_DEF_DIR
+  CAO_LAUNCHER_HOME_DIR=$LAUNCHER_HOME_DIR
+  DEMO_ROLE_NAME=$ROLE_NAME
+
+Examples:
+  $(basename "$0") start --agent-name alice
+  $(basename "$0") inspect
+  $(basename "$0") send-turn --prompt "Hello from the demo"
+  $(basename "$0") verify --snapshot-report
+  $(basename "$0") stop
+EOF
+}
+
+if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  show_usage
+  exit 0
 fi
 
 if [[ "$1" == "verify" ]]; then

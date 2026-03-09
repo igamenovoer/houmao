@@ -11,6 +11,7 @@ Supporting material is organized as: `docs/` (reference and migration docs), `sc
 ## Build, Test, and Development Commands
 Use Pixi as the default workflow:
 - `pixi install && pixi shell` installs dependencies and opens the dev shell.
+- When invoking Python or Python-based tools, prefer `pixi run ...` so commands execute in the managed environment; do not rely on `pixi shell`, `python`, or other system-level interpreters being active.
 - `pixi run format` runs `ruff format` on `src tests docs scripts`.
 - `pixi run lint` runs Ruff static checks.
 - `pixi run typecheck` runs strict `mypy` on `src`.
@@ -26,6 +27,7 @@ For Markdown documentation, do not hard-wrap lines purely for width; keep paragr
 
 ### Python Style (magic-context)
 Follow [`magic-context/instructions/python-coding-guide.md`](/data/ssd1/huangzhe/code/agent-system-dissect/extern/tracked/gig-agents/magic-context/instructions/python-coding-guide.md) for Python implementation details:
+- Run Python entrypoints, scripts, and tooling via `pixi run` rather than the system `python` executable.
 - Prefer absolute imports; group imports as standard library, third-party, then local modules.
 - Use NumPy-style docstrings for modules, classes, and functions; private helpers (`_name`) still require a brief docstring.
 - Add module-level docstrings for non-trivial modules.
