@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from gig_agents.agents.brain_launch_runtime.backends.codex_shadow import (
-    CodexShadowParseError,
     CodexShadowParser,
 )
 from gig_agents.agents.brain_launch_runtime.backends.shadow_parser_core import (
@@ -13,9 +12,7 @@ from gig_agents.agents.brain_launch_runtime.backends.shadow_parser_core import (
     ANOMALY_UNKNOWN_VERSION_FLOOR_USED,
 )
 
-_FIXTURES_DIR = (
-    Path(__file__).resolve().parents[3] / "fixtures" / "shadow_parser" / "codex"
-)
+_FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures" / "shadow_parser" / "codex"
 
 
 def _fixture(name: str) -> str:
@@ -31,18 +28,32 @@ def test_codex_shadow_detects_supported_output_formats(fixture_name: str) -> Non
     assert matched is True
 
 
-def test_codex_shadow_status_is_baseline_aware() -> None:
+def test_codex_shadow_projection_preserves_visible_dialog() -> None:
     parser = CodexShadowParser()
-    prior_turn = _fixture("label_completed.txt")
-    baseline = parser.capture_baseline_pos(prior_turn)
 
-    no_new_answer = prior_turn + "\n❯ summarize again\n❯ \n"
-    idle = parser.classify_shadow_status(no_new_answer, baseline_pos=baseline)
-    assert idle.status == "idle"
+    snapshot = parser.parse_snapshot(_fixture("label_completed.txt"), baseline_pos=0)
 
-    with_new_answer = prior_turn + "\n❯ summarize again\nassistant: fresh answer\n❯ \n"
-    completed = parser.classify_shadow_status(with_new_answer, baseline_pos=baseline)
-    assert completed.status == "completed"
+    assert snapshot.surface_assessment.availability == "supported"
+    assert snapshot.surface_assessment.activity == "ready_for_input"
+    assert snapshot.surface_assessment.accepts_input is True
+    assert snapshot.surface_assessment.ui_context == "normal_prompt"
+    assert (
+        snapshot.dialog_projection.dialog_text
+        == "You summarize this module\nfirst line\nsecond line"
+    )
+
+
+def test_codex_shadow_projection_strips_footer_and_header_chrome() -> None:
+    parser = CodexShadowParser()
+
+    snapshot = parser.parse_snapshot(_fixture("tui_completed.txt"), baseline_pos=0)
+
+    assert snapshot.surface_assessment.parser_metadata.output_variant == "codex_tui_bullet_v1"
+    assert "OpenAI Codex" not in snapshot.dialog_projection.dialog_text
+    assert "? for shortcuts" not in snapshot.dialog_projection.dialog_text
+    assert snapshot.dialog_projection.dialog_text == (
+        "summarize recent changes\nUpdated parser stack wiring.\nAdded explicit output probes."
+    )
 
 
 def test_codex_shadow_handles_redraw_shrink_after_baseline() -> None:
@@ -59,82 +70,72 @@ def test_codex_shadow_handles_redraw_shrink_after_baseline() -> None:
 
     after_turn = (
         "OpenAI Codex (v0.98.0)\n"
-        "› Give a one-sentence greeting that includes the word \"runtime\".\n"
+        '› Give a one-sentence greeting that includes the word "runtime".\n'
         "• Hello! Great to work with you in this runtime.\n"
         "› Write tests for @filename\n"
     )
 
-    status = parser.classify_shadow_status(after_turn, baseline_pos=baseline)
-    extraction = parser.extract_last_answer(after_turn, baseline_pos=baseline)
+    snapshot = parser.parse_snapshot(after_turn, baseline_pos=baseline)
 
-    assert status.status == "completed"
-    assert extraction.answer_text == "Hello! Great to work with you in this runtime."
-    assert status.metadata.baseline_invalidated is True
-    assert extraction.metadata.baseline_invalidated is True
-
-
-def test_codex_shadow_extracts_label_style_answer() -> None:
-    parser = CodexShadowParser()
-
-    result = parser.extract_last_answer(_fixture("label_completed.txt"), baseline_pos=0)
-
-    assert result.answer_text == "first line\nsecond line"
-    assert result.metadata.output_variant == "codex_label_v1"
-
-
-def test_codex_shadow_extracts_tui_style_answer_without_footer_chrome() -> None:
-    parser = CodexShadowParser()
-
-    result = parser.extract_last_answer(_fixture("tui_completed.txt"), baseline_pos=0)
-
-    assert result.answer_text == "Updated parser stack wiring.\nAdded explicit output probes."
-    assert result.metadata.output_variant == "codex_tui_bullet_v1"
+    assert snapshot.surface_assessment.parser_metadata.baseline_invalidated is True
+    assert snapshot.dialog_projection.dialog_text == (
+        'Give a one-sentence greeting that includes the word "runtime".\n'
+        "Hello! Great to work with you in this runtime.\n"
+        "Write tests for @filename"
+    )
 
 
 @pytest.mark.parametrize(
-    ("fixture_name", "expected_line"),
+    ("fixture_name", "expected_context", "expected_line"),
     [
-        ("waiting_approval.txt", "Approve this command? [y/n]"),
-        ("waiting_trust_prompt.txt", "Allow Codex to work in this folder? [y/n]"),
+        ("waiting_approval.txt", "approval_prompt", "Approve this command? [y/n]"),
+        (
+            "waiting_trust_prompt.txt",
+            "approval_prompt",
+            "Allow Codex to work in this folder? [y/n]",
+        ),
         (
             "waiting_trust_prompt_v2.txt",
+            "approval_prompt",
             "Do you trust the contents of this directory?",
         ),
-        ("waiting_menu.txt", "1. Keep existing changes"),
+        ("waiting_menu.txt", "selection_menu", "1. Keep existing changes"),
     ],
 )
 def test_codex_shadow_detects_waiting_user_answer_prompts(
     fixture_name: str,
+    expected_context: str,
     expected_line: str,
 ) -> None:
     parser = CodexShadowParser()
 
-    status = parser.classify_shadow_status(_fixture(fixture_name), baseline_pos=0)
+    snapshot = parser.parse_snapshot(_fixture(fixture_name), baseline_pos=0)
 
-    assert status.status == "waiting_user_answer"
-    assert status.waiting_user_answer_excerpt is not None
-    assert expected_line in status.waiting_user_answer_excerpt
+    assert snapshot.surface_assessment.activity == "waiting_user_answer"
+    assert snapshot.surface_assessment.ui_context == expected_context
+    assert snapshot.surface_assessment.waiting_user_answer_excerpt is not None
+    assert expected_line in snapshot.surface_assessment.waiting_user_answer_excerpt
+    assert expected_line in snapshot.dialog_projection.dialog_text
 
 
-def test_codex_shadow_raises_explicit_unsupported_output_format_for_drift() -> None:
+def test_codex_shadow_reports_unsupported_surface_for_drift() -> None:
     parser = CodexShadowParser()
-    with pytest.raises(CodexShadowParseError) as exc_info:
-        parser.classify_shadow_status(_fixture("drifted_unknown.txt"), baseline_pos=0)
 
-    error = exc_info.value
-    assert error.error_code == "unsupported_output_format"
-    assert error.metadata is not None
-    assert error.metadata.output_variant == "unknown"
-    assert "unsupported_output_format" in str(error)
+    snapshot = parser.parse_snapshot(_fixture("drifted_unknown.txt"), baseline_pos=0)
+
+    assert snapshot.surface_assessment.availability == "unsupported"
+    assert snapshot.surface_assessment.parser_metadata.output_variant == "unknown"
+    assert snapshot.surface_assessment.parser_metadata.output_format_match is False
+    assert "payload_start" in snapshot.dialog_projection.dialog_text
 
 
 def test_codex_shadow_reports_floor_preset_anomaly_for_unknown_banner_version() -> None:
     parser = CodexShadowParser()
     scrollback = "OpenAI Codex (v9.9.9)\nYou summarize\nassistant: done\n❯ \n"
 
-    status = parser.classify_shadow_status(scrollback, baseline_pos=0)
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
 
-    anomaly_codes = {anomaly.code for anomaly in status.metadata.anomalies}
+    anomaly_codes = {anomaly.code for anomaly in snapshot.surface_assessment.anomalies}
     assert ANOMALY_UNKNOWN_VERSION_FLOOR_USED in anomaly_codes
 
 
@@ -142,20 +143,33 @@ def test_codex_shadow_classifies_recognized_unclassifiable_snapshot_as_unknown()
     parser = CodexShadowParser()
     scrollback = "OpenAI Codex (v0.98.0)\nYou requested a repo summary\n"
 
-    status = parser.classify_shadow_status(scrollback, baseline_pos=0)
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
 
-    assert status.status == "unknown"
-    assert status.metadata.output_format_match is True
+    assert snapshot.surface_assessment.availability == "supported"
+    assert snapshot.surface_assessment.activity == "unknown"
+    assert snapshot.surface_assessment.parser_metadata.output_format_match is True
+    assert snapshot.dialog_projection.dialog_text == "You requested a repo summary"
+
+
+def test_codex_shadow_detects_slash_command_context() -> None:
+    parser = CodexShadowParser()
+
+    snapshot = parser.parse_snapshot(_fixture("slash_command.txt"), baseline_pos=0)
+
+    assert snapshot.surface_assessment.activity == "ready_for_input"
+    assert snapshot.surface_assessment.ui_context == "slash_command"
+    assert snapshot.surface_assessment.accepts_input is False
+    assert snapshot.dialog_projection.dialog_text == "/review"
 
 
 def test_codex_shadow_reports_baseline_invalidation_anomaly() -> None:
     parser = CodexShadowParser()
 
-    status = parser.classify_shadow_status(
+    snapshot = parser.parse_snapshot(
         _fixture("label_completed.txt"),
         baseline_pos=10_000,
     )
 
-    anomaly_codes = {anomaly.code for anomaly in status.metadata.anomalies}
-    assert status.metadata.baseline_invalidated is True
+    anomaly_codes = {anomaly.code for anomaly in snapshot.surface_assessment.anomalies}
+    assert snapshot.surface_assessment.parser_metadata.baseline_invalidated is True
     assert ANOMALY_BASELINE_INVALIDATED in anomaly_codes

@@ -635,12 +635,21 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert session.startup_warnings == ()
 
     events = session.send_prompt("hello")
-    assert events[-1].message == "response"
+    expected_message = "response" if parsing_mode == "cao_only" else "prompt completed"
+    assert events[-1].message == expected_message
     done_payload = events[-1].payload or {}
     assert done_payload["parsing_mode"] == parsing_mode
     assert done_payload["output_source_mode"] == ("last" if parsing_mode == "cao_only" else "full")
     assert done_payload["canonical_runtime_status"] == "completed"
     assert "parser_family" in done_payload
+    if parsing_mode == "shadow_only":
+        assert "output_text" not in done_payload
+        assert done_payload["dialog_projection"]["dialog_text"] == "hello\nresponse"
+        assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+        assert done_payload["projection_slices"] == {
+            "head": "hello\nresponse",
+            "tail": "hello\nresponse",
+        }
 
 
 def test_cao_backend_startup_prune_failure_warns_but_keeps_launch_successful(
@@ -1163,10 +1172,11 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
     )
 
     events = session.send_prompt("hello")
-    assert events[-1].message == "final answer"
+    assert events[-1].message == "prompt completed"
     done_payload = events[-1].payload or {}
     assert done_payload["parsing_mode"] == "shadow_only"
     assert done_payload["parser_family"] == "claude_shadow"
+    assert "output_text" not in done_payload
     assert done_payload["output_source_mode"] == "full"
     assert done_payload["canonical_runtime_status"] == "completed"
     parser_metadata = done_payload["parser_metadata"]
@@ -1174,10 +1184,17 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
     assert parser_metadata["shadow_parser_version"] == "2.1.62"
     assert parser_metadata["shadow_output_format"] == "claude_shadow_v2"
     assert parser_metadata["shadow_output_variant"] == "claude_response_marker_v1"
+    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["ui_context"] == "normal_prompt"
+    assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
+    assert done_payload["projection_slices"] == {
+        "head": "hello\nfinal answer",
+        "tail": "hello\nfinal answer",
+    }
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
 
-def test_cao_claude_shadow_waits_past_stale_baseline_reset_output(
+def test_cao_claude_shadow_baseline_reset_surfaces_current_projection_without_association(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     long_prompt = "previous prompt " * 20
@@ -1278,8 +1295,11 @@ def test_cao_claude_shadow_waits_past_stale_baseline_reset_output(
 
     events = session.send_prompt("summarize workspace")
 
-    assert events[-1].message == "second answer"
+    assert events[-1].message == "prompt completed"
     done_payload = events[-1].payload or {}
+    assert "output_text" not in done_payload
+    assert done_payload["dialog_projection"]["dialog_text"] == "first answer"
+    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
     assert done_payload["mode_diagnostics"]["baseline_invalidated"] is True
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
@@ -1483,16 +1503,23 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
     )
 
     events = session.send_prompt("hello")
-    assert events[-1].message == "final answer"
+    assert events[-1].message == "prompt completed"
     done_payload = events[-1].payload or {}
     assert done_payload["parsing_mode"] == "shadow_only"
     assert done_payload["parser_family"] == "codex_shadow"
+    assert "output_text" not in done_payload
     parser_metadata = done_payload["parser_metadata"]
     assert parser_metadata["shadow_parser_preset"] == "codex_shadow_v1"
     assert parser_metadata["shadow_parser_version"] == "0.1.0"
     assert parser_metadata["shadow_output_format"] == "codex_shadow_v1"
     assert parser_metadata["shadow_output_variant"] == "codex_label_v1"
     assert parser_metadata["shadow_output_format_match"] is True
+    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
+    assert done_payload["projection_slices"] == {
+        "head": "hello\nfinal answer",
+        "tail": "hello\nfinal answer",
+    }
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
 

@@ -4,23 +4,30 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 from .shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
+    DialogProjection,
+    ParsedShadowSnapshot,
     PresetResolution,
+    ProjectionMetadata,
+    ShadowActivity,
+    ShadowAvailability,
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
-    ShadowStatus,
+    SurfaceAssessment,
     VersionedParserPreset,
     VersionedPresetRegistry,
     ansi_stripped_tail_excerpt,
     normalize_shadow_output,
+    projection_head_tail,
     strip_ansi,
 )
 
 _DEFAULT_STATUS_TAIL_LINES: Final[int] = 100
+_DEFAULT_PROJECTION_SLICE_LINES: Final[int] = 12
 _ENV_PRESET_OVERRIDE: Final[str] = "AGENTSYS_CAO_CODEX_VERSION"
 
 _BANNER_VERSION_RE: Final[re.Pattern[str]] = re.compile(
@@ -32,18 +39,10 @@ _ASSISTANT_LABEL_RE: Final[re.Pattern[str]] = re.compile(
 _ASSISTANT_BULLET_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*•\s?(.*)$")
 _USER_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*You\b")
 _USER_TUI_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*[❯›][^\S\n]*\S+")
-_IDLE_PROMPT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?im)^\s*(?:❯|›|>|codex>)\s*(?:$|\S.*)$"
-)
-_IDLE_PROMPT_STRICT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?im)^\s*(?:❯|›|>|codex>)\s*$"
-)
-_WAITING_OPTION_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?:[❯›>]\s*)?\d+\.\s+\S+"
-)
-_WAITING_SELECTED_OPTION_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*[❯›>]\s*\d+\.\s+\S+"
-)
+_IDLE_PROMPT_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:❯|›|>|codex>)\s*(?:$|\S.*)$")
+_IDLE_PROMPT_STRICT_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:❯|›|>|codex>)\s*$")
+_WAITING_OPTION_RE: Final[re.Pattern[str]] = re.compile(r"^\s*(?:[❯›>]\s*)?\d+\.\s+\S+")
+_WAITING_SELECTED_OPTION_RE: Final[re.Pattern[str]] = re.compile(r"^\s*[❯›>]\s*\d+\.\s+\S+")
 _WAITING_HINT_RE: Final[re.Pattern[str]] = re.compile(
     r"(select (?:an )?option|choose (?:an )?option|arrow keys|press enter|approve)",
     flags=re.IGNORECASE,
@@ -54,20 +53,31 @@ _WAITING_APPROVAL_RE: Final[re.Pattern[str]] = re.compile(
 _TRUST_PROMPT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(?:allow codex to work in this folder|yes,\s*i trust this folder|do you trust the contents of this (?:directory|folder))"
 )
-_FOOTER_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?i)(?:\?\s+for shortcuts|context left)"
-)
+_FOOTER_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"(?i)(?:\?\s+for shortcuts|context left)")
 _PROCESSING_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(thinking|processing|generating|working|running|executing|analyzing|starting|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏)"
 )
-_TUI_PROGRESS_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?i)^\s*•.*\(\d+s\s*•\s*esc to interrupt\)"
+_TUI_PROGRESS_RE: Final[re.Pattern[str]] = re.compile(r"(?i)^\s*•.*\(\d+s\s*•\s*esc to interrupt\)")
+_SLASH_COMMAND_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*(?:[❯›>]\s*)?/[A-Za-z0-9_-]+\b")
+_ERROR_BANNER_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:error|failed|warning)\b")
+_DISCONNECTED_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?i)(?:connection (?:lost|closed)|terminal detached|session ended|reconnect)"
 )
 
 _OUTPUT_VARIANT_LABEL_V1: Final[str] = "codex_label_v1"
 _OUTPUT_VARIANT_TUI_BULLET_V1: Final[str] = "codex_tui_bullet_v1"
 _OUTPUT_VARIANT_WAITING_APPROVAL_V1: Final[str] = "codex_waiting_approval_v1"
 _OUTPUT_VARIANT_PROMPT_IDLE_V1: Final[str] = "codex_prompt_idle_v1"
+_CODEX_PROJECTOR_ID: Final[str] = "codex_dialog_projection_v1"
+
+CodexUiContext = Literal[
+    "normal_prompt",
+    "selection_menu",
+    "slash_command",
+    "approval_prompt",
+    "error_banner",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -77,101 +87,30 @@ class CodexParsingPreset:
     identity: VersionedParserPreset
     supported_variants: tuple[str, ...]
 
+
 @dataclass(frozen=True)
-class CodexShadowStatus:
-    """Classification result for one Codex scrollback snapshot."""
+class CodexSurfaceAssessment(SurfaceAssessment):
+    """Codex-specific snapshot assessment."""
 
-    status: ShadowStatus
-    metadata: ShadowParserMetadata
-    waiting_user_answer_excerpt: str | None = None
-
-    @property
-    def parser_preset_id(self) -> str:
-        """Compatibility accessor for older runtime wiring."""
-
-        return self.metadata.parser_preset_id
-
-    @property
-    def output_format(self) -> str:
-        """Return selected output-format id."""
-
-        return self.metadata.output_format
-
-    @property
-    def output_format_match(self) -> bool:
-        """Return whether probe matched a supported variant."""
-
-        return self.metadata.output_format_match
-
-    @property
-    def output_variant(self) -> str:
-        """Return matched Codex output variant id."""
-
-        return self.metadata.output_variant
-
-    @property
-    def baseline_invalidated(self) -> bool:
-        """Return whether baseline invalidation was detected."""
-
-        return self.metadata.baseline_invalidated
-
-    @property
-    def anomalies(self) -> tuple[ShadowParserAnomaly, ...]:
-        """Return parser anomalies attached to this status result."""
-
-        return self.metadata.anomalies
+    ui_context: CodexUiContext
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
-class CodexShadowExtractionResult:
-    """Extracted answer details from one Codex scrollback snapshot."""
+class CodexDialogProjection(DialogProjection):
+    """Codex-specific dialog projection."""
 
-    answer_text: str
-    metadata: ShadowParserMetadata
-
-    @property
-    def parser_preset_id(self) -> str:
-        """Compatibility accessor for older runtime wiring."""
-
-        return self.metadata.parser_preset_id
-
-    @property
-    def output_format(self) -> str:
-        """Return selected output-format id."""
-
-        return self.metadata.output_format
-
-    @property
-    def output_format_match(self) -> bool:
-        """Return whether probe matched a supported variant."""
-
-        return self.metadata.output_format_match
-
-    @property
-    def output_variant(self) -> str:
-        """Return matched Codex output variant id."""
-
-        return self.metadata.output_variant
-
-    @property
-    def baseline_invalidated(self) -> bool:
-        """Return whether baseline invalidation was detected."""
-
-        return self.metadata.baseline_invalidated
-
-    @property
-    def anomalies(self) -> tuple[ShadowParserAnomaly, ...]:
-        """Return parser anomalies attached to this extraction result."""
-
-        return self.metadata.anomalies
+    evidence: tuple[str, ...] = ()
 
 
 class CodexShadowParseError(ShadowParserError):
-    """Raised when Codex answer extraction/classification fails."""
+    """Raised when Codex snapshot parsing hits an unexpected internal error."""
 
 
 @dataclass(frozen=True)
 class _AssistantMatch:
+    """One assistant message marker in normalized Codex output."""
+
     start: int
     end: int
     first_line: str
@@ -225,171 +164,57 @@ class CodexShadowParser:
     def detect_output_format(self, scrollback: str) -> tuple[str, bool]:
         """Detect whether scrollback matches one supported Codex variant."""
 
-        preset, _ = self._resolve_preset(scrollback)
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        variant = self._detect_output_variant(clean_output)
-        if variant is None or variant not in set(preset.supported_variants):
+        parsed = self.parse_snapshot(scrollback, baseline_pos=0)
+        metadata = parsed.surface_assessment.parser_metadata
+        if not metadata.output_format_match:
             return ("unknown", False)
-        return (preset.identity.preset_id, True)
+        return (metadata.output_format, True)
 
     def capture_baseline_pos(self, scrollback: str) -> int:
-        """Capture the baseline marker offset for turn-level status gating."""
+        """Capture a baseline offset for future baseline-reset diagnostics."""
 
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        preset, resolution = self._resolve_preset(scrollback)
-        self._require_supported_variant(
-            clean_output=clean_output,
-            preset=preset,
-            resolution=resolution,
-            baseline_invalidated=False,
-        )
-        # Use the full scrollback length as baseline anchor. Codex TUI frames can
-        # redraw in-place; anchoring to the last assistant marker can miss
-        # post-turn assistant text when the frame shrinks/reflows.
-        return len(clean_output)
+        parsed = self.parse_snapshot(scrollback, baseline_pos=0)
+        if parsed.surface_assessment.availability != "supported":
+            raise CodexShadowParseError(
+                "unsupported_output_format: cannot capture Codex baseline from unsupported output",
+                error_code="unsupported_output_format",
+                metadata=parsed.surface_assessment.parser_metadata,
+            )
+        return len(parsed.dialog_projection.normalized_text)
 
-    def classify_shadow_status(
+    def parse_snapshot(
         self,
         scrollback: str,
         *,
         baseline_pos: int = 0,
-    ) -> CodexShadowStatus:
-        """Classify Codex shadow status from ``mode=full`` output."""
+    ) -> ParsedShadowSnapshot:
+        """Return Codex state assessment and dialog projection for one snapshot."""
 
         clean_output = normalize_shadow_output(strip_ansi(scrollback))
         preset, resolution = self._resolve_preset(scrollback)
         baseline_invalidated = baseline_pos > 0 and len(clean_output) < baseline_pos
-        metadata, variant = self._require_supported_variant(
-            clean_output=clean_output,
+        output_variant = self._detect_output_variant(clean_output)
+        output_format_match = output_variant in set(preset.supported_variants)
+        metadata = self._metadata_for(
             preset=preset,
             resolution=resolution,
+            output_variant=output_variant or "unknown",
+            output_format_match=output_format_match,
             baseline_invalidated=baseline_invalidated,
         )
-        _ = metadata, variant
 
-        effective_baseline = 0 if baseline_invalidated else max(baseline_pos, 0)
-        tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
-        waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
-        if waiting_excerpt:
-            return CodexShadowStatus(
-                status="waiting_user_answer",
-                metadata=metadata,
-                waiting_user_answer_excerpt=waiting_excerpt,
-            )
-
-        has_processing = any(self._is_processing_line(line) for line in tail_lines)
-        has_idle_prompt = any(_IDLE_PROMPT_RE.match(line) for line in tail_lines)
-        assistant_matches = self._assistant_matches(
-            clean_output,
-            baseline_pos=effective_baseline,
-        )
-        has_post_baseline_assistant = bool(assistant_matches)
-
-        if has_post_baseline_assistant and not has_processing:
-            if baseline_invalidated and not any(
-                self._has_stop_boundary_after(clean_output, marker_end=match.end)
-                for match in assistant_matches
-            ):
-                return CodexShadowStatus(
-                    status="processing",
-                    metadata=metadata,
-                )
-            return CodexShadowStatus(
-                status="completed",
-                metadata=metadata,
-            )
-
-        if has_processing:
-            return CodexShadowStatus(
-                status="processing",
-                metadata=metadata,
-            )
-
-        idle_status: ShadowStatus = "idle" if has_idle_prompt else "unknown"
-        return CodexShadowStatus(
-            status=idle_status,
-            metadata=metadata,
-        )
-
-    def extract_last_answer(
-        self,
-        scrollback: str,
-        *,
-        baseline_pos: int = 0,
-    ) -> CodexShadowExtractionResult:
-        """Extract the last assistant answer from Codex scrollback."""
-
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        preset, resolution = self._resolve_preset(scrollback)
-        baseline_invalidated = baseline_pos > 0 and len(clean_output) < baseline_pos
-        metadata, _ = self._require_supported_variant(
+        surface_assessment = self._build_surface_assessment(
             clean_output=clean_output,
-            preset=preset,
-            resolution=resolution,
-            baseline_invalidated=baseline_invalidated,
-        )
-        effective_baseline = 0 if baseline_invalidated else max(baseline_pos, 0)
-
-        marker_matches = self._assistant_matches(
-            clean_output,
-            baseline_pos=effective_baseline,
-        )
-        if not marker_matches:
-            raise CodexShadowParseError(
-                "No Codex assistant marker found after baseline",
-                metadata=metadata,
-            )
-
-        selected_marker = marker_matches[-1]
-        user_matches = self._user_matches(clean_output, baseline_pos=effective_baseline)
-        if user_matches:
-            last_user_pos = user_matches[-1]
-            for candidate in marker_matches:
-                if candidate.start >= last_user_pos:
-                    selected_marker = candidate
-                    break
-
-        segment = clean_output[selected_marker.end :]
-        lines = segment.splitlines()
-        collected_lines: list[str] = []
-        if selected_marker.first_line.strip():
-            collected_lines.append(selected_marker.first_line.rstrip())
-
-        stop_boundary_found = False
-        for raw_line in lines:
-            line = raw_line.rstrip()
-            if self._is_stop_boundary_line(line):
-                stop_boundary_found = True
-                break
-            if self._is_processing_line(line):
-                continue
-            marker_match = _ASSISTANT_BULLET_RE.match(line) or _ASSISTANT_LABEL_RE.match(line)
-            if marker_match is not None:
-                payload = marker_match.group(1).rstrip()
-                if _PROCESSING_RE.search(payload):
-                    continue
-                if payload:
-                    collected_lines.append(payload)
-                continue
-            if line.strip():
-                collected_lines.append(line)
-
-        if baseline_invalidated and not stop_boundary_found:
-            raise CodexShadowParseError(
-                "Baseline was invalidated and no extraction stop boundary was found",
-                metadata=metadata,
-            )
-
-        answer_text = "\n".join(collected_lines).strip()
-        if not answer_text:
-            raise CodexShadowParseError(
-                "Extracted Codex answer is empty",
-                metadata=metadata,
-            )
-
-        return CodexShadowExtractionResult(
-            answer_text=answer_text,
             metadata=metadata,
+        )
+        dialog_projection = self._build_dialog_projection(
+            raw_text=scrollback,
+            clean_output=clean_output,
+            metadata=metadata,
+        )
+        return ParsedShadowSnapshot(
+            surface_assessment=surface_assessment,
+            dialog_projection=dialog_projection,
         )
 
     def ansi_stripped_tail_excerpt(self, scrollback: str, *, max_lines: int = 12) -> str:
@@ -419,37 +244,185 @@ class CodexShadowParser:
             )
         return preset, resolution
 
-    def _require_supported_variant(
+    def _build_surface_assessment(
         self,
         *,
         clean_output: str,
-        preset: CodexParsingPreset,
-        resolution: PresetResolution,
-        baseline_invalidated: bool,
-    ) -> tuple[ShadowParserMetadata, str]:
-        variant = self._detect_output_variant(clean_output)
-        if variant is None or variant not in set(preset.supported_variants):
-            metadata = self._metadata_for(
-                preset=preset,
-                resolution=resolution,
-                output_variant="unknown",
-                output_format_match=False,
-                baseline_invalidated=baseline_invalidated,
-            )
-            raise CodexShadowParseError(
-                "unsupported_output_format: mode=full output does not match "
-                f"{preset.identity.preset_id}",
-                error_code="unsupported_output_format",
-                metadata=metadata,
-            )
-        metadata = self._metadata_for(
-            preset=preset,
-            resolution=resolution,
-            output_variant=variant,
-            output_format_match=True,
-            baseline_invalidated=baseline_invalidated,
+        metadata: ShadowParserMetadata,
+    ) -> CodexSurfaceAssessment:
+        tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
+        waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
+        has_processing = any(self._is_processing_line(line) for line in tail_lines)
+        has_idle_prompt = any(_IDLE_PROMPT_RE.match(line) for line in tail_lines)
+        has_approval_prompt = _WAITING_APPROVAL_RE.search(clean_output) is not None or (
+            _TRUST_PROMPT_RE.search(clean_output) is not None
         )
-        return metadata, variant
+        has_slash_command = _SLASH_COMMAND_RE.search(clean_output) is not None
+        has_error_banner = _ERROR_BANNER_RE.search(clean_output) is not None
+        is_disconnected = _DISCONNECTED_RE.search(clean_output) is not None
+        has_assistant_output = bool(self._assistant_matches(clean_output, baseline_pos=0))
+
+        evidence: list[str] = []
+        if is_disconnected:
+            evidence.append("DISCONNECTED_SIGNAL")
+        if metadata.output_format_match:
+            evidence.append("SUPPORTED_OUTPUT_FAMILY")
+        if waiting_excerpt:
+            evidence.append("CODEX_SELECTION_MENU")
+        if has_approval_prompt:
+            evidence.append("CODEX_APPROVAL_PROMPT")
+        if has_processing:
+            evidence.append("CODEX_PROCESSING_SIGNAL")
+        if has_idle_prompt:
+            evidence.append("CODEX_IDLE_PROMPT")
+        if has_slash_command:
+            evidence.append("CODEX_SLASH_COMMAND_CONTEXT")
+        if has_error_banner:
+            evidence.append("CODEX_ERROR_BANNER")
+        if has_assistant_output:
+            evidence.append("CODEX_ASSISTANT_DIALOG_VISIBLE")
+
+        availability: ShadowAvailability
+        if is_disconnected:
+            availability = "disconnected"
+        elif metadata.output_format_match:
+            availability = "supported"
+        else:
+            availability = "unsupported"
+
+        ui_context: CodexUiContext = "unknown"
+        if waiting_excerpt:
+            ui_context = "approval_prompt" if has_approval_prompt else "selection_menu"
+        elif has_slash_command:
+            ui_context = "slash_command"
+        elif has_error_banner:
+            ui_context = "error_banner"
+        elif has_idle_prompt or has_processing or has_assistant_output:
+            ui_context = "normal_prompt"
+
+        activity: ShadowActivity
+        if availability != "supported":
+            activity = "unknown"
+            accepts_input = False
+        elif waiting_excerpt:
+            activity = "waiting_user_answer"
+            accepts_input = False
+        elif has_processing:
+            activity = "working"
+            accepts_input = False
+        elif has_idle_prompt:
+            activity = "ready_for_input"
+            accepts_input = ui_context == "normal_prompt"
+        else:
+            activity = "unknown"
+            accepts_input = False
+
+        return CodexSurfaceAssessment(
+            availability=availability,
+            activity=activity,
+            accepts_input=accepts_input,
+            ui_context=ui_context,
+            parser_metadata=metadata,
+            anomalies=metadata.anomalies,
+            waiting_user_answer_excerpt=waiting_excerpt,
+            evidence=tuple(evidence),
+        )
+
+    def _build_dialog_projection(
+        self,
+        *,
+        raw_text: str,
+        clean_output: str,
+        metadata: ShadowParserMetadata,
+    ) -> CodexDialogProjection:
+        projected_lines: list[str] = []
+        evidence: list[str] = []
+
+        for line in clean_output.splitlines():
+            projected_line = self._project_line(line=line, evidence=evidence)
+            _append_projection_line(projected_lines, projected_line)
+
+        dialog_text = "\n".join(projected_lines).strip()
+        if not dialog_text and clean_output.strip():
+            dialog_text = clean_output.strip()
+
+        head, tail = projection_head_tail(
+            dialog_text,
+            max_lines=_DEFAULT_PROJECTION_SLICE_LINES,
+        )
+        projection_metadata = ProjectionMetadata(
+            provider_id="codex",
+            source_kind="tui_snapshot",
+            projector_id=_CODEX_PROJECTOR_ID,
+            parser_metadata=metadata,
+            dialog_line_count=len(dialog_text.splitlines()) if dialog_text else 0,
+            head_line_count=len(head.splitlines()) if head else 0,
+            tail_line_count=len(tail.splitlines()) if tail else 0,
+        )
+        return CodexDialogProjection(
+            raw_text=raw_text,
+            normalized_text=clean_output,
+            dialog_text=dialog_text,
+            head=head,
+            tail=tail,
+            projection_metadata=projection_metadata,
+            anomalies=metadata.anomalies,
+            evidence=tuple(evidence),
+        )
+
+    def _project_line(self, *, line: str, evidence: list[str]) -> str | None:
+        clean_line = line.rstrip("\r")
+        stripped = clean_line.strip()
+        if not stripped:
+            return ""
+        if _BANNER_VERSION_RE.search(clean_line):
+            evidence.append("DROP_BANNER_VERSION")
+            return None
+        if clean_line.startswith(("╭", "╰", "│")):
+            evidence.append("DROP_TUI_FRAME")
+            return None
+        if _FOOTER_TOKEN_RE.search(clean_line):
+            evidence.append("DROP_FOOTER_CHROME")
+            return None
+        if self._is_processing_line(clean_line):
+            evidence.append("DROP_PROCESSING_SIGNAL")
+            return None
+        if _IDLE_PROMPT_STRICT_RE.match(clean_line):
+            evidence.append("DROP_IDLE_PROMPT")
+            return None
+
+        label_match = _ASSISTANT_LABEL_RE.match(clean_line)
+        if label_match is not None:
+            evidence.append("KEEP_ASSISTANT_LABEL_PAYLOAD")
+            return label_match.group(1).rstrip()
+
+        bullet_match = _ASSISTANT_BULLET_RE.match(clean_line)
+        if bullet_match is not None:
+            payload = bullet_match.group(1).rstrip()
+            if _PROCESSING_RE.search(payload):
+                evidence.append("DROP_ASSISTANT_PROGRESS_BULLET")
+                return None
+            evidence.append("KEEP_ASSISTANT_BULLET_PAYLOAD")
+            return payload
+
+        prompt_payload = self._prompt_payload(clean_line)
+        if prompt_payload is not None:
+            if not prompt_payload:
+                evidence.append("DROP_IDLE_PROMPT")
+                return None
+            evidence.append("KEEP_PROMPT_PAYLOAD")
+            return prompt_payload
+
+        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_SELECTED_WAITING_OPTION")
+            return clean_line.replace("❯", "", 1).replace("›", "", 1).replace(">", "", 1).strip()
+
+        if _WAITING_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_WAITING_OPTION")
+            return clean_line.strip()
+
+        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
+        return clean_line.rstrip()
 
     def _metadata_for(
         self,
@@ -528,22 +501,32 @@ class CodexShadowParser:
             return True
         if _ASSISTANT_BULLET_RE.match(line) and _PROCESSING_RE.search(line):
             return True
-        return _PROCESSING_RE.search(line) is not None and not _ASSISTANT_LABEL_RE.match(line)
+        stripped = line.strip().lower()
+        if stripped.startswith(
+            (
+                "thinking",
+                "processing",
+                "generating",
+                "working",
+                "running",
+                "executing",
+                "analyzing",
+                "starting",
+            )
+        ):
+            return True
+        return any(
+            token in stripped for token in ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        )
 
     @staticmethod
-    def _is_stop_boundary_line(line: str) -> bool:
-        if _IDLE_PROMPT_RE.match(line):
-            return True
-        if _WAITING_OPTION_RE.match(line):
-            return True
-        if _FOOTER_TOKEN_RE.search(line):
-            return True
-        if line.startswith("╭") or line.startswith("╰"):
-            return True
-        stripped = line.strip()
-        if stripped.startswith("──") or stripped.startswith("---"):
-            return True
-        return False
+    def _prompt_payload(line: str) -> str | None:
+        if not _IDLE_PROMPT_RE.match(line):
+            return None
+        trimmed = line.lstrip()
+        if trimmed.startswith("codex>"):
+            return trimmed[len("codex>") :].strip()
+        return trimmed[1:].strip()
 
     def _assistant_matches(self, clean_output: str, *, baseline_pos: int) -> list[_AssistantMatch]:
         matches: list[_AssistantMatch] = []
@@ -578,23 +561,6 @@ class CodexShadowParser:
         matches.sort(key=lambda item: item.start)
         return matches
 
-    @staticmethod
-    def _user_matches(clean_output: str, *, baseline_pos: int) -> list[int]:
-        positions: list[int] = []
-        for pattern in (_USER_LABEL_RE, _USER_TUI_RE):
-            for match in pattern.finditer(clean_output):
-                if match.start() >= baseline_pos:
-                    positions.append(match.start())
-        positions.sort()
-        return positions
-
-    def _has_stop_boundary_after(self, clean_output: str, *, marker_end: int) -> bool:
-        segment = clean_output[marker_end:]
-        for line in segment.splitlines():
-            if self._is_stop_boundary_line(line.rstrip()):
-                return True
-        return False
-
     def _waiting_user_answer_excerpt(self, clean_tail_lines: list[str]) -> str | None:
         if not clean_tail_lines:
             return None
@@ -613,16 +579,13 @@ class CodexShadowParser:
                     return stripped_excerpt
 
         option_indices = [
-            index
-            for index, line in enumerate(clean_tail_lines)
-            if _WAITING_OPTION_RE.match(line)
+            index for index, line in enumerate(clean_tail_lines) if _WAITING_OPTION_RE.match(line)
         ]
         if len(option_indices) < 2:
             return None
 
         has_selected_option = any(
-            _WAITING_SELECTED_OPTION_RE.match(clean_tail_lines[index])
-            for index in option_indices
+            _WAITING_SELECTED_OPTION_RE.match(clean_tail_lines[index]) for index in option_indices
         )
         has_hint = any(_WAITING_HINT_RE.search(line) for line in clean_tail_lines)
         if not has_selected_option and not has_hint:
@@ -630,7 +593,17 @@ class CodexShadowParser:
 
         start = max(option_indices[0] - 1, 0)
         end = min(option_indices[-1] + 2, len(clean_tail_lines))
-        excerpt = "\n".join(
-            line.rstrip() for line in clean_tail_lines[start:end] if line.strip()
-        )
+        excerpt = "\n".join(line.rstrip() for line in clean_tail_lines[start:end] if line.strip())
         return excerpt.strip() or None
+
+
+def _append_projection_line(lines: list[str], value: str | None) -> None:
+    """Append one projected dialog line while collapsing repeated blanks."""
+
+    if value is None:
+        return
+    if value == "":
+        if lines and lines[-1] != "":
+            lines.append("")
+        return
+    lines.append(value)

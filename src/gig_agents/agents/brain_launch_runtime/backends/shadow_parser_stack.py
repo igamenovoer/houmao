@@ -5,21 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .claude_code_shadow import (
-    ClaudeCodeExtractionResult,
     ClaudeCodeShadowParseError,
     ClaudeCodeShadowParser,
-    ClaudeCodeShadowStatus,
 )
 from .codex_shadow import (
-    CodexShadowExtractionResult,
     CodexShadowParseError,
     CodexShadowParser,
-    CodexShadowStatus,
 )
 from .shadow_parser_core import (
+    ParsedShadowSnapshot,
     ShadowParserError,
-    ShadowParserExtractionResult,
-    ShadowParserStatusResult,
 )
 
 _PARSER_FAMILY_CLAUDE_SHADOW = "claude_shadow"
@@ -77,27 +72,15 @@ class ShadowParserStack:
 
         return self._parser.capture_baseline_pos(scrollback)
 
-    def classify_shadow_status(
+    def parse_snapshot(
         self,
         scrollback: str,
         *,
         baseline_pos: int,
-    ) -> ShadowParserStatusResult:
-        """Classify shadow status and normalize to shared status model."""
+    ) -> ParsedShadowSnapshot:
+        """Return provider surface assessment and dialog projection together."""
 
-        raw = self._parser.classify_shadow_status(scrollback, baseline_pos=baseline_pos)
-        return _normalize_status(raw)
-
-    def extract_last_answer(
-        self,
-        scrollback: str,
-        *,
-        baseline_pos: int,
-    ) -> ShadowParserExtractionResult:
-        """Extract answer text and normalize to shared extraction model."""
-
-        raw = self._parser.extract_last_answer(scrollback, baseline_pos=baseline_pos)
-        return _normalize_extraction(raw)
+        return self._parser.parse_snapshot(scrollback, baseline_pos=baseline_pos)
 
     def ansi_stripped_tail_excerpt(self, scrollback: str, *, max_lines: int = 12) -> str:
         """Return ANSI-stripped tail excerpt via selected parser."""
@@ -113,22 +96,3 @@ def as_shadow_parser_error(exc: Exception) -> ShadowParserError:
     if isinstance(exc, (CodexShadowParseError, ClaudeCodeShadowParseError)):
         return ShadowParserError(str(exc))
     return ShadowParserError(str(exc))
-
-
-def _normalize_status(
-    raw: ClaudeCodeShadowStatus | CodexShadowStatus,
-) -> ShadowParserStatusResult:
-    return ShadowParserStatusResult(
-        status=raw.status,
-        metadata=raw.metadata,
-        waiting_user_answer_excerpt=raw.waiting_user_answer_excerpt,
-    )
-
-
-def _normalize_extraction(
-    raw: ClaudeCodeExtractionResult | CodexShadowExtractionResult,
-) -> ShadowParserExtractionResult:
-    return ShadowParserExtractionResult(
-        answer_text=raw.answer_text,
-        metadata=raw.metadata,
-    )

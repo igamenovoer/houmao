@@ -7,15 +7,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Final, Literal
 
-ShadowStatus = Literal["processing", "waiting_user_answer", "completed", "idle", "unknown"]
-ShadowRuntimeStatus = Literal[
-    "processing",
-    "waiting_user_answer",
-    "completed",
-    "idle",
-    "unknown",
-    "stalled",
-]
+ShadowAvailability = Literal["supported", "unsupported", "disconnected", "unknown"]
+ShadowActivity = Literal["ready_for_input", "working", "waiting_user_answer", "unknown"]
+CommonUiContext = Literal["normal_prompt", "selection_menu", "slash_command", "unknown"]
+ProjectionSourceKind = Literal["tui_snapshot"]
 
 ANOMALY_UNKNOWN_VERSION_FLOOR_USED: Final[str] = "unknown_version_floor_used"
 ANOMALY_BASELINE_INVALIDATED: Final[str] = "baseline_invalidated"
@@ -39,7 +34,7 @@ class ShadowParserAnomaly:
 
 @dataclass(frozen=True)
 class ShadowParserMetadata:
-    """Provider-agnostic parser metadata for status/extraction results."""
+    """Provider-agnostic parser metadata for state/projection results."""
 
     provider_id: str
     parser_preset_id: str
@@ -55,20 +50,50 @@ class ShadowParserMetadata:
 
 
 @dataclass(frozen=True)
-class ShadowParserStatusResult:
-    """Classification result for one shadow parser snapshot."""
+class ProjectionMetadata:
+    """Provider-agnostic provenance for dialog projections."""
 
-    status: ShadowStatus
-    metadata: ShadowParserMetadata
+    provider_id: str
+    source_kind: ProjectionSourceKind
+    projector_id: str
+    parser_metadata: ShadowParserMetadata
+    dialog_line_count: int
+    head_line_count: int
+    tail_line_count: int
+
+
+@dataclass(frozen=True)
+class SurfaceAssessment:
+    """Provider-agnostic assessment of one visible TUI snapshot."""
+
+    availability: ShadowAvailability
+    activity: ShadowActivity
+    accepts_input: bool
+    ui_context: str
+    parser_metadata: ShadowParserMetadata
+    anomalies: tuple[ShadowParserAnomaly, ...] = ()
     waiting_user_answer_excerpt: str | None = None
 
 
 @dataclass(frozen=True)
-class ShadowParserExtractionResult:
-    """Extraction result for one shadow parser snapshot."""
+class DialogProjection:
+    """Provider-agnostic dialog-oriented view of one TUI snapshot."""
 
-    answer_text: str
-    metadata: ShadowParserMetadata
+    raw_text: str
+    normalized_text: str
+    dialog_text: str
+    head: str
+    tail: str
+    projection_metadata: ProjectionMetadata
+    anomalies: tuple[ShadowParserAnomaly, ...] = ()
+
+
+@dataclass(frozen=True)
+class ParsedShadowSnapshot:
+    """Shared parser result carrying state and dialog projection together."""
+
+    surface_assessment: SurfaceAssessment
+    dialog_projection: DialogProjection
 
 
 class ShadowParserError(RuntimeError):
@@ -304,3 +329,18 @@ def ansi_stripped_tail_excerpt(scrollback: str, *, max_lines: int = 12) -> str:
         return ""
     excerpt = "\n".join(line.rstrip() for line in lines[-max_lines:] if line.strip())
     return excerpt.strip()
+
+
+def projection_head_tail(dialog_text: str, *, max_lines: int = 12) -> tuple[str, str]:
+    """Return head/tail slices over projected dialog content."""
+
+    if max_lines <= 0:
+        raise ValueError("max_lines must be positive")
+
+    lines = dialog_text.splitlines()
+    if not lines:
+        return ("", "")
+
+    head = "\n".join(lines[:max_lines]).strip()
+    tail = "\n".join(lines[-max_lines:]).strip()
+    return (head, tail)

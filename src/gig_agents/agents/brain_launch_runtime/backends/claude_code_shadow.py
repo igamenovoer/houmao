@@ -4,41 +4,65 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 from .shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
+    DialogProjection,
+    ParsedShadowSnapshot,
     PresetResolution,
+    ProjectionMetadata,
+    ShadowActivity,
+    ShadowAvailability,
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
-    ShadowStatus,
+    SurfaceAssessment,
     VersionedParserPreset,
     VersionedPresetRegistry,
     ansi_stripped_tail_excerpt,
     normalize_shadow_output,
+    projection_head_tail,
     strip_ansi,
 )
 
-_BANNER_VERSION_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?im)Claude Code v(\d+\.\d+\.\d+)"
-)
+_BANNER_VERSION_RE: Final[re.Pattern[str]] = re.compile(r"(?im)Claude Code v(\d+\.\d+\.\d+)")
 _WAITING_OPTION_RE: Final[re.Pattern[str]] = re.compile(r"^\s*(?:❯\s*)?\d+\.\s+\S+")
-_WAITING_SELECTED_OPTION_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*❯\s*\d+\.\s+\S+"
-)
+_WAITING_SELECTED_OPTION_RE: Final[re.Pattern[str]] = re.compile(r"^\s*❯\s*\d+\.\s+\S+")
 _WAITING_HINT_RE: Final[re.Pattern[str]] = re.compile(
     r"(select (?:an )?option|choose (?:an )?option|arrow keys|press enter)",
     flags=re.IGNORECASE,
 )
+_WAITING_APPROVAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?im)^\s*(?:allow|trust)\b.*(?:\[(?:y/n|yes/no)\]|\b(?:y/n|yes/no)\b)"
+)
+_SLASH_COMMAND_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*(?:❯\s*)?/[A-Za-z0-9_-]+\b")
+_TRUST_PROMPT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?i)(?:trust this (?:folder|directory)|allow claude|yes,\s*i trust)"
+)
+_ERROR_BANNER_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:error|failed|warning)\b")
+_DISCONNECTED_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?i)(?:connection (?:lost|closed)|terminal detached|session ended|reconnect)"
+)
 
 _DEFAULT_STATUS_TAIL_LINES: Final[int] = 100
+_DEFAULT_PROJECTION_SLICE_LINES: Final[int] = 12
 _ENV_PRESET_OVERRIDE: Final[str] = "AGENTSYS_CAO_CLAUDE_CODE_VERSION"
 
 _OUTPUT_VARIANT_PROMPT_IDLE_V1: Final[str] = "claude_prompt_idle_v1"
 _OUTPUT_VARIANT_RESPONSE_MARKER_V1: Final[str] = "claude_response_marker_v1"
 _OUTPUT_VARIANT_WAITING_MENU_V1: Final[str] = "claude_waiting_menu_v1"
 _OUTPUT_VARIANT_SPINNER_V1: Final[str] = "claude_spinner_v1"
+_CLAUDE_PROJECTOR_ID: Final[str] = "claude_dialog_projection_v1"
+
+ClaudeUiContext = Literal[
+    "normal_prompt",
+    "selection_menu",
+    "slash_command",
+    "trust_prompt",
+    "error_banner",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -55,108 +79,24 @@ class ClaudeCodeParsingPreset:
 
 
 @dataclass(frozen=True)
-class ClaudeCodeShadowStatus:
-    """Classification result for one Claude Code scrollback snapshot."""
+class ClaudeSurfaceAssessment(SurfaceAssessment):
+    """Claude-specific snapshot assessment."""
 
-    status: ShadowStatus
-    metadata: ShadowParserMetadata
-    waiting_user_answer_excerpt: str | None = None
-
-    @property
-    def preset_version(self) -> str:
-        """Compatibility accessor for older runtime wiring."""
-
-        return self.metadata.parser_preset_version
-
-    @property
-    def parser_preset_id(self) -> str:
-        """Return selected parser preset id."""
-
-        return self.metadata.parser_preset_id
-
-    @property
-    def output_format(self) -> str:
-        """Return selected output-format id."""
-
-        return self.metadata.output_format
-
-    @property
-    def output_format_match(self) -> bool:
-        """Return whether the output probe matched."""
-
-        return self.metadata.output_format_match
-
-    @property
-    def output_variant(self) -> str:
-        """Return matched Claude output variant id."""
-
-        return self.metadata.output_variant
-
-    @property
-    def baseline_invalidated(self) -> bool:
-        """Return whether baseline invalidation was detected."""
-
-        return self.metadata.baseline_invalidated
-
-    @property
-    def anomalies(self) -> tuple[ShadowParserAnomaly, ...]:
-        """Return parser anomalies attached to this status result."""
-
-        return self.metadata.anomalies
+    ui_context: ClaudeUiContext
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
-class ClaudeCodeExtractionResult:
-    """Extracted answer details from one Claude Code scrollback snapshot."""
+class ClaudeDialogProjection(DialogProjection):
+    """Claude-specific dialog projection."""
 
-    answer_text: str
-    metadata: ShadowParserMetadata
-
-    @property
-    def preset_version(self) -> str:
-        """Compatibility accessor for older runtime wiring."""
-
-        return self.metadata.parser_preset_version
-
-    @property
-    def parser_preset_id(self) -> str:
-        """Return selected parser preset id."""
-
-        return self.metadata.parser_preset_id
-
-    @property
-    def output_format(self) -> str:
-        """Return selected output-format id."""
-
-        return self.metadata.output_format
-
-    @property
-    def output_format_match(self) -> bool:
-        """Return whether the output probe matched."""
-
-        return self.metadata.output_format_match
-
-    @property
-    def output_variant(self) -> str:
-        """Return matched Claude output variant id."""
-
-        return self.metadata.output_variant
-
-    @property
-    def baseline_invalidated(self) -> bool:
-        """Return whether baseline invalidation was detected."""
-
-        return self.metadata.baseline_invalidated
-
-    @property
-    def anomalies(self) -> tuple[ShadowParserAnomaly, ...]:
-        """Return parser anomalies attached to this extraction result."""
-
-        return self.metadata.anomalies
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class _CompiledPreset:
+    """Cached compiled regex bundle for one preset."""
+
     preset: ClaudeCodeParsingPreset
     response_patterns: tuple[re.Pattern[str], ...]
     spinner_pattern: re.Pattern[str]
@@ -164,13 +104,15 @@ class _CompiledPreset:
 
 @dataclass(frozen=True)
 class _ResponseMatch:
+    """One Claude response-marker match in normalized output."""
+
     start: int
     end: int
     first_line: str
 
 
 class ClaudeCodeShadowParseError(ShadowParserError):
-    """Raised when Claude Code answer extraction/classification fails."""
+    """Raised when Claude snapshot parsing hits an unexpected internal error."""
 
 
 class ClaudeCodeShadowParser:
@@ -245,178 +187,60 @@ class ClaudeCodeShadowParser:
     def detect_output_format(self, scrollback: str) -> tuple[str, bool]:
         """Detect whether scrollback matches a supported Claude format."""
 
-        preset, _ = self._resolve_preset(scrollback)
-        compiled = self._compiled_for_preset(preset)
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        variant = self._detect_output_variant(clean_output, compiled)
-        if variant is None or variant not in set(preset.supported_variants):
+        parsed = self.parse_snapshot(scrollback, baseline_pos=0)
+        metadata = parsed.surface_assessment.parser_metadata
+        if not metadata.output_format_match:
             return ("unknown", False)
-        return (preset.identity.preset_id, True)
+        return (metadata.output_format, True)
 
     def capture_baseline_pos(self, scrollback: str) -> int:
-        """Capture the baseline marker end offset for current turn gating."""
+        """Capture a baseline offset for future baseline-reset diagnostics."""
 
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        preset, resolution = self._resolve_preset(scrollback)
-        compiled = self._compiled_for_preset(preset)
-        metadata, _ = self._require_supported_variant(
-            clean_output=clean_output,
-            compiled=compiled,
-            resolution=resolution,
-            baseline_invalidated=False,
-        )
-        _ = metadata
-        matches = self._response_marker_matches(
-            clean_output=clean_output,
-            compiled=compiled,
-            baseline_pos=0,
-        )
-        if not matches:
-            return 0
-        return max(match.end for match in matches)
+        parsed = self.parse_snapshot(scrollback, baseline_pos=0)
+        if parsed.surface_assessment.availability != "supported":
+            raise ClaudeCodeShadowParseError(
+                "unsupported_output_format: cannot capture Claude baseline from unsupported output",
+                error_code="unsupported_output_format",
+                metadata=parsed.surface_assessment.parser_metadata,
+            )
+        return len(parsed.dialog_projection.normalized_text)
 
-    def classify_shadow_status(
+    def parse_snapshot(
         self,
         scrollback: str,
         *,
         baseline_pos: int = 0,
-    ) -> ClaudeCodeShadowStatus:
-        """Classify Claude Code shadow status from ``mode=full`` output."""
+    ) -> ParsedShadowSnapshot:
+        """Return Claude state assessment and dialog projection for one snapshot."""
 
         clean_output = normalize_shadow_output(strip_ansi(scrollback))
         preset, resolution = self._resolve_preset(scrollback)
         compiled = self._compiled_for_preset(preset)
         baseline_invalidated = baseline_pos > 0 and len(clean_output) < baseline_pos
-        metadata, _ = self._require_supported_variant(
-            clean_output=clean_output,
-            compiled=compiled,
+        output_variant = self._detect_output_variant(clean_output, compiled)
+        output_format_match = output_variant in set(preset.supported_variants)
+        metadata = self._metadata_for(
+            preset=preset,
             resolution=resolution,
+            output_variant=output_variant or "unknown",
+            output_format_match=output_format_match,
             baseline_invalidated=baseline_invalidated,
         )
 
-        effective_baseline = 0 if baseline_invalidated else max(baseline_pos, 0)
-        tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
-        waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
-        if waiting_excerpt:
-            return ClaudeCodeShadowStatus(
-                status="waiting_user_answer",
-                metadata=metadata,
-                waiting_user_answer_excerpt=waiting_excerpt,
-            )
-
-        if self._contains_processing_spinner(tail_lines, compiled):
-            return ClaudeCodeShadowStatus(
-                status="processing",
-                metadata=metadata,
-            )
-
-        has_idle_prompt = any(
-            self._is_idle_prompt_line(line, compiled.preset) for line in tail_lines
-        )
-        if not has_idle_prompt:
-            return ClaudeCodeShadowStatus(
-                status="unknown",
-                metadata=metadata,
-            )
-
-        marker_matches = self._response_marker_matches(
+        surface_assessment = self._build_surface_assessment(
             clean_output=clean_output,
             compiled=compiled,
-            baseline_pos=effective_baseline,
-        )
-        if marker_matches:
-            if baseline_invalidated:
-                if any(
-                    self._has_stop_boundary_after(
-                        clean_output=clean_output,
-                        marker_end=match.end,
-                        preset=compiled.preset,
-                    )
-                    for match in marker_matches
-                ):
-                    return ClaudeCodeShadowStatus(
-                        status="completed",
-                        metadata=metadata,
-                    )
-            else:
-                return ClaudeCodeShadowStatus(
-                    status="completed",
-                    metadata=metadata,
-                )
-
-        return ClaudeCodeShadowStatus(
-            status="idle",
             metadata=metadata,
         )
-
-    def extract_last_answer(
-        self,
-        scrollback: str,
-        *,
-        baseline_pos: int = 0,
-    ) -> ClaudeCodeExtractionResult:
-        """Extract the last assistant answer from Claude Code scrollback."""
-
-        clean_output = normalize_shadow_output(strip_ansi(scrollback))
-        preset, resolution = self._resolve_preset(scrollback)
-        compiled = self._compiled_for_preset(preset)
-        baseline_invalidated = baseline_pos > 0 and len(clean_output) < baseline_pos
-        metadata, _ = self._require_supported_variant(
+        dialog_projection = self._build_dialog_projection(
+            raw_text=scrollback,
             clean_output=clean_output,
             compiled=compiled,
-            resolution=resolution,
-            baseline_invalidated=baseline_invalidated,
-        )
-        effective_baseline = 0 if baseline_invalidated else max(baseline_pos, 0)
-
-        marker_matches = self._response_marker_matches(
-            clean_output=clean_output,
-            compiled=compiled,
-            baseline_pos=effective_baseline,
-        )
-        if not marker_matches:
-            raise ClaudeCodeShadowParseError(
-                "No Claude Code response marker found after baseline",
-                metadata=metadata,
-            )
-
-        last_marker = marker_matches[-1]
-        remaining_output = clean_output[last_marker.end :]
-
-        collected_lines: list[str] = []
-        if last_marker.first_line.strip():
-            collected_lines.append(last_marker.first_line.rstrip())
-        stop_boundary_found = False
-        for line in remaining_output.splitlines():
-            clean_line = line.rstrip("\r")
-            if (
-                self._is_idle_prompt_line(clean_line, compiled.preset)
-                or compiled.preset.separator_token in clean_line
-            ):
-                stop_boundary_found = True
-                break
-            if not clean_line.strip():
-                if collected_lines and collected_lines[-1]:
-                    collected_lines.append("")
-                continue
-            collected_lines.append(clean_line)
-
-        if baseline_invalidated and not stop_boundary_found:
-            raise ClaudeCodeShadowParseError(
-                "Baseline was invalidated and no extraction stop boundary was found",
-                metadata=metadata,
-            )
-
-        answer_text = "\n".join(collected_lines).strip()
-        if not answer_text:
-            raise ClaudeCodeShadowParseError(
-                "Extracted Claude Code answer is empty",
-                metadata=metadata,
-            )
-
-        return ClaudeCodeExtractionResult(
-            answer_text=answer_text,
             metadata=metadata,
+        )
+        return ParsedShadowSnapshot(
+            surface_assessment=surface_assessment,
+            dialog_projection=dialog_projection,
         )
 
     def ansi_stripped_tail_excerpt(self, scrollback: str, *, max_lines: int = 12) -> str:
@@ -469,38 +293,184 @@ class ClaudeCodeShadowParser:
         self._compiled_preset_cache[preset.identity.version] = compiled
         return compiled
 
-    def _require_supported_variant(
+    def _build_surface_assessment(
         self,
         *,
         clean_output: str,
         compiled: _CompiledPreset,
-        resolution: PresetResolution,
-        baseline_invalidated: bool,
-    ) -> tuple[ShadowParserMetadata, str]:
-        variant = self._detect_output_variant(clean_output, compiled)
-        if variant is None or variant not in set(compiled.preset.supported_variants):
-            metadata = self._metadata_for(
-                preset=compiled.preset,
-                resolution=resolution,
-                output_variant="unknown",
-                output_format_match=False,
-                baseline_invalidated=baseline_invalidated,
-            )
-            raise ClaudeCodeShadowParseError(
-                "unsupported_output_format: mode=full output does not match "
-                f"{compiled.preset.identity.preset_id}",
-                error_code="unsupported_output_format",
-                metadata=metadata,
-            )
-
-        metadata = self._metadata_for(
-            preset=compiled.preset,
-            resolution=resolution,
-            output_variant=variant,
-            output_format_match=True,
-            baseline_invalidated=baseline_invalidated,
+        metadata: ShadowParserMetadata,
+    ) -> ClaudeSurfaceAssessment:
+        tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
+        waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
+        has_processing = self._contains_processing_spinner(tail_lines, compiled)
+        has_idle_prompt = any(
+            self._is_idle_prompt_line(line, compiled.preset) for line in tail_lines
         )
-        return metadata, variant
+        has_trust_prompt = _TRUST_PROMPT_RE.search(clean_output) is not None
+        has_slash_command = _SLASH_COMMAND_RE.search(clean_output) is not None
+        has_error_banner = _ERROR_BANNER_RE.search(clean_output) is not None
+        is_disconnected = _DISCONNECTED_RE.search(clean_output) is not None
+        has_response_marker = bool(
+            self._response_marker_matches(
+                clean_output=clean_output,
+                compiled=compiled,
+                baseline_pos=0,
+            )
+        )
+
+        evidence: list[str] = []
+        if is_disconnected:
+            evidence.append("DISCONNECTED_SIGNAL")
+        if metadata.output_format_match:
+            evidence.append("SUPPORTED_OUTPUT_FAMILY")
+        if waiting_excerpt:
+            evidence.append("WAITING_MENU_BLOCK")
+        if has_trust_prompt:
+            evidence.append("TRUST_PROMPT_BLOCK")
+        if has_processing:
+            evidence.append("PROCESSING_SPINNER_LINE")
+        if has_idle_prompt:
+            evidence.append("IDLE_PROMPT_LINE")
+        if has_slash_command:
+            evidence.append("SLASH_COMMAND_CONTEXT")
+        if has_error_banner:
+            evidence.append("ERROR_BANNER_BLOCK")
+        if has_response_marker:
+            evidence.append("RESPONSE_MARKER_LINE")
+
+        availability: ShadowAvailability
+        if is_disconnected:
+            availability = "disconnected"
+        elif metadata.output_format_match:
+            availability = "supported"
+        else:
+            availability = "unsupported"
+
+        ui_context: ClaudeUiContext = "unknown"
+        if waiting_excerpt:
+            ui_context = "trust_prompt" if has_trust_prompt else "selection_menu"
+        elif has_slash_command:
+            ui_context = "slash_command"
+        elif has_error_banner:
+            ui_context = "error_banner"
+        elif has_idle_prompt or has_processing or has_response_marker:
+            ui_context = "normal_prompt"
+
+        activity: ShadowActivity
+        if availability != "supported":
+            activity = "unknown"
+            accepts_input = False
+        elif waiting_excerpt:
+            activity = "waiting_user_answer"
+            accepts_input = False
+        elif has_processing:
+            activity = "working"
+            accepts_input = False
+        elif has_idle_prompt:
+            activity = "ready_for_input"
+            accepts_input = ui_context == "normal_prompt"
+        else:
+            activity = "unknown"
+            accepts_input = False
+
+        return ClaudeSurfaceAssessment(
+            availability=availability,
+            activity=activity,
+            accepts_input=accepts_input,
+            ui_context=ui_context,
+            parser_metadata=metadata,
+            anomalies=metadata.anomalies,
+            waiting_user_answer_excerpt=waiting_excerpt,
+            evidence=tuple(evidence),
+        )
+
+    def _build_dialog_projection(
+        self,
+        *,
+        raw_text: str,
+        clean_output: str,
+        compiled: _CompiledPreset,
+        metadata: ShadowParserMetadata,
+    ) -> ClaudeDialogProjection:
+        projected_lines: list[str] = []
+        evidence: list[str] = []
+
+        for line in clean_output.splitlines():
+            projected_line = self._project_line(line=line, compiled=compiled, evidence=evidence)
+            _append_projection_line(projected_lines, projected_line)
+
+        dialog_text = "\n".join(projected_lines).strip()
+        if not dialog_text and clean_output.strip():
+            dialog_text = clean_output.strip()
+
+        head, tail = projection_head_tail(
+            dialog_text,
+            max_lines=_DEFAULT_PROJECTION_SLICE_LINES,
+        )
+        projection_metadata = ProjectionMetadata(
+            provider_id="claude",
+            source_kind="tui_snapshot",
+            projector_id=_CLAUDE_PROJECTOR_ID,
+            parser_metadata=metadata,
+            dialog_line_count=len(dialog_text.splitlines()) if dialog_text else 0,
+            head_line_count=len(head.splitlines()) if head else 0,
+            tail_line_count=len(tail.splitlines()) if tail else 0,
+        )
+        return ClaudeDialogProjection(
+            raw_text=raw_text,
+            normalized_text=clean_output,
+            dialog_text=dialog_text,
+            head=head,
+            tail=tail,
+            projection_metadata=projection_metadata,
+            anomalies=metadata.anomalies,
+            evidence=tuple(evidence),
+        )
+
+    def _project_line(
+        self,
+        *,
+        line: str,
+        compiled: _CompiledPreset,
+        evidence: list[str],
+    ) -> str | None:
+        clean_line = line.rstrip("\r")
+        stripped = clean_line.strip()
+        if not stripped:
+            return ""
+        if _BANNER_VERSION_RE.search(clean_line):
+            evidence.append("DROP_BANNER_VERSION")
+            return None
+        if compiled.preset.separator_token in clean_line:
+            evidence.append("DROP_SEPARATOR")
+            return None
+        if self._contains_processing_spinner([clean_line], compiled):
+            evidence.append("DROP_PROCESSING_SPINNER")
+            return None
+
+        response_payload = self._response_payload(clean_line, compiled)
+        if response_payload is not None:
+            evidence.append("KEEP_RESPONSE_MARKER_PAYLOAD")
+            return response_payload
+
+        prompt_payload = self._prompt_payload(clean_line, compiled.preset)
+        if prompt_payload is not None:
+            if not prompt_payload:
+                evidence.append("DROP_IDLE_PROMPT")
+                return None
+            evidence.append("KEEP_PROMPT_PAYLOAD")
+            return prompt_payload
+
+        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_SELECTED_WAITING_OPTION")
+            return clean_line.replace("❯", "", 1).strip()
+
+        if _WAITING_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_WAITING_OPTION")
+            return clean_line.strip()
+
+        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
+        return clean_line.rstrip()
 
     def _metadata_for(
         self,
@@ -622,38 +592,55 @@ class ClaudeCodeShadowParser:
         matches.sort(key=lambda item: item.start)
         return matches
 
-    def _has_stop_boundary_after(
+    def _response_payload(
         self,
-        *,
-        clean_output: str,
-        marker_end: int,
+        clean_line: str,
+        compiled: _CompiledPreset,
+    ) -> str | None:
+        for pattern in compiled.response_patterns:
+            match = pattern.match(clean_line)
+            if match is not None:
+                return match.group(1).rstrip()
+        return None
+
+    @staticmethod
+    def _prompt_payload(
+        clean_line: str,
         preset: ClaudeCodeParsingPreset,
-    ) -> bool:
-        segment = clean_output[marker_end:]
-        for line in segment.splitlines():
-            clean_line = line.rstrip("\r")
-            if self._is_idle_prompt_line(clean_line, preset):
-                return True
-            if preset.separator_token in clean_line:
-                return True
-        return False
+    ) -> str | None:
+        trimmed = clean_line.lstrip()
+        if not trimmed:
+            return None
+        if trimmed[0] not in set(preset.idle_prompts):
+            return None
+        return trimmed[1:].strip()
 
     @staticmethod
     def _waiting_user_answer_excerpt(clean_tail_lines: list[str]) -> str | None:
         if not clean_tail_lines:
             return None
 
+        for index, line in enumerate(clean_tail_lines):
+            if _WAITING_APPROVAL_RE.search(line) or _TRUST_PROMPT_RE.search(line):
+                start = max(index - 1, 0)
+                end = min(index + 3, len(clean_tail_lines))
+                excerpt = "\n".join(
+                    candidate.rstrip()
+                    for candidate in clean_tail_lines[start:end]
+                    if candidate.strip()
+                )
+                stripped_excerpt = excerpt.strip()
+                if stripped_excerpt:
+                    return stripped_excerpt
+
         option_indices = [
-            index
-            for index, line in enumerate(clean_tail_lines)
-            if _WAITING_OPTION_RE.match(line)
+            index for index, line in enumerate(clean_tail_lines) if _WAITING_OPTION_RE.match(line)
         ]
         if len(option_indices) < 2:
             return None
 
         has_selected_option = any(
-            _WAITING_SELECTED_OPTION_RE.match(clean_tail_lines[index])
-            for index in option_indices
+            _WAITING_SELECTED_OPTION_RE.match(clean_tail_lines[index]) for index in option_indices
         )
         has_hint = any(_WAITING_HINT_RE.search(line) for line in clean_tail_lines)
         if not has_selected_option and not has_hint:
@@ -661,7 +648,17 @@ class ClaudeCodeShadowParser:
 
         start = max(option_indices[0] - 1, 0)
         end = min(option_indices[-1] + 2, len(clean_tail_lines))
-        excerpt = "\n".join(
-            line.rstrip() for line in clean_tail_lines[start:end] if line.strip()
-        )
+        excerpt = "\n".join(line.rstrip() for line in clean_tail_lines[start:end] if line.strip())
         return excerpt.strip() or None
+
+
+def _append_projection_line(lines: list[str], value: str | None) -> None:
+    """Append one projected dialog line while collapsing repeated blanks."""
+
+    if value is None:
+        return
+    if value == "":
+        if lines and lines[-1] != "":
+            lines.append("")
+        return
+    lines.append(value)

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal, Protocol, cast
@@ -30,14 +30,14 @@ from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEv
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .codex_bootstrap import ensure_codex_home_bootstrap
 from .shadow_parser_core import (
-    ANOMALY_BASELINE_INVALIDATED,
     ANOMALY_STALLED_ENTERED,
     ANOMALY_STALLED_RECOVERED,
+    DialogProjection,
+    ParsedShadowSnapshot,
+    SurfaceAssessment,
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
-    ShadowRuntimeStatus,
-    normalize_shadow_output,
 )
 from .shadow_parser_stack import (
     ShadowParser,
@@ -70,10 +70,13 @@ _DEFAULT_STALLED_IS_TERMINAL: Final[bool] = False
 _CANONICAL_STATUS_BY_BACKEND_STATUS: Final[dict[str, str]] = {
     "idle": "completed",
     "completed": "completed",
+    "ready_for_input": "completed",
     "processing": "processing",
     "waiting_user_answer": "waiting_user_answer",
+    "blocked_waiting_user": "waiting_user_answer",
     "unknown": "unknown",
     "stalled": "stalled",
+    "failed": "error",
     "error": "error",
 }
 
@@ -97,12 +100,15 @@ class CaoSessionState:
 
 @dataclass(frozen=True)
 class _EngineTurnResult:
-    output_text: str
+    done_message: str
     output_source_mode: Literal["last", "full"]
     raw_backend_status: str
     parser_family: str
     parser_metadata: dict[str, object]
     diagnostics: dict[str, object]
+    surface_assessment: dict[str, object] | None = None
+    dialog_projection: dict[str, object] | None = None
+    projection_slices: dict[str, str] | None = None
 
 
 class _TurnEngine(Protocol):
@@ -150,7 +156,7 @@ class CaoOnlyTurnEngine:
         output_text = output.output.strip()
 
         return events, _EngineTurnResult(
-            output_text=output_text,
+            done_message=output_text or "prompt completed",
             output_source_mode="last",
             raw_backend_status=completion_status.value,
             parser_family=_PARSER_FAMILY_CAO_NATIVE,
@@ -178,11 +184,12 @@ class ShadowOnlyTurnEngine:
         events: list[SessionEvent] = []
 
         parser, parser_family = self._session._select_shadow_parser()
-        readiness_anomalies = self._session._wait_for_shadow_ready_status(
-            parser=parser,
-            parser_family=parser_family,
+        baseline_output, baseline_snapshot, readiness_anomalies = (
+            self._session._wait_for_shadow_ready_status(
+                parser=parser,
+                parser_family=parser_family,
+            )
         )
-        baseline_output = self._session._get_terminal_output_full()
         baseline_pos = self._session._capture_shadow_baseline(
             parser=parser,
             parser_family=parser_family,
@@ -204,91 +211,61 @@ class ShadowOnlyTurnEngine:
             )
         )
 
-        output, shadow_status, completion_anomalies = self._session._wait_for_shadow_completion(
+        output, snapshot, completion_anomalies = self._session._wait_for_shadow_completion(
             parser=parser,
             parser_family=parser_family,
             baseline_pos=baseline_pos,
-            baseline_output=baseline_output.output,
-            prompt=prompt,
+            baseline_projection=baseline_snapshot.dialog_projection,
         )
-        extraction = self._session._extract_shadow_answer(
-            parser=parser,
-            parser_family=parser_family,
-            output=output.output,
-            baseline_pos=baseline_pos,
-            allow_baseline_fallback=True,
-            baseline_output=baseline_output.output,
-            prompt=prompt,
-        )
-
-        output_text = extraction.answer_text.strip()
-        if not output_text:
-            excerpt = self._session._shadow_tail_excerpt(parser=parser, output=output.output)
-            detail = (
-                f"{parser_family} extraction returned an empty answer (parsing_mode=shadow_only)"
-            )
-            if excerpt:
-                detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
-            raise BackendExecutionError(detail)
 
         merged_anomalies = self._session._merge_anomalies(
             readiness_anomalies,
             completion_anomalies,
-            shadow_status.metadata.anomalies,
-            extraction.metadata.anomalies,
+            snapshot.surface_assessment.anomalies,
+            snapshot.dialog_projection.anomalies,
         )
-        parser_metadata: dict[str, object] = {
-            "shadow_parser_preset": extraction.metadata.parser_preset_id,
-            "shadow_parser_version": extraction.metadata.parser_preset_version,
-            "shadow_output_format": extraction.metadata.output_format,
-            "shadow_output_variant": extraction.metadata.output_variant,
-            "shadow_output_format_match": extraction.metadata.output_format_match,
-            "shadow_selection_source": extraction.metadata.selection_source,
-            "shadow_detected_version": extraction.metadata.detected_version,
-            "shadow_requested_version": extraction.metadata.requested_version,
-            "shadow_parser_anomalies": self._session._serialize_anomalies(merged_anomalies),
-            "baseline_invalidated": extraction.metadata.baseline_invalidated,
-            "unknown_to_stalled_timeout_seconds": (
-                self._session._shadow_stall_policy.unknown_to_stalled_timeout_seconds
-            ),
-            "stalled_is_terminal": self._session._shadow_stall_policy.stalled_is_terminal,
-        }
-        if shadow_status.waiting_user_answer_excerpt:
-            parser_metadata["waiting_user_answer_excerpt"] = (
-                shadow_status.waiting_user_answer_excerpt
-            )
+        parser_metadata = self._session._serialize_shadow_parser_metadata(
+            metadata=snapshot.surface_assessment.parser_metadata,
+            anomalies=merged_anomalies,
+            waiting_user_answer_excerpt=snapshot.surface_assessment.waiting_user_answer_excerpt,
+        )
+        surface_assessment = self._session._serialize_surface_assessment(
+            snapshot.surface_assessment,
+            anomalies=merged_anomalies,
+        )
+        dialog_projection = self._session._serialize_dialog_projection(
+            snapshot.dialog_projection,
+            anomalies=merged_anomalies,
+        )
 
         return events, _EngineTurnResult(
-            output_text=output_text,
+            done_message="prompt completed",
             output_source_mode="full",
-            raw_backend_status=shadow_status.status,
+            raw_backend_status="completed",
             parser_family=parser_family,
             parser_metadata=parser_metadata,
             diagnostics={
                 "readiness_source": "runtime_shadow_mode_full",
                 "completion_source": "runtime_shadow_mode_full",
-                "extraction_source": "runtime_shadow_mode_full",
+                "projection_source": "runtime_shadow_mode_full",
                 "baseline_pos": baseline_pos,
-                "baseline_invalidated": extraction.metadata.baseline_invalidated,
+                "baseline_invalidated": snapshot.surface_assessment.parser_metadata.baseline_invalidated,
                 "unknown_to_stalled_timeout_seconds": (
                     self._session._shadow_stall_policy.unknown_to_stalled_timeout_seconds
                 ),
                 "stalled_is_terminal": (self._session._shadow_stall_policy.stalled_is_terminal),
+                "debug_transport_tail_excerpt": self._session._shadow_tail_excerpt(
+                    parser=parser,
+                    output=output.output,
+                ),
+            },
+            surface_assessment=surface_assessment,
+            dialog_projection=dialog_projection,
+            projection_slices={
+                "head": snapshot.dialog_projection.head,
+                "tail": snapshot.dialog_projection.tail,
             },
         )
-
-
-@dataclass(frozen=True)
-class _ShadowStatusResult:
-    status: str
-    metadata: ShadowParserMetadata
-    waiting_user_answer_excerpt: str | None = None
-
-
-@dataclass(frozen=True)
-class _ShadowExtractionResult:
-    answer_text: str
-    metadata: ShadowParserMetadata
 
 
 @dataclass(frozen=True)
@@ -308,51 +285,190 @@ class _TmuxWindowRecord:
     window_name: str
 
 
+_TurnMonitorPhase = Literal["readiness", "completion"]
+_TurnMonitorState = Literal[
+    "awaiting_ready",
+    "submitted_waiting_activity",
+    "in_progress",
+    "blocked_waiting_user",
+    "stalled",
+    "completed",
+    "failed",
+]
+
+
 @dataclass
-class _ShadowLifecycleTracker:
-    """Track unknown/stalled lifecycle transitions for one polling phase."""
+class _TurnMonitor:
+    """Runtime-owned lifecycle monitor for shadow-mode readiness and turns."""
 
-    phase: Literal["readiness", "completion"]
-    unknown_started_at: float | None = None
-    stalled_started_at: float | None = None
-    anomalies: list[ShadowParserAnomaly] = field(default_factory=list)
+    phase: _TurnMonitorPhase
+    m_state: _TurnMonitorState
+    m_unknown_started_at: float | None = None
+    m_stalled_started_at: float | None = None
+    m_saw_working_after_submit: bool = False
+    m_saw_projection_change_after_submit: bool = False
+    m_baseline_projection_text: str | None = None
+    m_anomalies: list[ShadowParserAnomaly] = field(default_factory=list)
 
-    def observe(
+    def record_submit(self, *, baseline_projection: DialogProjection) -> None:
+        """Record the pre-submit projection baseline for completion monitoring."""
+
+        self.m_state = "submitted_waiting_activity"
+        self.m_baseline_projection_text = baseline_projection.dialog_text
+        self.m_saw_working_after_submit = False
+        self.m_saw_projection_change_after_submit = False
+        self.m_unknown_started_at = None
+        self.m_stalled_started_at = None
+
+    def observe_readiness(
         self,
         *,
-        parser_status: str,
+        surface_assessment: SurfaceAssessment,
         parser_family: str,
         now_monotonic: float,
         timeout_seconds: float,
-    ) -> ShadowRuntimeStatus:
-        """Map parser status to runtime lifecycle status and record anomalies."""
+    ) -> _TurnMonitorState:
+        """Advance readiness monitoring from one parsed snapshot."""
 
-        if parser_status == "unknown":
-            if self.unknown_started_at is None:
-                self.unknown_started_at = now_monotonic
-            elapsed_unknown_seconds = max(now_monotonic - self.unknown_started_at, 0.0)
-            if elapsed_unknown_seconds >= timeout_seconds:
-                if self.stalled_started_at is None:
-                    self.stalled_started_at = now_monotonic
-                    self.anomalies.append(
-                        ShadowParserAnomaly(
-                            code=ANOMALY_STALLED_ENTERED,
-                            message=(
-                                "Shadow status remained unknown and entered stalled lifecycle state"
-                            ),
-                            details={
-                                "phase": self.phase,
-                                "elapsed_unknown_seconds": _format_seconds(elapsed_unknown_seconds),
-                                "parser_family": parser_family,
-                            },
-                        )
+        status_label = _surface_status_label(surface_assessment)
+        if self._is_unknown(surface_assessment):
+            return self._observe_unknown(
+                parser_family=parser_family,
+                now_monotonic=now_monotonic,
+                timeout_seconds=timeout_seconds,
+            )
+
+        self._recover_if_stalled(
+            parser_family=parser_family,
+            now_monotonic=now_monotonic,
+            recovered_to=status_label,
+        )
+        if surface_assessment.availability in {"unsupported", "disconnected"}:
+            self.m_state = "failed"
+            return self.m_state
+        if surface_assessment.activity == "waiting_user_answer":
+            self.m_state = "blocked_waiting_user"
+            return self.m_state
+        self.m_state = "awaiting_ready"
+        return self.m_state
+
+    def observe_completion(
+        self,
+        *,
+        surface_assessment: SurfaceAssessment,
+        dialog_projection: DialogProjection,
+        parser_family: str,
+        now_monotonic: float,
+        timeout_seconds: float,
+    ) -> _TurnMonitorState:
+        """Advance post-submit lifecycle monitoring from one parsed snapshot."""
+
+        baseline_projection_text = self.m_baseline_projection_text
+        if baseline_projection_text is None:
+            raise RuntimeError("Completion monitor requires a recorded baseline projection.")
+
+        if dialog_projection.dialog_text != baseline_projection_text:
+            self.m_saw_projection_change_after_submit = True
+
+        if self._is_unknown(surface_assessment):
+            return self._observe_unknown(
+                parser_family=parser_family,
+                now_monotonic=now_monotonic,
+                timeout_seconds=timeout_seconds,
+            )
+
+        recovered_to = _surface_status_label(surface_assessment)
+        if surface_assessment.availability in {"unsupported", "disconnected"}:
+            self.m_state = "failed"
+            recovered_to = _surface_status_label(surface_assessment)
+        elif surface_assessment.activity == "waiting_user_answer":
+            self.m_state = "blocked_waiting_user"
+            recovered_to = "blocked_waiting_user"
+        elif surface_assessment.activity == "working":
+            self.m_saw_working_after_submit = True
+            self.m_state = "in_progress"
+            recovered_to = "working"
+        elif surface_assessment.accepts_input:
+            if self.m_saw_projection_change_after_submit or self.m_saw_working_after_submit:
+                self.m_state = "completed"
+                recovered_to = "completed"
+            else:
+                self.m_state = "submitted_waiting_activity"
+                recovered_to = "ready_for_input"
+        else:
+            self.m_state = "submitted_waiting_activity"
+            recovered_to = _surface_status_label(surface_assessment)
+
+        self._recover_if_stalled(
+            parser_family=parser_family,
+            now_monotonic=now_monotonic,
+            recovered_to=recovered_to,
+        )
+        return self.m_state
+
+    def elapsed_unknown_seconds(self, *, now_monotonic: float) -> float | None:
+        """Return current continuous unknown duration, if any."""
+
+        if self.m_unknown_started_at is None:
+            return None
+        return max(now_monotonic - self.m_unknown_started_at, 0.0)
+
+    def elapsed_stalled_seconds(self, *, now_monotonic: float) -> float | None:
+        """Return current stalled duration, if any."""
+
+        if self.m_stalled_started_at is None:
+            return None
+        return max(now_monotonic - self.m_stalled_started_at, 0.0)
+
+    def _observe_unknown(
+        self,
+        *,
+        parser_family: str,
+        now_monotonic: float,
+        timeout_seconds: float,
+    ) -> _TurnMonitorState:
+        """Advance unknown/stalled timing for one observation."""
+
+        if self.m_unknown_started_at is None:
+            self.m_unknown_started_at = now_monotonic
+        elapsed_unknown_seconds = max(now_monotonic - self.m_unknown_started_at, 0.0)
+        if elapsed_unknown_seconds >= timeout_seconds:
+            if self.m_stalled_started_at is None:
+                self.m_stalled_started_at = now_monotonic
+                self.m_anomalies.append(
+                    ShadowParserAnomaly(
+                        code=ANOMALY_STALLED_ENTERED,
+                        message=(
+                            "Shadow status remained unknown and entered stalled lifecycle state"
+                        ),
+                        details={
+                            "phase": self.phase,
+                            "elapsed_unknown_seconds": _format_seconds(elapsed_unknown_seconds),
+                            "parser_family": parser_family,
+                        },
                     )
-                return "stalled"
-            return "unknown"
+                )
+            self.m_state = "stalled"
+            return self.m_state
 
-        if self.stalled_started_at is not None:
-            elapsed_stalled_seconds = max(now_monotonic - self.stalled_started_at, 0.0)
-            self.anomalies.append(
+        if self.phase == "completion":
+            self.m_state = "submitted_waiting_activity"
+        else:
+            self.m_state = "awaiting_ready"
+        return self.m_state
+
+    def _recover_if_stalled(
+        self,
+        *,
+        parser_family: str,
+        now_monotonic: float,
+        recovered_to: str,
+    ) -> None:
+        """Record recovery when a stalled monitor sees a known state again."""
+
+        if self.m_stalled_started_at is not None:
+            elapsed_stalled_seconds = max(now_monotonic - self.m_stalled_started_at, 0.0)
+            self.m_anomalies.append(
                 ShadowParserAnomaly(
                     code=ANOMALY_STALLED_RECOVERED,
                     message="Shadow status recovered from stalled to known state",
@@ -360,28 +476,21 @@ class _ShadowLifecycleTracker:
                         "phase": self.phase,
                         "elapsed_stalled_seconds": _format_seconds(elapsed_stalled_seconds),
                         "parser_family": parser_family,
-                        "recovered_to": parser_status,
+                        "recovered_to": recovered_to,
                     },
                 )
             )
+        self.m_unknown_started_at = None
+        self.m_stalled_started_at = None
 
-        self.unknown_started_at = None
-        self.stalled_started_at = None
-        return cast(ShadowRuntimeStatus, parser_status)
+    @staticmethod
+    def _is_unknown(surface_assessment: SurfaceAssessment) -> bool:
+        """Return whether the observation should contribute to unknown->stalled timing."""
 
-    def elapsed_unknown_seconds(self, *, now_monotonic: float) -> float | None:
-        """Return current continuous unknown duration, if any."""
-
-        if self.unknown_started_at is None:
-            return None
-        return max(now_monotonic - self.unknown_started_at, 0.0)
-
-    def elapsed_stalled_seconds(self, *, now_monotonic: float) -> float | None:
-        """Return current stalled duration, if any."""
-
-        if self.stalled_started_at is None:
-            return None
-        return max(now_monotonic - self.stalled_started_at, 0.0)
+        return surface_assessment.availability == "unknown" or (
+            surface_assessment.availability == "supported"
+            and surface_assessment.activity == "unknown"
+        )
 
 
 def default_cao_agent_store(cao_home: Path | None = None) -> Path:
@@ -592,7 +701,7 @@ class CaoRestSession:
         events.append(
             SessionEvent(
                 kind="done",
-                message=result.output_text or "prompt completed",
+                message=result.done_message,
                 turn_index=turn_index,
                 payload=done_payload,
             )
@@ -614,7 +723,7 @@ class CaoRestSession:
             result.raw_backend_status,
             "unknown",
         )
-        return {
+        payload: dict[str, object] = {
             "terminal_id": self._terminal_id,
             "parsing_mode": self._parsing_mode,
             "parser_family": result.parser_family,
@@ -624,6 +733,103 @@ class CaoRestSession:
             "parser_metadata": result.parser_metadata,
             "mode_diagnostics": result.diagnostics,
         }
+        if result.surface_assessment is not None:
+            payload["surface_assessment"] = result.surface_assessment
+        if result.dialog_projection is not None:
+            payload["dialog_projection"] = result.dialog_projection
+        if result.projection_slices is not None:
+            payload["projection_slices"] = result.projection_slices
+        return payload
+
+    def _serialize_shadow_parser_metadata(
+        self,
+        *,
+        metadata: ShadowParserMetadata,
+        anomalies: tuple[ShadowParserAnomaly, ...],
+        waiting_user_answer_excerpt: str | None,
+    ) -> dict[str, object]:
+        """Serialize flat parser metadata for runtime payload compatibility."""
+
+        payload: dict[str, object] = {
+            "shadow_parser_preset": metadata.parser_preset_id,
+            "shadow_parser_version": metadata.parser_preset_version,
+            "shadow_output_format": metadata.output_format,
+            "shadow_output_variant": metadata.output_variant,
+            "shadow_output_format_match": metadata.output_format_match,
+            "shadow_selection_source": metadata.selection_source,
+            "shadow_detected_version": metadata.detected_version,
+            "shadow_requested_version": metadata.requested_version,
+            "shadow_parser_anomalies": self._serialize_anomalies(anomalies),
+            "baseline_invalidated": metadata.baseline_invalidated,
+            "unknown_to_stalled_timeout_seconds": (
+                self._shadow_stall_policy.unknown_to_stalled_timeout_seconds
+            ),
+            "stalled_is_terminal": self._shadow_stall_policy.stalled_is_terminal,
+        }
+        if waiting_user_answer_excerpt:
+            payload["waiting_user_answer_excerpt"] = waiting_user_answer_excerpt
+        return payload
+
+    def _serialize_surface_assessment(
+        self,
+        surface_assessment: SurfaceAssessment,
+        *,
+        anomalies: tuple[ShadowParserAnomaly, ...] | None = None,
+    ) -> dict[str, object]:
+        """Serialize structured surface assessment for caller payloads."""
+
+        payload: dict[str, object] = {
+            "availability": surface_assessment.availability,
+            "activity": surface_assessment.activity,
+            "accepts_input": surface_assessment.accepts_input,
+            "ui_context": surface_assessment.ui_context,
+            "parser_metadata": self._serialize_shadow_parser_metadata(
+                metadata=surface_assessment.parser_metadata,
+                anomalies=anomalies or surface_assessment.anomalies,
+                waiting_user_answer_excerpt=surface_assessment.waiting_user_answer_excerpt,
+            ),
+            "anomalies": self._serialize_anomalies(anomalies or surface_assessment.anomalies),
+            "waiting_user_answer_excerpt": surface_assessment.waiting_user_answer_excerpt,
+        }
+        evidence = getattr(surface_assessment, "evidence", ())
+        if evidence:
+            payload["evidence"] = list(evidence)
+        return payload
+
+    def _serialize_dialog_projection(
+        self,
+        dialog_projection: DialogProjection,
+        *,
+        anomalies: tuple[ShadowParserAnomaly, ...] | None = None,
+    ) -> dict[str, object]:
+        """Serialize dialog projection and provenance for caller payloads."""
+
+        projection_metadata = dialog_projection.projection_metadata
+        payload: dict[str, object] = {
+            "raw_text": dialog_projection.raw_text,
+            "normalized_text": dialog_projection.normalized_text,
+            "dialog_text": dialog_projection.dialog_text,
+            "head": dialog_projection.head,
+            "tail": dialog_projection.tail,
+            "projection_metadata": {
+                "provider_id": projection_metadata.provider_id,
+                "source_kind": projection_metadata.source_kind,
+                "projector_id": projection_metadata.projector_id,
+                "parser_metadata": self._serialize_shadow_parser_metadata(
+                    metadata=projection_metadata.parser_metadata,
+                    anomalies=anomalies or dialog_projection.anomalies,
+                    waiting_user_answer_excerpt=None,
+                ),
+                "dialog_line_count": projection_metadata.dialog_line_count,
+                "head_line_count": projection_metadata.head_line_count,
+                "tail_line_count": projection_metadata.tail_line_count,
+            },
+            "anomalies": self._serialize_anomalies(anomalies or dialog_projection.anomalies),
+        }
+        evidence = getattr(dialog_projection, "evidence", ())
+        if evidence:
+            payload["evidence"] = list(evidence)
+        return payload
 
     @staticmethod
     def _serialize_anomalies(
@@ -706,52 +912,64 @@ class CaoRestSession:
         *,
         parser: ShadowParser,
         parser_family: str,
-    ) -> tuple[ShadowParserAnomaly, ...]:
+    ) -> tuple[CaoTerminalOutputResponse, ParsedShadowSnapshot, tuple[ShadowParserAnomaly, ...]]:
         deadline = time.monotonic() + self._timeout_seconds
-        lifecycle = _ShadowLifecycleTracker(phase="readiness")
-        last_runtime_status: ShadowRuntimeStatus = "unknown"
+        monitor = _TurnMonitor(phase="readiness", m_state="awaiting_ready")
+        last_runtime_state: _TurnMonitorState = "awaiting_ready"
+        last_snapshot: ParsedShadowSnapshot | None = None
         last_output: CaoTerminalOutputResponse | None = None
         while time.monotonic() < deadline:
             output = self._get_terminal_output_full()
             now_monotonic = time.monotonic()
-            shadow_status = self._classify_shadow_status(
+            snapshot = self._parse_shadow_snapshot(
                 parser=parser,
                 parser_family=parser_family,
                 output=output.output,
                 baseline_pos=0,
             )
-            runtime_status = lifecycle.observe(
-                parser_status=shadow_status.status,
+            runtime_state = monitor.observe_readiness(
+                surface_assessment=snapshot.surface_assessment,
                 parser_family=parser_family,
                 now_monotonic=now_monotonic,
                 timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
             )
-            last_runtime_status = runtime_status
+            last_runtime_state = runtime_state
+            last_snapshot = snapshot
             last_output = output
 
-            if runtime_status in {"idle", "completed"}:
-                return tuple(lifecycle.anomalies)
-            if runtime_status == "waiting_user_answer":
+            if snapshot.surface_assessment.accepts_input:
+                return output, snapshot, tuple(monitor.m_anomalies)
+            if runtime_state == "blocked_waiting_user":
                 raise BackendExecutionError(
                     self._format_shadow_waiting_user_answer_error(
                         parser_family=parser_family,
-                        shadow_status=shadow_status,
+                        surface_assessment=snapshot.surface_assessment,
                         output=output.output,
                         during_turn=False,
                     )
                 )
-            if runtime_status == "stalled" and self._shadow_stall_policy.stalled_is_terminal:
+            if runtime_state == "failed":
+                raise BackendExecutionError(
+                    self._format_shadow_surface_error(
+                        parser=parser,
+                        parser_family=parser_family,
+                        output=output.output,
+                        phase="readiness",
+                        surface_assessment=snapshot.surface_assessment,
+                    )
+                )
+            if runtime_state == "stalled" and self._shadow_stall_policy.stalled_is_terminal:
                 raise BackendExecutionError(
                     self._format_shadow_stalled_error(
                         parser=parser,
                         parser_family=parser_family,
                         output=output.output,
                         phase="readiness",
-                        parser_status=shadow_status.status,
-                        elapsed_unknown_seconds=lifecycle.elapsed_unknown_seconds(
+                        parser_status=_surface_status_label(snapshot.surface_assessment),
+                        elapsed_unknown_seconds=monitor.elapsed_unknown_seconds(
                             now_monotonic=now_monotonic
                         ),
-                        elapsed_stalled_seconds=lifecycle.elapsed_stalled_seconds(
+                        elapsed_stalled_seconds=monitor.elapsed_stalled_seconds(
                             now_monotonic=now_monotonic
                         ),
                     )
@@ -761,12 +979,17 @@ class CaoRestSession:
         detail = (
             "Timed out waiting for shadow-ready state from mode=full output "
             f"(terminal_id={self._terminal_id}, parser_family={parser_family}, "
-            f"shadow_status={last_runtime_status})"
+            f"shadow_status={last_runtime_state})"
         )
         if last_output is not None:
             excerpt = self._shadow_tail_excerpt(parser=parser, output=last_output.output)
             if excerpt:
                 detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
+        if last_snapshot is not None:
+            detail = (
+                f"{detail}\n\nLast surface state: "
+                f"{_surface_status_label(last_snapshot.surface_assessment)}"
+            )
         raise BackendExecutionError(detail)
 
     def _wait_for_shadow_completion(
@@ -775,56 +998,55 @@ class CaoRestSession:
         parser: ShadowParser,
         parser_family: str,
         baseline_pos: int,
-        baseline_output: str,
-        prompt: str,
-    ) -> tuple[CaoTerminalOutputResponse, _ShadowStatusResult, tuple[ShadowParserAnomaly, ...]]:
+        baseline_projection: DialogProjection,
+    ) -> tuple[CaoTerminalOutputResponse, ParsedShadowSnapshot, tuple[ShadowParserAnomaly, ...]]:
         deadline = time.monotonic() + self._timeout_seconds
-        last_shadow_status: _ShadowStatusResult | None = None
+        last_snapshot: ParsedShadowSnapshot | None = None
         last_output: CaoTerminalOutputResponse | None = None
-        saw_processing = False
-        lifecycle = _ShadowLifecycleTracker(phase="completion")
+        monitor = _TurnMonitor(phase="completion", m_state="submitted_waiting_activity")
+        monitor.record_submit(baseline_projection=baseline_projection)
 
         while time.monotonic() < deadline:
             output = self._get_terminal_output_full()
             now_monotonic = time.monotonic()
-            shadow_status = self._classify_shadow_status(
+            snapshot = self._parse_shadow_snapshot(
                 parser=parser,
                 parser_family=parser_family,
                 output=output.output,
                 baseline_pos=baseline_pos,
             )
-            parser_status = shadow_status.status
-            runtime_status = lifecycle.observe(
-                parser_status=parser_status,
+            runtime_state = monitor.observe_completion(
+                surface_assessment=snapshot.surface_assessment,
+                dialog_projection=snapshot.dialog_projection,
                 parser_family=parser_family,
                 now_monotonic=now_monotonic,
                 timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
             )
-            shadow_status = replace(shadow_status, status=runtime_status)
-            last_shadow_status = shadow_status
+            last_snapshot = snapshot
             last_output = output
 
-            if runtime_status == "completed":
-                if self._shadow_output_is_stale_after_baseline_reset(
-                    parser=parser,
-                    output=output.output,
-                    baseline_output=baseline_output,
-                    prompt=prompt,
-                    metadata=shadow_status.metadata,
-                ):
-                    time.sleep(self._poll_interval_seconds)
-                    continue
-                return output, shadow_status, tuple(lifecycle.anomalies)
-            if runtime_status == "waiting_user_answer":
+            if runtime_state == "completed":
+                return output, snapshot, tuple(monitor.m_anomalies)
+            if runtime_state == "blocked_waiting_user":
                 raise BackendExecutionError(
                     self._format_shadow_waiting_user_answer_error(
                         parser_family=parser_family,
-                        shadow_status=shadow_status,
+                        surface_assessment=snapshot.surface_assessment,
                         output=output.output,
                         during_turn=True,
                     )
                 )
-            if runtime_status == "stalled":
+            if runtime_state == "failed":
+                raise BackendExecutionError(
+                    self._format_shadow_surface_error(
+                        parser=parser,
+                        parser_family=parser_family,
+                        output=output.output,
+                        phase="completion",
+                        surface_assessment=snapshot.surface_assessment,
+                    )
+                )
+            if runtime_state == "stalled":
                 if self._shadow_stall_policy.stalled_is_terminal:
                     raise BackendExecutionError(
                         self._format_shadow_stalled_error(
@@ -832,11 +1054,11 @@ class CaoRestSession:
                             parser_family=parser_family,
                             output=output.output,
                             phase="completion",
-                            parser_status=parser_status,
-                            elapsed_unknown_seconds=lifecycle.elapsed_unknown_seconds(
+                            parser_status=_surface_status_label(snapshot.surface_assessment),
+                            elapsed_unknown_seconds=monitor.elapsed_unknown_seconds(
                                 now_monotonic=now_monotonic
                             ),
-                            elapsed_stalled_seconds=lifecycle.elapsed_stalled_seconds(
+                            elapsed_stalled_seconds=monitor.elapsed_stalled_seconds(
                                 now_monotonic=now_monotonic
                             ),
                         )
@@ -844,34 +1066,13 @@ class CaoRestSession:
                 time.sleep(self._poll_interval_seconds)
                 continue
 
-            if runtime_status == "processing":
-                saw_processing = True
-            if runtime_status == "idle" and saw_processing:
-                try:
-                    extraction = self._extract_shadow_answer(
-                        parser=parser,
-                        parser_family=parser_family,
-                        output=output.output,
-                        baseline_pos=baseline_pos,
-                        allow_baseline_fallback=True,
-                        baseline_output=baseline_output,
-                        prompt=prompt,
-                    )
-                except BackendExecutionError:
-                    extraction = None
-                if extraction is not None and extraction.answer_text.strip():
-                    return (
-                        output,
-                        _ShadowStatusResult(
-                            status="completed",
-                            metadata=shadow_status.metadata,
-                        ),
-                        tuple(lifecycle.anomalies),
-                    )
-
             time.sleep(self._poll_interval_seconds)
 
-        status_text = last_shadow_status.status if last_shadow_status else "unknown"
+        status_text = (
+            _surface_status_label(last_snapshot.surface_assessment)
+            if last_snapshot is not None
+            else "unknown"
+        )
         detail = (
             "Timed out waiting for shadow turn completion "
             f"(terminal_id={self._terminal_id}, parser_family={parser_family}, "
@@ -883,23 +1084,18 @@ class CaoRestSession:
                 detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
         raise BackendExecutionError(detail)
 
-    def _classify_shadow_status(
+    def _parse_shadow_snapshot(
         self,
         *,
         parser: ShadowParser,
         parser_family: str,
         output: str,
         baseline_pos: int,
-    ) -> _ShadowStatusResult:
+    ) -> ParsedShadowSnapshot:
         try:
-            status_result = parser.classify_shadow_status(
+            return parser.parse_snapshot(
                 output,
                 baseline_pos=baseline_pos,
-            )
-            return _ShadowStatusResult(
-                status=status_result.status,
-                metadata=status_result.metadata,
-                waiting_user_answer_excerpt=status_result.waiting_user_answer_excerpt,
             )
         except ShadowParserError as exc:
             raise BackendExecutionError(
@@ -929,167 +1125,6 @@ class CaoRestSession:
                     output=output,
                 )
             ) from exc
-
-    def _extract_shadow_answer(
-        self,
-        *,
-        parser: ShadowParser,
-        parser_family: str,
-        output: str,
-        baseline_pos: int,
-        allow_baseline_fallback: bool = False,
-        baseline_output: str | None = None,
-        prompt: str | None = None,
-    ) -> _ShadowExtractionResult:
-        try:
-            extraction = parser.extract_last_answer(
-                output,
-                baseline_pos=baseline_pos,
-            )
-            metadata = extraction.metadata
-        except ShadowParserError as exc:
-            if allow_baseline_fallback and baseline_pos > 0:
-                try:
-                    extraction = parser.extract_last_answer(
-                        output,
-                        baseline_pos=0,
-                    )
-                    metadata = self._metadata_with_baseline_fallback(extraction.metadata)
-                except ShadowParserError:
-                    extraction = None
-                    metadata = None
-                else:
-                    pass
-            else:
-                extraction = None
-                metadata = None
-            if extraction is None or metadata is None:
-                raise BackendExecutionError(
-                    self._format_shadow_parse_error(
-                        parser=parser,
-                        parser_family=parser_family,
-                        error=exc,
-                        output=output,
-                    )
-                ) from exc
-
-        if metadata is None:
-            raise BackendExecutionError("Shadow extraction returned no metadata.")
-
-        if baseline_output is not None and self._shadow_output_is_stale_after_baseline_reset(
-            parser=parser,
-            output=output,
-            baseline_output=baseline_output,
-            prompt=prompt,
-            metadata=metadata,
-        ):
-            excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
-            detail = (
-                "Shadow parser observed a baseline reset, but the extracted answer still "
-                "came from unchanged or truncated pre-submit scrollback. "
-                "Retry the turn after the terminal output advances."
-            )
-            if excerpt:
-                detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
-            raise BackendExecutionError(detail)
-
-        return _ShadowExtractionResult(
-            answer_text=extraction.answer_text,
-            metadata=metadata,
-        )
-
-    def _shadow_output_is_stale_after_baseline_reset(
-        self,
-        *,
-        parser: ShadowParser,
-        output: str,
-        baseline_output: str,
-        prompt: str | None,
-        metadata: ShadowParserMetadata,
-    ) -> bool:
-        """Return whether a baseline-reset snapshot still looks like pre-submit output."""
-
-        if not metadata.baseline_invalidated:
-            return False
-
-        current_clean = normalize_shadow_output(parser.strip_ansi(output)).strip()
-        baseline_clean = normalize_shadow_output(parser.strip_ansi(baseline_output)).strip()
-        if not current_clean or not baseline_clean:
-            return False
-        if current_clean == baseline_clean:
-            return True
-        if current_clean in baseline_clean:
-            return True
-        if prompt is None:
-            return False
-        return not self._shadow_output_contains_prompt_cue(
-            parser=parser,
-            output=output,
-            prompt=prompt,
-        )
-
-    def _shadow_output_contains_prompt_cue(
-        self,
-        *,
-        parser: ShadowParser,
-        output: str,
-        prompt: str,
-    ) -> bool:
-        """Return whether the shadow transcript visibly includes the submitted prompt."""
-
-        prompt_compact = " ".join(normalize_shadow_output(prompt).split())
-        if not prompt_compact:
-            return True
-
-        output_compact = " ".join(normalize_shadow_output(parser.strip_ansi(output)).split())
-        if not output_compact:
-            return False
-
-        candidates = [prompt_compact]
-        if len(prompt_compact) > 48:
-            candidates.extend(
-                [
-                    prompt_compact[:48].rstrip(),
-                    prompt_compact[-48:].lstrip(),
-                ]
-            )
-
-        seen: set[str] = set()
-        for candidate in candidates:
-            if not candidate or candidate in seen:
-                continue
-            seen.add(candidate)
-            if candidate in output_compact:
-                return True
-        return False
-
-    @staticmethod
-    def _metadata_with_baseline_fallback(
-        metadata: ShadowParserMetadata,
-    ) -> ShadowParserMetadata:
-        if metadata.baseline_invalidated and any(
-            anomaly.code == ANOMALY_BASELINE_INVALIDATED for anomaly in metadata.anomalies
-        ):
-            return metadata
-
-        anomalies = list(metadata.anomalies)
-        if not any(anomaly.code == ANOMALY_BASELINE_INVALIDATED for anomaly in anomalies):
-            anomalies.append(
-                ShadowParserAnomaly(
-                    code=ANOMALY_BASELINE_INVALIDATED,
-                    message="Extraction retried with baseline reset after parser drift",
-                    details={
-                        "provider": metadata.provider_id,
-                        "preset": metadata.parser_preset_id,
-                    },
-                )
-            )
-
-        return replace(
-            metadata,
-            anomalies=tuple(anomalies),
-            baseline_invalidated=True,
-        )
 
     def _format_shadow_parse_error(
         self,
@@ -1130,7 +1165,7 @@ class CaoRestSession:
         self,
         *,
         parser_family: str,
-        shadow_status: _ShadowStatusResult,
+        surface_assessment: SurfaceAssessment,
         output: str,
         during_turn: bool,
     ) -> str:
@@ -1139,12 +1174,41 @@ class CaoRestSession:
             "Backend is waiting for user interaction in shadow mode "
             f"(parser_family={parser_family}, phase={phase})"
         )
-        excerpt = shadow_status.waiting_user_answer_excerpt
+        excerpt = surface_assessment.waiting_user_answer_excerpt
         if not excerpt:
             parser, _ = self._select_shadow_parser()
             excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
         if excerpt:
             detail = f"{detail}\n\nOptions excerpt:\n{excerpt}"
+        return detail
+
+    def _format_shadow_surface_error(
+        self,
+        *,
+        parser: ShadowParser,
+        parser_family: str,
+        output: str,
+        phase: Literal["readiness", "completion"],
+        surface_assessment: SurfaceAssessment,
+    ) -> str:
+        """Format unsupported/disconnected shadow-surface failures."""
+
+        surface_status = _surface_status_label(surface_assessment)
+        if surface_status == "unsupported":
+            detail = (
+                "unsupported_output_format: shadow parser observed an unusable surface "
+                f"(parser_family={parser_family}, phase={phase}, "
+                f"parsing_mode=shadow_only, surface_status={surface_status})"
+            )
+        else:
+            detail = (
+                "Shadow parser observed an unusable surface "
+                f"(parser_family={parser_family}, phase={phase}, "
+                f"parsing_mode=shadow_only, surface_status={surface_status})"
+            )
+        excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
+        if excerpt:
+            detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
         return detail
 
     def _format_shadow_stalled_error(
@@ -1399,6 +1463,18 @@ def _resolve_shadow_stall_policy(launch_plan: LaunchPlan) -> _ShadowStallPolicy:
         unknown_to_stalled_timeout_seconds=timeout_seconds,
         stalled_is_terminal=stalled_is_terminal,
     )
+
+
+def _surface_status_label(surface_assessment: SurfaceAssessment) -> str:
+    """Return a concise status label for diagnostics and monitor recovery."""
+
+    if surface_assessment.availability == "unsupported":
+        return "unsupported"
+    if surface_assessment.availability == "disconnected":
+        return "disconnected"
+    if surface_assessment.availability == "unknown":
+        return "unknown"
+    return surface_assessment.activity
 
 
 def _format_seconds(value: float) -> str:

@@ -276,8 +276,9 @@ Behavior:
 - Strict no-fallback policy:
   - `cao_only`: readiness/completion from CAO terminal status, answer extraction
     from `output?mode=last`.
-  - `shadow_only`: readiness/completion and extraction from `output?mode=full`
-    via runtime shadow parser.
+  - `shadow_only`: readiness/completion from runtime `TurnMonitor` over
+    `output?mode=full`, with parser-owned `surface_assessment` and
+    `dialog_projection` artifacts instead of parser-owned final-answer extraction.
   - Runtime never mixes parser families in a single turn, and never auto-retries
     under the other parsing mode after mode-specific failure.
 - CAO tmux session names use the canonical `AGENTSYS-<name>` namespace.
@@ -325,9 +326,14 @@ when they are missing from `PATH`.
   the full caller process environment, overlays credential profile `vars.env`,
   then applies launch-specific env vars (for example the home selector).
 - Uses direct terminal input only (no inbox).
-- Claude shadow status parsing (when `parsing_mode=shadow_only`) uses a bounded
-  tail window (last 100 lines) and supports `processing`,
-  `waiting_user_answer`, `idle`, `completed`, and `unknown`.
+- Shadow parsers (when `parsing_mode=shadow_only`) produce frozen
+  `surface_assessment` and `dialog_projection` value objects.
+- Shared surface assessment facets are:
+  - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
+  - `activity`: `ready_for_input`, `working`, `waiting_user_answer`, `unknown`
+  - `ui_context`: shared base plus provider-specific extensions
+- Runtime success terminality in `shadow_only` requires `ready_for_input` plus
+  either post-submit projected-dialog change or observed post-submit `working`.
 - Runtime shadow parsing for both Claude and Codex is versioned and preset-driven.
   Preset resolution order is:
   1) provider-specific env override,
@@ -351,6 +357,12 @@ when they are missing from `PATH`.
   - version detection/selection source, and
   - anomaly list (for example `baseline_invalidated`,
     `stalled_entered`, `stalled_recovered`).
+- `shadow_only` done payloads surface:
+  - `surface_assessment`
+  - `dialog_projection`
+  - `projection_slices`
+  - diagnostics-only raw transport tail excerpts when retained
+- `shadow_only` done payloads do not include a shadow-mode `output_text` alias.
 - Troubleshooting and fixture-capture workflow:
   [`docs/reference/cao_shadow_parser_troubleshooting.md`](./cao_shadow_parser_troubleshooting.md).
 - Loopback proxy defaults:

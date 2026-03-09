@@ -19,7 +19,7 @@ Common error/anomaly signals:
 - `unknown`: output matches a supported parser family but lacks known status evidence.
 - `stalled_entered`: runtime promoted continuous `unknown` to `stalled`.
 - `stalled_recovered`: runtime recovered from `stalled` back to a known status.
-- `baseline_invalidated`: baseline drift detected; runtime reset extraction baseline.
+- `baseline_invalidated`: the visible scrollback shrank below the recorded pre-submit baseline offset.
 - `unknown_version_floor_used`: detected tool version is newer than known parser presets.
 
 Inspect `done.payload.parser_metadata`:
@@ -32,6 +32,8 @@ Inspect `done.payload.parser_metadata`:
 - `baseline_invalidated`
 - `unknown_to_stalled_timeout_seconds`
 - `stalled_is_terminal`
+
+Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` when you need to reason about state vs visible transcript separately.
 
 `shadow_parser_anomalies` entries for stalled lifecycle include:
 
@@ -60,7 +62,7 @@ See: [Brain Launch Runtime window-hygiene checklist](./brain_launch_runtime.md#m
 ## Unknown vs Stalled
 
 - `unknown` is parser-owned and means the output format is recognized, but no
-  safe classification (`processing` / `idle` / `completed` / `waiting_user_answer`)
+  safe classification (`ready_for_input` / `working` / `waiting_user_answer`)
   was found.
 - `stalled` is runtime-owned and means `unknown` stayed continuous for at least
   `unknown_to_stalled_timeout_seconds`.
@@ -126,7 +128,7 @@ trust_level = "trusted"
 
 into the generated Codex home `config.toml`.
 
-### 3) Turn completion timeout while answer is visibly present
+### 3) Turn completion timeout while visible dialog is present
 
 Symptom:
 
@@ -143,14 +145,17 @@ Tail excerpt already includes a real assistant answer, for example:
 
 Cause:
 
-- Codex TUI may redraw/reflow frames in-place.
-- Assistant output can move to an offset before the captured baseline even when the turn is complete.
+- The runtime no longer uses parser-owned answer extraction as the completion contract.
+- Completion now requires a return to `ready_for_input` plus either:
+  - observed projected-dialog change after submit, or
+  - observed post-submit `working`.
+- A visible transcript fragment may exist without yet satisfying that lifecycle rule.
 
 Fixes in runtime/parser:
 
-- Codex baseline capture anchors to full normalized scrollback length.
-- During turn completion polling, runtime treats `idle` after `processing` as complete when extraction succeeds via baseline-fallback reset.
-- Baseline fallback is surfaced as `baseline_invalidated` anomaly.
+- Baseline capture anchors readiness/completion monitoring and `baseline_invalidated` diagnostics.
+- Runtime terminality is driven by `TurnMonitor`, not parser-owned answer extraction.
+- The caller should read `dialog_projection` as projected visible transcript, not as an authoritative prompt answer.
 
 ### 4) Stalled terminal mode fails fast
 
@@ -178,7 +183,8 @@ Expected diagnostics:
 
 - `shadow_parser_anomalies` contains `stalled_entered` and `stalled_recovered`,
 - `stalled_recovered.details.recovered_to` shows the recovery status,
-- output mode remains `full` throughout shadow-only execution.
+- output mode remains `full` throughout shadow-only execution,
+- successful `done` payloads still use neutral `message="prompt completed"` and structured projection/state fields.
 
 ## Preset Overrides
 
@@ -214,7 +220,11 @@ curl -s "http://localhost:9889/terminals/<terminal-id>/output?mode=full" \
    - `shadow_output_variant`
    - `baseline_invalidated`
    - `shadow_parser_anomalies`
-5. Add/refresh fixtures and tests (see below).
+5. Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` to distinguish:
+   - parser state,
+   - projected visible transcript,
+   - diagnostics-only raw tail excerpts.
+6. Add/refresh fixtures and tests (see below).
 
 ## Capture a New Drift Fixture
 
