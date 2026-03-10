@@ -223,7 +223,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
 
 ## CAO-Backed Session
 
-For an operator-oriented walkthrough of the interactive Claude CAO wrapper flow, see [Interactive CAO Full-Pipeline Demo](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md).
+For the docs-side overview of the interactive Claude CAO wrapper flow, see [Interactive CAO Demo](./cao_interactive_demo.md). For the full step-by-step operator tutorial, see [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md).
 
 Start CAO explicitly before `start-session`:
 
