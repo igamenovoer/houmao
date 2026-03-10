@@ -9,6 +9,7 @@ At minimum, the shared base `SurfaceAssessment` contract SHALL carry:
 - `business_state`,
 - `input_mode`,
 - `ui_context` using a common base vocabulary that includes at least `normal_prompt`, `selection_menu`, `slash_command`, and `unknown`, and
+- `operator_blocked_excerpt` when an active blocked surface exposes a useful operator-facing excerpt, and
 - parser metadata/anomalies.
 
 The shared `business_state` vocabulary SHALL include:
@@ -37,6 +38,11 @@ Provider implementations SHALL expose provider-specific subclasses that refine `
 - **THEN** the returned `SurfaceAssessment.business_state` is `working`
 - **AND THEN** the returned `SurfaceAssessment.input_mode` may still be `freeform`
 
+#### Scenario: Blocked-surface excerpt is shared across providers
+- **WHEN** a provider snapshot exposes a blocked operator surface with a visible approval, trust, or selection excerpt
+- **THEN** the returned `SurfaceAssessment.operator_blocked_excerpt` may carry that excerpt on the shared base contract
+- **AND THEN** runtime does not need provider-specific downcasting to surface blocked diagnostics
+
 ### Requirement: Slash-command surface classification follows the active input region
 The runtime-owned shadow parser stack SHALL classify `ui_context="slash_command"` only when the currently active provider input surface is still inside slash-command interaction.
 
@@ -56,6 +62,31 @@ When a newer normal prompt is visible, the returned `SurfaceAssessment.input_mod
 - **AND THEN** the returned `SurfaceAssessment.input_mode` reflects the newer normal prompt rather than the historical slash-command line
 
 ## ADDED Requirements
+
+### Requirement: Input mode and UI context are co-derived from one active-surface pass
+For each parsed snapshot, provider parsers SHALL derive `input_mode` and `ui_context` from the same active-surface evidence pass.
+
+When evidence conflicts inside one bounded window, parsers SHALL resolve input semantics with this precedence:
+
+1. operator-blocked surfaces such as trust, approval, onboarding, login, or selection UI
+2. slash-command or other modal command surfaces
+3. normal freeform prompt surfaces
+4. `unknown` when the active input region cannot be resolved safely
+
+Parsers SHALL NOT emit contradictory pairs such as:
+
+- `ui_context = slash_command` with `input_mode = freeform`
+- provider blocked contexts such as `trust_prompt`, `approval_prompt`, or `selection_menu` with `input_mode = freeform`
+
+#### Scenario: Stronger blocked context overrides visible prompt markers
+- **WHEN** a bounded snapshot window still contains normal prompt markers but the active surface is a trust, approval, or selection prompt
+- **THEN** the parser resolves `input_mode` from the blocked surface rather than from the historical prompt marker
+- **AND THEN** the resulting `ui_context` and `input_mode` stay consistent with that blocked surface
+
+#### Scenario: Ambiguous active surface falls back to unknown instead of contradiction
+- **WHEN** the parser cannot safely resolve whether the active surface is modal or freeform
+- **THEN** it returns `input_mode = unknown`
+- **AND THEN** it does not emit a contradictory `ui_context` or freeform-ready classification
 
 ### Requirement: Submit readiness is derived from shared shadow surface axes
 For shadow parser results, submit readiness SHALL be treated as a derived predicate rather than as a separate primitive parser state.

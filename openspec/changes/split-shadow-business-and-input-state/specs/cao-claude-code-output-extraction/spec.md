@@ -20,6 +20,19 @@ The Claude surface assessment SHALL classify `input_mode` at minimum as:
 The provider SHALL surface `ui_context` through the Claude surface-assessment contract, including the shared `slash_command` context when applicable and Claude-specific contexts such as `trust_prompt`.
 Those context details SHALL NOT imply prompt-associated answer extraction.
 
+At minimum, Claude evidence SHALL map to the shared axes like this:
+
+| Active Claude evidence | `business_state` | `input_mode` | `ui_context` |
+|---|---|---|---|
+| trust, approval, onboarding, or selection surface | `awaiting_operator` | `modal` or `closed` | `trust_prompt` or `selection_menu` |
+| active slash-command input surface | `idle` | `modal` | `slash_command` |
+| processing evidence with safe generic prompt still open | `working` | `freeform` | `normal_prompt` |
+| processing evidence without a safely resolved freeform prompt | `working` | `closed` or `unknown` | `normal_prompt` or `unknown` |
+| recovered normal prompt without stronger modal or blocked evidence | `idle` | `freeform` | `normal_prompt` |
+| supported but unclassifiable active surface | `unknown` | `unknown` or safely derived known input mode | `unknown` or the strongest safely-derived provider context |
+
+Claude SHALL derive `business_state`, `input_mode`, and `ui_context` from one active-surface evidence pass. When blocked or slash-command evidence conflicts with normal prompt markers in the same bounded window, the blocked or modal surface SHALL control `input_mode` and `ui_context`, while `business_state` follows the strongest supported business evidence.
+
 #### Scenario: Status checks avoid stale scrollback false positives
 - **WHEN** the tmux scrollback contains an old spinner line from a previous turn
 - **AND WHEN** the bounded tail window for the current status check does not include that spinner line
@@ -57,7 +70,7 @@ For Claude Code in `parsing_mode=shadow_only`, if output matches a supported Cla
 
 ### Requirement: Waiting-user-answer is surfaced as an explicit error
 **Reason**: The corrected shared surface contract distinguishes broader operator-blocked surfaces from the narrower legacy `waiting_user_answer` bucket.
-**Migration**: Detect blocked Claude surfaces through `business_state = awaiting_operator` and use `ui_context` plus `waiting_user_answer_excerpt` for provider-specific detail.
+**Migration**: Detect blocked Claude surfaces through `business_state = awaiting_operator` and use `ui_context` plus `operator_blocked_excerpt` for provider-specific detail.
 
 ## ADDED Requirements
 

@@ -19,6 +19,19 @@ The Codex surface assessment SHALL classify `input_mode` at minimum as:
 
 The provider SHALL surface `ui_context` through the Codex surface-assessment contract, including the shared `slash_command` context when applicable and Codex-specific contexts such as `approval_prompt`.
 
+At minimum, Codex evidence SHALL map to the shared axes like this:
+
+| Active Codex evidence | `business_state` | `input_mode` | `ui_context` |
+|---|---|---|---|
+| approval, trust, login, or selection surface | `awaiting_operator` | `modal` or `closed` | `approval_prompt` or `selection_menu` |
+| active slash-command input surface | `idle` | `modal` | `slash_command` |
+| processing evidence with safe generic prompt still open | `working` | `freeform` | `normal_prompt` |
+| processing evidence without a safely resolved freeform prompt | `working` | `closed` or `unknown` | `normal_prompt` or `unknown` |
+| recovered normal prompt without stronger modal or blocked evidence | `idle` | `freeform` | `normal_prompt` |
+| supported but unclassifiable active surface | `unknown` | `unknown` or safely derived known input mode | `unknown` or the strongest safely-derived provider context |
+
+Codex SHALL derive `business_state`, `input_mode`, and `ui_context` from one active-surface evidence pass. When blocked or slash-command evidence conflicts with normal prompt markers in the same bounded window, the blocked or modal surface SHALL control `input_mode` and `ui_context`, while `business_state` follows the strongest supported business evidence.
+
 #### Scenario: Working Codex surface can remain freeform
 - **WHEN** a Codex snapshot contains processing evidence while the active prompt is still open for generic input
 - **THEN** the system classifies the snapshot with `business_state = working`
@@ -51,7 +64,7 @@ For Codex in `parsing_mode=shadow_only`, if output matches a supported Codex out
 
 ### Requirement: Codex waiting-user-answer is explicit in shadow mode
 **Reason**: The corrected shared surface contract distinguishes broader operator-blocked surfaces from the narrower legacy `waiting_user_answer` bucket.
-**Migration**: Detect blocked Codex surfaces through `business_state = awaiting_operator` and use `ui_context` plus `waiting_user_answer_excerpt` for provider-specific detail.
+**Migration**: Detect blocked Codex surfaces through `business_state = awaiting_operator` and use `ui_context` plus `operator_blocked_excerpt` for provider-specific detail.
 
 ## ADDED Requirements
 

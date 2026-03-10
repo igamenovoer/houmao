@@ -50,6 +50,7 @@ Representative combinations:
 - `unknown + unknown`: supported surface cannot be classified safely
 
 This change removes the assumption that `working` implies non-inputtable.
+The shared blocked-surface excerpt field follows the same vocabulary correction and should be renamed from `waiting_user_answer_excerpt` to `operator_blocked_excerpt`.
 
 Alternative considered: keep `activity` and add more booleans such as `prompt_visible` or `generic_input_safe`. Rejected because it preserves the existing ambiguity and creates multiple partially-overlapping flags instead of a clear shared contract.
 
@@ -64,7 +65,7 @@ This keeps parser ownership simple and prevents the runtime from assuming that a
 Related derived predicates:
 
 - `operator_blocked := availability == supported AND business_state == awaiting_operator`
-- `interactive_busy := availability == supported AND business_state == working AND input_mode == freeform`
+- `unknown_for_stall := availability == unknown OR (availability == supported AND business_state == unknown)`
 
 Alternative considered: keep `ready_for_input` as a first-class parser state and bolt on a second axis beside it. Rejected because it leaves the old one-dimensional state in place and makes the new model internally inconsistent.
 
@@ -82,11 +83,20 @@ This separation matters because different UI contexts can map to the same shared
 - Claude trust prompt and Codex approval prompt both map to `awaiting_operator + modal`
 - Claude slash-command and Codex slash-command both map to `idle + modal`
 
+`ui_context` and `input_mode` should be co-derived from the same active-surface evidence pass so contradictory pairs do not escape the parser contract. When evidence conflicts inside one bounded window, parsers should give precedence to the strongest active control surface for input semantics:
+
+1. operator-blocked surfaces such as trust, approval, onboarding, login, or selection UI
+2. slash-command or other modal command surfaces
+3. normal freeform prompt surfaces
+4. `unknown` when the active input region cannot be resolved safely
+
+That means a snapshot should not report `ui_context=trust_prompt` or `ui_context=slash_command` together with `input_mode=freeform`.
+
 Alternative considered: encode all readiness/blocking meaning directly in `ui_context`. Rejected because runtime would become provider-specific again and lose the benefit of a shared parser contract.
 
 ### 4. Reframe runtime lifecycle around derived predicates over the new axes
 
-`TurnMonitor` and shadow-mode readiness/completion logic should be updated to consume the corrected state model using derived predicates instead of the old `accepts_input` boolean.
+`TurnMonitor` and shadow-mode readiness/completion logic should be updated to consume the corrected state model using derived predicates instead of the old `accepts_input` boolean. The lifecycle monitor remains stateful: it still preserves post-submit progress evidence such as "working was seen" and "projection changed after submit." The new predicates are inputs to that state machine, not replacements for it.
 
 For this change:
 
@@ -94,13 +104,31 @@ For this change:
 - completion requires post-submit progress evidence plus a return to `submit_ready`,
 - explicit operator-blocked surfaces fail the active turn with a blocked-surface error,
 - active modal-but-not-blocked surfaces such as slash-command remain non-ready without being treated as operator-blocked failures,
-- unknown/stalled handling remains imperative and continues to key off unknown business/availability classification, while `input_mode=unknown` by itself keeps the surface non-ready without automatically forcing a stalled transition.
+- unknown/stalled handling remains imperative and uses `unknown_for_stall`, while `input_mode=unknown` by itself keeps the surface non-ready without automatically forcing a stalled transition.
 
 This lets runtime distinguish:
 
 - `working + freeform`: busy but typeable
 - `idle + modal`: not ready yet, but not a hard blocked error
 - `awaiting_operator + modal|closed`: blocked and requires operator intervention
+
+The intended runtime evaluation order is explicit:
+
+- Readiness path:
+  1. `availability in {unsupported, disconnected}` -> fail
+  2. `operator_blocked` -> blocked outcome
+  3. `unknown_for_stall` -> unknown/stalled timing path
+  4. otherwise keep waiting, and only submit when `submit_ready` is observed
+- Completion path:
+  1. update stateful progress memory from projection change and `business_state = working`
+  2. `availability in {unsupported, disconnected}` -> fail
+  3. `operator_blocked` -> blocked outcome
+  4. `unknown_for_stall` -> unknown/stalled timing path
+  5. `business_state = working` -> keep `in_progress` regardless of `input_mode`
+  6. `submit_ready` plus previously-seen progress evidence -> complete
+  7. otherwise remain in a waiting post-submit state
+
+This also makes one behavioral tightening explicit: completion now depends on full `submit_ready`, not merely on "typeable again." That is intentional. Under the legacy model, `accepts_input` was only ever true for a normal idle prompt anyway; the new contract makes that implicit assumption visible instead of relying on parser collapse.
 
 Alternative considered: change only the parser contract and leave runtime semantics expressed in terms of `accepts_input`. Rejected because the main value of the new state model is lost if runtime still collapses everything back to one boolean gate.
 
