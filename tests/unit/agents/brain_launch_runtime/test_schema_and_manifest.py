@@ -105,9 +105,7 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
     )
     payload["launch_plan"]["role_injection"] = {"role_name": "gpu-kernel-coder"}
 
-    with pytest.raises(
-        SessionManifestError, match=r"\$\.launch_plan\.role_injection\.method"
-    ):
+    with pytest.raises(SessionManifestError, match=r"\$\.launch_plan\.role_injection\.method"):
         write_session_manifest(tmp_path / "session.json", payload)
 
 

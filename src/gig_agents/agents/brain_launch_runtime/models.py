@@ -122,19 +122,14 @@ class LaunchPlan:
 def _redact_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     redacted: dict[str, Any] = {}
     for key, value in metadata.items():
-        if (
-            "secret" in key.lower()
-            or "token" in key.lower()
-            or "password" in key.lower()
-        ):
+        if "secret" in key.lower() or "token" in key.lower() or "password" in key.lower():
             continue
         if isinstance(value, dict):
             redacted[key] = _redact_metadata(value)
             continue
         if isinstance(value, list):
             redacted[key] = [
-                _redact_metadata(item) if isinstance(item, dict) else item
-                for item in value
+                _redact_metadata(item) if isinstance(item, dict) else item for item in value
             ]
             continue
         redacted[key] = value

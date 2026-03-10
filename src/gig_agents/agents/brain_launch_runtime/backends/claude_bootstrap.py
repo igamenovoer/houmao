@@ -61,8 +61,7 @@ def _load_template_json(home_path: Path) -> dict[str, Any]:
 
     if not isinstance(payload, dict):
         raise BackendExecutionError(
-            f"Claude bootstrap template `{template_path}` must contain "
-            "a top-level JSON object."
+            f"Claude bootstrap template `{template_path}` must contain a top-level JSON object."
         )
 
     return payload
@@ -87,8 +86,7 @@ def _validate_settings_json(home_path: Path) -> None:
 
     if not isinstance(payload, dict):
         raise BackendExecutionError(
-            f"Claude settings file `{settings_path}` must contain "
-            "a top-level JSON object."
+            f"Claude settings file `{settings_path}` must contain a top-level JSON object."
         )
 
     if payload.get("skipDangerousModePermissionPrompt") is not True:

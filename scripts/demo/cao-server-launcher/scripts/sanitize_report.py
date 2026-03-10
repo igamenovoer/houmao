@@ -51,9 +51,7 @@ def _read_step(
     step = _as_mapping(flow.get(step_key), name=f"flow.{step_key}")
     payload = _as_mapping(step.get("payload"), name=f"flow.{step_key}.payload")
     exit_code = _as_int(step.get("exit_code"), name=f"flow.{step_key}.exit_code")
-    operation = _as_str(
-        payload.get("operation"), name=f"flow.{step_key}.payload.operation"
-    )
+    operation = _as_str(payload.get("operation"), name=f"flow.{step_key}.payload.operation")
     if operation != expected_operation:
         raise ValueError(
             f"flow.{step_key}.payload.operation must be {expected_operation!r}, got {operation!r}"
@@ -69,12 +67,8 @@ def _assert_path_layout(
     artifact_dir = Path(
         _as_str(start_payload.get("artifact_dir"), name="start.payload.artifact_dir")
     )
-    pid_file = Path(
-        _as_str(start_payload.get("pid_file"), name="start.payload.pid_file")
-    )
-    log_file = Path(
-        _as_str(start_payload.get("log_file"), name="start.payload.log_file")
-    )
+    pid_file = Path(_as_str(start_payload.get("pid_file"), name="start.payload.pid_file"))
+    log_file = Path(_as_str(start_payload.get("log_file"), name="start.payload.log_file"))
     launcher_result_file = Path(
         _as_str(
             start_payload.get("launcher_result_file"),
@@ -83,9 +77,7 @@ def _assert_path_layout(
     )
 
     if artifact_dir != expected_artifact_dir:
-        raise ValueError(
-            "start.payload.artifact_dir does not match expected artifact directory"
-        )
+        raise ValueError("start.payload.artifact_dir does not match expected artifact directory")
     if pid_file != expected_artifact_dir / "cao-server.pid":
         raise ValueError("start.payload.pid_file does not match expected pid file path")
     if log_file != expected_artifact_dir / "cao-server.log":
@@ -111,15 +103,11 @@ def sanitize_report(report: Mapping[str, Any]) -> dict[str, Any]:
     status_before_exit, status_before_payload = _read_step(
         flow, step_key="status_before_start", expected_operation="status"
     )
-    start_exit, start_payload = _read_step(
-        flow, step_key="start", expected_operation="start"
-    )
+    start_exit, start_payload = _read_step(flow, step_key="start", expected_operation="start")
     status_after_start_exit, status_after_start_payload = _read_step(
         flow, step_key="status_after_start", expected_operation="status"
     )
-    stop_exit, stop_payload = _read_step(
-        flow, step_key="stop", expected_operation="stop"
-    )
+    stop_exit, stop_payload = _read_step(flow, step_key="stop", expected_operation="stop")
     status_after_stop_exit, status_after_stop_payload = _read_step(
         flow, step_key="status_after_stop", expected_operation="status"
     )
@@ -186,9 +174,7 @@ def sanitize_report(report: Mapping[str, Any]) -> dict[str, Any]:
         name="artifact_checks.launcher_result_exists_after_start",
     )
     if not launcher_result_exists:
-        raise ValueError(
-            "artifact_checks.launcher_result_exists_after_start must be true"
-        )
+        raise ValueError("artifact_checks.launcher_result_exists_after_start must be true")
 
     _as_bool(
         status_before_payload.get("healthy"),

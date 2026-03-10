@@ -32,7 +32,12 @@ def test_has_tmux_session_builds_expected_command(
     captured: list[str] = []
 
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         captured[:] = cmd
         return _completed(cmd)
@@ -49,7 +54,12 @@ def test_show_tmux_environment_builds_expected_command(
     captured: list[str] = []
 
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         captured[:] = cmd
         return _completed(cmd, stdout="AGENTSYS_MANIFEST_PATH=/tmp/x.json\n")
@@ -71,7 +81,12 @@ def test_show_tmux_environment_builds_expected_command(
 
 def test_list_tmux_sessions_normalizes_no_server(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return _completed(cmd, returncode=1, stderr="no server running on /tmp/tmux")
 
@@ -83,7 +98,12 @@ def test_create_tmux_session_surfaces_tmux_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return _completed(cmd, returncode=1, stderr="duplicate session: AGENTSYS-gpu")
 
@@ -101,7 +121,12 @@ def test_set_tmux_session_environment_surfaces_key_context(
     call_count = {"count": 0}
 
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         call_count["count"] += 1
         if call_count["count"] == 1:

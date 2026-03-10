@@ -260,9 +260,7 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     )
 
     assert exit_code == 0
-    assert captured_kwargs["agent_def_dir"] == (
-        tmp_path / ".agentsys" / "agents"
-    ).resolve()
+    assert captured_kwargs["agent_def_dir"] == (tmp_path / ".agentsys" / "agents").resolve()
 
 
 def test_send_keys_forwards_sequence_and_escape_mode(

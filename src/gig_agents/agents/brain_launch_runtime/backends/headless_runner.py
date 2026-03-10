@@ -58,16 +58,12 @@ class HeadlessCliRunner:
         tmux_session_name: str | None = None,
         turn_artifacts_root: Path | None = None,
         completion_timeout_seconds: float = _DEFAULT_COMPLETION_TIMEOUT_SECONDS,
-        completion_poll_interval_seconds: float = (
-            _DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS
-        ),
+        completion_poll_interval_seconds: float = (_DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS),
     ) -> HeadlessRunResult:
         """Execute a headless command and parse events."""
 
         if output_format not in {"json", "stream-json"}:
-            raise BackendExecutionError(
-                f"Unsupported headless output format: {output_format}"
-            )
+            raise BackendExecutionError(f"Unsupported headless output format: {output_format}")
 
         if tmux_session_name is None:
             return self._run_direct_subprocess(
@@ -258,9 +254,7 @@ class HeadlessCliRunner:
         stdout_path = turn_dir / "stdout.jsonl"
         stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
-        wait_signal = (
-            f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
-        )
+        wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         window_name = f"turn-{turn_index}"
 
         command_text = shlex.join(command)
@@ -273,7 +267,7 @@ class HeadlessCliRunner:
                 "status=$?",
                 f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_path))}",
                 f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
-                "exit \"$status\"",
+                'exit "$status"',
             ]
         )
 
@@ -295,9 +289,7 @@ class HeadlessCliRunner:
                 ]
             )
         except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to launch tmux headless turn: {exc}"
-            ) from exc
+            raise BackendExecutionError(f"Failed to launch tmux headless turn: {exc}") from exc
 
         if launch.returncode != 0:
             detail = tmux_error_detail_shared(launch) or "unknown tmux error"
@@ -435,9 +427,7 @@ def _parse_stream_json_line(*, line: str, turn_index: int) -> SessionEvent:
 
     kind = str(payload.get("type", "event"))
     message = _extract_text(payload) or kind
-    return SessionEvent(
-        kind=kind, message=message, turn_index=turn_index, payload=payload
-    )
+    return SessionEvent(kind=kind, message=message, turn_index=turn_index, payload=payload)
 
 
 def _parse_json_payload(*, text: str, turn_index: int) -> list[SessionEvent]:
@@ -448,9 +438,7 @@ def _parse_json_payload(*, text: str, turn_index: int) -> list[SessionEvent]:
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError as exc:
-        raise BackendExecutionError(
-            f"Could not parse JSON headless payload: {exc}"
-        ) from exc
+        raise BackendExecutionError(f"Could not parse JSON headless payload: {exc}") from exc
 
     if isinstance(payload, list):
         events: list[SessionEvent] = []

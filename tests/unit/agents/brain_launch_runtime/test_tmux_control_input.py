@@ -54,9 +54,7 @@ def test_parse_tmux_control_input_escape_mode_keeps_literal_text() -> None:
         escape_special_keys=True,
     )
 
-    assert segments == (
-        TmuxControlInputSegment(kind="literal", value="/model<[Enter]>"),
-    )
+    assert segments == (TmuxControlInputSegment(kind="literal", value="/model<[Enter]>"),)
 
 
 def test_parse_tmux_control_input_preserves_marker_like_literal_text() -> None:

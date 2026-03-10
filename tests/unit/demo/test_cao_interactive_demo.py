@@ -1,24 +1,30 @@
-"""Unit tests for the interactive CAO full-pipeline demo workflow."""
+"""Unit tests for the interactive CAO demo workflow."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from types import ModuleType
 
 import pytest
 
-import gig_agents.demo.cao_interactive_full_pipeline_demo as interactive_demo
-from gig_agents.demo.cao_interactive_full_pipeline_demo import (
+import gig_agents.demo.cao_interactive_demo as interactive_demo
+import gig_agents.demo.cao_interactive_demo.cao_server as demo_cao_server
+import gig_agents.demo.cao_interactive_demo.cli as demo_cli
+import gig_agents.demo.cao_interactive_demo.commands as demo_commands
+import gig_agents.demo.cao_interactive_demo.models as demo_models
+import gig_agents.demo.cao_interactive_demo.rendering as demo_rendering
+import gig_agents.demo.cao_interactive_demo.runtime as demo_runtime
+from gig_agents.demo.cao_interactive_demo import (
     FIXED_CAO_BASE_URL,
     CommandResult,
     DemoEnvironment,
     DemoPaths,
     DemoState,
     DemoWorkflowError,
-    inspect_demo,
-    _run_subprocess_command_with_wait_feedback,
     TurnRecord,
+    inspect_demo,
     load_demo_state,
     load_turn_records,
     main,
@@ -27,6 +33,9 @@ from gig_agents.demo.cao_interactive_full_pipeline_demo import (
     start_demo,
     stop_demo,
     verify_demo,
+)
+from gig_agents.demo.cao_interactive_demo.runtime import (
+    _run_subprocess_command_with_wait_feedback,
 )
 
 
@@ -123,6 +132,27 @@ def _turn_record(
         stdout_path=str(paths.turns_dir / f"turn-{turn_index:03d}.events.jsonl"),
         stderr_path=str(paths.turns_dir / f"turn-{turn_index:03d}.stderr.log"),
     )
+
+
+def _patch_demo_tools_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(demo_rendering.shutil, "which", lambda _: "/usr/bin/fake")
+    monkeypatch.setattr(demo_cao_server.shutil, "which", lambda _: "/usr/bin/fake")
+
+
+def test_canonical_package_exports_are_explicit_and_resolve_to_owning_modules() -> None:
+    resolved_exports = {name: getattr(interactive_demo, name) for name in interactive_demo.__all__}
+    public_names = {
+        name
+        for name, value in interactive_demo.__dict__.items()
+        if not name.startswith("_") and not isinstance(value, ModuleType)
+    }
+
+    assert set(interactive_demo.__all__) == public_names
+    assert interactive_demo.DemoState is demo_models.DemoState
+    assert interactive_demo.start_demo is demo_commands.start_demo
+    assert resolved_exports["main"] is demo_cli.main
+    assert interactive_demo.run_subprocess_command is demo_runtime.run_subprocess_command
+    assert interactive_demo.FIXED_CAO_BASE_URL == demo_models.FIXED_CAO_BASE_URL
 
 
 class FakeRunner:
@@ -295,14 +325,8 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
     env.current_run_root_path.write_text(f"{paths.workspace_root}\n", encoding="utf-8")
     runner = FakeRunner(tmp_path)
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
 
     payload = start_demo(
         paths=paths,
@@ -344,18 +368,9 @@ def test_main_start_uses_repo_root_anchored_per_run_defaults(
     (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
     runner = FakeRunner(tmp_path)
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
-        lambda: "20260309-120000-000000Z",
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
+    monkeypatch.setattr(demo_cli, "_run_timestamp_slug", lambda: "20260309-120000-000000Z")
 
     exit_code = main(
         ["--repo-root", str(repo_root), "start", "--agent-name", "alice"],
@@ -406,18 +421,9 @@ def test_main_start_emits_stderr_progress_and_human_readable_stdout(
     (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
     runner = FakeRunner(tmp_path)
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
-        lambda: "20260309-120000-000000Z",
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
+    monkeypatch.setattr(demo_cli, "_run_timestamp_slug", lambda: "20260309-120000-000000Z")
 
     exit_code = main(
         ["--repo-root", str(repo_root), "start", "--agent-name", "alice"],
@@ -449,18 +455,9 @@ def test_main_start_json_preserves_machine_readable_output(
     (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
     runner = FakeRunner(tmp_path)
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._run_timestamp_slug",
-        lambda: "20260309-120000-000000Z",
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
+    monkeypatch.setattr(demo_cli, "_run_timestamp_slug", lambda: "20260309-120000-000000Z")
 
     exit_code = main(
         ["--repo-root", str(repo_root), "start", "--agent-name", "alice", "--json"],
@@ -531,14 +528,8 @@ def test_start_demo_resets_previous_run_artifacts_and_stale_tmux(
     runner = FakeRunner(tmp_path)
     runner.m_tmux_sessions.add("AGENTSYS-alice")
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
 
     payload = start_demo(
         paths=next_paths,
@@ -578,16 +569,11 @@ def test_start_demo_replaces_verified_cao_server_with_yes_to_all(
         )
     ]
 
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
     monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._prompt_yes_no",
+        demo_cao_server,
+        "_prompt_yes_no",
         lambda _: pytest.fail("unexpected confirmation prompt"),
     )
 
@@ -626,16 +612,11 @@ def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
         )
     ]
 
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
     monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
-        lambda _: False,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._find_listening_pids_for_port",
+        demo_cao_server,
+        "_find_listening_pids_for_port",
         lambda _: pytest.fail("unexpected procfs fallback for verified replacement"),
     )
 
@@ -674,14 +655,8 @@ def test_start_demo_aborts_when_verified_cao_replacement_is_declined(
         )
     ]
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo._prompt_yes_no",
-        lambda _: False,
-    )
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_prompt_yes_no", lambda _: False)
 
     with pytest.raises(DemoWorkflowError, match="existing verified local `cao-server`"):
         start_demo(
@@ -715,10 +690,7 @@ def test_start_demo_fails_when_existing_service_does_not_verify_as_cao_server(
         )
     ]
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
-        lambda _: "/usr/bin/fake",
-    )
+    _patch_demo_tools_available(monkeypatch)
 
     with pytest.raises(DemoWorkflowError, match="did not verify as `cao-server`"):
         start_demo(
@@ -756,9 +728,9 @@ def test_find_pids_for_socket_inodes_skips_unreadable_proc_fd_directories(
 
     monkeypatch.setattr(Path, "exists", fake_exists)
     monkeypatch.setattr(Path, "iterdir", fake_iterdir)
-    monkeypatch.setattr(interactive_demo.os, "readlink", fake_readlink)
+    monkeypatch.setattr(demo_cao_server.os, "readlink", fake_readlink)
 
-    assert interactive_demo._find_pids_for_socket_inodes({"111"}) == {456}
+    assert demo_cao_server._find_pids_for_socket_inodes({"111"}) == {456}
 
 
 def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> None:
@@ -892,10 +864,7 @@ def test_main_inspect_with_output_text_passes_requested_tail_chars(
         captured["as_json"] = as_json
         captured["output_text_tail_chars"] = output_text_tail_chars
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.inspect_demo",
-        _inspect_demo,
-    )
+    monkeypatch.setattr(demo_cli, "inspect_demo", _inspect_demo)
 
     exit_code = main(
         [
@@ -952,14 +921,8 @@ def test_inspect_demo_json_reports_live_state_and_clean_output_tail(
                 dialog_projection=SimpleNamespace(dialog_text="User: hi\nClaude: hello there"),
             )
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.CaoRestClient",
-        FakeCaoRestClient,
-    )
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.ClaudeCodeShadowParser",
-        FakeShadowParser,
-    )
+    monkeypatch.setattr(demo_commands, "CaoRestClient", FakeCaoRestClient)
+    monkeypatch.setattr(demo_runtime, "ClaudeCodeShadowParser", FakeShadowParser)
 
     inspect_demo(paths=paths, as_json=True, output_text_tail_chars=11)
 
@@ -992,10 +955,7 @@ def test_inspect_demo_human_output_handles_live_lookup_failures(
         def get_terminal_output(self, terminal_id: str, mode: str = "last") -> SimpleNamespace:
             raise RuntimeError(f"output lookup failed for {terminal_id} ({mode})")
 
-    monkeypatch.setattr(
-        "gig_agents.demo.cao_interactive_full_pipeline_demo.CaoRestClient",
-        FailingCaoRestClient,
-    )
+    monkeypatch.setattr(demo_commands, "CaoRestClient", FailingCaoRestClient)
 
     inspect_demo(paths=paths, as_json=False, output_text_tail_chars=80)
 

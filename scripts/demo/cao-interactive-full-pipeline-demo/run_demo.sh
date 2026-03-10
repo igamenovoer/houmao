@@ -105,7 +105,7 @@ else
 fi
 
 PYTHON_ARGS=(
-  pixi run python -m gig_agents.demo.cao_interactive_full_pipeline_demo
+  pixi run python -m gig_agents.demo.cao_interactive_demo.cli
   --repo-root "$REPO_ROOT"
 )
 

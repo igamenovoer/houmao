@@ -1,4 +1,4 @@
-"""Integration coverage for the interactive CAO full-pipeline demo wrappers."""
+"""Integration coverage for the interactive CAO demo wrappers."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from gig_agents.demo.cao_interactive_full_pipeline_demo import (
+from gig_agents.demo.cao_interactive_demo import (
     FIXED_CAO_BASE_URL,
     TEST_LOOPBACK_PORT_LISTENING_ENV,
 )
@@ -154,7 +154,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
             def save_state() -> None:
                 state_path.write_text(json.dumps(state), encoding="utf-8")
 
-            if module == "gig_agents.demo.cao_interactive_full_pipeline_demo":
+            if module == "gig_agents.demo.cao_interactive_demo.cli":
                 proc = subprocess.run(
                     [sys.executable, "-m", module, *args[4:]],
                     env=os.environ.copy(),

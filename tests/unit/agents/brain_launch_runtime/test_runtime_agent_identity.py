@@ -314,7 +314,12 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
     )
 
     def _fake_run(
-        cmd: list[str], *, check: bool, capture_output: bool, text: bool, timeout: float | None = None
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         assert cmd[0] == "tmux"
         if cmd[1:3] == ["has-session", "-t"]:

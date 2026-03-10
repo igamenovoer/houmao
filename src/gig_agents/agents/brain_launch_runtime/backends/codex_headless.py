@@ -34,9 +34,7 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         if self._plan.role_injection.method == "native_developer_instructions":
-            command.extend(
-                ["-c", f"developer_instructions={self._plan.role_injection.prompt}"]
-            )
+            command.extend(["-c", f"developer_instructions={self._plan.role_injection.prompt}"])
         command.extend(["exec", "--json"])
         if self._state.session_id:
             command.extend(["resume", self._state.session_id])

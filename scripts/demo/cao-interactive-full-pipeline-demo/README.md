@@ -265,7 +265,13 @@ Scripts:
 
 Implementation files:
 
-- `src/gig_agents/demo/cao_interactive_full_pipeline_demo.py`
+- `src/gig_agents/demo/cao_interactive_demo/__init__.py`
+- `src/gig_agents/demo/cao_interactive_demo/models.py`
+- `src/gig_agents/demo/cao_interactive_demo/rendering.py`
+- `src/gig_agents/demo/cao_interactive_demo/runtime.py`
+- `src/gig_agents/demo/cao_interactive_demo/cao_server.py`
+- `src/gig_agents/demo/cao_interactive_demo/commands.py`
+- `src/gig_agents/demo/cao_interactive_demo/cli.py`
 
 Generated workspace outputs (untracked):
 

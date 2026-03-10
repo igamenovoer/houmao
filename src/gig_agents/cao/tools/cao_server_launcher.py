@@ -43,23 +43,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             status_result = _cmd_status(args)
-            print(
-                json.dumps(dataclass_to_json_payload(status_result), indent=2, sort_keys=True)
-            )
+            print(json.dumps(dataclass_to_json_payload(status_result), indent=2, sort_keys=True))
             return 0 if status_result.healthy else 2
 
         if args.command == "start":
             start_result = _cmd_start(args)
-            print(
-                json.dumps(dataclass_to_json_payload(start_result), indent=2, sort_keys=True)
-            )
+            print(json.dumps(dataclass_to_json_payload(start_result), indent=2, sort_keys=True))
             return 0 if start_result.healthy else 2
 
         if args.command == "stop":
             stop_result = _cmd_stop(args)
-            print(
-                json.dumps(dataclass_to_json_payload(stop_result), indent=2, sort_keys=True)
-            )
+            print(json.dumps(dataclass_to_json_payload(stop_result), indent=2, sort_keys=True))
             if stop_result.stopped or stop_result.already_stopped:
                 return 0
             return 2

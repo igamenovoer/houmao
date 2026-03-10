@@ -96,12 +96,8 @@ def main() -> int:
     expected = json.loads(args.expected_report.read_text(encoding="utf-8"))
     if sanitized != expected:
         print("sanitized report mismatch", file=sys.stderr)
-        print(
-            "expected:", json.dumps(expected, indent=2, sort_keys=True), file=sys.stderr
-        )
-        print(
-            "actual:", json.dumps(sanitized, indent=2, sort_keys=True), file=sys.stderr
-        )
+        print("expected:", json.dumps(expected, indent=2, sort_keys=True), file=sys.stderr)
+        print("actual:", json.dumps(sanitized, indent=2, sort_keys=True), file=sys.stderr)
         return 1
 
     print("verification passed")

@@ -212,13 +212,9 @@ def load_cao_server_launcher_config(
 
     resolved_config_path = config_path.expanduser().resolve()
     if not resolved_config_path.exists():
-        raise CaoServerLauncherError(
-            f"Launcher config not found: `{resolved_config_path}`."
-        )
+        raise CaoServerLauncherError(f"Launcher config not found: `{resolved_config_path}`.")
     if not resolved_config_path.is_file():
-        raise CaoServerLauncherError(
-            f"Launcher config must be a file: `{resolved_config_path}`."
-        )
+        raise CaoServerLauncherError(f"Launcher config must be a file: `{resolved_config_path}`.")
 
     try:
         with resolved_config_path.open("rb") as handle:
@@ -288,9 +284,7 @@ def resolve_cao_server_runtime_artifacts(
     host = parsed.hostname
     port = parsed.port
     if host is None or port is None:
-        raise CaoServerLauncherError(
-            f"Invalid base_url `{config.base_url}`: missing host or port."
-        )
+        raise CaoServerLauncherError(f"Invalid base_url `{config.base_url}`: missing host or port.")
 
     artifact_dir = config.runtime_root / "cao-server" / f"{host}-{port}"
     return CaoServerRuntimeArtifacts(
@@ -347,9 +341,7 @@ def read_cao_server_pid(pid_file: Path) -> int:
             f"Pidfile `{pid_file}` does not contain an integer pid: `{raw}`."
         ) from exc
     if pid <= 0:
-        raise CaoServerLauncherError(
-            f"Pidfile `{pid_file}` contains non-positive pid: `{pid}`."
-        )
+        raise CaoServerLauncherError(f"Pidfile `{pid_file}` contains non-positive pid: `{pid}`.")
     return pid
 
 
@@ -573,9 +565,7 @@ def start_cao_server(
 
         returncode = process.poll()
         if returncode is not None:
-            race_probe = status_cao_server(
-                config, timeout_seconds=status_timeout_seconds
-            )
+            race_probe = status_cao_server(config, timeout_seconds=status_timeout_seconds)
             if race_probe.healthy:
                 artifacts.pid_file.unlink(missing_ok=True)
                 result = CaoServerStartResult(
@@ -863,9 +853,7 @@ def _format_pydantic_error(prefix: str, exc: ValidationError) -> str:
 def _require_executable_on_path(executable: str, *, install_hint: str) -> str:
     resolved = shutil.which(executable)
     if resolved is None:
-        raise CaoServerLauncherError(
-            f"`{executable}` not found on PATH. {install_hint}"
-        )
+        raise CaoServerLauncherError(f"`{executable}` not found on PATH. {install_hint}")
     return resolved
 
 
@@ -905,9 +893,7 @@ def _write_launcher_result(path: Path, result: object) -> None:
         payload = dataclass_to_json_payload(result)
     else:
         payload = {"result": to_jsonable_payload(result)}
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _is_process_running(pid: int) -> bool:
@@ -931,9 +917,7 @@ def _read_process_cmdline(pid: int) -> str | None:
 
     if not raw:
         return ""
-    tokens = [
-        token for token in raw.decode("utf-8", errors="replace").split("\x00") if token
-    ]
+    tokens = [token for token in raw.decode("utf-8", errors="replace").split("\x00") if token]
     return " ".join(tokens)
 
 

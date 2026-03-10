@@ -27,9 +27,7 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify or snapshot codex CAO demo report"
-    )
+    parser = argparse.ArgumentParser(description="Verify or snapshot codex CAO demo report")
     parser.add_argument("actual_report", type=Path)
     parser.add_argument("expected_report", type=Path)
     parser.add_argument("--snapshot", action="store_true")
@@ -54,12 +52,8 @@ def main() -> int:
     expected = json.loads(args.expected_report.read_text(encoding="utf-8"))
     if sanitized != expected:
         print("sanitized report mismatch", file=sys.stderr)
-        print(
-            "expected:", json.dumps(expected, indent=2, sort_keys=True), file=sys.stderr
-        )
-        print(
-            "actual:", json.dumps(sanitized, indent=2, sort_keys=True), file=sys.stderr
-        )
+        print("expected:", json.dumps(expected, indent=2, sort_keys=True), file=sys.stderr)
+        print("actual:", json.dumps(sanitized, indent=2, sort_keys=True), file=sys.stderr)
         return 1
 
     print("verification passed")

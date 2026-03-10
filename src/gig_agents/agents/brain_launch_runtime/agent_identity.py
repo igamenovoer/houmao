@@ -30,9 +30,7 @@ AGENT_RESERVED_TOKEN = "AGENTSYS"
 AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-_STANDALONE_RESERVED_TOKEN_RE = re.compile(
-    r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])"
-)
+_STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
 _INEXACT_AGENTSYS_RE = re.compile(r"agentsys", re.IGNORECASE)
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
@@ -164,8 +162,7 @@ def _validate_agent_name_portion(name_portion: str) -> None:
         )
     if _STANDALONE_RESERVED_TOKEN_RE.search(name_portion):
         raise SessionManifestError(
-            "Invalid agent identity name portion: standalone token `AGENTSYS` is "
-            "reserved."
+            "Invalid agent identity name portion: standalone token `AGENTSYS` is reserved."
         )
 
 

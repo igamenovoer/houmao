@@ -75,9 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
         ),
     )
-    build.add_argument(
-        "--runtime-root", default="tmp/agents-runtime", help="Runtime root"
-    )
+    build.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
     build.add_argument("--recipe", help="Path to brain recipe")
     build.add_argument("--blueprint", help="Path to blueprint")
     build.add_argument("--tool", help="Tool name")
@@ -85,9 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument("--config-profile", help="Config profile")
     build.add_argument("--cred-profile", help="Credential profile")
     build.add_argument("--home-id", help="Optional home id")
-    build.add_argument(
-        "--reuse-home", action="store_true", help="Allow reusing home id"
-    )
+    build.add_argument("--reuse-home", action="store_true", help="Allow reusing home id")
 
     start = subparsers.add_parser("start-session", help="Start a local/CAO session")
     start.add_argument(
@@ -98,12 +94,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
         ),
     )
-    start.add_argument(
-        "--runtime-root", default="tmp/agents-runtime", help="Runtime root"
-    )
-    start.add_argument(
-        "--brain-manifest", required=True, help="Built brain manifest path"
-    )
+    start.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
+    start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
     start.add_argument("--role", help="Role name")
     start.add_argument("--blueprint", help="Optional blueprint to source role from")
     start.add_argument(
@@ -130,9 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional tmux-backed agent name",
     )
 
-    prompt = subparsers.add_parser(
-        "send-prompt", help="Send a prompt to a resumed session"
-    )
+    prompt = subparsers.add_parser("send-prompt", help="Send a prompt to a resumed session")
     prompt.add_argument(
         "--agent-def-dir",
         default=None,
@@ -214,9 +204,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     tool = args.tool or (recipe.tool if recipe else None)
     skills = list(args.skills) if args.skills else (recipe.skills if recipe else [])
     config_profile = args.config_profile or (recipe.config_profile if recipe else None)
-    credential_profile = args.cred_profile or (
-        recipe.credential_profile if recipe else None
-    )
+    credential_profile = args.cred_profile or (recipe.credential_profile if recipe else None)
 
     missing: list[str] = []
     if not tool:
@@ -228,9 +216,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     if not credential_profile:
         missing.append("--cred-profile")
     if missing:
-        raise BrainLaunchRuntimeError(
-            f"Missing required build inputs: {', '.join(missing)}"
-        )
+        raise BrainLaunchRuntimeError(f"Missing required build inputs: {', '.join(missing)}")
 
     result = build_brain_home(
         BuildRequest(
@@ -293,9 +279,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     if controller.parsing_mode is not None:
         payload["parsing_mode"] = controller.parsing_mode
 
-    print(
-        json.dumps(payload, indent=2)
-    )
+    print(json.dumps(payload, indent=2))
     return 0
 
 
@@ -380,9 +364,7 @@ def _resolve_role(args: argparse.Namespace, *, agent_def_dir: Path) -> str:
     if args.role:
         return str(args.role)
     if args.blueprint:
-        blueprint = load_blueprint(
-            _resolve_path(args.blueprint, base=agent_def_dir)
-        )
+        blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))
         return blueprint.role
     raise BrainLaunchRuntimeError("start-session requires --role or --blueprint")
 

@@ -156,9 +156,7 @@ def _extract_second_answer(
             baseline_pos=second_baseline_pos,
         )
     except ClaudeCodeShadowParseError as exc:
-        excerpt = parser.ansi_stripped_tail_excerpt(
-            completion_poll.scrollback, max_lines=12
-        )
+        excerpt = parser.ansi_stripped_tail_excerpt(completion_poll.scrollback, max_lines=12)
         detail = f"failed to extract second answer: {exc}"
         if excerpt:
             detail = f"{detail}\n\nTail excerpt:\n{excerpt}"

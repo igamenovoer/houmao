@@ -34,8 +34,7 @@ def test_headless_runner_parses_stream_json_and_session_id(tmp_path: Path) -> No
 def test_headless_runner_parses_json_payload(tmp_path: Path) -> None:
     script = tmp_path / "emit_json.sh"
     script.write_text(
-        "#!/usr/bin/env bash\n"
-        'echo \'{"type":"result","session_id":"sess-999","text":"ok"}\'\n',
+        '#!/usr/bin/env bash\necho \'{"type":"result","session_id":"sess-999","text":"ok"}\'\n',
         encoding="utf-8",
     )
     script.chmod(0o755)

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gig_agents.demo.cao_interactive_full_pipeline_demo import FIXED_CAO_BASE_URL
+from gig_agents.demo.cao_interactive_demo import FIXED_CAO_BASE_URL
 
 _TERMINAL_LOG_SUFFIX = Path(".aws") / "cli-agent-orchestrator" / "logs" / "terminal"
 

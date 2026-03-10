@@ -77,10 +77,7 @@ def list_tmux_sessions() -> set[str]:
         lowered = detail.lower()
         if "no server running" in lowered or "failed to connect to server" in lowered:
             return set()
-        raise TmuxCommandError(
-            "Failed to list tmux sessions: "
-            f"{detail or 'unknown tmux error'}"
-        )
+        raise TmuxCommandError(f"Failed to list tmux sessions: {detail or 'unknown tmux error'}")
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
@@ -101,8 +98,7 @@ def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
         return
     detail = tmux_error_detail(result)
     raise TmuxCommandError(
-        f"Failed to create tmux session `{session_name}`: "
-        f"{detail or 'unknown tmux error'}"
+        f"Failed to create tmux session `{session_name}`: {detail or 'unknown tmux error'}"
     )
 
 
@@ -123,8 +119,7 @@ def kill_tmux_session(*, session_name: str) -> None:
         return
     detail = tmux_error_detail(result)
     raise TmuxCommandError(
-        f"Failed to kill tmux session `{session_name}`: "
-        f"{detail or 'unknown tmux error'}"
+        f"Failed to kill tmux session `{session_name}`: {detail or 'unknown tmux error'}"
     )
 
 
@@ -134,9 +129,7 @@ def has_tmux_session(*, session_name: str) -> subprocess.CompletedProcess[str]:
     return run_tmux(["has-session", "-t", session_name])
 
 
-def set_tmux_session_environment(
-    *, session_name: str, env_vars: Mapping[str, str]
-) -> None:
+def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
     """Set multiple tmux session environment variables."""
 
     for key, value in env_vars.items():
@@ -218,16 +211,12 @@ def parse_tmux_control_input(
         cursor = match.end()
 
     if cursor < len(sequence):
-        segments.append(
-            TmuxControlInputSegment(kind="literal", value=sequence[cursor:])
-        )
+        segments.append(TmuxControlInputSegment(kind="literal", value=sequence[cursor:]))
 
     return tuple(segment for segment in segments if segment.value)
 
 
-def send_tmux_control_input(
-    *, target: str, segments: tuple[TmuxControlInputSegment, ...]
-) -> None:
+def send_tmux_control_input(*, target: str, segments: tuple[TmuxControlInputSegment, ...]) -> None:
     """Deliver parsed control-input segments to a tmux target in order.
 
     Parameters
@@ -252,8 +241,7 @@ def send_tmux_control_input(
             continue
         detail = tmux_error_detail(result)
         raise TmuxCommandError(
-            "Failed to send tmux control input "
-            f"to `{target}`: {detail or 'unknown tmux error'}"
+            f"Failed to send tmux control input to `{target}`: {detail or 'unknown tmux error'}"
         )
 
 

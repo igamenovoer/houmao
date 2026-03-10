@@ -286,9 +286,7 @@ def resolve_cao_parsing_mode(
     return default
 
 
-def _find_reserved_arg_conflicts(
-    *, args: list[str], reserved_args: tuple[str, ...]
-) -> list[str]:
+def _find_reserved_arg_conflicts(*, args: list[str], reserved_args: tuple[str, ...]) -> list[str]:
     conflicts: set[str] = set()
     for arg in args:
         for reserved in reserved_args:
@@ -346,8 +344,7 @@ def _extract_configured_cao_shadow_policy(
         normalized_timeout = float(timeout)
         if normalized_timeout <= 0:
             raise LaunchPlanError(
-                "`runtime.cao.shadow."
-                f"{_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY}` must be > 0"
+                f"`runtime.cao.shadow.{_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY}` must be > 0"
             )
         policy[_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY] = normalized_timeout
 

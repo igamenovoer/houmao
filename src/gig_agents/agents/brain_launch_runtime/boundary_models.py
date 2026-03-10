@@ -176,9 +176,7 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
             if self.headless is not None or self.cao is not None:
-                raise ValueError(
-                    "headless/cao must be omitted for backend=codex_app_server"
-                )
+                raise ValueError("headless/cao must be omitted for backend=codex_app_server")
         elif self.backend in {
             "codex_headless",
             "claude_headless",

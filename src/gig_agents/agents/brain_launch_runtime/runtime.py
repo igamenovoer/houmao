@@ -156,9 +156,7 @@ class RuntimeSessionController:
         """Terminate backend resources and persist state."""
 
         if isinstance(self.backend_session, HeadlessInteractiveSession):
-            self.backend_session.configure_stop_force_cleanup(
-                force_cleanup=force_cleanup
-            )
+            self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
         result = self.backend_session.terminate()
         self.persist_manifest()
         return result
@@ -273,9 +271,7 @@ def start_runtime_session(
     return controller
 
 
-def resolve_agent_identity(
-    *, agent_identity: str, base: Path
-) -> AgentIdentityResolution:
+def resolve_agent_identity(*, agent_identity: str, base: Path) -> AgentIdentityResolution:
     """Resolve an `--agent-identity` into a concrete session manifest path.
 
     Parameters
@@ -298,9 +294,7 @@ def resolve_agent_identity(
         return AgentIdentityResolution(session_manifest_path=manifest_path.resolve())
 
     normalized = normalize_agent_identity_name(agent_identity)
-    manifest_path = _resolve_manifest_path_from_tmux_session(
-        session_name=normalized.canonical_name
-    )
+    manifest_path = _resolve_manifest_path_from_tmux_session(session_name=normalized.canonical_name)
     _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
         session_name=normalized.canonical_name,
@@ -515,8 +509,7 @@ def _resume_headless_state(
         session_id=session_id.strip() if session_id else None,
         turn_index=turn_index,
         role_bootstrap_applied=headless.role_bootstrap_applied,
-        working_directory=headless.working_directory
-        or str(launch_plan.working_directory),
+        working_directory=headless.working_directory or str(launch_plan.working_directory),
         tmux_session_name=tmux_session_name.strip(),
     )
 
@@ -525,9 +518,7 @@ def _require_session_manifest_path(
     session_manifest_path: Path | None, *, backend: BackendKind
 ) -> Path:
     if session_manifest_path is None:
-        raise SessionManifestError(
-            f"backend={backend} requires a resolved session manifest path."
-        )
+        raise SessionManifestError(f"backend={backend} requires a resolved session manifest path.")
     return session_manifest_path.resolve()
 
 
@@ -543,33 +534,23 @@ def _resume_cao_state(
 
     persisted_api_base_url = cao.api_base_url.strip()
     if not persisted_api_base_url:
-        raise SessionManifestError(
-            "CAO session manifest missing or blank cao.api_base_url"
-        )
+        raise SessionManifestError("CAO session manifest missing or blank cao.api_base_url")
 
     terminal_id = cao.terminal_id.strip()
     if not terminal_id:
-        raise SessionManifestError(
-            "CAO session manifest missing or blank cao.terminal_id"
-        )
+        raise SessionManifestError("CAO session manifest missing or blank cao.terminal_id")
 
     session_name = cao.session_name.strip()
     if not session_name:
-        raise SessionManifestError(
-            "CAO session manifest missing or blank cao.session_name"
-        )
+        raise SessionManifestError("CAO session manifest missing or blank cao.session_name")
 
     profile_name = cao.profile_name.strip()
     if not profile_name:
-        raise SessionManifestError(
-            "CAO session manifest missing or blank cao.profile_name"
-        )
+        raise SessionManifestError("CAO session manifest missing or blank cao.profile_name")
 
     profile_path = cao.profile_path.strip()
     if not profile_path:
-        raise SessionManifestError(
-            "CAO session manifest missing or blank cao.profile_path"
-        )
+        raise SessionManifestError("CAO session manifest missing or blank cao.profile_path")
 
     parsing_mode = cao.parsing_mode
 
@@ -600,10 +581,7 @@ def _resume_cao_state(
 
     backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
     if backend_tmux_window_name is not None:
-        if (
-            not isinstance(backend_tmux_window_name, str)
-            or not backend_tmux_window_name.strip()
-        ):
+        if not isinstance(backend_tmux_window_name, str) or not backend_tmux_window_name.strip():
             raise SessionManifestError(
                 "CAO session manifest backend_state.tmux_window_name must be a "
                 "non-empty string when present"
@@ -655,8 +633,7 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
         has_result = has_tmux_session_shared(session_name=session_name)
     except TmuxCommandError as exc:
         raise SessionManifestError(
-            "Agent-name resolution requires `tmux` on PATH for session "
-            f"`{session_name}`."
+            f"Agent-name resolution requires `tmux` on PATH for session `{session_name}`."
         ) from exc
     if has_result.returncode != 0:
         if has_result.returncode == 1:
@@ -666,8 +643,7 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
             )
         detail = tmux_error_detail_shared(has_result)
         raise SessionManifestError(
-            f"Failed to query tmux session `{session_name}`: "
-            f"{detail or 'unknown tmux error'}"
+            f"Failed to query tmux session `{session_name}`: {detail or 'unknown tmux error'}"
         )
 
     try:
@@ -677,8 +653,7 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
         )
     except TmuxCommandError as exc:
         raise SessionManifestError(
-            "Agent-name resolution requires `tmux` on PATH for session "
-            f"`{session_name}`."
+            f"Agent-name resolution requires `tmux` on PATH for session `{session_name}`."
         ) from exc
     env_detail = tmux_error_detail_shared(env_result)
     if env_result.returncode != 0:
@@ -759,9 +734,8 @@ def _validate_resolved_manifest_matches_tmux_session(
             f"{session_name!r}."
         )
 
-def _persisted_tmux_session_name(
-    *, payload: SessionManifestPayloadV2, manifest_path: Path
-) -> str:
+
+def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV2, manifest_path: Path) -> str:
     if payload.backend == "cao_rest":
         cao = payload.cao
         if cao is None:

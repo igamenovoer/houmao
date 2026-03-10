@@ -114,9 +114,7 @@ def test_runtime_artifacts_are_partitioned_by_host_port(tmp_path: Path) -> None:
         _write_config(tmp_path / "a", home_dir=tmp_path)
     )
     loopback_config = load_cao_server_launcher_config(
-        _write_config(
-            tmp_path / "b", base_url="http://127.0.0.1:9889", home_dir=tmp_path
-        )
+        _write_config(tmp_path / "b", base_url="http://127.0.0.1:9889", home_dir=tmp_path)
     )
 
     localhost_artifacts = resolve_cao_server_runtime_artifacts(localhost_config)

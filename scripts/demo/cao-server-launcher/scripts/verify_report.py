@@ -21,17 +21,13 @@ def _load_json(path: Path, *, label: str) -> Mapping[str, Any]:
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main() -> int:
     """Run verification or snapshot refresh for launcher reports."""
 
-    parser = argparse.ArgumentParser(
-        description="Verify or snapshot CAO launcher demo reports"
-    )
+    parser = argparse.ArgumentParser(description="Verify or snapshot CAO launcher demo reports")
     parser.add_argument("actual_report", type=Path)
     parser.add_argument("expected_report", type=Path)
     parser.add_argument("--snapshot", action="store_true")

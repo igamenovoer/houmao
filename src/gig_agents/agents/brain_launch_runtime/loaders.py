@@ -53,9 +53,7 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
         try:
             loaded = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise SessionManifestError(
-                f"Could not parse {path} as YAML/JSON: {exc}"
-            ) from exc
+            raise SessionManifestError(f"Could not parse {path} as YAML/JSON: {exc}") from exc
 
     if not isinstance(loaded, dict):
         raise SessionManifestError(f"Expected top-level mapping in {path}")
@@ -196,9 +194,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def parse_allowlisted_env(
-    path: Path, allowlist: list[str]
-) -> tuple[dict[str, str], list[str]]:
+def parse_allowlisted_env(path: Path, allowlist: list[str]) -> tuple[dict[str, str], list[str]]:
     """Parse an env file and select allowlisted keys.
 
     Parameters

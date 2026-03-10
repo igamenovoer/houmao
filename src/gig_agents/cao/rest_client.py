@@ -54,9 +54,7 @@ class CaoApiError(RuntimeError):
         self.detail = detail
         self.status_code = status_code
         self.payload = payload
-        status = (
-            f"status={status_code}" if status_code is not None else "status=unavailable"
-        )
+        status = f"status={status_code}" if status_code is not None else "status=unavailable"
         super().__init__(f"CAO API error for {method} {url}: {status}, detail={detail}")
 
 
@@ -177,17 +175,13 @@ class CaoRestClient:
         """Call `POST /terminals/{id}/exit`."""
 
         escaped = parse.quote(terminal_id, safe="")
-        return self._request_model(
-            "POST", f"/terminals/{escaped}/exit", CaoSuccessResponse
-        )
+        return self._request_model("POST", f"/terminals/{escaped}/exit", CaoSuccessResponse)
 
     def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
         """Call `DELETE /terminals/{id}`."""
 
         escaped = parse.quote(terminal_id, safe="")
-        return self._request_model(
-            "DELETE", f"/terminals/{escaped}", CaoSuccessResponse
-        )
+        return self._request_model("DELETE", f"/terminals/{escaped}", CaoSuccessResponse)
 
     def send_inbox_message(
         self,

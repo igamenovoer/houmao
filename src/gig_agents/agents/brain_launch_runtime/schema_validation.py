@@ -25,13 +25,9 @@ def load_schema(schema_name: str) -> dict[str, Any]:
     """
 
     if not schema_name.endswith(".json"):
-        raise SchemaValidationError(
-            f"Schema name must be a JSON file name, got {schema_name!r}"
-        )
+        raise SchemaValidationError(f"Schema name must be a JSON file name, got {schema_name!r}")
 
-    package_files = resources.files(
-        "gig_agents.agents.brain_launch_runtime.schemas"
-    )
+    package_files = resources.files("gig_agents.agents.brain_launch_runtime.schemas")
     schema_path = package_files / schema_name
     if not schema_path.is_file():
         raise SchemaValidationError(f"Unknown schema: {schema_name}")
@@ -86,9 +82,7 @@ def _validate_node(value: Any, schema: dict[str, Any], *, path: str) -> None:
         _validate_string(value, schema, path=path)
 
 
-def _validate_object(
-    value: dict[str, Any], schema: dict[str, Any], *, path: str
-) -> None:
+def _validate_object(value: dict[str, Any], schema: dict[str, Any], *, path: str) -> None:
     required = schema.get("required", [])
     if isinstance(required, list):
         for key in required:
@@ -105,17 +99,13 @@ def _validate_object(
     if additional is False:
         unknown = sorted(set(value.keys()) - set(properties.keys()))
         if unknown:
-            raise SchemaValidationError(
-                f"{path}: unknown field(s): {', '.join(unknown)}"
-            )
+            raise SchemaValidationError(f"{path}: unknown field(s): {', '.join(unknown)}")
 
     for key, property_schema in properties.items():
         if key not in value:
             continue
         if not isinstance(property_schema, dict):
-            raise SchemaValidationError(
-                f"{path}.{key}: property schema must be an object"
-            )
+            raise SchemaValidationError(f"{path}.{key}: property schema must be an object")
         _validate_node(value[key], property_schema, path=f"{path}.{key}")
 
 
@@ -155,9 +145,7 @@ def _matches_type(value: Any, expected_type: str | list[str]) -> bool:
     if expected_type == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
     if expected_type == "number":
-        return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(
-            value, float
-        )
+        return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
     if expected_type == "boolean":
         return isinstance(value, bool)
     if expected_type == "null":

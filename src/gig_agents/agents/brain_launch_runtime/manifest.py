@@ -83,8 +83,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "backend": request.launch_plan.backend,
         "tool": request.launch_plan.tool,
         "role_name": request.role_name,
-        "created_at_utc": request.created_at_utc
-        or datetime.now(UTC).isoformat(timespec="seconds"),
+        "created_at_utc": request.created_at_utc or datetime.now(UTC).isoformat(timespec="seconds"),
         "working_directory": str(request.launch_plan.working_directory),
         "brain_manifest_path": str(request.brain_manifest_path),
         "launch_plan": launch_payload,
@@ -96,9 +95,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             "thread_id": request.backend_state.get("thread_id"),
             "turn_index": int(request.backend_state.get("turn_index", 0)),
             "pid": request.backend_state.get("pid"),
-            "process_started_at_utc": request.backend_state.get(
-                "process_started_at_utc"
-            ),
+            "process_started_at_utc": request.backend_state.get("process_started_at_utc"),
         }
     elif request.launch_plan.backend in {
         "codex_headless",
@@ -135,9 +132,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
     ).model_dump(mode="json")
 
 
-def write_session_manifest(
-    path: Path, payload: dict[str, Any]
-) -> SessionManifestHandle:
+def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManifestHandle:
     """Validate and persist a session manifest.
 
     Parameters
@@ -158,9 +153,7 @@ def write_session_manifest(
         context=f"session_manifest.v2 validation failed for {path}",
     ).model_dump(mode="json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(validated, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(validated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return SessionManifestHandle(path=path, payload=validated)
 
 
@@ -195,9 +188,7 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
     return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
 
 
-def parse_session_manifest_payload(
-    payload: object, *, source: str
-) -> SessionManifestPayloadV2:
+def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV2:
     """Parse a manifest payload into a typed Pydantic model."""
 
     _ensure_session_manifest_schema_version(payload, source=source)
@@ -207,9 +198,7 @@ def parse_session_manifest_payload(
     )
 
 
-def update_session_manifest(
-    path: Path, updates: dict[str, Any]
-) -> SessionManifestHandle:
+def update_session_manifest(path: Path, updates: dict[str, Any]) -> SessionManifestHandle:
     """Apply top-level updates to a persisted session manifest.
 
     Parameters
@@ -231,9 +220,7 @@ def update_session_manifest(
     return write_session_manifest(path, payload)
 
 
-def _validate_launch_plan_payload(
-    payload: object, *, context: str
-) -> LaunchPlanPayloadV1:
+def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPlanPayloadV1:
     try:
         return LaunchPlanPayloadV1.model_validate(payload)
     except ValidationError as exc:

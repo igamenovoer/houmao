@@ -106,18 +106,14 @@ def test_bootstrap_preserves_template_mcp_servers(tmp_path: Path) -> None:
 def test_bootstrap_fails_when_template_missing(tmp_path: Path) -> None:
     home = _prepare_home(tmp_path, template=None)
 
-    with pytest.raises(
-        BackendExecutionError, match="Missing Claude bootstrap template"
-    ):
+    with pytest.raises(BackendExecutionError, match="Missing Claude bootstrap template"):
         ensure_claude_home_bootstrap(home_path=home, env={})
 
 
 def test_bootstrap_fails_when_template_malformed(tmp_path: Path) -> None:
     home = _prepare_home(tmp_path, template="{not-json")
 
-    with pytest.raises(
-        BackendExecutionError, match="Malformed Claude bootstrap template"
-    ):
+    with pytest.raises(BackendExecutionError, match="Malformed Claude bootstrap template"):
         ensure_claude_home_bootstrap(home_path=home, env={})
 
 

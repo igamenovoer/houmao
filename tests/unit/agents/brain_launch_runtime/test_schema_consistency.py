@@ -35,10 +35,7 @@ def test_packaged_schema_matches_pydantic_model(
 
 
 def _load_packaged_schema(schema_name: str) -> dict[str, Any]:
-    schema_path = (
-        resources.files("gig_agents.agents.brain_launch_runtime.schemas")
-        / schema_name
-    )
+    schema_path = resources.files("gig_agents.agents.brain_launch_runtime.schemas") / schema_name
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
@@ -57,14 +54,12 @@ def _assert_schema_alignment(
     model_types = _extract_types(model)
     if packaged_types:
         assert packaged_types <= model_types, (
-            f"{path}: packaged types {packaged_types} are not covered by model types "
-            f"{model_types}"
+            f"{path}: packaged types {packaged_types} are not covered by model types {model_types}"
         )
 
     if "const" in packaged:
         assert model.get("const") == packaged["const"], (
-            f"{path}: const mismatch (packaged={packaged['const']!r}, "
-            f"model={model.get('const')!r})"
+            f"{path}: const mismatch (packaged={packaged['const']!r}, model={model.get('const')!r})"
         )
 
     packaged_enum = packaged.get("enum")
@@ -78,9 +73,7 @@ def _assert_schema_alignment(
     if "object" in packaged_types:
         packaged_props_raw = packaged.get("properties")
         model_props_raw = model.get("properties")
-        packaged_props = (
-            packaged_props_raw if isinstance(packaged_props_raw, dict) else {}
-        )
+        packaged_props = packaged_props_raw if isinstance(packaged_props_raw, dict) else {}
         model_props = model_props_raw if isinstance(model_props_raw, dict) else {}
 
         if isinstance(packaged_props_raw, dict) or isinstance(model_props_raw, dict):
