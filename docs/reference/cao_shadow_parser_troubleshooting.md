@@ -23,7 +23,7 @@ When `parsing_mode=shadow_only`, runtime failures are explicit and include an AN
 Common error/anomaly signals:
 
 - `unsupported_output_format`: output no longer matches any supported variant.
-- `waiting_user_answer`: CLI is waiting for approval/selection (`[y/n]`, trust prompt, option menu).
+- `awaiting_operator`: CLI is waiting for approval/selection/setup (`[y/n]`, trust prompt, option menu, login/setup block).
 - `unknown`: output matches a supported parser family but lacks known status evidence.
 - `stalled_entered`: runtime promoted continuous `unknown` to `stalled`.
 - `stalled_recovered`: runtime recovered from `stalled` back to a known status.
@@ -63,8 +63,9 @@ See: [Brain Launch Runtime window-hygiene checklist](./brain_launch_runtime.md#m
 
 ## Unknown vs Stalled
 
-- `unknown` is parser-owned and means the output format is recognized, but no safe classification (`ready_for_input` / `working` / `waiting_user_answer`) was found.
+- `unknown` is parser-owned and means the output format is recognized, but no safe classification (`idle`, `working`, or `awaiting_operator`) was found.
 - `stalled` is runtime-owned and means `unknown` stayed continuous for at least `unknown_to_stalled_timeout_seconds`.
+- `input_mode = unknown` by itself keeps the surface non-ready, but does not enter `stalled` while `business_state` remains known.
 - `stalled_is_terminal=true`: fail immediately at stalled entry.
 - `stalled_is_terminal=false`: keep polling and allow recovery.
 
@@ -105,7 +106,7 @@ Fix:
 Symptoms:
 
 - Readiness timeout before prompt submission.
-- Or explicit waiting-user-answer behavior with trust/menu text.
+- Or explicit operator-blocked behavior with trust/menu text.
 
 Typical Codex trust prompt variants:
 
@@ -117,7 +118,7 @@ Typical Codex trust prompt variants:
 
 Fixes in runtime/parser:
 
-- Codex waiting-user detector now supports both trust prompt families and `❯` / `›` / `>` menu markers.
+- Codex operator-blocked detection now supports both trust prompt families and `❯` / `›` / `>` menu markers.
 - Runtime bootstrap seeds trust for launch context by writing:
 
 ```toml
@@ -145,7 +146,7 @@ Tail excerpt already includes a real assistant answer, for example:
 Cause:
 
 - The runtime no longer uses parser-owned answer extraction as the completion contract.
-- Completion now requires a return to `ready_for_input` plus either:
+- Completion now requires a return to `submit_ready` plus either:
   - observed projected-dialog change after submit, or
   - observed post-submit `working`.
 - A visible transcript fragment may exist without yet satisfying that lifecycle rule.
@@ -196,7 +197,8 @@ Symptoms:
 Expected behavior:
 
 - recovered normal prompts should parse as `ui_context=normal_prompt`,
-- `accepts_input` should become `true`,
+- `input_mode` should become `freeform`,
+- `business_state` should return to `idle`,
 - historical slash-command output may remain visible in `dialog_projection` without blocking submission.
 
 If readiness is still blocked, inspect `surface_assessment` first. The likely remaining causes are:

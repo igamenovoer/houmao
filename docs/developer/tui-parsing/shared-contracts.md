@@ -11,12 +11,12 @@ The shared contract lives in `backends/shadow_parser_core.py` and is reused by t
 | Field | Meaning |
 |------|---------|
 | `availability` | Whether the surface is supported, disconnected, unsupported, or otherwise unknown |
-| `activity` | The current activity classification: `ready_for_input`, `working`, `waiting_user_answer`, or `unknown` |
-| `accepts_input` | Whether the runtime should consider the surface safe for prompt submission |
+| `business_state` | The current business-state classification: `idle`, `working`, `awaiting_operator`, or `unknown` |
+| `input_mode` | The active input shape: `freeform`, `modal`, `closed`, or `unknown` |
 | `ui_context` | Shared or provider-specific UI context label |
 | `parser_metadata` | Preset/version/output-family metadata attached to the parse |
 | `anomalies` | Structured anomalies attached to this assessment |
-| `waiting_user_answer_excerpt` | Optional menu/approval excerpt when the tool is blocked on human input |
+| `operator_blocked_excerpt` | Optional menu/approval/setup excerpt when the tool is blocked on operator input |
 
 Provider subclasses refine `ui_context` and may add evidence fields:
 
@@ -53,16 +53,25 @@ Provider subclasses add provider-specific evidence:
 - `disconnected`: the surface looks detached or unavailable
 - `unknown`: the parser cannot safely determine support or liveness
 
-### Activity
+### Business State
 
-`activity` comes from the shared `ShadowActivity` literal set:
+`business_state` comes from the shared `ShadowBusinessState` literal set:
 
-- `ready_for_input`
+- `idle`
 - `working`
-- `waiting_user_answer`
+- `awaiting_operator`
 - `unknown`
 
-The key distinction is that parser activity is still only a one-snapshot observation. Runtime lifecycle states such as `in_progress` or `completed` live one layer higher in `TurnMonitor`.
+### Input Mode
+
+`input_mode` comes from the shared `ShadowInputMode` literal set:
+
+- `freeform`
+- `modal`
+- `closed`
+- `unknown`
+
+Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `in_progress` or `completed` live one layer higher in `TurnMonitor`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
 
 ### Shared `ui_context`
 
@@ -75,7 +84,7 @@ Both providers share a base vocabulary:
 
 Provider pages describe the extra values each provider adds on top of that base.
 
-`slash_command` is an active-surface classification, not a historical-transcript one. If an earlier `/model` or other slash interaction is still visible in projected dialog but the current editable prompt has already recovered to a normal prompt, `ui_context` should no longer remain `slash_command` and `accepts_input` should follow the recovered active prompt.
+`slash_command` is an active-surface classification, not a historical-transcript one. If an earlier `/model` or other slash interaction is still visible in projected dialog but the current editable prompt has already recovered to a normal prompt, `ui_context` should no longer remain `slash_command` and `input_mode` should follow the recovered active prompt.
 
 ## Metadata And Anomalies
 

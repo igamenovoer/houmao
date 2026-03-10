@@ -38,6 +38,9 @@ from .shadow_parser_core import (
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
+    is_operator_blocked,
+    is_submit_ready,
+    is_unknown_for_stall,
 )
 from .shadow_parser_stack import (
     ShadowParser,
@@ -70,10 +73,12 @@ _DEFAULT_STALLED_IS_TERMINAL: Final[bool] = False
 _CANONICAL_STATUS_BY_BACKEND_STATUS: Final[dict[str, str]] = {
     "idle": "completed",
     "completed": "completed",
-    "ready_for_input": "completed",
+    "submit_ready": "completed",
     "processing": "processing",
     "waiting_user_answer": "waiting_user_answer",
-    "blocked_waiting_user": "waiting_user_answer",
+    "awaiting_operator": "waiting_user_answer",
+    "blocked_operator": "waiting_user_answer",
+    "working": "processing",
     "unknown": "unknown",
     "stalled": "stalled",
     "failed": "error",
@@ -227,7 +232,7 @@ class ShadowOnlyTurnEngine:
         parser_metadata = self._session._serialize_shadow_parser_metadata(
             metadata=snapshot.surface_assessment.parser_metadata,
             anomalies=merged_anomalies,
-            waiting_user_answer_excerpt=snapshot.surface_assessment.waiting_user_answer_excerpt,
+            operator_blocked_excerpt=snapshot.surface_assessment.operator_blocked_excerpt,
         )
         surface_assessment = self._session._serialize_surface_assessment(
             snapshot.surface_assessment,
@@ -290,7 +295,7 @@ _TurnMonitorState = Literal[
     "awaiting_ready",
     "submitted_waiting_activity",
     "in_progress",
-    "blocked_waiting_user",
+    "blocked_operator",
     "stalled",
     "completed",
     "failed",
@@ -331,7 +336,7 @@ class _TurnMonitor:
         """Advance readiness monitoring from one parsed snapshot."""
 
         status_label = _surface_status_label(surface_assessment)
-        if self._is_unknown(surface_assessment):
+        if is_unknown_for_stall(surface_assessment):
             return self._observe_unknown(
                 parser_family=parser_family,
                 now_monotonic=now_monotonic,
@@ -346,8 +351,8 @@ class _TurnMonitor:
         if surface_assessment.availability in {"unsupported", "disconnected"}:
             self.m_state = "failed"
             return self.m_state
-        if surface_assessment.activity == "waiting_user_answer":
-            self.m_state = "blocked_waiting_user"
+        if is_operator_blocked(surface_assessment):
+            self.m_state = "blocked_operator"
             return self.m_state
         self.m_state = "awaiting_ready"
         return self.m_state
@@ -370,7 +375,10 @@ class _TurnMonitor:
         if dialog_projection.dialog_text != baseline_projection_text:
             self.m_saw_projection_change_after_submit = True
 
-        if self._is_unknown(surface_assessment):
+        if surface_assessment.business_state == "working":
+            self.m_saw_working_after_submit = True
+
+        if is_unknown_for_stall(surface_assessment):
             return self._observe_unknown(
                 parser_family=parser_family,
                 now_monotonic=now_monotonic,
@@ -381,20 +389,18 @@ class _TurnMonitor:
         if surface_assessment.availability in {"unsupported", "disconnected"}:
             self.m_state = "failed"
             recovered_to = _surface_status_label(surface_assessment)
-        elif surface_assessment.activity == "waiting_user_answer":
-            self.m_state = "blocked_waiting_user"
-            recovered_to = "blocked_waiting_user"
-        elif surface_assessment.activity == "working":
-            self.m_saw_working_after_submit = True
+        elif is_operator_blocked(surface_assessment):
+            self.m_state = "blocked_operator"
+            recovered_to = "blocked_operator"
+        elif surface_assessment.business_state == "working":
             self.m_state = "in_progress"
-            recovered_to = "working"
-        elif surface_assessment.accepts_input:
+        elif is_submit_ready(surface_assessment):
             if self.m_saw_projection_change_after_submit or self.m_saw_working_after_submit:
                 self.m_state = "completed"
                 recovered_to = "completed"
             else:
                 self.m_state = "submitted_waiting_activity"
-                recovered_to = "ready_for_input"
+                recovered_to = "submit_ready"
         else:
             self.m_state = "submitted_waiting_activity"
             recovered_to = _surface_status_label(surface_assessment)
@@ -482,15 +488,6 @@ class _TurnMonitor:
             )
         self.m_unknown_started_at = None
         self.m_stalled_started_at = None
-
-    @staticmethod
-    def _is_unknown(surface_assessment: SurfaceAssessment) -> bool:
-        """Return whether the observation should contribute to unknown->stalled timing."""
-
-        return surface_assessment.availability == "unknown" or (
-            surface_assessment.availability == "supported"
-            and surface_assessment.activity == "unknown"
-        )
 
 
 def default_cao_agent_store(cao_home: Path | None = None) -> Path:
@@ -746,7 +743,7 @@ class CaoRestSession:
         *,
         metadata: ShadowParserMetadata,
         anomalies: tuple[ShadowParserAnomaly, ...],
-        waiting_user_answer_excerpt: str | None,
+        operator_blocked_excerpt: str | None,
     ) -> dict[str, object]:
         """Serialize flat parser metadata for runtime payload compatibility."""
 
@@ -766,8 +763,8 @@ class CaoRestSession:
             ),
             "stalled_is_terminal": self._shadow_stall_policy.stalled_is_terminal,
         }
-        if waiting_user_answer_excerpt:
-            payload["waiting_user_answer_excerpt"] = waiting_user_answer_excerpt
+        if operator_blocked_excerpt:
+            payload["operator_blocked_excerpt"] = operator_blocked_excerpt
         return payload
 
     def _serialize_surface_assessment(
@@ -780,16 +777,16 @@ class CaoRestSession:
 
         payload: dict[str, object] = {
             "availability": surface_assessment.availability,
-            "activity": surface_assessment.activity,
-            "accepts_input": surface_assessment.accepts_input,
+            "business_state": surface_assessment.business_state,
+            "input_mode": surface_assessment.input_mode,
             "ui_context": surface_assessment.ui_context,
             "parser_metadata": self._serialize_shadow_parser_metadata(
                 metadata=surface_assessment.parser_metadata,
                 anomalies=anomalies or surface_assessment.anomalies,
-                waiting_user_answer_excerpt=surface_assessment.waiting_user_answer_excerpt,
+                operator_blocked_excerpt=surface_assessment.operator_blocked_excerpt,
             ),
             "anomalies": self._serialize_anomalies(anomalies or surface_assessment.anomalies),
-            "waiting_user_answer_excerpt": surface_assessment.waiting_user_answer_excerpt,
+            "operator_blocked_excerpt": surface_assessment.operator_blocked_excerpt,
         }
         evidence = getattr(surface_assessment, "evidence", ())
         if evidence:
@@ -818,7 +815,7 @@ class CaoRestSession:
                 "parser_metadata": self._serialize_shadow_parser_metadata(
                     metadata=projection_metadata.parser_metadata,
                     anomalies=anomalies or dialog_projection.anomalies,
-                    waiting_user_answer_excerpt=None,
+                    operator_blocked_excerpt=None,
                 ),
                 "dialog_line_count": projection_metadata.dialog_line_count,
                 "head_line_count": projection_metadata.head_line_count,
@@ -937,11 +934,11 @@ class CaoRestSession:
             last_snapshot = snapshot
             last_output = output
 
-            if snapshot.surface_assessment.accepts_input:
+            if is_submit_ready(snapshot.surface_assessment):
                 return output, snapshot, tuple(monitor.m_anomalies)
-            if runtime_state == "blocked_waiting_user":
+            if runtime_state == "blocked_operator":
                 raise BackendExecutionError(
-                    self._format_shadow_waiting_user_answer_error(
+                    self._format_shadow_operator_blocked_error(
                         parser_family=parser_family,
                         surface_assessment=snapshot.surface_assessment,
                         output=output.output,
@@ -1027,9 +1024,9 @@ class CaoRestSession:
 
             if runtime_state == "completed":
                 return output, snapshot, tuple(monitor.m_anomalies)
-            if runtime_state == "blocked_waiting_user":
+            if runtime_state == "blocked_operator":
                 raise BackendExecutionError(
-                    self._format_shadow_waiting_user_answer_error(
+                    self._format_shadow_operator_blocked_error(
                         parser_family=parser_family,
                         surface_assessment=snapshot.surface_assessment,
                         output=output.output,
@@ -1161,7 +1158,7 @@ class CaoRestSession:
     def _shadow_tail_excerpt(self, *, parser: ShadowParser, output: str) -> str:
         return parser.ansi_stripped_tail_excerpt(output)
 
-    def _format_shadow_waiting_user_answer_error(
+    def _format_shadow_operator_blocked_error(
         self,
         *,
         parser_family: str,
@@ -1171,15 +1168,15 @@ class CaoRestSession:
     ) -> str:
         phase = "during turn execution" if during_turn else "before prompt submission"
         detail = (
-            "Backend is waiting for user interaction in shadow mode "
+            "Backend is blocked on operator interaction in shadow mode "
             f"(parser_family={parser_family}, phase={phase})"
         )
-        excerpt = surface_assessment.waiting_user_answer_excerpt
+        excerpt = surface_assessment.operator_blocked_excerpt
         if not excerpt:
             parser, _ = self._select_shadow_parser()
             excerpt = self._shadow_tail_excerpt(parser=parser, output=output)
         if excerpt:
-            detail = f"{detail}\n\nOptions excerpt:\n{excerpt}"
+            detail = f"{detail}\n\nBlocked surface excerpt:\n{excerpt}"
         return detail
 
     def _format_shadow_surface_error(
@@ -1474,7 +1471,7 @@ def _surface_status_label(surface_assessment: SurfaceAssessment) -> str:
         return "disconnected"
     if surface_assessment.availability == "unknown":
         return "unknown"
-    return surface_assessment.activity
+    return f"{surface_assessment.business_state}+{surface_assessment.input_mode}"
 
 
 def _format_seconds(value: float) -> str:

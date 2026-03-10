@@ -142,7 +142,8 @@ def test_shadow_only_runtime_returns_projection_payload_and_waits_for_real_chang
     assert done_event.message == "prompt completed"
     assert done_payload["canonical_runtime_status"] == "completed"
     assert "output_text" not in done_payload
-    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["business_state"] == "idle"
+    assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
     assert done_payload["projection_slices"] == {
         "head": "hello\nfinal answer",

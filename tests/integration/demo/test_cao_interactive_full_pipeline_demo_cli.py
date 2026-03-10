@@ -10,7 +10,10 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from gig_agents.demo.cao_interactive_full_pipeline_demo import FIXED_CAO_BASE_URL
+from gig_agents.demo.cao_interactive_full_pipeline_demo import (
+    FIXED_CAO_BASE_URL,
+    TEST_LOOPBACK_PORT_LISTENING_ENV,
+)
 
 
 def _source_repo_root() -> Path:
@@ -329,6 +332,7 @@ def _build_env(tmp_path: Path, repo_root: Path) -> dict[str, str]:
     env["FAKE_PIXI_STATE"] = str(fake_state_path)
     env["FAKE_PIXI_COMMAND_LOG"] = str(fake_command_log_path)
     env["FAKE_CAO_STATUS_MODE"] = "unhealthy"
+    env[TEST_LOOPBACK_PORT_LISTENING_ENV] = "0"
     return env
 
 

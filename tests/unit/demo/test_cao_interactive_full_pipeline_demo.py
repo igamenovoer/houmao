@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import gig_agents.demo.cao_interactive_full_pipeline_demo as interactive_demo
 from gig_agents.demo.cao_interactive_full_pipeline_demo import (
     FIXED_CAO_BASE_URL,
     CommandResult,
@@ -604,6 +605,54 @@ def test_start_demo_replaces_verified_cao_server_with_yes_to_all(
     )
 
 
+def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path, yes_to_all=True)
+    runner = FakeRunner(tmp_path)
+    runner.m_launcher_status_responses = [
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        )
+    ]
+
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo.shutil.which",
+        lambda _: "/usr/bin/fake",
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._loopback_port_is_listening",
+        lambda _: False,
+    )
+    monkeypatch.setattr(
+        "gig_agents.demo.cao_interactive_full_pipeline_demo._find_listening_pids_for_port",
+        lambda _: pytest.fail("unexpected procfs fallback for verified replacement"),
+    )
+
+    start_demo(
+        paths=paths,
+        env=env,
+        agent_name="demo",
+        run_command=runner,
+    )
+
+    assert any(
+        call[4] == "gig_agents.cao.tools.cao_server_launcher" and call[5] == "stop"
+        for call in runner.calls
+        if len(call) > 5
+    )
+
+
 def test_start_demo_aborts_when_verified_cao_replacement_is_declined(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -680,6 +729,38 @@ def test_start_demo_fails_when_existing_service_does_not_verify_as_cao_server(
         )
 
 
+def test_find_pids_for_socket_inodes_skips_unreadable_proc_fd_directories(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_exists = Path.exists
+    original_iterdir = Path.iterdir
+
+    def fake_exists(path: Path) -> bool:
+        if str(path) in {"/proc/123/fd", "/proc/456/fd"}:
+            return True
+        return original_exists(path)
+
+    def fake_iterdir(path: Path):
+        if str(path) == "/proc":
+            return iter((Path("/proc/123"), Path("/proc/456")))
+        if str(path) == "/proc/123/fd":
+            raise PermissionError("permission denied")
+        if str(path) == "/proc/456/fd":
+            return iter((Path("/proc/456/fd/7"),))
+        return original_iterdir(path)
+
+    def fake_readlink(path: str | Path) -> str:
+        if str(path) == "/proc/456/fd/7":
+            return "socket:[111]"
+        raise OSError("missing")
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "iterdir", fake_iterdir)
+    monkeypatch.setattr(interactive_demo.os, "readlink", fake_readlink)
+
+    assert interactive_demo._find_pids_for_socket_inodes({"111"}) == {456}
+
+
 def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> None:
     paths = _make_paths(tmp_path)
     env = _make_env(tmp_path)
@@ -735,9 +816,9 @@ def test_send_turn_succeeds_after_recovered_model_switch_history(tmp_path: Path)
                         "message": "Yes, there is a claude.md file.",
                         "payload": {
                             "surface_assessment": {
-                                "activity": "ready_for_input",
+                                "business_state": "idle",
+                                "input_mode": "freeform",
                                 "ui_context": "normal_prompt",
-                                "accepts_input": True,
                                 "evidence": ["SUPPORTED_OUTPUT_FAMILY", "IDLE_PROMPT_LINE"],
                             },
                             "dialog_projection": {

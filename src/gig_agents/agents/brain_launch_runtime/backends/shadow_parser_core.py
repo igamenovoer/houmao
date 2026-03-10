@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Final, Literal
 
 ShadowAvailability = Literal["supported", "unsupported", "disconnected", "unknown"]
-ShadowActivity = Literal["ready_for_input", "working", "waiting_user_answer", "unknown"]
+ShadowBusinessState = Literal["idle", "working", "awaiting_operator", "unknown"]
+ShadowInputMode = Literal["freeform", "modal", "closed", "unknown"]
 CommonUiContext = Literal["normal_prompt", "selection_menu", "slash_command", "unknown"]
 ProjectionSourceKind = Literal["tui_snapshot"]
 
@@ -67,12 +68,12 @@ class SurfaceAssessment:
     """Provider-agnostic assessment of one visible TUI snapshot."""
 
     availability: ShadowAvailability
-    activity: ShadowActivity
-    accepts_input: bool
+    business_state: ShadowBusinessState
+    input_mode: ShadowInputMode
     ui_context: str
     parser_metadata: ShadowParserMetadata
     anomalies: tuple[ShadowParserAnomaly, ...] = ()
-    waiting_user_answer_excerpt: str | None = None
+    operator_blocked_excerpt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,34 @@ class ParsedShadowSnapshot:
 
     surface_assessment: SurfaceAssessment
     dialog_projection: DialogProjection
+
+
+def is_submit_ready(surface_assessment: SurfaceAssessment) -> bool:
+    """Return whether a surface is safe for generic prompt submission."""
+
+    return (
+        surface_assessment.availability == "supported"
+        and surface_assessment.business_state == "idle"
+        and surface_assessment.input_mode == "freeform"
+    )
+
+
+def is_operator_blocked(surface_assessment: SurfaceAssessment) -> bool:
+    """Return whether a supported surface requires operator intervention."""
+
+    return (
+        surface_assessment.availability == "supported"
+        and surface_assessment.business_state == "awaiting_operator"
+    )
+
+
+def is_unknown_for_stall(surface_assessment: SurfaceAssessment) -> bool:
+    """Return whether a surface should contribute to unknown-to-stalled timing."""
+
+    return surface_assessment.availability == "unknown" or (
+        surface_assessment.availability == "supported"
+        and surface_assessment.business_state == "unknown"
+    )
 
 
 class ShadowParserError(RuntimeError):

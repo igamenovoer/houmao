@@ -303,25 +303,26 @@ For CAO sessions in `parsing_mode=shadow_only`, the runtime SHALL support a conf
 When unset, `unknown_to_stalled_timeout_seconds` SHALL default to 30 seconds.
 
 The same `unknown_to_stalled_timeout_seconds` value applies to both:
-- readiness wait (before prompt submission), and
-- completion wait (during turn execution).
+- readiness wait before prompt submission, and
+- completion wait during turn execution.
 
-When shadow status remains `unknown` continuously for at least `unknown_to_stalled_timeout_seconds`, runtime SHALL transition runtime status to `stalled` for the active wait phase.
+For the corrected two-axis shadow surface model, the unknown-to-stalled timer SHALL treat a surface as "unknown for stall purposes" only when either:
 
-#### Scenario: Unknown status duration reaches stalled threshold
-- **WHEN** shadow polling repeatedly classifies output as `unknown`
-- **AND WHEN** the continuous unknown duration reaches configured timeout
+- `availability = unknown`, or
+- `availability = supported` and `business_state = unknown`
+
+`input_mode = unknown` by itself SHALL keep the surface non-ready, but SHALL NOT trigger the unknown-to-stalled timer when `business_state` remains known.
+
+#### Scenario: Unknown business state reaches stalled threshold
+- **WHEN** shadow polling remains on a supported surface with `business_state = unknown`
+- **AND WHEN** elapsed unknown duration reaches `unknown_to_stalled_timeout_seconds`
 - **THEN** runtime marks the shadow lifecycle state as `stalled`
 
-#### Scenario: Unknown during readiness reaches stalled threshold
-- **WHEN** runtime is waiting for shadow-ready state before prompt submission
-- **AND WHEN** shadow polling remains `unknown` continuously for at least `unknown_to_stalled_timeout_seconds`
-- **THEN** runtime marks the shadow lifecycle state as `stalled` for the readiness phase
-
-#### Scenario: Unknown during completion reaches stalled threshold
-- **WHEN** runtime is waiting for shadow completion during turn execution
-- **AND WHEN** shadow polling remains `unknown` continuously for at least `unknown_to_stalled_timeout_seconds`
-- **THEN** runtime marks the shadow lifecycle state as `stalled` for the completion phase
+#### Scenario: Unknown input mode alone does not enter stalled
+- **WHEN** shadow polling remains on a supported surface with a known `business_state`
+- **AND WHEN** only `input_mode = unknown`
+- **THEN** runtime keeps the surface non-ready
+- **AND THEN** it does not enter `stalled` solely because the input mode is unknown
 
 ### Requirement: Runtime emits stalled lifecycle anomaly codes
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL emit dedicated anomaly codes for stalled lifecycle transitions:
@@ -357,18 +358,29 @@ The runtime SHALL support both terminal and non-terminal stalled handling.
 - **AND THEN** if later output becomes classifiable, runtime resumes known-state flow from that snapshot
 
 ### Requirement: CAO backend sends input only when terminal is ready and does not use inbox
-When using the CAO backend, the system SHALL only send terminal input when the target terminal is ready for the selected parsing mode, SHALL not use CAO inbox messaging, and SHALL fetch/derive output only after request completion for the same mode.
+When using the CAO backend, the system SHALL only send terminal input when the target terminal is ready for the selected parsing mode, SHALL not use CAO inbox messaging, and SHALL fetch or derive output only after request completion for the same mode.
 
-Mode-specific readiness/completion behavior SHALL be:
-- `cao_only`: readiness/completion from CAO terminal status (`idle|completed`) and answer retrieval from CAO `output?mode=last`.
-- `shadow_only`: readiness/completion from runtime shadow surface assessment derived from CAO `output?mode=full`, with turn completion determined by runtime turn-monitor logic over post-submit surface transitions and snapshot/projection change.
+Mode-specific readiness and completion behavior SHALL be:
+- `cao_only`: readiness and completion from CAO terminal status (`idle|completed`) and answer retrieval from CAO `output?mode=last`.
+- `shadow_only`: readiness and completion from runtime shadow surface assessment derived from CAO `output?mode=full`, with prompt submission and completion determined by runtime predicates over `availability`, `business_state`, `input_mode`, and post-submit progress evidence.
+
+For `shadow_only`, the runtime SHALL treat a surface as submit-ready only when all of the following are true:
+
+- `availability = supported`
+- `business_state = idle`
+- `input_mode = freeform`
 
 For `shadow_only`, the runtime SHALL surface projected dialog data derived from `output?mode=full` and SHALL NOT require parser-owned prompt-associated answer extraction to complete the turn.
-For `shadow_only`, success terminality SHALL require a return to `ready_for_input` plus either:
+For `shadow_only`, success terminality SHALL require a return to the submit-ready surface plus either:
 - projected-dialog change observed after submit, or
-- post-submit observation of `working`.
+- post-submit observation of `business_state = working`.
+
+This completion gate intentionally uses full `submit_ready`, not merely "the surface looks typeable again." A `shadow_only` turn SHALL NOT complete while `business_state = working`, even when `input_mode = freeform`.
+
 For `shadow_only`, readiness SHALL follow the currently active input surface rather than any historical slash-command line still visible in earlier scrollback. Completed slash-command or model-switch output that remains in the projected dialog SHALL NOT keep a later recovered normal prompt in a non-ready state.
-For `shadow_only`, an actually active slash-command or user-selection surface SHALL remain non-ready until the provider returns to a safe normal prompt or the runtime raises the corresponding waiting-user/readiness failure.
+For `shadow_only`, an active modal surface such as slash-command SHALL remain non-ready until the provider returns to a freeform prompt, but SHALL NOT be treated as an operator-blocked failure solely because it is modal.
+For `shadow_only`, a surface with `business_state = awaiting_operator` SHALL be treated as blocked and SHALL fail the active turn with explicit blocked-surface diagnostics.
+For `shadow_only`, a surface with `business_state = working` and `input_mode = freeform` SHALL remain in progress and SHALL NOT be treated as submit-ready or complete merely because typing is possible.
 
 The runtime SHALL NOT mix parser families in one turn. If a mode-specific parser/projection step fails, the turn SHALL fail without invoking the other mode in the same turn.
 The runtime SHALL NOT perform an automatic retry under the other parser mode after a mode-specific failure.
@@ -379,31 +391,41 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 - **AND THEN** the system sends direct terminal input
 - **AND THEN** the system waits for completion using CAO status and fetches answer text from `output?mode=last`
 
-#### Scenario: `shadow_only` waits for surface state and returns projected dialog
+#### Scenario: `shadow_only` waits for derived submit-ready surface and returns projected dialog
 - **WHEN** a developer sends a prompt via a CAO-backed session with `parsing_mode=shadow_only`
-- **THEN** the system polls `output?mode=full` and computes runtime shadow readiness/completion from provider surface assessment plus runtime turn-monitor logic
-- **AND THEN** the system sends direct terminal input only after a shadow-ready state is observed
-- **AND THEN** after turn completion the system surfaces projected dialog data and state/provenance metadata derived from `mode=full`
-- **AND THEN** the system does not require parser-owned prompt-associated answer extraction to complete the turn
+- **THEN** the system polls `output?mode=full` and computes runtime shadow readiness and completion from provider surface assessment plus runtime turn-monitor logic
+- **AND THEN** the system sends direct terminal input only after the derived submit-ready surface is observed
+- **AND THEN** after turn completion the system surfaces projected dialog data and state or provenance metadata derived from `mode=full`
 
 #### Scenario: Historical slash-command output does not block recovered shadow readiness
 - **WHEN** a developer previously used a slash command or manual model switch in a CAO-backed session
 - **AND WHEN** that slash-command echo or result is still visible in `output?mode=full`
-- **AND WHEN** the current provider surface has already returned to a normal prompt that accepts input
+- **AND WHEN** the current provider surface has already returned to `availability = supported`, `business_state = idle`, and `input_mode = freeform`
 - **THEN** the runtime treats the session as shadow-ready
 - **AND THEN** it sends the next direct terminal input instead of waiting for a different surface classification
 
-#### Scenario: Active slash-command surface remains non-ready
-- **WHEN** a `shadow_only` CAO-backed session is still showing an active slash-command surface or command-driven user-selection surface
+#### Scenario: Active slash-command surface remains non-ready without becoming blocked
+- **WHEN** a `shadow_only` CAO-backed session is still showing an active slash-command surface
+- **AND WHEN** the provider classifies that surface as `business_state = idle` and `input_mode = modal`
 - **THEN** the runtime does not submit the next prompt
-- **AND THEN** it continues waiting or raises the corresponding readiness/waiting-user failure until the surface returns to a safe normal prompt
+- **AND THEN** it continues waiting for a freeform prompt instead of failing the turn as operator-blocked
 
-#### Scenario: `shadow_only` does not complete on idle alone when no post-submit evidence exists
-- **WHEN** a `shadow_only` turn returns to `ready_for_input`
-- **AND WHEN** the runtime has not observed post-submit `working`
+#### Scenario: Working but typeable surface remains in progress
+- **WHEN** a post-submit `shadow_only` observation shows `business_state = working` and `input_mode = freeform`
+- **THEN** the runtime keeps the turn in an in-progress lifecycle path
+- **AND THEN** it does not complete the turn merely because freeform typing is possible
+
+#### Scenario: Operator-blocked surface fails explicitly
+- **WHEN** a `shadow_only` CAO-backed turn observes a surface with `business_state = awaiting_operator`
+- **THEN** the runtime fails the turn with an explicit blocked-surface error
+- **AND THEN** the failure includes provider-specific diagnostics when an excerpt is available
+
+#### Scenario: `shadow_only` does not complete on submit-ready surface alone when no post-submit evidence exists
+- **WHEN** a `shadow_only` turn returns to the derived submit-ready surface
+- **AND WHEN** the runtime has not observed post-submit `business_state = working`
 - **AND WHEN** projected dialog has not changed since submit
 - **THEN** the runtime does not mark the turn complete yet
-- **AND THEN** it continues monitoring or fails according to turn-monitor timeout/stall policy
+- **AND THEN** it continues monitoring or fails according to turn-monitor timeout or stall policy
 
 #### Scenario: No in-turn parser mixing on failure
 - **WHEN** mode-specific projection or state-evaluation fails during a CAO-backed turn
@@ -414,6 +436,55 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 - **WHEN** a CAO-backed turn fails in `parsing_mode=shadow_only` or `parsing_mode=cao_only`
 - **THEN** the system reports the mode-specific failure
 - **AND THEN** the system does not automatically retry the turn under the other parser mode
+
+### Requirement: Shadow TurnMonitor evaluates two-axis surfaces in deterministic priority order
+For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL feed each parsed observation into a stateful turn monitor that preserves post-submit progress evidence across observations.
+
+At minimum, the readiness path SHALL evaluate each observation in this priority order:
+
+1. `availability in {unsupported, disconnected}` -> fail
+2. `business_state = awaiting_operator` -> blocked outcome
+3. unknown-for-stall surface -> unknown or stalled path
+4. otherwise remain in readiness waiting, and submit only when `submit_ready`
+
+At minimum, the completion path SHALL evaluate each observation in this priority order:
+
+1. update progress evidence from projected-dialog change and `business_state = working`
+2. `availability in {unsupported, disconnected}` -> fail
+3. `business_state = awaiting_operator` -> blocked outcome
+4. unknown-for-stall surface -> unknown or stalled path
+5. `business_state = working` -> keep `in_progress` regardless of `input_mode`
+6. `submit_ready` plus previously-seen progress evidence -> complete
+7. otherwise remain in a post-submit waiting state
+
+#### Scenario: Working modal surface remains in progress during completion
+- **WHEN** a post-submit `shadow_only` observation shows `availability = supported`, `business_state = working`, and `input_mode = modal`
+- **THEN** the runtime keeps the turn in an in-progress lifecycle path
+- **AND THEN** it does not complete the turn or treat the modal input mode as a blocked outcome by itself
+
+#### Scenario: Awaiting-operator surface is evaluated before ready or complete
+- **WHEN** a `shadow_only` observation shows `business_state = awaiting_operator`
+- **THEN** the runtime routes the observation to a blocked-surface outcome before considering ready or completion gating
+- **AND THEN** it does not treat that observation as submit-ready or completed
+
+### Requirement: Shadow runtime distinguishes operator-blocked surfaces from modal non-ready surfaces
+For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL distinguish between surfaces that are blocked on operator action and surfaces that are merely modal or otherwise not yet freeform-ready.
+
+At minimum:
+
+- `business_state = awaiting_operator` SHALL be treated as a blocked-surface outcome,
+- `business_state = idle` with `input_mode = modal` SHALL remain non-ready without becoming a blocked-surface error by itself, and
+- `business_state = working` with `input_mode = freeform` SHALL remain in progress instead of being treated as ready.
+
+#### Scenario: Modal slash-command surface keeps waiting instead of failing
+- **WHEN** a `shadow_only` readiness check observes `business_state = idle` and `input_mode = modal`
+- **THEN** the runtime keeps waiting for readiness
+- **AND THEN** it does not fail the session as blocked solely because the input mode is modal
+
+#### Scenario: Awaiting-operator surface becomes a blocked outcome
+- **WHEN** a `shadow_only` observation shows `business_state = awaiting_operator`
+- **THEN** the runtime reports a blocked-surface outcome
+- **AND THEN** it does not treat that surface as either ready or completed
 
 ### Requirement: Shared post-processing provides a stable runtime contract in both modes
 For CAO-backed turns in both `parsing_mode=cao_only` and `parsing_mode=shadow_only`, the runtime SHALL apply a shared, parser-agnostic post-processing step after mode-specific gating/output handling.

@@ -34,8 +34,8 @@ def test_codex_shadow_projection_preserves_visible_dialog() -> None:
     snapshot = parser.parse_snapshot(_fixture("label_completed.txt"), baseline_pos=0)
 
     assert snapshot.surface_assessment.availability == "supported"
-    assert snapshot.surface_assessment.activity == "ready_for_input"
-    assert snapshot.surface_assessment.accepts_input is True
+    assert snapshot.surface_assessment.business_state == "idle"
+    assert snapshot.surface_assessment.input_mode == "freeform"
     assert snapshot.surface_assessment.ui_context == "normal_prompt"
     assert (
         snapshot.dialog_projection.dialog_text
@@ -111,10 +111,11 @@ def test_codex_shadow_detects_waiting_user_answer_prompts(
 
     snapshot = parser.parse_snapshot(_fixture(fixture_name), baseline_pos=0)
 
-    assert snapshot.surface_assessment.activity == "waiting_user_answer"
+    assert snapshot.surface_assessment.business_state == "awaiting_operator"
+    assert snapshot.surface_assessment.input_mode == "modal"
     assert snapshot.surface_assessment.ui_context == expected_context
-    assert snapshot.surface_assessment.waiting_user_answer_excerpt is not None
-    assert expected_line in snapshot.surface_assessment.waiting_user_answer_excerpt
+    assert snapshot.surface_assessment.operator_blocked_excerpt is not None
+    assert expected_line in snapshot.surface_assessment.operator_blocked_excerpt
     assert expected_line in snapshot.dialog_projection.dialog_text
 
 
@@ -146,7 +147,8 @@ def test_codex_shadow_classifies_recognized_unclassifiable_snapshot_as_unknown()
     snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
 
     assert snapshot.surface_assessment.availability == "supported"
-    assert snapshot.surface_assessment.activity == "unknown"
+    assert snapshot.surface_assessment.business_state == "unknown"
+    assert snapshot.surface_assessment.input_mode == "unknown"
     assert snapshot.surface_assessment.parser_metadata.output_format_match is True
     assert snapshot.dialog_projection.dialog_text == "You requested a repo summary"
 
@@ -156,9 +158,9 @@ def test_codex_shadow_detects_active_slash_command_context() -> None:
 
     snapshot = parser.parse_snapshot(_fixture("slash_command.txt"), baseline_pos=0)
 
-    assert snapshot.surface_assessment.activity == "ready_for_input"
+    assert snapshot.surface_assessment.business_state == "idle"
+    assert snapshot.surface_assessment.input_mode == "modal"
     assert snapshot.surface_assessment.ui_context == "slash_command"
-    assert snapshot.surface_assessment.accepts_input is False
     assert snapshot.dialog_projection.dialog_text == "/review"
 
 
@@ -167,9 +169,9 @@ def test_codex_shadow_ignores_historical_slash_command_after_prompt_recovery() -
 
     snapshot = parser.parse_snapshot(_fixture("slash_command_recovered.txt"), baseline_pos=0)
 
-    assert snapshot.surface_assessment.activity == "ready_for_input"
+    assert snapshot.surface_assessment.business_state == "idle"
+    assert snapshot.surface_assessment.input_mode == "freeform"
     assert snapshot.surface_assessment.ui_context == "normal_prompt"
-    assert snapshot.surface_assessment.accepts_input is True
     assert "CODEX_SLASH_COMMAND_CONTEXT" not in snapshot.surface_assessment.evidence
     assert snapshot.dialog_projection.dialog_text == (
         "/model\nSwitched model to gpt-5.3-codex high"
@@ -187,3 +189,41 @@ def test_codex_shadow_reports_baseline_invalidation_anomaly() -> None:
     anomaly_codes = {anomaly.code for anomaly in snapshot.surface_assessment.anomalies}
     assert snapshot.surface_assessment.parser_metadata.baseline_invalidated is True
     assert ANOMALY_BASELINE_INVALIDATED in anomaly_codes
+
+
+def test_codex_shadow_detects_login_block_as_closed_operator_surface() -> None:
+    parser = CodexShadowParser()
+    scrollback = "OpenAI Codex (v0.98.0)\nSign in to continue in browser\n"
+
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+
+    assert snapshot.surface_assessment.business_state == "awaiting_operator"
+    assert snapshot.surface_assessment.input_mode == "closed"
+    assert snapshot.surface_assessment.ui_context == "approval_prompt"
+    assert snapshot.surface_assessment.operator_blocked_excerpt is not None
+
+
+def test_codex_shadow_classifies_working_freeform_surface() -> None:
+    parser = CodexShadowParser()
+    scrollback = (
+        "OpenAI Codex (v0.98.0)\n› summarize repo\n• Thinking about files (2s • esc to interrupt)\n"
+    )
+
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+
+    assert snapshot.surface_assessment.business_state == "working"
+    assert snapshot.surface_assessment.input_mode == "freeform"
+    assert snapshot.surface_assessment.ui_context == "normal_prompt"
+
+
+def test_codex_shadow_classifies_working_modal_surface() -> None:
+    parser = CodexShadowParser()
+    scrollback = (
+        "OpenAI Codex (v0.98.0)\n› /model\n• Thinking about files (2s • esc to interrupt)\n"
+    )
+
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+
+    assert snapshot.surface_assessment.business_state == "working"
+    assert snapshot.surface_assessment.input_mode == "modal"
+    assert snapshot.surface_assessment.ui_context == "slash_command"

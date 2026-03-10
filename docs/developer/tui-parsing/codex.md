@@ -13,10 +13,11 @@ Codex extends the shared `ui_context` vocabulary with these provider-specific va
 - `error_banner`
 - `unknown`
 
-The provider reuses the shared `availability` and `activity` values:
+The provider reuses the shared `availability`, `business_state`, and `input_mode` values:
 
 - availability: `supported`, `unsupported`, `disconnected`, `unknown`
-- activity: `ready_for_input`, `working`, `waiting_user_answer`, `unknown`
+- business state: `idle`, `working`, `awaiting_operator`, `unknown`
+- input mode: `freeform`, `modal`, `closed`, `unknown`
 
 `approval_prompt` is the main Codex-specific distinction: it captures approval or trust flows that are similar in behavior to Claude’s trust prompt, but with Codex-specific text and menu shapes.
 
@@ -34,7 +35,7 @@ The Codex parser uses signals for:
 - disconnected states
 - visible assistant output in both label-style and TUI-style layouts
 
-As with Claude, `accepts_input = true` only when the surface is supported, activity is `ready_for_input`, and no blocking UI context is active.
+As with Claude, runtime derives `submit_ready` only when the surface is supported, `business_state = idle`, `input_mode = freeform`, and no blocking UI context is active.
 
 ## Codex Parser State Transition Graph
 
@@ -43,57 +44,71 @@ Codex parser-state transitions are also evaluated across ordered snapshots. The 
 ```mermaid
 stateDiagram-v2
     [*] --> Unsupported
-    state "ready_for_input" as ReadyForInput
+    state "idle + freeform" as IdleFreeform
+    state "idle + modal" as IdleModal
     state "working" as Working
-    state "waiting_user_answer" as WaitingUserAnswer
+    state "awaiting_operator" as AwaitingOperator
     state "unknown" as Unknown
     state "unsupported" as Unsupported
     state "disconnected" as Disconnected
 
-    Unsupported --> ReadyForInput: evt_supported_surface<br/>+ evt_prompt_ready
+    Unsupported --> IdleFreeform: evt_supported_surface<br/>+ evt_prompt_freeform
+    Unsupported --> IdleModal: evt_supported_surface<br/>+ evt_prompt_modal
     Unsupported --> Working: evt_supported_surface<br/>+ evt_processing_started
-    Unsupported --> WaitingUserAnswer: evt_supported_surface<br/>+ evt_waiting_user_answer
+    Unsupported --> AwaitingOperator: evt_supported_surface<br/>+ evt_operator_blocked
     Unsupported --> Disconnected: evt_surface_disconnected
 
-    ReadyForInput --> Working: evt_processing_started
-    ReadyForInput --> WaitingUserAnswer: evt_waiting_user_answer
-    ReadyForInput --> Unknown: evt_unknown_entered
-    ReadyForInput --> Unsupported: evt_surface_unsupported
-    ReadyForInput --> Disconnected: evt_surface_disconnected
+    IdleFreeform --> Working: evt_processing_started
+    IdleFreeform --> AwaitingOperator: evt_operator_blocked
+    IdleFreeform --> IdleModal: evt_prompt_modal
+    IdleFreeform --> Unknown: evt_unknown_entered
+    IdleFreeform --> Unsupported: evt_surface_unsupported
+    IdleFreeform --> Disconnected: evt_surface_disconnected
 
-    Working --> ReadyForInput: evt_prompt_ready
-    Working --> WaitingUserAnswer: evt_waiting_user_answer
+    IdleModal --> Working: evt_processing_started
+    IdleModal --> AwaitingOperator: evt_operator_blocked
+    IdleModal --> IdleFreeform: evt_prompt_freeform
+    IdleModal --> Unknown: evt_unknown_entered
+    IdleModal --> Unsupported: evt_surface_unsupported
+    IdleModal --> Disconnected: evt_surface_disconnected
+
+    Working --> IdleFreeform: evt_prompt_freeform
+    Working --> IdleModal: evt_prompt_modal
+    Working --> AwaitingOperator: evt_operator_blocked
     Working --> Unknown: evt_unknown_entered
     Working --> Unsupported: evt_surface_unsupported
     Working --> Disconnected: evt_surface_disconnected
 
-    WaitingUserAnswer --> ReadyForInput: evt_prompt_ready
-    WaitingUserAnswer --> Working: evt_processing_started
-    WaitingUserAnswer --> Unknown: evt_unknown_entered
-    WaitingUserAnswer --> Unsupported: evt_surface_unsupported
-    WaitingUserAnswer --> Disconnected: evt_surface_disconnected
+    AwaitingOperator --> IdleFreeform: evt_prompt_freeform
+    AwaitingOperator --> IdleModal: evt_prompt_modal
+    AwaitingOperator --> Working: evt_processing_started
+    AwaitingOperator --> Unknown: evt_unknown_entered
+    AwaitingOperator --> Unsupported: evt_surface_unsupported
+    AwaitingOperator --> Disconnected: evt_surface_disconnected
 
-    Unknown --> ReadyForInput: evt_prompt_ready
+    Unknown --> IdleFreeform: evt_prompt_freeform
+    Unknown --> IdleModal: evt_prompt_modal
     Unknown --> Working: evt_processing_started
-    Unknown --> WaitingUserAnswer: evt_waiting_user_answer
+    Unknown --> AwaitingOperator: evt_operator_blocked
     Unknown --> Unsupported: evt_surface_unsupported
     Unknown --> Disconnected: evt_surface_disconnected
 ```
 
-The graph shows parser-state transitions only. It does not mean a turn is complete when Codex returns to `ready_for_input`; completion remains a runtime `TurnMonitor` concern.
+The graph shows parser-state transitions only. It does not mean a turn is complete when Codex returns to `idle + freeform`; completion remains a runtime `TurnMonitor` concern.
 
 ## Codex State Meanings
 
 | State | Meaning | Main Codex signals |
 |------|---------|--------------------|
-| `ready_for_input` | Codex looks idle and safe for the next prompt | idle prompt line is visible and no stronger blocking or processing signal applies |
+| `idle + freeform` | Codex looks idle and exposes a normal prompt | idle prompt line is visible and no stronger blocking or processing signal applies |
+| `idle + modal` | Codex is idle, but the active surface is still slash-command or another constrained prompt | active slash-command surface is visible |
 | `working` | Codex is actively processing or generating | processing signal or progress output is present |
-| `waiting_user_answer` | Codex is blocked on explicit user approval or selection | selection menu or approval prompt is visible |
+| `awaiting_operator` | Codex is blocked on explicit user approval, trust, selection, or login/setup | selection menu, approval prompt, or login/setup block is visible |
 | `unknown` | Codex output is still supported, but not classifiable into a safer stronger state | supported surface with no ready, working, or waiting evidence |
 | `unsupported` | snapshot does not match a supported Codex output family | supported-output-family detector fails |
 | `disconnected` | terminal appears detached or unavailable | disconnected signal is present |
 
-Codex uses the same high-level state priority as Claude, but the concrete prompts and output families differ, especially around approval prompts and label-style versus TUI-style dialog.
+Codex uses the same high-level business-state priority as Claude, but the concrete prompts and output families differ, especially around approval prompts and label-style versus TUI-style dialog.
 
 ## Codex Transition Events
 
@@ -102,10 +117,11 @@ Codex uses the same high-level state priority as Claude, but the concrete prompt
 | `evt_supported_surface` | `availability` becomes `supported` | a supported Codex output family is recognized |
 | `evt_surface_unsupported` | `availability` becomes `unsupported` | parser no longer trusts the snapshot shape |
 | `evt_surface_disconnected` | `availability` becomes `disconnected` | detached or disconnected Codex surface is visible |
-| `evt_processing_started` | `activity` changes to `working` | Codex processing or progress signal appears |
-| `evt_prompt_ready` | `activity` changes to `ready_for_input` with `accepts_input=true` | idle prompt becomes visible without a blocking menu or approval prompt |
-| `evt_waiting_user_answer` | `activity` changes to `waiting_user_answer` | selection menu or approval prompt appears |
-| `evt_unknown_entered` | `activity` changes to `unknown` while `availability=supported` | Codex surface is still recognized but no safe stronger state matches |
+| `evt_processing_started` | `business_state` changes to `working` | Codex processing or progress signal appears |
+| `evt_prompt_freeform` | `business_state` is `idle` and `input_mode` is `freeform` | idle prompt becomes visible without a blocking menu or approval prompt |
+| `evt_prompt_modal` | `business_state` is `idle` and `input_mode` is `modal` | slash-command UI is active |
+| `evt_operator_blocked` | `business_state` changes to `awaiting_operator` | selection menu, approval prompt, or login/setup block appears |
+| `evt_unknown_entered` | `business_state` changes to `unknown` while `availability=supported` | Codex surface is still recognized but no safe stronger state matches |
 | `evt_context_changed` | `ui_context` changes across snapshots | for example `normal_prompt` to `approval_prompt` or `slash_command` |
 | `evt_projection_changed` | `DialogProjection.dialog_text` changes across snapshots | visible projected Codex dialog changed |
 

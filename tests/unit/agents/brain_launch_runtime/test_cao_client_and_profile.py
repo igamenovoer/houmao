@@ -645,7 +645,8 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     if parsing_mode == "shadow_only":
         assert "output_text" not in done_payload
         assert done_payload["dialog_projection"]["dialog_text"] == "hello\nresponse"
-        assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+        assert done_payload["surface_assessment"]["business_state"] == "idle"
+        assert done_payload["surface_assessment"]["input_mode"] == "freeform"
         assert done_payload["projection_slices"] == {
             "head": "hello\nresponse",
             "tail": "hello\nresponse",
@@ -1184,7 +1185,8 @@ def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(
     assert parser_metadata["shadow_parser_version"] == "2.1.62"
     assert parser_metadata["shadow_output_format"] == "claude_shadow_v2"
     assert parser_metadata["shadow_output_variant"] == "claude_response_marker_v1"
-    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["business_state"] == "idle"
+    assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["surface_assessment"]["ui_context"] == "normal_prompt"
     assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
     assert done_payload["projection_slices"] == {
@@ -1198,18 +1200,8 @@ def test_cao_claude_shadow_allows_recovered_slash_command_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     output_sequence = [
-        (
-            "Claude Code v2.1.62\n"
-            "❯ /model\n"
-            "● Set model to Default (claude-sonnet-4-6)\n"
-            "❯ \n"
-        ),
-        (
-            "Claude Code v2.1.62\n"
-            "❯ /model\n"
-            "● Set model to Default (claude-sonnet-4-6)\n"
-            "❯ \n"
-        ),
+        ("Claude Code v2.1.62\n❯ /model\n● Set model to Default (claude-sonnet-4-6)\n❯ \n"),
+        ("Claude Code v2.1.62\n❯ /model\n● Set model to Default (claude-sonnet-4-6)\n❯ \n"),
         (
             "Claude Code v2.1.62\n"
             "❯ /model\n"
@@ -1320,9 +1312,9 @@ def test_cao_claude_shadow_allows_recovered_slash_command_history(
     done_payload = events[-1].payload or {}
 
     assert session._client.submitted_messages == ["hello"]  # noqa: SLF001
-    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["business_state"] == "idle"
+    assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["surface_assessment"]["ui_context"] == "normal_prompt"
-    assert done_payload["surface_assessment"]["accepts_input"] is True
     assert "SLASH_COMMAND_CONTEXT" not in done_payload["surface_assessment"]["evidence"]
     assert done_payload["dialog_projection"]["dialog_text"] == (
         "/model\nSet model to Default (claude-sonnet-4-6)\nhello\nfinal answer"
@@ -1538,7 +1530,8 @@ def test_cao_claude_shadow_baseline_reset_surfaces_current_projection_without_as
     done_payload = events[-1].payload or {}
     assert "output_text" not in done_payload
     assert done_payload["dialog_projection"]["dialog_text"] == "first answer"
-    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["business_state"] == "idle"
+    assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["mode_diagnostics"]["baseline_invalidated"] is True
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
@@ -1644,7 +1637,7 @@ def test_cao_claude_backend_surfaces_waiting_user_answer_as_error(
         session_manifest_path=tmp_path / "session-claude.json",
     )
 
-    with pytest.raises(BackendExecutionError, match="waiting for user interaction") as exc_info:
+    with pytest.raises(BackendExecutionError, match="blocked on operator interaction") as exc_info:
         session.send_prompt("hello")
 
     assert "1. Keep existing changes" in str(exc_info.value)
@@ -1753,7 +1746,8 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
     assert parser_metadata["shadow_output_format"] == "codex_shadow_v1"
     assert parser_metadata["shadow_output_variant"] == "codex_label_v1"
     assert parser_metadata["shadow_output_format_match"] is True
-    assert done_payload["surface_assessment"]["activity"] == "ready_for_input"
+    assert done_payload["surface_assessment"]["business_state"] == "idle"
+    assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
     assert done_payload["projection_slices"] == {
         "head": "hello\nfinal answer",
@@ -1857,7 +1851,7 @@ def test_cao_codex_shadow_backend_surfaces_waiting_user_answer(
         session_manifest_path=tmp_path / "session-codex-shadow-waiting.json",
     )
 
-    with pytest.raises(BackendExecutionError, match="waiting for user interaction") as exc_info:
+    with pytest.raises(BackendExecutionError, match="blocked on operator interaction") as exc_info:
         session.send_prompt("hello")
     assert "1. Keep existing changes" in str(exc_info.value)
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001

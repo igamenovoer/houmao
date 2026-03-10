@@ -12,8 +12,9 @@ from .shadow_parser_core import (
     ParsedShadowSnapshot,
     PresetResolution,
     ProjectionMetadata,
-    ShadowActivity,
     ShadowAvailability,
+    ShadowBusinessState,
+    ShadowInputMode,
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
@@ -38,6 +39,9 @@ _WAITING_APPROVAL_RE: Final[re.Pattern[str]] = re.compile(
 )
 _TRUST_PROMPT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)(?:trust this (?:folder|directory)|allow claude|yes,\s*i trust)"
+)
+_SETUP_BLOCK_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?im)^\s*(?:sign in|log in|login|complete setup|finish onboarding|continue in browser|press enter to continue|authenticate)\b"
 )
 _ERROR_BANNER_RE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*(?:error|failed|warning)\b")
 _DISCONNECTED_RE: Final[re.Pattern[str]] = re.compile(
@@ -108,6 +112,15 @@ class _ResponseMatch:
     start: int
     end: int
     first_line: str
+
+
+@dataclass(frozen=True)
+class _SurfaceAxes:
+    """Derived shared axes plus provider context for one Claude snapshot."""
+
+    business_state: ShadowBusinessState
+    input_mode: ShadowInputMode
+    ui_context: ClaudeUiContext
 
 
 class ClaudeCodeShadowParseError(ShadowParserError):
@@ -300,19 +313,21 @@ class ClaudeCodeShadowParser:
         metadata: ShadowParserMetadata,
     ) -> ClaudeSurfaceAssessment:
         tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
-        waiting_excerpt = self._waiting_user_answer_excerpt(tail_lines)
+        tail_text = "\n".join(tail_lines)
+        operator_blocked_excerpt = self._operator_blocked_excerpt(tail_lines)
         has_processing = self._contains_processing_spinner(tail_lines, compiled)
         active_prompt_payload = self._active_prompt_payload(
             clean_tail_lines=tail_lines,
             preset=compiled.preset,
         )
         has_idle_prompt = active_prompt_payload is not None
-        has_trust_prompt = _TRUST_PROMPT_RE.search(clean_output) is not None
+        has_trust_prompt = _TRUST_PROMPT_RE.search(tail_text) is not None
+        has_setup_block = _SETUP_BLOCK_RE.search(tail_text) is not None
         has_slash_command = bool(
             active_prompt_payload is not None and active_prompt_payload.startswith("/")
         )
-        has_error_banner = _ERROR_BANNER_RE.search(clean_output) is not None
-        is_disconnected = _DISCONNECTED_RE.search(clean_output) is not None
+        has_error_banner = _ERROR_BANNER_RE.search(tail_text) is not None
+        is_disconnected = _DISCONNECTED_RE.search(tail_text) is not None
         has_response_marker = bool(
             self._response_marker_matches(
                 clean_output=clean_output,
@@ -326,10 +341,12 @@ class ClaudeCodeShadowParser:
             evidence.append("DISCONNECTED_SIGNAL")
         if metadata.output_format_match:
             evidence.append("SUPPORTED_OUTPUT_FAMILY")
-        if waiting_excerpt:
-            evidence.append("WAITING_MENU_BLOCK")
+        if operator_blocked_excerpt:
+            evidence.append("OPERATOR_BLOCKED_SURFACE")
         if has_trust_prompt:
             evidence.append("TRUST_PROMPT_BLOCK")
+        if has_setup_block:
+            evidence.append("SETUP_BLOCK_SURFACE")
         if has_processing:
             evidence.append("PROCESSING_SPINNER_LINE")
         if has_idle_prompt:
@@ -349,41 +366,26 @@ class ClaudeCodeShadowParser:
         else:
             availability = "unsupported"
 
-        ui_context: ClaudeUiContext = "unknown"
-        if waiting_excerpt:
-            ui_context = "trust_prompt" if has_trust_prompt else "selection_menu"
-        elif has_slash_command:
-            ui_context = "slash_command"
-        elif has_error_banner:
-            ui_context = "error_banner"
-        elif has_idle_prompt or has_processing or has_response_marker:
-            ui_context = "normal_prompt"
-
-        activity: ShadowActivity
-        if availability != "supported":
-            activity = "unknown"
-            accepts_input = False
-        elif waiting_excerpt:
-            activity = "waiting_user_answer"
-            accepts_input = False
-        elif has_processing:
-            activity = "working"
-            accepts_input = False
-        elif has_idle_prompt:
-            activity = "ready_for_input"
-            accepts_input = ui_context == "normal_prompt"
-        else:
-            activity = "unknown"
-            accepts_input = False
+        axes = self._classify_surface_axes(
+            availability=availability,
+            operator_blocked_excerpt=operator_blocked_excerpt,
+            has_trust_prompt=has_trust_prompt,
+            has_setup_block=has_setup_block,
+            has_processing=has_processing,
+            has_idle_prompt=has_idle_prompt,
+            has_slash_command=has_slash_command,
+            has_error_banner=has_error_banner,
+            has_response_marker=has_response_marker,
+        )
 
         return ClaudeSurfaceAssessment(
             availability=availability,
-            activity=activity,
-            accepts_input=accepts_input,
-            ui_context=ui_context,
+            business_state=axes.business_state,
+            input_mode=axes.input_mode,
+            ui_context=axes.ui_context,
             parser_metadata=metadata,
             anomalies=metadata.anomalies,
-            waiting_user_answer_excerpt=waiting_excerpt,
+            operator_blocked_excerpt=operator_blocked_excerpt,
             evidence=tuple(evidence),
         )
 
@@ -516,7 +518,7 @@ class ClaudeCodeShadowParser:
         compiled: _CompiledPreset,
     ) -> str | None:
         tail_lines = self._tail_lines(clean_output, max_lines=self._status_tail_lines)
-        if self._waiting_user_answer_excerpt(tail_lines):
+        if self._operator_blocked_excerpt(tail_lines):
             return _OUTPUT_VARIANT_WAITING_MENU_V1
 
         if self._contains_processing_spinner(tail_lines, compiled):
@@ -631,12 +633,16 @@ class ClaudeCodeShadowParser:
         return None
 
     @staticmethod
-    def _waiting_user_answer_excerpt(clean_tail_lines: list[str]) -> str | None:
+    def _operator_blocked_excerpt(clean_tail_lines: list[str]) -> str | None:
         if not clean_tail_lines:
             return None
 
         for index, line in enumerate(clean_tail_lines):
-            if _WAITING_APPROVAL_RE.search(line) or _TRUST_PROMPT_RE.search(line):
+            if (
+                _WAITING_APPROVAL_RE.search(line)
+                or _TRUST_PROMPT_RE.search(line)
+                or _SETUP_BLOCK_RE.search(line)
+            ):
                 start = max(index - 1, 0)
                 end = min(index + 3, len(clean_tail_lines))
                 excerpt = "\n".join(
@@ -665,6 +671,64 @@ class ClaudeCodeShadowParser:
         end = min(option_indices[-1] + 2, len(clean_tail_lines))
         excerpt = "\n".join(line.rstrip() for line in clean_tail_lines[start:end] if line.strip())
         return excerpt.strip() or None
+
+    @staticmethod
+    def _classify_surface_axes(
+        *,
+        availability: ShadowAvailability,
+        operator_blocked_excerpt: str | None,
+        has_trust_prompt: bool,
+        has_setup_block: bool,
+        has_processing: bool,
+        has_idle_prompt: bool,
+        has_slash_command: bool,
+        has_error_banner: bool,
+        has_response_marker: bool,
+    ) -> _SurfaceAxes:
+        """Co-derive shared surface axes from one Claude evidence pass."""
+
+        ui_context: ClaudeUiContext
+        input_mode: ShadowInputMode
+        if operator_blocked_excerpt:
+            ui_context = (
+                "trust_prompt" if (has_trust_prompt or has_setup_block) else "selection_menu"
+            )
+            input_mode = "closed" if has_setup_block and not has_idle_prompt else "modal"
+        elif has_slash_command:
+            ui_context = "slash_command"
+            input_mode = "modal"
+        elif has_idle_prompt:
+            ui_context = "normal_prompt"
+            input_mode = "freeform"
+        elif has_error_banner:
+            ui_context = "error_banner"
+            input_mode = "closed"
+        elif has_processing:
+            ui_context = "normal_prompt"
+            input_mode = "closed"
+        else:
+            ui_context = "unknown"
+            input_mode = "unknown"
+
+        business_state: ShadowBusinessState
+        if availability != "supported":
+            business_state = "unknown"
+        elif operator_blocked_excerpt:
+            business_state = "awaiting_operator"
+        elif has_processing:
+            business_state = "working"
+        elif has_idle_prompt or has_slash_command or has_error_banner:
+            business_state = "idle"
+        elif has_response_marker:
+            business_state = "unknown"
+        else:
+            business_state = "unknown"
+
+        return _SurfaceAxes(
+            business_state=business_state,
+            input_mode=input_mode,
+            ui_context=ui_context,
+        )
 
 
 def _append_projection_line(lines: list[str], value: str | None) -> None:

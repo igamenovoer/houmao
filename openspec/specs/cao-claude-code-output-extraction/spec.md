@@ -80,39 +80,70 @@ When resolving a Claude Code parsing preset based on a detected version signatur
 - **AND THEN** parser metadata includes an explicit anomaly indicating the version mismatch
 
 ### Requirement: Shadow status classification is output-driven and bounded
-The system SHALL compute Claude Code shadow surface state from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
+The system SHALL compute Claude Code shadow surface assessment from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
 
-The system SHALL classify at least:
-- `working` when preset-recognized spinner/progress evidence is present,
-- `waiting_user_answer` when selection UI is present,
-- `ready_for_input` when idle/input-ready evidence is present and no higher-priority state matches, and
-- `unknown` when output matches a supported Claude output family but does not satisfy known safe state evidence.
+The Claude surface assessment SHALL classify `business_state` at minimum as:
+
+- `working` when preset-recognized spinner or progress evidence is present,
+- `awaiting_operator` when trust, approval, onboarding, login, or selection UI requiring operator action is present,
+- `idle` when the supported surface has no stronger working or operator-blocked evidence, and
+- `unknown` when output matches a supported Claude output family but does not satisfy known safe business-state evidence.
+
+The Claude surface assessment SHALL classify `input_mode` at minimum as:
+
+- `freeform` when the active Claude surface safely accepts generic prompt input,
+- `modal` when input is constrained to slash-command, trust, approval, or selection UI,
+- `closed` when no active editable prompt is safely available, and
+- `unknown` when the parser cannot safely determine the active input shape.
 
 The provider SHALL surface `ui_context` through the Claude surface-assessment contract, including the shared `slash_command` context when applicable and Claude-specific contexts such as `trust_prompt`.
 Those context details SHALL NOT imply prompt-associated answer extraction.
+
+At minimum, Claude evidence SHALL map to the shared axes like this:
+
+| Active Claude evidence | `business_state` | `input_mode` | `ui_context` |
+|---|---|---|---|
+| trust, approval, onboarding, or selection surface | `awaiting_operator` | `modal` or `closed` | `trust_prompt` or `selection_menu` |
+| active slash-command input surface | `idle` | `modal` | `slash_command` |
+| processing evidence with safe generic prompt still open | `working` | `freeform` | `normal_prompt` |
+| processing evidence without a safely resolved freeform prompt | `working` | `closed` or `unknown` | `normal_prompt` or `unknown` |
+| recovered normal prompt without stronger modal or blocked evidence | `idle` | `freeform` | `normal_prompt` |
+| supported but unclassifiable active surface | `unknown` | `unknown` or safely derived known input mode | `unknown` or the strongest safely-derived provider context |
+
+Claude SHALL derive `business_state`, `input_mode`, and `ui_context` from one active-surface evidence pass. When blocked or slash-command evidence conflicts with normal prompt markers in the same bounded window, the blocked or modal surface SHALL control `input_mode` and `ui_context`, while `business_state` follows the strongest supported business evidence.
 
 #### Scenario: Status checks avoid stale scrollback false positives
 - **WHEN** the tmux scrollback contains an old spinner line from a previous turn
 - **AND WHEN** the bounded tail window for the current status check does not include that spinner line
 - **THEN** the system does not classify the terminal as `working` based on stale output
 
-#### Scenario: Ready state does not imply authoritative answer association
-- **WHEN** the tmux scrollback contains idle/input-ready evidence
-- **THEN** the system classifies the snapshot as `ready_for_input` when no higher-priority state matches
-- **AND THEN** that state classification does not by itself claim that a visible answer belongs to the most recent prompt submission
+#### Scenario: Working prompt can remain typeable
+- **WHEN** the current Claude snapshot shows processing evidence while the active prompt is still open for generic input
+- **THEN** the system classifies the snapshot with `business_state = working`
+- **AND THEN** the same snapshot may still classify `input_mode = freeform`
+
+#### Scenario: Idle freeform state does not imply authoritative answer association
+- **WHEN** the tmux scrollback contains supported Claude output with a recovered normal prompt
+- **THEN** the system may classify the snapshot as `business_state = idle` and `input_mode = freeform`
+- **AND THEN** that classification does not by itself claim that a visible answer belongs to the most recent prompt submission
 
 #### Scenario: Slash-command UI is surfaced as shared context without implying answer ownership
 - **WHEN** a Claude snapshot shows slash-command or command-palette UI
 - **THEN** the returned Claude surface assessment may use the shared `slash_command` `ui_context`
-- **AND THEN** that context classification does not imply prompt-associated answer extraction
+- **AND THEN** the same snapshot may classify `input_mode = modal` without implying prompt-associated answer extraction
 
 ### Requirement: Claude shadow status supports explicit unknown classification
-For Claude Code in `parsing_mode=shadow_only`, if output matches a supported Claude output family but does not satisfy known status evidence for `processing`, `waiting_user_answer`, `completed`, or `idle`, the runtime-owned Claude shadow parser SHALL classify the snapshot status as `unknown`.
+For Claude Code in `parsing_mode=shadow_only`, if output matches a supported Claude output family but the parser cannot safely determine business-state evidence or input-mode evidence, the runtime-owned Claude shadow parser SHALL classify the affected shared axis as `unknown` instead of inferring `idle`, `awaiting_operator`, `freeform`, or `closed` without support.
 
-#### Scenario: Recognized Claude output without known status evidence is unknown
+#### Scenario: Recognized Claude output without known business-state evidence is unknown
 - **WHEN** `mode=full` output matches a supported Claude variant
-- **AND WHEN** the snapshot has no valid completion, waiting-user-answer, idle-prompt, or processing evidence
-- **THEN** Claude shadow status is `unknown`
+- **AND WHEN** the snapshot has no valid processing, operator-blocked, or safe idle-business evidence
+- **THEN** Claude shadow `business_state` is `unknown`
+
+#### Scenario: Recognized Claude output with ambiguous input region keeps input mode unknown
+- **WHEN** `mode=full` output matches a supported Claude variant
+- **AND WHEN** the parser can identify the current business state but cannot safely determine whether the active input region is freeform, modal, or closed
+- **THEN** Claude shadow `input_mode` is `unknown`
 
 ### Requirement: Claude unknown status can transition to stalled after configurable timeout
 For Claude in `parsing_mode=shadow_only`, runtime SHALL transition from `unknown` to `stalled` when continuous unknown duration reaches configured timeout.
@@ -160,8 +191,13 @@ The core Claude shadow parser MAY provide state, projection, metadata, and diagn
 - **THEN** the parser still returns valid Claude surface assessment and dialog projection
 - **AND THEN** the parser does not claim that the projection uniquely identifies the answer to the most recent prompt
 
-### Requirement: Waiting-user-answer is surfaced as an explicit error
-If the system detects `waiting_user_answer` for Claude Code during a turn, it SHALL fail the turn with an explicit error and include an ANSI-stripped excerpt showing the selection options.
+### Requirement: Operator-blocked Claude surfaces are surfaced as explicit errors
+If the system detects a Claude surface with `business_state = awaiting_operator` during a turn, it SHALL fail the turn with an explicit blocked-surface error and include an ANSI-stripped excerpt when available.
+
+#### Scenario: Trust prompt is surfaced explicitly as an operator-blocked error
+- **WHEN** `mode=full` contains a Claude trust or approval prompt requiring operator action
+- **THEN** the runtime detects `business_state = awaiting_operator`
+- **AND THEN** the turn fails with an explicit blocked-surface error instead of timing out or being treated as completed
 
 ### Requirement: Runtime does not return raw tmux scrollback as the answer
 For Claude Code in `parsing_mode=shadow_only`, the system SHALL not return raw `mode=full` tmux output as caller-facing projected dialog content.

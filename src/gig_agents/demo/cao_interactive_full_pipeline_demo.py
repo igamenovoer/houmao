@@ -65,10 +65,13 @@ DEFAULT_LIVE_CAO_TIMEOUT_SECONDS = 5.0
 DEFAULT_STARTUP_HEARTBEAT_INITIAL_DELAY_SECONDS = 2.0
 DEFAULT_STARTUP_HEARTBEAT_INTERVAL_SECONDS = 5.0
 DEFAULT_TERMINAL_LOG_RELATIVE_DIR = Path(".aws") / "cli-agent-orchestrator" / "logs" / "terminal"
+DEFAULT_CAO_STOP_CLEAR_TIMEOUT_SECONDS = 2.0
+DEFAULT_CAO_STOP_CLEAR_POLL_SECONDS = 0.1
 PORT_LISTEN_STATE = "0A"
 CURRENT_RUN_ROOT_FILENAME = "current_run_root.txt"
 EMPTY_RESPONSE_ERROR = "interactive CAO turn returned an empty response"
 UNKNOWN_CLAUDE_CODE_STATE = "unknown"
+TEST_LOOPBACK_PORT_LISTENING_ENV = "AGENTSYS_TEST_INTERACTIVE_DEMO_FIXED_PORT_LISTENING"
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "agent not found",
     "does not exist",
@@ -1450,10 +1453,9 @@ def _stop_cao_server_with_known_configs(
             context="CAO launcher stop output",
             allow_stderr_json=True,
         )
-        if bool(stop_payload.get("stopped")) and not _loopback_port_is_listening(
-            FIXED_CAO_BASE_URL
-        ):
-            return True
+        if bool(stop_payload.get("stopped")) or bool(stop_payload.get("already_stopped")):
+            if _wait_for_loopback_port_clear(timeout_seconds=DEFAULT_CAO_STOP_CLEAR_TIMEOUT_SECONDS):
+                return True
         if not _loopback_port_is_listening(FIXED_CAO_BASE_URL):
             return True
     return False
@@ -1490,6 +1492,14 @@ def _known_launcher_config_paths(*, paths: DemoPaths, env: DemoEnvironment) -> l
 
 def _loopback_port_is_listening(_: str) -> bool:
     """Return whether the fixed loopback TCP port currently has a listener."""
+
+    forced_state = os.environ.get(TEST_LOOPBACK_PORT_LISTENING_ENV)
+    if forced_state is not None:
+        normalized = forced_state.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "occupied", "listening"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "free", "not_listening"}:
+            return False
 
     parsed = socket.getaddrinfo("127.0.0.1", _fixed_cao_port(), type=socket.SOCK_STREAM)
     for family, socktype, proto, _, sockaddr in parsed:
@@ -1555,7 +1565,11 @@ def _find_pids_for_socket_inodes(inodes: set[str]) -> set[int]:
         fd_dir = proc_dir / "fd"
         if not fd_dir.exists():
             continue
-        for fd_path in fd_dir.iterdir():
+        try:
+            fd_paths = tuple(fd_dir.iterdir())
+        except OSError:
+            continue
+        for fd_path in fd_paths:
             try:
                 target = os.readlink(fd_path)
             except OSError:
@@ -1567,6 +1581,17 @@ def _find_pids_for_socket_inodes(inodes: set[str]) -> set[int]:
                 matched_pids.add(int(proc_dir.name))
                 break
     return matched_pids
+
+
+def _wait_for_loopback_port_clear(*, timeout_seconds: float) -> bool:
+    """Wait for the fixed loopback CAO port to stop listening."""
+
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    while time.monotonic() < deadline:
+        if not _loopback_port_is_listening(FIXED_CAO_BASE_URL):
+            return True
+        time.sleep(DEFAULT_CAO_STOP_CLEAR_POLL_SECONDS)
+    return not _loopback_port_is_listening(FIXED_CAO_BASE_URL)
 
 
 def _read_process_cmdline(pid: int) -> str | None:

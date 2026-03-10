@@ -336,10 +336,10 @@ when they are missing from `PATH`.
   `surface_assessment` and `dialog_projection` value objects.
 - Shared surface assessment facets are:
   - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
-  - `activity`: `ready_for_input`, `working`, `waiting_user_answer`, `unknown`
-  - `accepts_input`: whether the active surface is safe for prompt submission
+  - `business_state`: `idle`, `working`, `awaiting_operator`, `unknown`
+  - `input_mode`: `freeform`, `modal`, `closed`, `unknown`
   - `ui_context`: shared base plus provider-specific extensions
-- Runtime success terminality in `shadow_only` requires `ready_for_input` plus
+- Runtime success terminality in `shadow_only` requires `submit_ready` plus
   either post-submit projected-dialog change or observed post-submit `working`.
 - Runtime shadow parsing for both Claude and Codex is versioned and preset-driven.
   Preset resolution order is:
