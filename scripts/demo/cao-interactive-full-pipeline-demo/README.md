@@ -4,7 +4,7 @@ Default agent-definition directory: `tests/fixtures/agents` (override with `AGEN
 
 This tutorial pack answers one concrete question:
 
-> "How do I launch a long-running Claude-on-CAO session as `alice`, send manual prompts, inspect the live session, and stop it cleanly when I'm done?"
+> "How do I launch a long-running Claude-on-CAO session as `alice`, send manual prompts and control keys, inspect the live session, and stop it cleanly when I'm done?"
 
 Success means you can run the wrapper commands from this repository checkout, let `launch_alice.sh` create an isolated per-run root under `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, and use `run_demo.sh inspect` or `run_demo.sh verify` as advanced follow-up tools instead of as the primary walkthrough.
 
@@ -28,8 +28,10 @@ Important notes:
 
 1. Launch the tutorial agent with a wrapper that delegates to `run_demo.sh start --agent-name alice`.
 2. Persist session state, turn artifacts, and runtime metadata in one per-run workspace so follow-up commands reuse the same interactive session through the recorded current-run marker.
-3. Use `run_demo.sh inspect` whenever you want tmux attach and log-tail commands for the live session, plus the live Claude Code state.
-4. Stop explicitly when you are done; only maintainers need the optional `verify` step, and it remains a minimum two-turn regression check.
+3. Use `send_prompt.sh` for normal prompt turns that should capture a response artifact and update the prompt-turn history.
+4. Use `send_keys.sh` for raw control input when you need to drive menus, send `Escape`, or type token-like text without treating it as a prompt turn.
+5. Use `run_demo.sh inspect` whenever you want tmux attach and log-tail commands for the live session, plus the live Claude Code state.
+6. Stop explicitly when you are done; only maintainers need the optional `verify` step, and it remains a minimum two-turn regression check.
 
 ## Critical Example Code (Wrapper Workflow With Inline Comments)
 
@@ -47,7 +49,10 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect --with-outpu
 scripts/demo/cao-interactive-full-pipeline-demo/send_prompt.sh \
   --prompt "Summarize the current workspace state."
 
-# 4) Stop the active session explicitly when you are finished.
+# 4) Send one raw control-input sequence without creating a prompt turn.
+scripts/demo/cao-interactive-full-pipeline-demo/send_keys.sh '<[Escape]>'
+
+# 5) Stop the active session explicitly when you are finished.
 scripts/demo/cao-interactive-full-pipeline-demo/stop_demo.sh
 ```
 
@@ -147,7 +152,34 @@ If you prefer tracked prompt ideas while experimenting, the pack includes:
 
 Those files are examples to copy from, not commands you must use in the primary walkthrough.
 
-## Step 4: Stop the Session Explicitly
+## Step 4: Send Control Input Manually
+
+Send one raw control-input sequence through the active session when you need to shape the live UI without creating a prompt turn:
+
+```bash
+scripts/demo/cao-interactive-full-pipeline-demo/send_keys.sh '<[Escape]>'
+```
+
+Drive a slash-command or menu flow through the lower-level interface when you want to see the exact advanced command:
+
+```bash
+scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh send-keys \
+  '/model<[Enter]><[Down]><[Enter]>'
+```
+
+If you want token-like text to be sent literally instead of interpreting `<[Enter]>` as a keypress, pass `--as-raw-string`:
+
+```bash
+scripts/demo/cao-interactive-full-pipeline-demo/send_keys.sh \
+  '/model<[Enter]>' \
+  --as-raw-string
+```
+
+Each control-input call writes a record under `controls/control-*.json` plus captured stdout and stderr logs for the underlying runtime command. These artifacts are intentionally separate from `turns/` because control input does not count as a prompt/response turn.
+
+Use `run_demo.sh inspect`, tmux attach, or the terminal log tail to observe the effect after sending keys.
+
+## Step 5: Stop the Session Explicitly
 
 When you are done, stop the active session:
 
@@ -165,7 +197,7 @@ The stop flow marks `state.json` inactive even if the remote tmux or CAO session
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify
 ```
 
-This writes `report.json` in the workspace and compares a sanitized view against [`expected_report/report.json`](expected_report/report.json) through [`scripts/verify_report.py`](scripts/verify_report.py). Even after extra manual prompts, `verify` remains a minimum two-turn maintainer check rather than a full transcript assertion for every recorded turn.
+This writes `report.json` in the workspace and compares a sanitized view against [`expected_report/report.json`](expected_report/report.json) through [`scripts/verify_report.py`](scripts/verify_report.py). Even after extra manual prompts or control-input actions, `verify` remains a minimum two-turn maintainer check rather than a full transcript assertion for every recorded turn.
 
 Refresh the tracked snapshot only when that maintainer contract changes intentionally:
 
@@ -177,8 +209,12 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
 
 - `error: No active interactive session exists. Run start before send-turn.`
   - Launch `alice` first with `launch_alice.sh`.
+- `error: No active interactive session exists. Run start before send-keys.`
+  - Launch `alice` first with `launch_alice.sh`.
 - `error: Prompt text must not be empty.`
   - Re-run `send_prompt.sh --prompt "<text>"` with a non-empty string.
+- `error: Key stream must not be empty.`
+  - Re-run `send_keys.sh '<[key-stream]>'` with a non-empty positional key stream.
 - `agent_identity` shows `AGENTSYS-alice` instead of `alice`
   - This is expected; the runtime canonicalizes the wrapper-friendly name before persisting state.
 - CAO connectivity errors against `127.0.0.1:9889`
@@ -203,7 +239,8 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
 | Launcher home | `<workspace-root>` | Default launcher home used for CAO profile-store alignment. Override with `CAO_LAUNCHER_HOME_DIR=/path`. |
 | Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session. Override with `DEMO_WORKDIR=/abs/path`. |
 | Role name | `gpu-kernel-coder` | Default role passed through `run_demo.sh`. Override with `DEMO_ROLE_NAME=<name>`. |
-| Demo-wide yes flag | `-y` | Accepted by `run_demo.sh`, `launch_alice.sh`, `send_prompt.sh`, and `stop_demo.sh`; bypasses prompts such as fixed-port CAO replacement. |
+| Control-input raw flag | `--as-raw-string` | Sends the provided key stream literally instead of parsing `<[key-name]>` tokens. |
+| Demo-wide yes flag | `-y` | Accepted by `run_demo.sh`, `launch_alice.sh`, `send_prompt.sh`, `send_keys.sh`, and `stop_demo.sh`; bypasses prompts such as fixed-port CAO replacement. |
 | Verify contract | minimum two successful turns | Optional maintainer check, not part of the main tutorial flow. |
 
 ## Appendix: File Inventory
@@ -221,6 +258,7 @@ Scripts:
 
 - `launch_alice.sh`
 - `send_prompt.sh`
+- `send_keys.sh`
 - `stop_demo.sh`
 - `run_demo.sh`
 - `scripts/verify_report.py`
@@ -236,6 +274,9 @@ Generated workspace outputs (untracked):
 - `turns/turn-*.json`
 - `turns/turn-*.events.jsonl`
 - `turns/turn-*.stderr.log`
+- `controls/control-*.json`
+- `controls/control-*.stdout.json`
+- `controls/control-*.stderr.log`
 - `report.json` after `verify`
 - `runtime/`
 - `logs/`

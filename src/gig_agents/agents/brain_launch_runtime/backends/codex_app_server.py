@@ -168,6 +168,7 @@ class CodexAppServerSession:
         inject_loopback_no_proxy_env(env)
         ensure_codex_home_bootstrap(
             home_path=self._plan.home_path,
+            env=env,
             working_directory=self._plan.working_directory,
         )
 
@@ -183,9 +184,7 @@ class CodexAppServerSession:
             bufsize=1,
         )
         self._state.pid = self._process.pid
-        self._state.process_started_at_utc = datetime.now(UTC).isoformat(
-            timespec="seconds"
-        )
+        self._state.process_started_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
     def _ensure_thread_started(self) -> None:
         if self._state.thread_id is not None:
@@ -203,9 +202,7 @@ class CodexAppServerSession:
 
         thread_id = _extract_thread_id(response)
         if thread_id is None:
-            raise BackendExecutionError(
-                "thread/start response did not include thread id"
-            )
+            raise BackendExecutionError("thread/start response did not include thread id")
         self._state.thread_id = thread_id
 
     def _rpc_request(
@@ -240,9 +237,7 @@ class CodexAppServerSession:
 
             if message.get("id") == request_id:
                 if "error" in message:
-                    raise BackendExecutionError(
-                        f"JSON-RPC {method} failed: {message['error']}"
-                    )
+                    raise BackendExecutionError(f"JSON-RPC {method} failed: {message['error']}")
                 result = message.get("result")
                 if isinstance(result, dict):
                     return result
@@ -250,9 +245,7 @@ class CodexAppServerSession:
 
             self._pending_messages.append(message)
 
-        raise BackendExecutionError(
-            f"Timed out waiting for JSON-RPC response to {method}"
-        )
+        raise BackendExecutionError(f"Timed out waiting for JSON-RPC response to {method}")
 
     def _collect_turn_events(self, *, turn_id: str | None) -> list[SessionEvent]:
         process = self._process
@@ -279,9 +272,7 @@ class CodexAppServerSession:
 
         return events
 
-    def _pop_pending_or_read_message(
-        self, *, timeout_seconds: float
-    ) -> dict[str, Any] | None:
+    def _pop_pending_or_read_message(self, *, timeout_seconds: float) -> dict[str, Any] | None:
         if self._pending_messages:
             return self._pending_messages.pop(0)
         return self._read_message(timeout_seconds=timeout_seconds)
@@ -348,21 +339,14 @@ def _extract_turn_id(payload: dict[str, Any]) -> str | None:
     return None
 
 
-def _message_to_event(
-    message: dict[str, Any], *, turn_index: int
-) -> SessionEvent | None:
+def _message_to_event(message: dict[str, Any], *, turn_index: int) -> SessionEvent | None:
     if "method" in message and isinstance(message.get("method"), str):
         method = str(message["method"])
         params = message.get("params")
         payload = params if isinstance(params, dict) else None
         text = ""
         if isinstance(params, dict):
-            text = str(
-                params.get("text")
-                or params.get("delta")
-                or params.get("message")
-                or method
-            )
+            text = str(params.get("text") or params.get("delta") or params.get("message") or method)
         if not text:
             text = method
 
@@ -375,9 +359,7 @@ def _message_to_event(
             kind = "done"
         if method in {"turn/cancelled", "turn/interrupted"}:
             kind = "interrupted"
-        return SessionEvent(
-            kind=kind, message=text, turn_index=turn_index, payload=payload
-        )
+        return SessionEvent(kind=kind, message=text, turn_index=turn_index, payload=payload)
 
     if message.get("event") == "diagnostic":
         payload = message.get("payload")

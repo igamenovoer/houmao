@@ -1,0 +1,8 @@
+schema_version: 1
+name: gpu-kernel-coder-yunwu-openai
+tool: codex
+skills:
+  - openspec-apply-change
+  - openspec-verify-change
+config_profile: yunwu-openai
+credential_profile: yunwu-openai

@@ -19,6 +19,7 @@ credential_projection:
     - source: auth.json
       destination: auth.json
       mode: symlink
+      required: false
   env:
     source: env/vars.env
     allowlist:

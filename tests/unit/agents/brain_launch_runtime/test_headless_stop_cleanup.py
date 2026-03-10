@@ -59,7 +59,7 @@ def _stub_tmux(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "gig_agents.agents.brain_launch_runtime.backends.headless_base.ensure_codex_home_bootstrap",
-        lambda *, home_path, working_directory: None,
+        lambda *, home_path, env, working_directory: None,
     )
 
 

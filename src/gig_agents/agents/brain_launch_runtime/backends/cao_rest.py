@@ -767,9 +767,7 @@ class CaoRestSession:
         """Resolve the tmux window using persisted state with live CAO fallback."""
 
         persisted_window_name = (
-            self._tmux_window_name.strip()
-            if self._tmux_window_name is not None
-            else None
+            self._tmux_window_name.strip() if self._tmux_window_name is not None else None
         )
         if persisted_window_name:
             resolved_window = _resolve_tmux_window_by_name(
@@ -1446,6 +1444,7 @@ class CaoRestSession:
         if self._plan.tool == "codex":
             ensure_codex_home_bootstrap(
                 home_path=self._plan.home_path,
+                env=launch_env,
                 working_directory=self._plan.working_directory,
             )
 

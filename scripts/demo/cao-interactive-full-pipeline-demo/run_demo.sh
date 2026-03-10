@@ -36,6 +36,9 @@ Subcommands:
       machine-readable payload. Startup progress still prints to stderr.
   send-turn (--prompt <text> | --prompt-file <path>)
       Send one prompt to the active session.
+  send-keys <key-stream> [--as-raw-string]
+      Send one raw control-input sequence to the active session. Quote the
+      key stream when it contains spaces or shell metacharacters.
   inspect [--json] [--with-output-text <num-tail-chars>]
       Show tmux/log inspection commands for the current state and optionally
       include a clean projected Claude dialog tail.
@@ -66,6 +69,8 @@ Examples:
   $(basename "$0") inspect
   $(basename "$0") inspect --with-output-text 400
   $(basename "$0") send-turn --prompt "Hello from the demo"
+  $(basename "$0") send-keys '<[Escape]>'
+  $(basename "$0") send-keys '/model<[Enter]>' --as-raw-string
   $(basename "$0") verify --snapshot-report
   $(basename "$0") stop
 EOF

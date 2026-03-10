@@ -41,7 +41,7 @@ def test_codex_app_server_runs_shared_codex_bootstrap(
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
-    captured_bootstrap: dict[str, Path] = {}
+    captured_bootstrap: dict[str, object] = {}
     captured_process: dict[str, object] = {}
 
     class _FakeProcess:
@@ -53,8 +53,14 @@ def test_codex_app_server_runs_shared_codex_bootstrap(
         def poll(self) -> int | None:
             return None
 
-    def _fake_bootstrap(*, home_path: Path, working_directory: Path) -> None:
+    def _fake_bootstrap(
+        *,
+        home_path: Path,
+        env: dict[str, str],
+        working_directory: Path,
+    ) -> None:
         captured_bootstrap["home_path"] = home_path
+        captured_bootstrap["env"] = env
         captured_bootstrap["working_directory"] = working_directory
 
     def _fake_popen(command: list[str], **kwargs: object) -> _FakeProcess:
@@ -76,6 +82,8 @@ def test_codex_app_server_runs_shared_codex_bootstrap(
     session._ensure_started()  # noqa: SLF001
 
     assert captured_bootstrap["home_path"] == plan.home_path
+    assert isinstance(captured_bootstrap["env"], dict)
+    assert captured_bootstrap["env"]["OPENAI_API_KEY"] == "sk-secret"
     assert captured_bootstrap["working_directory"] == plan.working_directory
     assert captured_process["command"] == ["codex", "app-server"]
     assert captured_process["cwd"] == str(plan.working_directory)
@@ -111,8 +119,8 @@ def test_codex_app_server_preserve_mode_leaves_no_proxy_untouched(
         def poll(self) -> int | None:
             return None
 
-    def _fake_bootstrap(*, home_path: Path, working_directory: Path) -> None:
-        del home_path, working_directory
+    def _fake_bootstrap(*, home_path: Path, env: dict[str, str], working_directory: Path) -> None:
+        del home_path, env, working_directory
 
     def _fake_popen(command: list[str], **kwargs: object) -> _FakeProcess:
         del command

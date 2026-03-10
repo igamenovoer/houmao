@@ -27,6 +27,7 @@ Command intent:
 
 - Use `send-prompt` for normal prompt turns that should wait for readiness/completion and advance turn state.
 - Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
+- For the detailed `send-keys` contract, grammar, and examples, see [Brain Launch Runtime Send-Keys](./brain_launch_runtime_send_keys.md).
 
 ## Agent Definition Directory Resolution
 

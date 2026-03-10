@@ -3,8 +3,9 @@
 This module implements the operator-facing lifecycle for the interactive
 Claude-on-CAO demo pack. The workflow is intentionally stateful: `start`
 builds a brain, launches a CAO-backed session, and persists stable metadata;
-`send-turn` reuses that state to drive repeated prompts; `inspect` prints the
-commands needed for live tmux/log observation; `verify` writes a machine-readable
+`send-turn` reuses that state to drive repeated prompts; `send-keys` reuses
+that same state to deliver raw control input; `inspect` prints the commands
+needed for live tmux/log observation; `verify` writes a machine-readable
 report; and `stop` tears down the active session while tolerating stale remote
 state.
 
@@ -16,6 +17,8 @@ start_demo
     Start or replace the interactive CAO demo session.
 send_turn
     Send one prompt turn to the active demo session.
+send_control_input
+    Send one raw control-input sequence to the active demo session.
 inspect_demo
     Render human-friendly or JSON inspection output.
 verify_demo
@@ -38,7 +41,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Sequence, TypeAlias, TypeVar
+from typing import Callable, Literal, Sequence, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
@@ -74,6 +77,7 @@ UNKNOWN_CLAUDE_CODE_STATE = "unknown"
 TEST_LOOPBACK_PORT_LISTENING_ENV = "AGENTSYS_TEST_INTERACTIVE_DEMO_FIXED_PORT_LISTENING"
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "agent not found",
+    "connection refused",
     "does not exist",
     "manifest pointer missing",
     "manifest pointer stale",
@@ -112,6 +116,7 @@ class DemoState(_StrictModel):
     launcher_config_path: str
     updated_at: str
     turn_count: int = 0
+    control_count: int = 0
 
     @field_validator(
         "agent_identity",
@@ -163,6 +168,54 @@ class TurnRecord(_StrictModel):
     @classmethod
     def _record_string_not_blank(cls, value: str) -> str:
         """Require non-empty turn record string fields."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class ControlActionSummary(_StrictModel):
+    """Stable summary of one runtime control-input result."""
+
+    status: Literal["ok", "error"]
+    action: Literal["control_input"]
+    detail: str
+
+    @field_validator("detail")
+    @classmethod
+    def _control_detail_not_blank(cls, value: str) -> str:
+        """Require non-empty control-result detail text."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class ControlInputRecord(_StrictModel):
+    """Persisted artifact for one `send-keys` execution."""
+
+    control_index: int
+    agent_identity: str
+    key_stream: str
+    as_raw_string: bool
+    started_at_utc: str
+    completed_at_utc: str
+    exit_status: int
+    result: ControlActionSummary
+    stdout_path: str
+    stderr_path: str
+
+    @field_validator(
+        "agent_identity",
+        "key_stream",
+        "started_at_utc",
+        "completed_at_utc",
+        "stdout_path",
+        "stderr_path",
+    )
+    @classmethod
+    def _control_record_string_not_blank(cls, value: str) -> str:
+        """Require non-empty control record string fields."""
 
         if not value.strip():
             raise ValueError("must not be empty")
@@ -235,6 +288,7 @@ class DemoPaths:
     runtime_root: Path
     logs_dir: Path
     turns_dir: Path
+    controls_dir: Path
     state_path: Path
     report_path: Path
     launcher_config_path: Path
@@ -249,6 +303,7 @@ class DemoPaths:
             runtime_root=root / "runtime",
             logs_dir=root / "logs",
             turns_dir=root / "turns",
+            controls_dir=root / "controls",
             state_path=root / "state.json",
             report_path=root / "report.json",
             launcher_config_path=root / "cao-server-launcher.toml",
@@ -359,6 +414,16 @@ def main(
             )
             _print_json(turn.model_dump(mode="json"))
             return 0
+        if args.command == "send-keys":
+            record = send_control_input(
+                paths=paths,
+                env=env,
+                key_stream=_resolve_key_stream(args),
+                as_raw_string=bool(args.as_raw_string),
+                run_command=runner,
+            )
+            _print_json(record.model_dump(mode="json"))
+            return 0
         if args.command == "inspect":
             inspect_demo(
                 paths=paths,
@@ -412,7 +477,7 @@ def start_demo(
         run_command=run_command,
     )
 
-    _reset_turn_artifacts(paths)
+    _reset_demo_artifacts(paths)
     _emit_startup_progress("Writing the fixed-loopback CAO launcher configuration.")
     _write_launcher_config(paths.launcher_config_path, env=env, runtime_root=paths.runtime_root)
     _emit_startup_progress(f"Ensuring local CAO availability at {FIXED_CAO_BASE_URL}.")
@@ -467,6 +532,7 @@ def start_demo(
         launcher_config_path=str(paths.launcher_config_path),
         updated_at=_utc_now(),
         turn_count=0,
+        control_count=0,
     )
     save_demo_state(paths.state_path, state)
     _write_current_run_root(env.current_run_root_path, paths.workspace_root)
@@ -543,6 +609,79 @@ def send_turn(
     )
     save_demo_state(paths.state_path, updated_state)
     return turn
+
+
+def send_control_input(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    key_stream: str,
+    as_raw_string: bool,
+    run_command: CommandRunner,
+) -> ControlInputRecord:
+    """Send one raw control-input sequence through the persisted interactive session."""
+
+    state = require_active_state(paths.state_path, command_name="send-keys")
+    _ensure_workspace(paths)
+    control_index = _next_control_index(paths)
+    started_at_utc = _utc_now()
+    stdout_path = paths.controls_dir / f"control-{control_index:03d}.stdout.json"
+    stderr_path = paths.controls_dir / f"control-{control_index:03d}.stderr.log"
+
+    runtime_args = [
+        "send-keys",
+        "--agent-def-dir",
+        str(env.agent_def_dir),
+        "--agent-identity",
+        state.agent_identity,
+        "--sequence",
+        key_stream,
+    ]
+    if as_raw_string:
+        runtime_args.append("--escape-special-keys")
+
+    result = run_command(
+        _runtime_cli_command(runtime_args),
+        env.repo_root,
+        stdout_path,
+        stderr_path,
+        env.timeout_seconds,
+    )
+    completed_at_utc = _utc_now()
+    control_result = _parse_control_action_summary(
+        result.stdout,
+        context="send-keys output",
+    )
+    record = ControlInputRecord(
+        control_index=control_index,
+        agent_identity=state.agent_identity,
+        key_stream=key_stream,
+        as_raw_string=as_raw_string,
+        started_at_utc=started_at_utc,
+        completed_at_utc=completed_at_utc,
+        exit_status=result.returncode,
+        result=control_result,
+        stdout_path=str(stdout_path),
+        stderr_path=str(stderr_path),
+    )
+    _write_json_file(
+        paths.controls_dir / f"control-{control_index:03d}.json",
+        record.model_dump(mode="json"),
+    )
+
+    if result.returncode != 0 or control_result.status != "ok":
+        raise DemoWorkflowError(
+            f"send-keys failed via `brain_launch_runtime send-keys` (see `{stderr_path}`)"
+        )
+
+    updated_state = state.model_copy(
+        update={
+            "updated_at": completed_at_utc,
+            "control_count": control_index,
+        }
+    )
+    save_demo_state(paths.state_path, updated_state)
+    return record
 
 
 def inspect_demo(
@@ -678,6 +817,15 @@ def stop_demo(
         tolerate_stale=True,
         log_prefix="stop",
     )
+    # A dead remote session may still leave the local tmux session behind, so
+    # stop always performs the best-effort tmux cleanup step before inactivating
+    # the persisted demo state.
+    _kill_tmux_session(
+        paths=paths,
+        env=env,
+        session_name=state.session_name,
+        run_command=run_command,
+    )
     inactive_state = state.model_copy(update={"active": False, "updated_at": _utc_now()})
     save_demo_state(paths.state_path, inactive_state)
     return {
@@ -719,13 +867,26 @@ def load_turn_records(turns_dir: Path) -> list[TurnRecord]:
     return sorted(records, key=lambda record: record.turn_index)
 
 
-def require_active_state(path: Path) -> DemoState:
+def load_control_records(controls_dir: Path) -> list[ControlInputRecord]:
+    """Load all persisted control-input records sorted by control index."""
+
+    if not controls_dir.exists():
+        return []
+
+    records: list[ControlInputRecord] = []
+    for path in sorted(controls_dir.glob("control-[0-9][0-9][0-9].json")):
+        payload = _load_json_file(path, context="control input record")
+        records.append(_validate_model(ControlInputRecord, payload, source=str(path)))
+    return sorted(records, key=lambda record: record.control_index)
+
+
+def require_active_state(path: Path, *, command_name: str = "send-turn") -> DemoState:
     """Return the active demo state or raise an actionable workflow error."""
 
     state = load_demo_state(path)
     if state is None or not state.active:
         raise DemoWorkflowError(
-            "No active interactive session exists. Run `start` before `send-turn`."
+            f"No active interactive session exists. Run `start` before `{command_name}`."
         )
     return state
 
@@ -933,6 +1094,16 @@ def _build_parser() -> argparse.ArgumentParser:
     send_turn_group.add_argument("--prompt", help="Inline prompt text")
     send_turn_group.add_argument("--prompt-file", type=Path, help="Path to prompt text file")
 
+    send_keys_parser = subparsers.add_parser(
+        "send-keys", help="Send one raw control-input sequence to the active interactive session"
+    )
+    send_keys_parser.add_argument("key_stream", help="Mixed literal/special-key key stream")
+    send_keys_parser.add_argument(
+        "--as-raw-string",
+        action="store_true",
+        help="Send the full key stream literally without parsing <[key-name]> tokens",
+    )
+
     inspect = subparsers.add_parser("inspect", help="Show tmux/log inspection commands")
     inspect.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     inspect.add_argument(
@@ -1095,6 +1266,15 @@ def _resolve_prompt_text(args: argparse.Namespace) -> str:
     return prompt
 
 
+def _resolve_key_stream(args: argparse.Namespace) -> str:
+    """Resolve and validate the positional key-stream CLI input."""
+
+    key_stream = str(args.key_stream)
+    if not key_stream.strip():
+        raise DemoWorkflowError("Key stream must not be empty.")
+    return key_stream
+
+
 def _ensure_workspace(paths: DemoPaths) -> None:
     """Create the stable demo workspace directories."""
 
@@ -1102,14 +1282,18 @@ def _ensure_workspace(paths: DemoPaths) -> None:
     paths.runtime_root.mkdir(parents=True, exist_ok=True)
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
     paths.turns_dir.mkdir(parents=True, exist_ok=True)
+    paths.controls_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _reset_turn_artifacts(paths: DemoPaths) -> None:
-    """Remove turn/report artifacts when starting a replacement session."""
+def _reset_demo_artifacts(paths: DemoPaths) -> None:
+    """Remove per-run turn, control, and report artifacts before a fresh start."""
 
     if paths.turns_dir.exists():
         shutil.rmtree(paths.turns_dir)
     paths.turns_dir.mkdir(parents=True, exist_ok=True)
+    if paths.controls_dir.exists():
+        shutil.rmtree(paths.controls_dir)
+    paths.controls_dir.mkdir(parents=True, exist_ok=True)
     if paths.report_path.exists():
         paths.report_path.unlink()
 
@@ -1175,7 +1359,7 @@ def _reset_demo_startup_state(
 
     if previous is not None:
         previous_paths = DemoPaths.from_workspace_root(Path(previous.workspace_dir))
-        _reset_turn_artifacts(previous_paths)
+        _reset_demo_artifacts(previous_paths)
         _mark_state_inactive(previous_paths.state_path, previous)
 
     if paths.state_path.exists():
@@ -1241,6 +1425,15 @@ def _next_turn_index(paths: DemoPaths) -> int:
     if not existing:
         return 1
     return max(record.turn_index for record in existing) + 1
+
+
+def _next_control_index(paths: DemoPaths) -> int:
+    """Return the next sequential control-input index for the workspace."""
+
+    existing = load_control_records(paths.controls_dir)
+    if not existing:
+        return 1
+    return max(record.control_index for record in existing) + 1
 
 
 def _write_launcher_config(
@@ -2093,6 +2286,13 @@ def _extract_done_message(events: list[dict[str, object]]) -> str:
         if event.get("kind") == "done":
             response_text = str(event.get("message", "")).strip()
     return response_text
+
+
+def _parse_control_action_summary(text: str, *, context: str) -> ControlActionSummary:
+    """Parse runtime control-input stdout into a validated control result summary."""
+
+    payload = _parse_json_output(text, context=context)
+    return _validate_model(ControlActionSummary, payload, source=context)
 
 
 def _load_json_file(path: Path, *, context: str) -> dict[str, object]:

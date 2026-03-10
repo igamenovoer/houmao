@@ -43,6 +43,14 @@ pixi run python scripts/agents/build_brain_home.py \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
 
+For the Yunwu-backed Codex profile:
+
+```bash
+pixi run python scripts/agents/build_brain_home.py \
+  --agent-def-dir tests/fixtures/agents \
+  --recipe brains/brain-recipes/codex/gpu-kernel-coder-yunwu-openai.yaml
+```
+
 ### From Explicit Inputs
 
 ```bash
@@ -53,6 +61,18 @@ pixi run python scripts/agents/build_brain_home.py \
   --skill openspec-verify-change \
   --config-profile default \
   --cred-profile personal-a-default
+```
+
+Or build the Yunwu-backed Codex agent explicitly:
+
+```bash
+pixi run python scripts/agents/build_brain_home.py \
+  --agent-def-dir tests/fixtures/agents \
+  --tool codex \
+  --skill openspec-apply-change \
+  --skill openspec-verify-change \
+  --config-profile yunwu-openai \
+  --cred-profile yunwu-openai
 ```
 
 Outputs:
@@ -80,9 +100,16 @@ Tool notes (current adapters):
 
 - `codex`
   - Home selector: `CODEX_HOME=<runtime-home>`
-  - Credential file: `files/auth.json` (projected into the runtime home).
+  - Optional login-state file: `files/auth.json` is projected into the runtime
+    home when the selected credential profile provides it.
   - Env vars: allowlisted keys from `env/vars.env` are projected into the home
     dotenv file (see `brains/tool-adapters/codex.yaml`).
+  - Custom OpenAI-compatible providers can use a secret-free config profile such
+    as `cli-configs/codex/yunwu-openai/` together with a local-only credential
+    profile such as `api-creds/codex/yunwu-openai/`.
+  - Launch preparation requires either a non-empty top-level JSON object in
+    `auth.json` or `OPENAI_API_KEY` in the effective runtime environment.
+    Placeholder `{}` files do not satisfy that requirement on their own.
 - `claude`
   - Home selector: `CLAUDE_CONFIG_DIR=<runtime-home>`
   - Local-only template input: `files/claude_state.template.json` projected to
@@ -111,10 +138,22 @@ After building, start the tool using the generated helper:
 tmp/agents-runtime/homes/<tool>/<home-id>/launch.sh
 ```
 
+Example live Codex smoke test for the Yunwu-backed profile:
+
+```bash
+tmp/agents-runtime/homes/codex/<home-id>/launch.sh exec --skip-git-repo-check \
+  'Respond with exactly this text and nothing else: YUNWU_CODEX_SMOKE_OK'
+```
+
+Treat the profile as working only when Codex returns exactly
+`YUNWU_CODEX_SMOKE_OK`.
+
 The helper:
 
 - exports the tool home selector env var (from the tool adapter), and
 - applies only allowlisted credential env vars (from the tool adapter + `vars.env`).
+- for Codex homes, runs shared Codex bootstrap validation/trust setup before
+  executing `codex`.
 - for Claude homes, runs shared Claude bootstrap validation/materialization
   before executing `claude`.
 

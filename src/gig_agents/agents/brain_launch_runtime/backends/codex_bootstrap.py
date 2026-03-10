@@ -2,36 +2,43 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Mapping
 
 from ..errors import BackendExecutionError
 
+_AUTH_FILENAME: Final[str] = "auth.json"
 _CONFIG_FILENAME: Final[str] = "config.toml"
 _TOP_LEVEL_KEY_RE_TEMPLATE: Final[str] = r"^\s*{key}\s*="
-_TABLE_HEADER_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*\[([^\[\]]+)\]\s*(?:#.*)?$"
-)
+_TABLE_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"^\s*\[([^\[\]]+)\]\s*(?:#.*)?$")
 
 
-def ensure_codex_home_bootstrap(*, home_path: Path, working_directory: Path) -> None:
+def ensure_codex_home_bootstrap(
+    *,
+    home_path: Path,
+    env: Mapping[str, str],
+    working_directory: Path,
+) -> None:
     """Ensure Codex runtime-home bootstrap invariants before launch.
 
     Parameters
     ----------
     home_path:
         Runtime Codex home path (`CODEX_HOME`).
+    env:
+        Effective launch environment values used to validate auth readiness.
     working_directory:
         Launch working directory used to resolve the trust target.
     """
 
     home_path.mkdir(parents=True, exist_ok=True)
+    _validate_codex_auth(home_path=home_path, env=env)
+
     config_path = home_path / _CONFIG_FILENAME
-    original_text = (
-        config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    )
+    original_text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     parsed = _parse_config_toml(config_path=config_path, raw_text=original_text)
     trust_target = _resolve_trust_target(working_directory)
 
@@ -62,6 +69,41 @@ def ensure_codex_home_bootstrap(*, home_path: Path, working_directory: Path) -> 
         config_path.write_text(updated_text, encoding="utf-8")
 
 
+def _validate_codex_auth(*, home_path: Path, env: Mapping[str, str]) -> None:
+    """Require either a usable auth.json login state or OPENAI_API_KEY."""
+
+    has_api_key = bool(env.get("OPENAI_API_KEY", "").strip())
+    has_auth_json = _has_usable_auth_json(home_path / _AUTH_FILENAME)
+    if has_api_key or has_auth_json:
+        return
+
+    raise BackendExecutionError(
+        "Codex launch requires either valid `auth.json` or `OPENAI_API_KEY`."
+    )
+
+
+def _has_usable_auth_json(auth_path: Path) -> bool:
+    """Return whether `auth.json` contains a non-empty top-level JSON object."""
+
+    if not auth_path.exists():
+        return False
+
+    try:
+        payload = json.loads(auth_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BackendExecutionError(
+            f"Malformed Codex auth file `{auth_path}`: {exc.msg} "
+            f"(line {exc.lineno}, column {exc.colno})."
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise BackendExecutionError(
+            f"Codex auth file `{auth_path}` must contain a top-level JSON object."
+        )
+
+    return bool(payload)
+
+
 def _parse_config_toml(*, config_path: Path, raw_text: str) -> dict[str, Any]:
     """Parse existing Codex config and fail fast on malformed TOML."""
 
@@ -70,9 +112,7 @@ def _parse_config_toml(*, config_path: Path, raw_text: str) -> dict[str, Any]:
     try:
         payload = tomllib.loads(raw_text)
     except tomllib.TOMLDecodeError as exc:
-        raise BackendExecutionError(
-            f"Malformed Codex config `{config_path}`: {exc}."
-        ) from exc
+        raise BackendExecutionError(f"Malformed Codex config `{config_path}`: {exc}.") from exc
     if not isinstance(payload, dict):
         raise BackendExecutionError(
             f"Codex config `{config_path}` must contain a top-level TOML table."
@@ -148,9 +188,7 @@ def _upsert_table_key(
     return _join_lines(lines)
 
 
-def _section_bounds(
-    lines: list[str], *, table_name: str
-) -> tuple[int | None, int | None]:
+def _section_bounds(lines: list[str], *, table_name: str) -> tuple[int | None, int | None]:
     """Return `(start, end)` line indexes for a named table section."""
 
     header_index: int | None = None

@@ -16,7 +16,9 @@ Schema (`schema_version: 1`):
 - `skills_projection.destination`: destination directory for selected skills
 - `skills_projection.mode`: `symlink` or `copy`
 - `credential_projection.files_dir`: credential files directory under a credential profile
-- `credential_projection.file_mappings[]`: `{source, destination, mode}`
+- `credential_projection.file_mappings[]`: `{source, destination, mode, required?}`
+  - `required` defaults to `true`
+  - mappings with `required: false` are skipped when the source file is absent
 - `credential_projection.env.source`: path to credential env file under a credential profile
 - `credential_projection.env.allowlist[]`: env vars allowed for launch injection
 

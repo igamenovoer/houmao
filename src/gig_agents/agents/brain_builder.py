@@ -25,6 +25,7 @@ class CredentialFileMapping:
     source: str
     destination: str
     mode: str
+    required: bool = True
 
 
 @dataclass(frozen=True)
@@ -109,9 +110,7 @@ def _write_mapping_file(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _require_mapping(
-    payload: dict[str, Any], key: str, *, where: str
-) -> dict[str, Any]:
+def _require_mapping(payload: dict[str, Any], key: str, *, where: str) -> dict[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict):
         raise BuildError(f"{where}: missing mapping `{key}`")
@@ -145,9 +144,7 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
     launch = _require_mapping(payload, "launch", where=str(path))
     config_projection = _require_mapping(payload, "config_projection", where=str(path))
     skills_projection = _require_mapping(payload, "skills_projection", where=str(path))
-    credential_projection = _require_mapping(
-        payload, "credential_projection", where=str(path)
-    )
+    credential_projection = _require_mapping(payload, "credential_projection", where=str(path))
     credential_env = _require_mapping(credential_projection, "env", where=str(path))
 
     env_injection = _require_mapping(launch, "env_injection", where=str(path))
@@ -159,26 +156,24 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
 
     env_file_in_home: str | None = env_injection.get("env_file_in_home")
     if env_file_in_home is not None and not isinstance(env_file_in_home, str):
-        raise BuildError(
-            f"{path}: launch.env_injection.env_file_in_home must be a string"
-        )
+        raise BuildError(f"{path}: launch.env_injection.env_file_in_home must be a string")
 
     file_mappings: list[CredentialFileMapping] = []
     for idx, raw_mapping in enumerate(credential_projection.get("file_mappings", [])):
         if not isinstance(raw_mapping, dict):
             raise BuildError(f"{path}: file_mappings[{idx}] must be a mapping")
+        required = raw_mapping.get("required", True)
+        if not isinstance(required, bool):
+            raise BuildError(f"{path}: file_mappings[{idx}].required must be a boolean")
         mapping = CredentialFileMapping(
-            source=_require_str(
-                raw_mapping, "source", where=f"{path}:file_mappings[{idx}]"
-            ),
+            required=required,
+            source=_require_str(raw_mapping, "source", where=f"{path}:file_mappings[{idx}]"),
             destination=_require_str(
                 raw_mapping,
                 "destination",
                 where=f"{path}:file_mappings[{idx}]",
             ),
-            mode=_require_str(
-                raw_mapping, "mode", where=f"{path}:file_mappings[{idx}]"
-            ),
+            mode=_require_str(raw_mapping, "mode", where=f"{path}:file_mappings[{idx}]"),
         )
         if mapping.mode not in {"symlink", "copy"}:
             raise BuildError(
@@ -198,21 +193,13 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
         launch_args=_require_str_list(launch, "args", where=str(path)),
         env_injection_mode=env_injection_mode,
         env_file_in_home=env_file_in_home,
-        config_destination=_require_str(
-            config_projection, "destination", where=str(path)
-        ),
-        skills_destination=_require_str(
-            skills_projection, "destination", where=str(path)
-        ),
+        config_destination=_require_str(config_projection, "destination", where=str(path)),
+        skills_destination=_require_str(skills_projection, "destination", where=str(path)),
         skills_mode=skills_mode,
-        credential_files_dir=_require_str(
-            credential_projection, "files_dir", where=str(path)
-        ),
+        credential_files_dir=_require_str(credential_projection, "files_dir", where=str(path)),
         credential_file_mappings=file_mappings,
         credential_env_source=_require_str(credential_env, "source", where=str(path)),
-        credential_env_allowlist=_require_str_list(
-            credential_env, "allowlist", where=str(path)
-        ),
+        credential_env_allowlist=_require_str_list(credential_env, "allowlist", where=str(path)),
     )
     return adapter
 
@@ -295,9 +282,7 @@ def _validate_skill_names(skills_root: Path, selected_skills: list[str]) -> None
         skill_dir = skills_root / skill
         skill_markdown = skill_dir / "SKILL.md"
         if not skill_dir.is_dir() or not skill_markdown.is_file():
-            raise BuildError(
-                f"Unknown skill `{skill}` (expected {skill_markdown} to exist)"
-            )
+            raise BuildError(f"Unknown skill `{skill}` (expected {skill_markdown} to exist)")
 
 
 def _generate_home_id(tool: str) -> str:
@@ -323,6 +308,11 @@ def _build_launch_helper(
     args = " ".join(shlex.quote(arg) for arg in adapter.launch_args)
     executable = shlex.quote(adapter.launch_executable)
     command_suffix = f" {args}" if args else ""
+    project_root = Path(__file__).resolve().parents[3]
+    pixi_manifest = project_root / "pixi.toml"
+    if not pixi_manifest.is_file():
+        pixi_manifest = project_root / "pyproject.toml"
+    src_root = Path(__file__).resolve().parents[2]
 
     script_lines: list[str] = [
         "#!/usr/bin/env bash",
@@ -354,10 +344,28 @@ def _build_launch_helper(
             ]
         )
 
+    if adapter.tool in {"claude", "codex"}:
+        script_lines.extend(
+            [
+                "BOOTSTRAP_PYTHON=()",
+                f"if command -v pixi >/dev/null 2>&1 && [[ -f {shlex.quote(str(pixi_manifest))} ]]; then",
+                f"  BOOTSTRAP_PYTHON=(pixi run --manifest-path {shlex.quote(str(pixi_manifest))} python)",
+                "else",
+                '  PYTHON_BIN="$(command -v python3 || command -v python || true)"',
+                '  if [[ -z "${PYTHON_BIN}" ]]; then',
+                '    echo "launch helper requires `pixi`, `python3`, or `python` on PATH." >&2',
+                "    exit 127",
+                "  fi",
+                f"  export PYTHONPATH={shlex.quote(str(src_root))}${{PYTHONPATH:+:${{PYTHONPATH}}}}",
+                '  BOOTSTRAP_PYTHON=("${PYTHON_BIN}")',
+                "fi",
+            ]
+        )
+
     if adapter.tool == "claude":
         script_lines.extend(
             [
-                "python - <<'PY'",
+                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
                 "from pathlib import Path",
                 "import os",
                 "",
@@ -368,6 +376,25 @@ def _build_launch_helper(
                 "ensure_claude_home_bootstrap(",
                 "    home_path=Path(os.environ['CLAUDE_CONFIG_DIR']),",
                 "    env=dict(os.environ),",
+                ")",
+                "PY",
+            ]
+        )
+    if adapter.tool == "codex":
+        script_lines.extend(
+            [
+                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
+                "from pathlib import Path",
+                "import os",
+                "",
+                "from gig_agents.agents.brain_launch_runtime.backends.codex_bootstrap import (",
+                "    ensure_codex_home_bootstrap,",
+                ")",
+                "",
+                "ensure_codex_home_bootstrap(",
+                "    home_path=Path(os.environ['CODEX_HOME']),",
+                "    env=dict(os.environ),",
+                "    working_directory=Path.cwd(),",
                 ")",
                 "PY",
             ]
@@ -397,18 +424,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     skills_root = agent_def_dir / "brains" / "skills"
     config_profile_dir = (
-        agent_def_dir
-        / "brains"
-        / "cli-configs"
-        / request.tool
-        / request.config_profile
+        agent_def_dir / "brains" / "cli-configs" / request.tool / request.config_profile
     )
     credential_profile_dir = (
-        agent_def_dir
-        / "brains"
-        / "api-creds"
-        / request.tool
-        / request.credential_profile
+        agent_def_dir / "brains" / "api-creds" / request.tool / request.credential_profile
     )
 
     if not skills_root.is_dir():
@@ -436,15 +455,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     home_path.mkdir(parents=True, exist_ok=request.reuse_home)
 
-    _validate_relative_path(
-        adapter.config_destination, field="config_projection.destination"
-    )
+    _validate_relative_path(adapter.config_destination, field="config_projection.destination")
     config_destination = home_path / adapter.config_destination
     _copy_directory_contents(config_profile_dir, config_destination)
 
-    _validate_relative_path(
-        adapter.skills_destination, field="skills_projection.destination"
-    )
+    _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination
     skill_destination_dir.mkdir(parents=True, exist_ok=True)
     for skill_name in request.skills:
@@ -452,9 +467,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
 
-    _validate_relative_path(
-        adapter.credential_files_dir, field="credential_projection.files_dir"
-    )
+    _validate_relative_path(adapter.credential_files_dir, field="credential_projection.files_dir")
     credential_files_dir = credential_profile_dir / adapter.credential_files_dir
     projected_credentials: list[dict[str, Any]] = []
     for mapping in adapter.credential_file_mappings:
@@ -468,10 +481,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         )
         source = credential_files_dir / mapping.source
         if not source.exists():
-            raise BuildError(
-                f"Missing credential file for mapping `{mapping.source}` in profile "
-                f"{credential_profile_dir}"
-            )
+            if mapping.required:
+                raise BuildError(
+                    f"Missing credential file for mapping `{mapping.source}` in profile "
+                    f"{credential_profile_dir}"
+                )
+            continue
         destination = home_path / mapping.destination
         _project_path(source, destination, mode=mapping.mode)
         projected_credentials.append(
@@ -479,23 +494,18 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 "source": str(source),
                 "destination": str(destination),
                 "mode": mapping.mode,
+                "required": mapping.required,
             }
         )
 
-    _validate_relative_path(
-        adapter.credential_env_source, field="credential_projection.env.source"
-    )
+    _validate_relative_path(adapter.credential_env_source, field="credential_projection.env.source")
     credential_env_file = credential_profile_dir / adapter.credential_env_source
     env_values = _parse_env_file(credential_env_file)
-    selected_env_names = [
-        key for key in adapter.credential_env_allowlist if key in env_values
-    ]
+    selected_env_names = [key for key in adapter.credential_env_allowlist if key in env_values]
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
-        _validate_relative_path(
-            env_file_in_home, field="launch.env_injection.env_file_in_home"
-        )
+        _validate_relative_path(env_file_in_home, field="launch.env_injection.env_file_in_home")
         _project_path(credential_env_file, home_path / env_file_in_home, mode="symlink")
 
     launch_helper_path = home_path / "launch.sh"
@@ -610,9 +620,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tool_raw = namespace.tool or (recipe.tool if recipe else None)
     skills_raw = namespace.skills or (recipe.skills if recipe else [])
-    config_profile_raw = namespace.config_profile or (
-        recipe.config_profile if recipe else None
-    )
+    config_profile_raw = namespace.config_profile or (recipe.config_profile if recipe else None)
     credential_profile_raw = namespace.cred_profile or (
         recipe.credential_profile if recipe else None
     )

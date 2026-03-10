@@ -44,6 +44,7 @@ credential_projection:
     - source: auth.json
       destination: auth.json
       mode: symlink
+      required: false
   env:
     source: env/vars.env
     allowlist:
@@ -55,9 +56,7 @@ credential_projection:
 
     _write(agent_def_dir / "brains/skills/skill-a/SKILL.md", "# skill-a\n")
     _write(agent_def_dir / "brains/skills/skill-b/SKILL.md", "# skill-b\n")
-    _write(
-        agent_def_dir / "brains/cli-configs/codex/default/config.toml", "model='x'\n"
-    )
+    _write(agent_def_dir / "brains/cli-configs/codex/default/config.toml", "model='x'\n")
     _write(
         agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json",
         '{"token": "secret"}\n',
@@ -112,8 +111,7 @@ credential_projection:
         '{"skipDangerousModePermissionPrompt": true}\n',
     )
     _write(
-        agent_def_dir
-        / "brains/api-creds/claude/personal-a/files/claude_state.template.json",
+        agent_def_dir / "brains/api-creds/claude/personal-a/files/claude_state.template.json",
         "{}\n",
     )
     _write(
@@ -154,6 +152,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "auth.json").is_symlink()
     assert (home / ".env").is_symlink()
     assert (home / "launch.sh").is_file()
+    launch_script = (home / "launch.sh").read_text(encoding="utf-8")
+    assert "ensure_codex_home_bootstrap" in launch_script
 
     manifest_text = result.manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text)
@@ -166,6 +166,60 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     ]
     assert "NOT_ALLOWLISTED" not in manifest_text
     assert "sk-test-123" not in manifest_text
+
+
+def test_build_brain_home_skips_missing_optional_credential_file(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    (agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json").unlink()
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="home-optional-auth",
+        )
+    )
+
+    assert not (result.home_path / "auth.json").exists()
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["credentials"]["projected_files"] == []
+
+
+def test_build_brain_home_still_requires_missing_required_credential_file(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    adapter_path = agent_def_dir / "brains/tool-adapters/codex.yaml"
+    adapter_text = adapter_path.read_text(encoding="utf-8").replace(
+        "required: false",
+        "required: true",
+    )
+    adapter_path.write_text(adapter_text, encoding="utf-8")
+    (agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json").unlink()
+
+    with pytest.raises(BuildError, match="Missing credential file"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="home-required-auth",
+            )
+        )
 
 
 def test_build_brain_home_is_fresh_by_default(tmp_path: Path) -> None:
@@ -244,6 +298,45 @@ def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> No
     }.issubset(allowlist)
 
 
+def test_tool_adapter_file_mappings_default_required_to_true(tmp_path: Path) -> None:
+    adapter_path = tmp_path / "codex.yaml"
+    _write(
+        adapter_path,
+        """
+schema_version: 1
+tool: codex
+home_selector:
+  env_var: CODEX_HOME
+launch:
+  executable: codex
+  args: []
+  env_injection:
+    mode: home_dotenv
+    env_file_in_home: .env
+config_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+credential_projection:
+  files_dir: files
+  file_mappings:
+    - source: auth.json
+      destination: auth.json
+      mode: symlink
+  env:
+    source: env/vars.env
+    allowlist:
+      - OPENAI_API_KEY
+""".strip()
+        + "\n",
+    )
+
+    adapter = _load_tool_adapter(adapter_path)
+
+    assert adapter.credential_file_mappings[0].required is True
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -253,9 +346,7 @@ def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> No
         ("missing_creds", "Missing credential profile"),
     ],
 )
-def test_build_brain_home_validation_errors(
-    tmp_path: Path, mutation: str, message: str
-) -> None:
+def test_build_brain_home_validation_errors(tmp_path: Path, mutation: str, message: str) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
@@ -282,9 +373,7 @@ def test_build_brain_home_validation_errors(
                 agent_def_dir=agent_def_dir,
                 runtime_root=agent_def_dir / "tmp/agents-runtime",
                 tool="codex",
-                skills=[requested_skill]
-                if mutation == "unknown_skill"
-                else ["skill-a"],
+                skills=[requested_skill] if mutation == "unknown_skill" else ["skill-a"],
                 config_profile="default",
                 credential_profile="personal-a",
                 home_id="home-001",

@@ -106,6 +106,7 @@ class HeadlessInteractiveSession:
         if self._plan.tool == "codex":
             ensure_codex_home_bootstrap(
                 home_path=self._plan.home_path,
+                env=env,
                 working_directory=self._plan.working_directory,
             )
 
@@ -133,9 +134,7 @@ class HeadlessInteractiveSession:
 
         events = list(run_result.events)
         if self._state.session_id is None:
-            raise BackendExecutionError(
-                f"{self.backend}: missing session_id in bootstrap output"
-            )
+            raise BackendExecutionError(f"{self.backend}: missing session_id in bootstrap output")
 
         events.append(
             SessionEvent(
@@ -274,9 +273,7 @@ class HeadlessInteractiveSession:
             )
         if has.returncode not in {1, 2}:
             detail = tmux_error_detail_shared(has) or "unknown tmux error"
-            raise BackendExecutionError(
-                f"Failed to query tmux session `{session_name}`: {detail}"
-            )
+            raise BackendExecutionError(f"Failed to query tmux session `{session_name}`: {detail}")
 
         try:
             create_tmux_session_shared(
@@ -307,6 +304,7 @@ class HeadlessInteractiveSession:
         if self._plan.tool == "codex":
             ensure_codex_home_bootstrap(
                 home_path=self._plan.home_path,
+                env=launch_env,
                 working_directory=self._plan.working_directory,
             )
 

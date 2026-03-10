@@ -27,6 +27,7 @@ agents/brains/
 Use profile names that encode provider + account + intent, for example:
 
 - `personal-a-default`
+- `yunwu-openai`
 - `team-burst-research`
 - `service-ci-readonly`
 

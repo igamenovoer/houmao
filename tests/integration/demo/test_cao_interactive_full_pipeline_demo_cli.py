@@ -119,6 +119,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
             else:
                 state = {}
             state.setdefault("turn_count", 0)
+            state.setdefault("control_count", 0)
             state.setdefault("tmux_sessions", [])
 
             args = sys.argv[1:]
@@ -162,6 +163,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 raise SystemExit(proc.returncode)
 
             status_mode = os.environ.get("FAKE_CAO_STATUS_MODE", "unhealthy")
+            stop_session_mode = os.environ.get("FAKE_STOP_SESSION_MODE", "ok")
             if module == "gig_agents.cao.tools.cao_server_launcher":
                 subcommand = args[4]
                 if subcommand == "status":
@@ -295,8 +297,38 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     )
                     raise SystemExit(0)
 
+                if subcommand == "send-keys":
+                    state["control_count"] = int(state.get("control_count", 0)) + 1
+                    sequence = arg_value("--sequence")
+                    save_state()
+                    print(
+                        json.dumps(
+                            {
+                                "status": "ok",
+                                "action": "control_input",
+                                "detail": f"control {state['control_count']}: {sequence}",
+                            }
+                        )
+                    )
+                    raise SystemExit(0)
+
                 if subcommand == "stop-session":
                     agent_identity = arg_value("--agent-identity")
+                    if stop_session_mode == "connection-refused":
+                        save_state()
+                        print(
+                            json.dumps(
+                                {
+                                    "status": "error",
+                                    "action": "terminate",
+                                    "detail": (
+                                        "delete terminal failed: [Errno 111] Connection refused; "
+                                        "delete session failed: [Errno 111] Connection refused"
+                                    ),
+                                }
+                            )
+                        )
+                        raise SystemExit(2)
                     state["tmux_sessions"] = [
                         session for session in state["tmux_sessions"] if session != agent_identity
                     ]
@@ -332,6 +364,7 @@ def _build_env(tmp_path: Path, repo_root: Path) -> dict[str, str]:
     env["FAKE_PIXI_STATE"] = str(fake_state_path)
     env["FAKE_PIXI_COMMAND_LOG"] = str(fake_command_log_path)
     env["FAKE_CAO_STATUS_MODE"] = "unhealthy"
+    env["FAKE_STOP_SESSION_MODE"] = "ok"
     env[TEST_LOOPBACK_PORT_LISTENING_ENV] = "0"
     return env
 
@@ -422,6 +455,100 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     )
 
 
+def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    env = _build_env(tmp_path, repo_root)
+    outside_cwd = tmp_path / "outside"
+    outside_cwd.mkdir(parents=True, exist_ok=True)
+
+    _run([str(demo_pack_dir / "launch_alice.sh"), "-y"], env=env, cwd=outside_cwd)
+    _run(
+        [str(demo_pack_dir / "send_prompt.sh"), "-y", "--prompt", "first turn"],
+        env=env,
+        cwd=outside_cwd,
+    )
+    _run(
+        [str(demo_pack_dir / "send_keys.sh"), "-y", "<[Escape]>"],
+        env=env,
+        cwd=outside_cwd,
+    )
+    _run(
+        [
+            str(demo_pack_dir / "run_demo.sh"),
+            "-y",
+            "send-keys",
+            "/model<[Enter]>",
+            "--as-raw-string",
+        ],
+        env=env,
+        cwd=outside_cwd,
+    )
+    verify_result = _run(
+        [str(demo_pack_dir / "run_demo.sh"), "verify"],
+        env=env,
+        cwd=outside_cwd,
+        check=False,
+    )
+    assert verify_result.returncode == 2
+
+    _run(
+        [str(demo_pack_dir / "send_prompt.sh"), "-y", "--prompt", "second turn"],
+        env=env,
+        cwd=outside_cwd,
+    )
+    verify_result = _run(
+        [str(demo_pack_dir / "run_demo.sh"), "verify"],
+        env=env,
+        cwd=outside_cwd,
+    )
+
+    current_run_root_path = (
+        repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
+    )
+    workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
+    state = json.loads((workspace_root / "state.json").read_text(encoding="utf-8"))
+    report = json.loads((workspace_root / "report.json").read_text(encoding="utf-8"))
+    control_one = json.loads(
+        (workspace_root / "controls" / "control-001.json").read_text(encoding="utf-8")
+    )
+    control_two = json.loads(
+        (workspace_root / "controls" / "control-002.json").read_text(encoding="utf-8")
+    )
+
+    assert state["turn_count"] == 2
+    assert state["control_count"] == 2
+    assert report["turn_count"] == 2
+    assert control_one["key_stream"] == "<[Escape]>"
+    assert control_one["as_raw_string"] is False
+    assert control_one["result"]["action"] == "control_input"
+    assert control_two["key_stream"] == "/model<[Enter]>"
+    assert control_two["as_raw_string"] is True
+    assert Path(control_one["stdout_path"]).name == "control-001.stdout.json"
+    assert Path(control_two["stderr_path"]).name == "control-002.stderr.log"
+    assert FIXED_CAO_BASE_URL in verify_result.stdout
+
+    command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
+    send_keys_calls = [
+        entry
+        for entry in command_log
+        if entry["module"] == "gig_agents.agents.brain_launch_runtime"
+        and entry["args"][4] == "send-keys"
+    ]
+    assert len(send_keys_calls) == 2
+
+    first_args = send_keys_calls[0]["args"]
+    second_args = send_keys_calls[1]["args"]
+    assert first_args[first_args.index("--sequence") + 1] == "<[Escape]>"
+    assert "--escape-special-keys" not in first_args
+    assert second_args[second_args.index("--sequence") + 1] == "/model<[Enter]>"
+    assert "--escape-special-keys" in second_args
+
+
 def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -442,6 +569,11 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
         env=env,
         cwd=repo_root,
     )
+    _run(
+        [str(demo_pack_dir / "send_keys.sh"), "<[Escape]>"],
+        env=env,
+        cwd=repo_root,
+    )
     _run([str(demo_pack_dir / "run_demo.sh"), "verify"], env=env, cwd=repo_root)
 
     current_run_root_path = (
@@ -450,6 +582,7 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
     first_workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
     assert (first_workspace_root / "report.json").exists()
     assert list((first_workspace_root / "turns").glob("turn-*.json"))
+    assert list((first_workspace_root / "controls").glob("*"))
 
     env["FAKE_CAO_STATUS_MODE"] = "verified"
     _run(
@@ -463,6 +596,7 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
     assert second_workspace_root != first_workspace_root
     assert not (first_workspace_root / "report.json").exists()
     assert list((first_workspace_root / "turns").glob("turn-*.json")) == []
+    assert list((first_workspace_root / "controls").glob("*")) == []
 
     command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
     assert any(
@@ -489,6 +623,38 @@ def test_demo_wrapper_yes_flag_bypasses_verified_cao_replacement_prompt(
         entry["module"] == "gig_agents.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
         for entry in command_log
     )
+
+
+def test_demo_stop_tolerates_dead_remote_session_and_cleans_tmux(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    env = _build_env(tmp_path, repo_root)
+
+    _run([str(demo_pack_dir / "launch_alice.sh"), "-y"], env=env, cwd=repo_root)
+    env["FAKE_STOP_SESSION_MODE"] = "connection-refused"
+
+    stop_result = _run(
+        [str(demo_pack_dir / "run_demo.sh"), "stop"],
+        env=env,
+        cwd=repo_root,
+    )
+
+    current_run_root_path = (
+        repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
+    )
+    workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
+    state = json.loads((workspace_root / "state.json").read_text(encoding="utf-8"))
+    stop_payload = json.loads(stop_result.stdout)
+    fake_state = json.loads(Path(env["FAKE_PIXI_STATE"]).read_text(encoding="utf-8"))
+
+    assert state["active"] is False
+    assert stop_payload["state"]["active"] is False
+    assert stop_payload["stop_result"]["stale_session_tolerated"] is True
+    assert fake_state["tmux_sessions"] == []
 
 
 def test_demo_wrapper_fails_when_existing_service_is_not_verified_cao_server(

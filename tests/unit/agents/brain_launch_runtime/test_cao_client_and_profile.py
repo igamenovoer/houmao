@@ -624,6 +624,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert env_vars["INHERITED_CALLER_ENV"] == "caller-value"
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str(tmp_path / "session.json")
     assert captured_codex_bootstrap["home_path"] == tmp_path / "home"
+    assert captured_codex_bootstrap["env"]["OPENAI_API_KEY"] == "secret"
     assert captured_codex_bootstrap["working_directory"] == tmp_path
     assert captured_create_terminal["session_name"] == captured_tmux["session_name"]
     assert captured_create_terminal["provider"] == "codex"
