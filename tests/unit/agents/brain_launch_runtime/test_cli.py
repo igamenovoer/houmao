@@ -263,3 +263,99 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     assert captured_kwargs["agent_def_dir"] == (
         tmp_path / ".agentsys" / "agents"
     ).resolve()
+
+
+def test_send_keys_forwards_sequence_and_escape_mode(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeController:
+        def send_input_ex(
+            self,
+            sequence: str,
+            *,
+            escape_special_keys: bool = False,
+        ) -> SessionControlResult:
+            captured["sequence"] = sequence
+            captured["escape_special_keys"] = escape_special_keys
+            return SessionControlResult(
+                status="ok",
+                action="control_input",
+                detail="sent",
+            )
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "send-keys",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--sequence",
+            "/model<[Enter]>",
+            "--escape-special-keys",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["sequence"] == "/model<[Enter]>"
+    assert captured["escape_special_keys"] is True
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "control_input"
+    assert payload["status"] == "ok"
+
+
+def test_send_keys_returns_error_exit_code_on_control_input_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class _FakeController:
+        def send_input_ex(
+            self,
+            sequence: str,
+            *,
+            escape_special_keys: bool = False,
+        ) -> SessionControlResult:
+            del sequence, escape_special_keys
+            return SessionControlResult(
+                status="error",
+                action="control_input",
+                detail="unsupported backend",
+            )
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "send-keys",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--sequence",
+            "<[Escape]>",
+        ]
+    )
+
+    assert exit_code == 2

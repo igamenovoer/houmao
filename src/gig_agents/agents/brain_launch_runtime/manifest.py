@@ -124,6 +124,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             "terminal_id": str(request.backend_state.get("terminal_id", "")),
             "profile_name": str(request.backend_state.get("profile_name", "")),
             "profile_path": str(request.backend_state.get("profile_path", "")),
+            "tmux_window_name": request.backend_state.get("tmux_window_name"),
             "parsing_mode": str(request.backend_state.get("parsing_mode", "")),
             "turn_index": int(request.backend_state.get("turn_index", 0)),
         }

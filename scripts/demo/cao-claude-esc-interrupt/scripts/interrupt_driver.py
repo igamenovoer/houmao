@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from gig_agents.agents.brain_launch_runtime.runtime import resume_runtime_session
 from gig_agents.agents.brain_launch_runtime.backends.claude_code_shadow import (
     ClaudeCodeExtractionResult,
     ClaudeCodeShadowParseError,
@@ -37,6 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run CAO Claude Esc-interrupt flow and write JSON output"
     )
+    parser.add_argument("--agent-def-dir", type=Path, required=True)
     parser.add_argument("--agent-identity", type=Path, required=True)
     parser.add_argument("--first-prompt-file", type=Path, required=True)
     parser.add_argument("--second-prompt-file", type=Path, required=True)
@@ -133,19 +134,14 @@ def _wait_for_shadow_status(
     raise TimeoutError(detail)
 
 
-def _send_escape_key(tmux_target: str) -> None:
-    try:
-        subprocess.run(
-            ["tmux", "send-keys", "-t", tmux_target, "Escape"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or "").strip()
-        raise RuntimeError(
-            f"tmux send-keys failed for target {tmux_target}: {detail or 'unknown tmux error'}"
-        ) from exc
+def _send_escape_key(*, agent_def_dir: Path, session_manifest_path: Path) -> None:
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir.resolve(),
+        session_manifest_path=session_manifest_path.resolve(),
+    )
+    result = controller.send_input_ex("<[Escape]>")
+    if result.status != "ok":
+        raise RuntimeError(f"runtime send-keys failed: {result.detail}")
 
 
 def _extract_second_answer(
@@ -219,7 +215,10 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
         raise ProcessingNotObservedError(str(exc)) from exc
 
     escape_baseline_pos = parser.capture_baseline_pos(processing_poll.scrollback)
-    _send_escape_key(tmux_target)
+    _send_escape_key(
+        agent_def_dir=args.agent_def_dir,
+        session_manifest_path=args.agent_identity,
+    )
 
     idle_poll = _wait_for_shadow_status(
         client=client,

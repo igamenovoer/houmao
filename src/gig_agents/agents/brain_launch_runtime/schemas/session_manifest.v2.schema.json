@@ -24,6 +24,18 @@
           "title": "Profile Path",
           "type": "string"
         },
+        "tmux_window_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Window Name"
+        },
         "session_name": {
           "title": "Session Name",
           "type": "string"

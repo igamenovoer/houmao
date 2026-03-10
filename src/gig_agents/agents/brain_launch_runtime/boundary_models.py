@@ -107,6 +107,7 @@ class CaoSectionV2(_StrictBoundaryModel):
     terminal_id: str
     profile_name: str
     profile_path: str
+    tmux_window_name: str | None = None
     parsing_mode: CaoParsingMode
     turn_index: int = 0
 
@@ -119,6 +120,15 @@ class CaoSectionV2(_StrictBoundaryModel):
     )
     @classmethod
     def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("tmux_window_name")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value

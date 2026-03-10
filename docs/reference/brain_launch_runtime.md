@@ -4,7 +4,7 @@
 
 - composing `{brain manifest, role}` into a backend launch plan,
 - starting interactive sessions (local or CAO),
-- sending prompts across resumed sessions,
+- sending prompts or raw control input across resumed sessions,
 - persisting schema-validated session manifests.
 
 ## CLI Entry Point
@@ -20,7 +20,13 @@ Supported commands:
 - `build-brain`
 - `start-session`
 - `send-prompt`
+- `send-keys`
 - `stop-session`
+
+Command intent:
+
+- Use `send-prompt` for normal prompt turns that should wait for readiness/completion and advance turn state.
+- Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
 
 ## Agent Definition Directory Resolution
 
@@ -239,6 +245,11 @@ pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Continue from the prior answer"
 
+pixi run python -m gig_agents.agents.brain_launch_runtime send-keys \
+  --agent-def-dir tests/fixtures/agents \
+  --agent-identity AGENTSYS-gpu \
+  --sequence '/model<[Enter]><[Down]><[Enter]>'
+
 pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
   --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu
@@ -253,10 +264,15 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
 
 Behavior:
 
-- For resumed CAO operations (`send-prompt`, `stop-session`), runtime addresses
+- For resumed CAO operations (`send-prompt`, `send-keys`, `stop-session`), runtime addresses
   the session strictly from the persisted manifest (`cao.api_base_url`,
   `cao.terminal_id`) after resolving `--agent-identity`; there is no resume-time
   `--cao-base-url` override.
+- `send-prompt` remains the high-level prompt-turn path. It waits for readiness/completion, uses the configured parsing mode, and advances persisted turn state.
+- `send-keys` is CAO-only in the first release. It resolves the tmux target from persisted CAO session state, reuses `cao.tmux_window_name` when available, falls back to live `GET /terminals/{id}` metadata when older manifests do not yet persist the window name, and returns one JSON control result immediately after delivery.
+- `send-keys --sequence` accepts mixed literal text plus exact tmux special-key tokens in the form `<[key-name]>`. Recognition is case-sensitive, whitespace inside the token disables recognition and leaves the substring literal, and `--escape-special-keys` sends the full string literally.
+- Guaranteed exact key names for `send-keys`: `Enter`, `Escape`, `Up`, `Down`, `Left`, `Right`, `Tab`, `BSpace`, `C-c`, `C-d`, and `C-z`.
+- `send-keys` never appends an implicit trailing `Enter`; include `<[Enter]>` explicitly when submit behavior is desired.
 - CAO turn parsing mode is explicitly resolved to one of:
   - `cao_only`
   - `shadow_only`
@@ -308,7 +324,7 @@ when they are missing from `PATH`.
 - For tmux-backed sessions runtime sets
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` in tmux session env.
 - To discover active agent identities, run `tmux ls` and use returned
-  `AGENTSYS-...` names with `send-prompt` / `stop-session`.
+  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `stop-session`.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:

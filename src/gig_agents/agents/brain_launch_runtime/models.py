@@ -156,10 +156,10 @@ class SessionEvent:
 
 @dataclass(frozen=True)
 class SessionControlResult:
-    """Outcome for interrupt/terminate operations."""
+    """Outcome for runtime control operations."""
 
     status: Literal["ok", "error"]
-    action: Literal["interrupt", "terminate"]
+    action: Literal["interrupt", "terminate", "control_input"]
     detail: str
 
 

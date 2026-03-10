@@ -201,6 +201,11 @@ Expected behavior:
 - `business_state` should return to `idle`,
 - historical slash-command output may remain visible in `dialog_projection` without blocking submission.
 
+Operator note:
+
+- Use runtime `send-keys` for live slash-command/menu navigation or raw `Escape`/arrow-key injection.
+- Use `send-prompt` only for ordinary prompt turns that should wait for readiness/completion.
+
 If readiness is still blocked, inspect `surface_assessment` first. The likely remaining causes are:
 
 - the active prompt is still actually in slash-command interaction,

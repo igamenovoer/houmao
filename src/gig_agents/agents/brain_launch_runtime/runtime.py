@@ -114,6 +114,44 @@ class RuntimeSessionController:
         self.persist_manifest()
         return result
 
+    def send_input_ex(
+        self, sequence: str, *, escape_special_keys: bool = False
+    ) -> SessionControlResult:
+        """Send raw control input and persist any updated backend state.
+
+        Parameters
+        ----------
+        sequence:
+            Mixed literal/special-key control-input sequence to deliver.
+        escape_special_keys:
+            When true, disable `<[key-name]>` parsing and send the full
+            sequence literally.
+
+        Returns
+        -------
+        SessionControlResult
+            Control-action result describing whether delivery succeeded.
+        """
+
+        if isinstance(self.backend_session, CaoRestSession):
+            result = self.backend_session.send_input_ex(
+                sequence,
+                escape_special_keys=escape_special_keys,
+            )
+            self.persist_manifest()
+            return result
+
+        result = SessionControlResult(
+            status="error",
+            action="control_input",
+            detail=(
+                "Raw control input is only supported for resumed "
+                f"backend=cao_rest sessions, got backend={self.launch_plan.backend!r}."
+            ),
+        )
+        self.persist_manifest()
+        return result
+
     def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
         """Terminate backend resources and persist state."""
 
@@ -556,12 +594,36 @@ def _resume_cao_state(
             "cao.parsing_mode must equal backend_state.parsing_mode"
         )
 
+    tmux_window_name: str | None = None
+    if cao.tmux_window_name is not None:
+        tmux_window_name = cao.tmux_window_name.strip()
+
+    backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
+    if backend_tmux_window_name is not None:
+        if (
+            not isinstance(backend_tmux_window_name, str)
+            or not backend_tmux_window_name.strip()
+        ):
+            raise SessionManifestError(
+                "CAO session manifest backend_state.tmux_window_name must be a "
+                "non-empty string when present"
+            )
+        resolved_backend_tmux_window_name = backend_tmux_window_name.strip()
+        if tmux_window_name is None:
+            tmux_window_name = resolved_backend_tmux_window_name
+        elif tmux_window_name != resolved_backend_tmux_window_name:
+            raise SessionManifestError(
+                "CAO session manifest tmux_window_name mismatch: "
+                "cao.tmux_window_name must equal backend_state.tmux_window_name"
+            )
+
     return CaoSessionState(
         api_base_url=persisted_api_base_url,
         session_name=session_name,
         terminal_id=terminal_id,
         profile_name=profile_name,
         profile_path=profile_path,
+        tmux_window_name=tmux_window_name,
         parsing_mode=parsing_mode,
         turn_index=cao.turn_index,
     )

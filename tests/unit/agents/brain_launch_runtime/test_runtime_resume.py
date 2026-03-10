@@ -263,6 +263,56 @@ def test_resume_cao_rejects_blank_terminal_id(tmp_path: Path) -> None:
         )
 
 
+def test_resume_cao_accepts_older_manifest_without_tmux_window_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="codex",
+        backend="cao_rest",
+        backend_state={
+            "api_base_url": "http://manifest-only.example:9444",
+            "session_name": "cao-s1",
+            "terminal_id": "term-123",
+            "profile_name": "runtime-profile",
+            "profile_path": str(tmp_path / "runtime-profile.md"),
+            "parsing_mode": "shadow_only",
+            "turn_index": 2,
+        },
+    )
+    session_payload["cao"].pop("tmux_window_name", None)
+    session_payload["backend_state"].pop("tmux_window_name", None)
+    session_path = tmp_path / "session-cao-no-window.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeCaoRestSession:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.state = type(
+                "State",
+                (),
+                {"parsing_mode": "shadow_only", "session_name": "cao-s1"},
+            )()
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.runtime.CaoRestSession",
+        _FakeCaoRestSession,
+    )
+
+    resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert captured["existing_state"].tmux_window_name is None
+
+
 def test_cao_manifest_payload_persists_parsing_mode(tmp_path: Path) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)

@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_start_session(args)
         if args.command == "send-prompt":
             return _cmd_send_prompt(args)
+        if args.command == "send-keys":
+            return _cmd_send_keys(args)
         if args.command == "stop-session":
             return _cmd_stop_session(args)
     except BrainLaunchRuntimeError as exc:
@@ -145,6 +147,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Agent name or manifest path",
     )
     prompt.add_argument("--prompt", required=True, help="Prompt text")
+
+    send_keys = subparsers.add_parser(
+        "send-keys",
+        help="Send raw control input to a resumed session",
+    )
+    send_keys.add_argument(
+        "--agent-def-dir",
+        default=None,
+        help=(
+            "Agent definition directory root (contains brains/, roles/, blueprints/). "
+            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+        ),
+    )
+    send_keys.add_argument(
+        "--agent-identity",
+        required=True,
+        help="Agent name or manifest path",
+    )
+    send_keys.add_argument(
+        "--sequence",
+        required=True,
+        help="Mixed literal/special-key control-input sequence",
+    )
+    send_keys.add_argument(
+        "--escape-special-keys",
+        action="store_true",
+        help="Send the full sequence literally without parsing <[key-name]> tokens",
+    )
 
     stop = subparsers.add_parser("stop-session", help="Stop a session")
     stop.add_argument(
@@ -288,6 +318,29 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
     for event in events:
         print(json.dumps(asdict(event), sort_keys=True))
     return 0
+
+
+def _cmd_send_keys(args: argparse.Namespace) -> int:
+    cwd = Path.cwd().resolve()
+    agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
+    resolved = resolve_agent_identity(
+        agent_identity=args.agent_identity,
+        base=cwd,
+    )
+    for warning in resolved.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=resolved.session_manifest_path,
+    )
+
+    result = controller.send_input_ex(
+        args.sequence,
+        escape_special_keys=bool(args.escape_special_keys),
+    )
+    print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    return 0 if result.status == "ok" else 2
 
 
 def _cmd_stop_session(args: argparse.Namespace) -> int:

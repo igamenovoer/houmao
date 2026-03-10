@@ -44,6 +44,7 @@ coverage.xml
 
 # Runtime artifacts (tmux sessions, captures, logs)
 tmp/
+.shadow-repo/
 *.log
 .agentsys/
 tmp/agents-runtime/
@@ -53,10 +54,10 @@ tmp/brains/
 
 # Local credential/state paths under user-provided libraries
 **/.claude.json
-**/.gemini/
-**/.codex/
-**/.claude/
-**/.aws/cli-agent-orchestrator/
+.gemini/
+.codex/
+.claude/
+.aws/cli-agent-orchestrator/
 
 # Generated docs
 site/

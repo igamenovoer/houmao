@@ -161,3 +161,32 @@ def test_legacy_cao_manifest_schema_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(SessionManifestError, match="schema-version mismatch"):
         load_session_manifest(path)
+
+
+def test_cao_manifest_round_trip_persists_optional_tmux_window_name(
+    tmp_path: Path,
+) -> None:
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_cao_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            backend_state={
+                "api_base_url": "http://localhost:9889",
+                "session_name": "AGENTSYS-gpu",
+                "terminal_id": "term-123",
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "tmux_window_name": "developer-1",
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+            },
+        )
+    )
+
+    path = tmp_path / "cao-session.json"
+    write_session_manifest(path, payload)
+    loaded = load_session_manifest(path)
+
+    assert loaded.payload["cao"]["tmux_window_name"] == "developer-1"
+    assert loaded.payload["backend_state"]["tmux_window_name"] == "developer-1"

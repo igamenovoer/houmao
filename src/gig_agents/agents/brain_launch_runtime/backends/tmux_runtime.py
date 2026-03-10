@@ -2,16 +2,63 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 
 from ..agent_identity import AGENT_NAMESPACE_PREFIX, derive_auto_agent_name_base
 
 
 class TmuxCommandError(RuntimeError):
     """Raised when a tmux command cannot be executed reliably."""
+
+
+class TmuxControlInputError(ValueError):
+    """Signal invalid mixed control-input syntax or unsupported key tokens.
+
+    Notes
+    -----
+    This exception is raised when parsing detects malformed or unsupported
+    exact `<[key-name]>` control-input tokens.
+    """
+
+
+@dataclass(frozen=True)
+class TmuxControlInputSegment:
+    """One parsed control-input segment for tmux delivery.
+
+    Attributes
+    ----------
+    kind:
+        Segment category, either literal text or one supported special key.
+    value:
+        Payload for the segment. Literal segments keep the raw text while
+        special segments store the tmux key name.
+    """
+
+    kind: Literal["literal", "special"]
+    value: str
+
+
+_TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
+_SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
+    {
+        "BSpace",
+        "C-c",
+        "C-d",
+        "C-z",
+        "Down",
+        "Enter",
+        "Escape",
+        "Left",
+        "Right",
+        "Tab",
+        "Up",
+    }
+)
 
 
 def ensure_tmux_available() -> None:
@@ -117,6 +164,97 @@ def wait_for_tmux_signal(
     """Wait for a tmux wait-for signal."""
 
     return run_tmux(["wait-for", signal_name], timeout_seconds=timeout_seconds)
+
+
+def parse_tmux_control_input(
+    *, sequence: str, escape_special_keys: bool = False
+) -> tuple[TmuxControlInputSegment, ...]:
+    """Parse a mixed literal/special-key tmux input sequence.
+
+    Parameters
+    ----------
+    sequence:
+        Raw caller-provided control-input string.
+    escape_special_keys:
+        When true, disable special-key token parsing for the entire string.
+
+    Returns
+    -------
+    tuple[TmuxControlInputSegment, ...]
+        Ordered literal/special segments ready for tmux delivery.
+
+    Raises
+    ------
+    TmuxControlInputError
+        Raised when the sequence is empty or contains an unsupported exact
+        `<[key-name]>` token.
+    """
+
+    if not sequence:
+        raise TmuxControlInputError("Control-input sequence must not be empty.")
+    if escape_special_keys:
+        return (TmuxControlInputSegment(kind="literal", value=sequence),)
+
+    segments: list[TmuxControlInputSegment] = []
+    cursor = 0
+    for match in _TMUX_SPECIAL_KEY_TOKEN_RE.finditer(sequence):
+        if match.start() > cursor:
+            segments.append(
+                TmuxControlInputSegment(
+                    kind="literal",
+                    value=sequence[cursor : match.start()],
+                )
+            )
+
+        token = match.group(0)
+        key_name = match.group(1)
+        if key_name not in _SUPPORTED_TMUX_SPECIAL_KEYS:
+            raise TmuxControlInputError(
+                f"Unsupported control-input token {token!r}. "
+                "Supported exact key names: "
+                f"{', '.join(sorted(_SUPPORTED_TMUX_SPECIAL_KEYS))}."
+            )
+        segments.append(TmuxControlInputSegment(kind="special", value=key_name))
+        cursor = match.end()
+
+    if cursor < len(sequence):
+        segments.append(
+            TmuxControlInputSegment(kind="literal", value=sequence[cursor:])
+        )
+
+    return tuple(segment for segment in segments if segment.value)
+
+
+def send_tmux_control_input(
+    *, target: str, segments: tuple[TmuxControlInputSegment, ...]
+) -> None:
+    """Deliver parsed control-input segments to a tmux target in order.
+
+    Parameters
+    ----------
+    target:
+        Tmux target accepted by `tmux send-keys`, typically a resolved window id.
+    segments:
+        Parsed control-input sequence to deliver left-to-right.
+
+    Raises
+    ------
+    TmuxCommandError
+        Raised when tmux rejects any segment delivery command.
+    """
+
+    for segment in segments:
+        if segment.kind == "literal":
+            result = run_tmux(["send-keys", "-t", target, "-l", segment.value])
+        else:
+            result = run_tmux(["send-keys", "-t", target, segment.value])
+        if result.returncode == 0:
+            continue
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            "Failed to send tmux control input "
+            f"to `{target}`: {detail or 'unknown tmux error'}"
+        )
 
 
 def generate_tmux_session_name(

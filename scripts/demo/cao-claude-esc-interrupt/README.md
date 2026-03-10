@@ -1,6 +1,6 @@
 # Claude CAO Esc-Interrupt Demo
 
-This demo validates that a CAO-managed Claude Code session can be interrupted with a real tmux `Esc` keypress and can still answer a follow-up prompt.
+This demo validates that a CAO-managed Claude Code session can be interrupted through runtime-owned `send-keys` control input and can still answer a follow-up prompt.
 
 ## Prerequisites
 
@@ -19,8 +19,8 @@ This demo validates that a CAO-managed Claude Code session can be interrupted wi
 3. Runs `scripts/interrupt_driver.py` to:
    - submit a long-ish first prompt,
    - wait for `processing`,
-   - resolve tmux target via `GET /terminals/{id}` (`terminal.name`),
-   - send `Esc` using `tmux send-keys -t <session_name>:<window_name> Escape`,
+   - resolve CAO/shadow-parser observation fields from the session manifest and live terminal metadata,
+   - send `Esc` using runtime `send-keys` / `send_input_ex("<[Escape]>")`,
    - wait for `idle`,
    - submit a second prompt and extract a non-empty answer.
 4. Writes `report.json` and verifies it against `expected_report/report.json`.
@@ -39,7 +39,7 @@ scripts/demo/cao-claude-esc-interrupt/run_demo.sh --snapshot-report
 
 ## Local-Only Behavior
 
-- This demo is intentionally local-only because it injects a key into local tmux.
+- This demo is intentionally local-only because runtime `send-keys` targets the local tmux-backed CAO terminal.
 - If `CAO_BASE_URL` is not `http://localhost:9889` or `http://127.0.0.1:9889`, the script exits `0` with a `SKIP:` message.
 - If processing is not observed quickly after first prompt, the script exits `0` with `SKIP:` to avoid flaky false failures.
 - If CAO cannot load the generated runtime profile, the script exits `0` with `SKIP: CAO profile store mismatch` (not `missing credentials`).

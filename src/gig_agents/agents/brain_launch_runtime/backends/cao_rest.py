@@ -53,8 +53,11 @@ from .tmux_runtime import (
     ensure_tmux_available as ensure_tmux_available_shared,
     generate_tmux_session_name as generate_tmux_session_name_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    parse_tmux_control_input as parse_tmux_control_input_shared,
     run_tmux as run_tmux_shared,
+    send_tmux_control_input as send_tmux_control_input_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
+    TmuxControlInputError,
     tmux_error_detail as tmux_error_detail_shared,
 )
 
@@ -100,6 +103,7 @@ class CaoSessionState:
     profile_name: str
     profile_path: str
     parsing_mode: CaoParsingMode
+    tmux_window_name: str | None = None
     turn_index: int = 0
 
 
@@ -616,6 +620,7 @@ class CaoRestSession:
             "shadow_only": ShadowOnlyTurnEngine(self),
         }
         self._startup_warnings: list[str] = []
+        self._tmux_window_name: str | None = None
 
         if existing_state is not None:
             if existing_state.parsing_mode != self._parsing_mode:
@@ -628,6 +633,7 @@ class CaoRestSession:
             self._profile_path = Path(existing_state.profile_path)
             self._session_name = existing_state.session_name
             self._terminal_id = existing_state.terminal_id
+            self._tmux_window_name = existing_state.tmux_window_name
             self._turn_index = existing_state.turn_index
             self._session_manifest_path: Path | None = None
             return
@@ -672,6 +678,7 @@ class CaoRestSession:
             terminal_id=self._terminal_id,
             profile_name=self._profile_name,
             profile_path=str(self._profile_path),
+            tmux_window_name=self._tmux_window_name,
             parsing_mode=self._parsing_mode,
             turn_index=self._turn_index,
         )
@@ -705,6 +712,106 @@ class CaoRestSession:
         )
         self._turn_index = turn_index
         return events
+
+    def send_input_ex(
+        self,
+        sequence: str,
+        *,
+        escape_special_keys: bool = False,
+    ) -> SessionControlResult:
+        """Send raw mixed control input to the live tmux-backed CAO terminal.
+
+        Parameters
+        ----------
+        sequence:
+            Mixed literal/special-key control-input sequence to deliver.
+        escape_special_keys:
+            When true, disable `<[key-name]>` parsing and send the full
+            sequence literally.
+
+        Returns
+        -------
+        SessionControlResult
+            Control-action result describing success or the explicit failure
+            encountered while parsing, resolving, or sending input.
+        """
+
+        try:
+            segments = parse_tmux_control_input_shared(
+                sequence=sequence,
+                escape_special_keys=escape_special_keys,
+            )
+            tmux_target = self._resolve_control_input_tmux_target()
+            send_tmux_control_input_shared(target=tmux_target, segments=segments)
+        except (BackendExecutionError, TmuxCommandError, TmuxControlInputError) as exc:
+            return SessionControlResult(
+                status="error",
+                action="control_input",
+                detail=str(exc),
+            )
+
+        return SessionControlResult(
+            status="ok",
+            action="control_input",
+            detail=f"Delivered control input to tmux target `{tmux_target}`.",
+        )
+
+    def _resolve_control_input_tmux_target(self) -> str:
+        """Resolve the live tmux target for control-input delivery."""
+
+        resolved_window = self._resolve_control_input_tmux_window()
+        self._tmux_window_name = resolved_window.window_name
+        return resolved_window.window_id
+
+    def _resolve_control_input_tmux_window(self) -> _TmuxWindowRecord:
+        """Resolve the tmux window using persisted state with live CAO fallback."""
+
+        persisted_window_name = (
+            self._tmux_window_name.strip()
+            if self._tmux_window_name is not None
+            else None
+        )
+        if persisted_window_name:
+            resolved_window = _resolve_tmux_window_by_name(
+                session_name=self._session_name,
+                window_name=persisted_window_name,
+                max_attempts=1,
+                retry_sleep_seconds=0.0,
+            )
+            if resolved_window is not None:
+                return resolved_window
+
+        live_window_name = self._read_live_tmux_window_name()
+        resolved_window = _resolve_tmux_window_by_name(
+            session_name=self._session_name,
+            window_name=live_window_name,
+        )
+        if resolved_window is None:
+            raise BackendExecutionError(
+                "Unable to resolve live tmux target for CAO control input "
+                f"(session_name={self._session_name!r}, terminal_id={self._terminal_id!r}, "
+                f"window_name={live_window_name!r})."
+            )
+        return resolved_window
+
+    def _read_live_tmux_window_name(self) -> str:
+        """Read the current CAO terminal window name for tmux targeting."""
+
+        try:
+            terminal = self._client.get_terminal(self._terminal_id)
+        except CaoApiError as exc:
+            raise BackendExecutionError(
+                "Failed to resolve live tmux target for CAO control input: "
+                f"CAO terminal lookup failed: {exc.detail}"
+            ) from exc
+
+        window_name = terminal.name.strip()
+        if not window_name:
+            raise BackendExecutionError(
+                "Failed to resolve live tmux target for CAO control input: "
+                "CAO terminal metadata returned a blank window name."
+            )
+        return window_name
 
     def _select_turn_engine(self) -> _TurnEngine:
         engine = self._turn_engines.get(self._parsing_mode)
@@ -1374,6 +1481,7 @@ class CaoRestSession:
                 agent_profile=self._profile_name,
                 working_directory=str(self._plan.working_directory),
             )
+            self._tmux_window_name = terminal.name.strip() or None
         except (CaoApiError, BackendExecutionError, TimeoutError, OSError) as exc:
             _cleanup_tmux_session(session_name)
             raise BackendExecutionError(f"Failed to start CAO session: {exc}") from exc
@@ -1398,6 +1506,8 @@ class CaoRestSession:
                 "bootstrap pruning skipped."
             )
             return terminal.id
+
+        self._tmux_window_name = terminal_window.window_name
 
         try:
             _select_tmux_window(window_id=terminal_window.window_id)
@@ -1757,6 +1867,7 @@ def cao_backend_state_payload(state: CaoSessionState) -> dict[str, object]:
         "terminal_id": state.terminal_id,
         "profile_name": state.profile_name,
         "profile_path": state.profile_path,
+        "tmux_window_name": state.tmux_window_name,
         "parsing_mode": state.parsing_mode,
         "turn_index": state.turn_index,
     }

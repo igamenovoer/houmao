@@ -270,6 +270,7 @@ run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-se
 SESSION_MANIFEST="$(extract_json_field "$WORKSPACE_DIR/start.log" session_manifest)"
 
 run_cmd driver pixi run python "$SCRIPT_DIR/scripts/interrupt_driver.py" \
+  --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" \
   --first-prompt-file "$FIRST_PROMPT_PATH" \
   --second-prompt-file "$SECOND_PROMPT_PATH" \
