@@ -14,7 +14,12 @@ _STATE_TEMPLATE_FILENAME: Final[str] = "claude_state.template.json"
 _SETTINGS_FILENAME: Final[str] = "settings.json"
 
 
-def ensure_claude_home_bootstrap(*, home_path: Path, env: Mapping[str, str]) -> None:
+def ensure_claude_home_bootstrap(
+    *,
+    home_path: Path,
+    env: Mapping[str, str],
+    working_directory: Path | None = None,
+) -> None:
     """Ensure Claude runtime-home bootstrap invariants before launch.
 
     Parameters
@@ -23,6 +28,9 @@ def ensure_claude_home_bootstrap(*, home_path: Path, env: Mapping[str, str]) -> 
         Runtime Claude home path (`CLAUDE_CONFIG_DIR`).
     env:
         Effective launch environment values used to derive API-key approval state.
+    working_directory:
+        Optional working directory that should be pre-trusted to avoid blocking
+        trust prompts in non-interactive tmux sessions.
     """
 
     _validate_settings_json(home_path)
@@ -32,7 +40,11 @@ def ensure_claude_home_bootstrap(*, home_path: Path, env: Mapping[str, str]) -> 
         return
 
     template = _load_template_json(home_path)
-    materialized = _overlay_runtime_enforced_keys(template=template, env=env)
+    materialized = _overlay_runtime_enforced_keys(
+        template=template,
+        env=env,
+        working_directory=working_directory,
+    )
 
     runtime_state_path.write_text(
         json.dumps(materialized, indent=2) + "\n",
@@ -100,11 +112,33 @@ def _validate_settings_json(home_path: Path) -> None:
 
 
 def _overlay_runtime_enforced_keys(
-    *, template: dict[str, Any], env: Mapping[str, str]
+    *,
+    template: dict[str, Any],
+    env: Mapping[str, str],
+    working_directory: Path | None,
 ) -> dict[str, Any]:
     materialized = dict(template)
     materialized["hasCompletedOnboarding"] = True
     materialized["numStartups"] = 1
+
+    # Claude Code shows a blocking "trust this folder" prompt on first launch
+    # unless a trust decision is persisted. Seed a global trust entry so CAO
+    # tmux sessions can start non-interactively inside ephemeral worktrees.
+    projects = materialized.get("projects")
+    if not isinstance(projects, dict):
+        projects = {}
+        materialized["projects"] = projects
+
+    def _trust_project(project_key: str) -> None:
+        record = projects.get(project_key)
+        if not isinstance(record, dict):
+            record = {}
+            projects[project_key] = record
+        record.setdefault("hasTrustDialogAccepted", True)
+
+    _trust_project("/")
+    if working_directory is not None:
+        _trust_project(str(working_directory.resolve()))
 
     api_key = env.get("ANTHROPIC_API_KEY", "")
     if api_key:

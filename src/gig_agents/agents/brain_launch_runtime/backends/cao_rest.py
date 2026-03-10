@@ -1338,6 +1338,7 @@ class CaoRestSession:
             ensure_claude_home_bootstrap(
                 home_path=self._plan.home_path,
                 env=launch_env,
+                working_directory=self._plan.working_directory,
             )
         if self._plan.tool == "codex":
             ensure_codex_home_bootstrap(

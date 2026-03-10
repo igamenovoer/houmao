@@ -70,11 +70,15 @@ def test_bootstrap_materializes_state_with_api_key_and_is_create_only(
 def test_bootstrap_materializes_state_without_api_key(tmp_path: Path) -> None:
     home = _prepare_home(tmp_path)
 
-    ensure_claude_home_bootstrap(home_path=home, env={})
+    working_dir = tmp_path / "workdir"
+    working_dir.mkdir()
+    ensure_claude_home_bootstrap(home_path=home, env={}, working_directory=working_dir)
 
     payload = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
     assert payload["hasCompletedOnboarding"] is True
     assert payload["numStartups"] == 1
+    assert payload["projects"]["/"]["hasTrustDialogAccepted"] is True
+    assert payload["projects"][str(working_dir.resolve())]["hasTrustDialogAccepted"] is True
     assert "customApiKeyResponses" not in payload
 
 

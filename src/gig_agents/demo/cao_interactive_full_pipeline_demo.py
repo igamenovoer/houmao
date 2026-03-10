@@ -77,6 +77,7 @@ STALE_STOP_MARKERS: tuple[str, ...] = (
     "no such session",
     "not found",
     "404",
+    "connection refused",
 )
 
 
@@ -976,10 +977,13 @@ def _resolve_demo_invocation(args: argparse.Namespace) -> DemoInvocation:
     )
 
     agent_def_dir_arg = getattr(args, "agent_def_dir", None)
+    default_agent_def_dir = repo_root / ".agentsys" / "agents"
+    if not default_agent_def_dir.exists():
+        default_agent_def_dir = repo_root / "tests" / "fixtures" / "agents"
     agent_def_dir = (
         agent_def_dir_arg.expanduser().resolve()
         if isinstance(agent_def_dir_arg, Path)
-        else repo_root / "tests" / "fixtures" / "agents"
+        else default_agent_def_dir
     )
 
     env = DemoEnvironment(

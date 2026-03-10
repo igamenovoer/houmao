@@ -547,6 +547,7 @@ def start_cao_server(
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             env=launch_env,
+            start_new_session=True,
         )
 
     write_cao_server_pid(artifacts.pid_file, process.pid)

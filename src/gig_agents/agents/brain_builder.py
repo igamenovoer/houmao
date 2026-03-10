@@ -258,6 +258,30 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return env_vars
 
 
+def _overlay_env_from_process(
+    values: dict[str, str],
+    *,
+    allowlist: list[str],
+) -> dict[str, str]:
+    """Overlay missing allowlisted env vars from the current process environment.
+
+    This keeps demos ergonomic: operators can provide credentials via exported
+    environment variables without persisting secrets to `vars.env`.
+    """
+
+    merged = dict(values)
+    for key in allowlist:
+        if key in merged:
+            continue
+        candidate = os.environ.get(key)
+        if candidate is None:
+            continue
+        if not str(candidate).strip():
+            continue
+        merged[key] = str(candidate)
+    return merged
+
+
 def _ensure_clean_target(path: Path) -> None:
     if not path.exists():
         return
@@ -486,7 +510,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         adapter.credential_env_source, field="credential_projection.env.source"
     )
     credential_env_file = credential_profile_dir / adapter.credential_env_source
-    env_values = _parse_env_file(credential_env_file)
+    env_values = _overlay_env_from_process(
+        _parse_env_file(credential_env_file),
+        allowlist=adapter.credential_env_allowlist,
+    )
     selected_env_names = [
         key for key in adapter.credential_env_allowlist if key in env_values
     ]

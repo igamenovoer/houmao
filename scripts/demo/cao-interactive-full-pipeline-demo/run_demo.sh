@@ -6,6 +6,9 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 DEMO_BASE_ROOT="$REPO_ROOT/tmp/demo/cao-interactive-full-pipeline-demo"
 CURRENT_RUN_ROOT_FILE="$DEMO_BASE_ROOT/current_run_root.txt"
 DEFAULT_AGENT_DEF_DIR="$REPO_ROOT/tests/fixtures/agents"
+if [[ -d "$REPO_ROOT/.agentsys/agents" ]]; then
+  DEFAULT_AGENT_DEF_DIR="$REPO_ROOT/.agentsys/agents"
+fi
 DEFAULT_ROLE_NAME="gpu-kernel-coder"
 SNAPSHOT_REPORT=0
 YES_TO_ALL=0
@@ -99,17 +102,12 @@ else
   FORWARD_ARGS=("${RAW_FORWARD_ARGS[@]}")
 fi
 
-PYTHON_ARGS=(
-  pixi run python -m gig_agents.demo.cao_interactive_full_pipeline_demo
-  --repo-root "$REPO_ROOT"
-)
+PYTHON_ARGS=(pixi run python -m gig_agents.demo.cao_interactive_full_pipeline_demo --repo-root "$REPO_ROOT")
 
 if [[ -n "${DEMO_WORKSPACE_ROOT:-}" ]]; then
   PYTHON_ARGS+=(--workspace-root "$DEMO_WORKSPACE_ROOT")
 fi
-if [[ -n "${AGENT_DEF_DIR:-}" ]]; then
-  PYTHON_ARGS+=(--agent-def-dir "$AGENT_DEF_DIR")
-fi
+PYTHON_ARGS+=(--agent-def-dir "${AGENT_DEF_DIR:-$DEFAULT_AGENT_DEF_DIR}")
 if [[ -n "${CAO_LAUNCHER_HOME_DIR:-}" ]]; then
   PYTHON_ARGS+=(--launcher-home-dir "$CAO_LAUNCHER_HOME_DIR")
 fi

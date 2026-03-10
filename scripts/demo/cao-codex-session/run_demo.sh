@@ -3,7 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-AGENT_DEF_DIR="${AGENT_DEF_DIR:-$REPO_ROOT/tests/fixtures/agents}"
+DEFAULT_AGENT_DEF_DIR="$REPO_ROOT/tests/fixtures/agents"
+if [[ -d "$REPO_ROOT/.agentsys/agents" ]]; then
+  DEFAULT_AGENT_DEF_DIR="$REPO_ROOT/.agentsys/agents"
+fi
+AGENT_DEF_DIR="${AGENT_DEF_DIR:-$DEFAULT_AGENT_DEF_DIR}"
 WORKSPACE_PARENT="${DEMO_WORKSPACE_PARENT:-$HOME/tmp}"
 WORKSPACE_SUBDIR="${DEMO_WORKSPACE_SUBDIR:-agent-system-dissect}"
 WORKSPACE_ROOT="${WORKSPACE_PARENT%/}/${WORKSPACE_SUBDIR}"
