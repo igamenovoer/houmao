@@ -696,12 +696,12 @@ def test_start_demo_resets_previous_run_artifacts_and_stale_tmux(
     assert any(call[:2] == ("tmux", "kill-session") for call in runner.calls)
 
 
-def test_start_demo_replaces_verified_cao_server_with_yes_to_all(
+def test_start_demo_replaces_verified_cao_server_automatically(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     paths = _make_paths(tmp_path)
-    env = _make_env(tmp_path, yes_to_all=True)
+    env = _make_env(tmp_path)
     runner = FakeRunner(tmp_path)
     runner.m_launcher_status_responses = [
         (
@@ -719,11 +719,6 @@ def test_start_demo_replaces_verified_cao_server_with_yes_to_all(
 
     _patch_demo_tools_available(monkeypatch)
     monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: False)
-    monkeypatch.setattr(
-        demo_cao_server,
-        "_prompt_yes_no",
-        lambda _: pytest.fail("unexpected confirmation prompt"),
-    )
 
     start_demo(
         paths=paths,
@@ -745,7 +740,7 @@ def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
     tmp_path: Path,
 ) -> None:
     paths = _make_paths(tmp_path)
-    env = _make_env(tmp_path, yes_to_all=True)
+    env = _make_env(tmp_path)
     runner = FakeRunner(tmp_path)
     runner.m_launcher_status_responses = [
         (
@@ -784,7 +779,7 @@ def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
     )
 
 
-def test_start_demo_aborts_when_verified_cao_replacement_is_declined(
+def test_start_demo_verified_cao_replacement_failure_leaves_no_active_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -804,11 +799,24 @@ def test_start_demo_aborts_when_verified_cao_replacement_is_declined(
             },
         )
     ]
+    runner.m_launcher_stop_responses = [
+        (
+            2,
+            {
+                "stopped": False,
+                "already_stopped": False,
+                "verification_passed": False,
+                "pid": 4242,
+                "signal_sent": None,
+            },
+        )
+    ]
 
     _patch_demo_tools_available(monkeypatch)
-    monkeypatch.setattr(demo_cao_server, "_prompt_yes_no", lambda _: False)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: True)
+    monkeypatch.setattr(demo_cao_server, "_find_listening_pids_for_port", lambda _: [])
 
-    with pytest.raises(DemoWorkflowError, match="existing verified local `cao-server`"):
+    with pytest.raises(DemoWorkflowError, match="could not be uniquely identified"):
         start_demo(
             paths=paths,
             env=env,

@@ -24,6 +24,7 @@ Important notes:
 - The workflow is intentionally pinned to `http://127.0.0.1:9889`; `CAO_BASE_URL` overrides are ignored for this demo pack.
 - The wrapper scripts delegate to `run_demo.sh`, which keeps the repo-root-derived workspace, launcher home, worktree, and other shell defaults aligned with the underlying Python workflow engine.
 - By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir.
+- If startup finds a verified local `cao-server` already healthy at `http://127.0.0.1:9889`, it replaces that server automatically for the new run. There is no replacement prompt anymore.
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
 
@@ -216,8 +217,6 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
   - The session metadata still exists, but live CAO terminal lookup failed.
 - CAO connectivity errors against `127.0.0.1:9889`
   - Confirm the fixed local CAO target is healthy, or ensure `cao-server` is available on `PATH` so the demo can launch one locally.
-- `error: Startup aborted because the existing verified local \`cao-server\` was not replaced.`
-  - Re-run the launch command and answer `y`, or pass `-y` to bypass the prompt.
 - `error: Multiple brain recipes matched \`gpu-kernel-coder-default\``
   - Retry with subdirectory context such as `--brain-recipe claude/gpu-kernel-coder-default` or `--brain-recipe codex/gpu-kernel-coder-default`.
 

@@ -75,6 +75,12 @@ def _assert_path_layout(
             name="start.payload.launcher_result_file",
         )
     )
+    ownership_file = Path(
+        _as_str(
+            start_payload.get("ownership_file"),
+            name="start.payload.ownership_file",
+        )
+    )
 
     if artifact_dir != expected_artifact_dir:
         raise ValueError("start.payload.artifact_dir does not match expected artifact directory")
@@ -86,6 +92,8 @@ def _assert_path_layout(
         raise ValueError(
             "start.payload.launcher_result_file does not match expected launcher result path"
         )
+    if ownership_file != expected_artifact_dir / "ownership.json":
+        raise ValueError("start.payload.ownership_file does not match expected ownership path")
 
 
 def sanitize_report(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -175,6 +183,12 @@ def sanitize_report(report: Mapping[str, Any]) -> dict[str, Any]:
     )
     if not launcher_result_exists:
         raise ValueError("artifact_checks.launcher_result_exists_after_start must be true")
+    ownership_contract_valid = _as_bool(
+        artifact_checks.get("ownership_contract_valid"),
+        name="artifact_checks.ownership_contract_valid",
+    )
+    if not ownership_contract_valid:
+        raise ValueError("artifact_checks.ownership_contract_valid must be true")
 
     _as_bool(
         status_before_payload.get("healthy"),
@@ -192,12 +206,14 @@ def sanitize_report(report: Mapping[str, Any]) -> dict[str, Any]:
                 "<WORKSPACE>/runtime/cao-server/<HOST>-<PORT>/launcher_result.json"
             ),
             "log_file": "<WORKSPACE>/runtime/cao-server/<HOST>-<PORT>/cao-server.log",
+            "ownership_file": "<WORKSPACE>/runtime/cao-server/<HOST>-<PORT>/ownership.json",
             "pid_file": "<WORKSPACE>/runtime/cao-server/<HOST>-<PORT>/cao-server.pid",
         },
         "base_url": "<BASE_URL>",
         "checks": {
             "artifact_layout_matches": True,
             "launcher_result_exists_after_start": True,
+            "ownership_contract_valid": True,
             "post_start_status_healthy": True,
             "start_exit_code_is_zero": True,
             "start_health_is_true": True,

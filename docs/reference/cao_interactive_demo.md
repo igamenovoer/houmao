@@ -17,6 +17,8 @@ Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unles
 
 The workflow is intentionally pinned to `http://127.0.0.1:9889` and uses a fresh per-run workspace under `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`.
 
+When startup detects a verified local `cao-server` already serving that fixed loopback target, the demo now replaces it automatically for the new run. There is no confirmation prompt in this path anymore.
+
 ## Main Command Surfaces
 
 - `scripts/demo/cao-interactive-full-pipeline-demo/launch_alice.sh`: launch or replace the tutorial session as `alice`, with optional `--brain-recipe`

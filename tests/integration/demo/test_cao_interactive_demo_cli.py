@@ -632,7 +632,7 @@ def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify
     assert "--escape-special-keys" in second_args
 
 
-def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
+def test_demo_wrapper_verified_cao_replacement_cleans_prior_artifacts_without_prompt(
     tmp_path: Path,
 ) -> None:
     repo_root = tmp_path / "repo"
@@ -668,12 +668,7 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
     assert list((first_workspace_root / "controls").glob("*"))
 
     env["FAKE_CAO_STATUS_MODE"] = "verified"
-    _run(
-        [str(demo_pack_dir / "launch_alice.sh")],
-        env=env,
-        cwd=repo_root,
-        input_text="y\n",
-    )
+    _run([str(demo_pack_dir / "launch_alice.sh")], env=env, cwd=repo_root)
 
     second_workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
     assert second_workspace_root != first_workspace_root
@@ -681,26 +676,6 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
     assert list((first_workspace_root / "turns").glob("turn-*.json")) == []
     assert list((first_workspace_root / "controls").glob("*")) == []
 
-    command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
-    assert any(
-        entry["module"] == "gig_agents.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
-        for entry in command_log
-    )
-
-
-def test_demo_wrapper_yes_flag_bypasses_verified_cao_replacement_prompt(
-    tmp_path: Path,
-) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    _copy_agent_defs(repo_root)
-    demo_pack_dir = _copy_demo_pack(repo_root)
-    env = _build_env(tmp_path, repo_root)
-    env["FAKE_CAO_STATUS_MODE"] = "verified"
-
-    result = _run([str(demo_pack_dir / "launch_alice.sh"), "-y"], env=env, cwd=repo_root)
-
-    assert result.returncode == 0
     command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
     assert any(
         entry["module"] == "gig_agents.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"

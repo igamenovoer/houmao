@@ -66,14 +66,6 @@ def _ensure_cao_server(
                 "verify as `cao-server` "
                 f"(service={service!r}). Stop that process and retry."
             )
-
-        if not env.yes_to_all and not _prompt_yes_no(
-            f"A verified local `cao-server` is already running at {FIXED_CAO_BASE_URL}. "
-            "Replace it for this demo run? [y/N]: "
-        ):
-            raise DemoWorkflowError(
-                "Startup aborted because the existing verified local `cao-server` was not replaced."
-            )
         _replace_existing_cao_server(paths=paths, env=env, run_command=run_command)
     else:
         if _loopback_port_is_listening(FIXED_CAO_BASE_URL):
@@ -169,16 +161,6 @@ def _parse_command_json_output(
     if allow_stderr_json and result.stderr.strip():
         return _parse_json_output(result.stderr, context=context)
     raise DemoWorkflowError(f"Missing JSON in {context}.")
-
-
-def _prompt_yes_no(prompt: str) -> bool:
-    """Prompt for a yes/no answer and treat all non-yes answers as negative."""
-
-    try:
-        response = input(prompt)
-    except EOFError:
-        return False
-    return response.strip().lower() in {"y", "yes"}
 
 
 def _replace_existing_cao_server(

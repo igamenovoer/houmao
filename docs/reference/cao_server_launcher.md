@@ -1,14 +1,12 @@
 # CAO Server Launcher
 
-`gig_agents.cao.server_launcher` provides a repo-owned launcher for
-managing a local `cao-server` process with explicit config and deterministic
-runtime artifacts.
+`gig_agents.cao.server_launcher` provides a repo-owned launcher for managing a local `cao-server` process with explicit config, detached standalone startup semantics, and deterministic runtime artifacts.
 
 ## Install requirement
 
 The launcher starts `cao-server` from `PATH` only.
 
-- Install CAO with `uv` (example): `uv tool install cli-agent-orchestrator`
+- Install CAO with `uv` from the supported fork (example): `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
 - Verify: `command -v cao-server`
 
 If start fails with "`cao-server` not found on PATH", install CAO separately and
@@ -47,8 +45,7 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher start --config confi
 pixi run python -m gig_agents.cao.tools.cao_server_launcher stop --config config/cao-server-launcher/local.toml
 ```
 
-Each command emits structured JSON for scripting (`base_url`, health info,
-pid/log/pidfile paths, and stop diagnostics).
+Each command emits structured JSON for scripting (`base_url`, health info, pid/log/pidfile paths, ownership metadata paths, and stop diagnostics).
 
 Supported ad-hoc overrides:
 
@@ -66,7 +63,10 @@ When launching (or managing pidfile state), artifacts live under:
 
 - `cao-server.pid`
 - `cao-server.log`
+- `ownership.json`
 - `launcher_result.json`
+
+`start` now means "bootstrap a detached standalone local service and wait until it becomes healthy." Once `start` returns successfully, a later independent `status` command should still be able to reach the same service unless it has been explicitly stopped or crashed independently.
 
 ## Proxy policy contract
 
@@ -119,5 +119,7 @@ Recommended layout for `/data/...` workflows:
 5. Confirm session start succeeds for `/data/...` workdir.
 6. Confirm CAO state exists under
    `/data/$USER/cao-home/.aws/cli-agent-orchestrator/`.
-7. Stop CAO:
+7. Confirm a later independent status check still succeeds:
+   `pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config <config>`.
+8. Stop CAO:
    `pixi run python -m gig_agents.cao.tools.cao_server_launcher stop --config <config>`.
