@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mail-System Compatibility"
+  short_description: "Map mailbox protocol to future email"
+  default_prompt: "Use $email-via-mail-system to verify or design compatibility with a future true email transport."
