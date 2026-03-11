@@ -5,6 +5,10 @@ import subprocess
 
 import pytest
 
+from gig_agents.agents.brain_launch_runtime.agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
+    AGENT_MANIFEST_PATH_ENV_VAR,
+)
 from gig_agents.agents.brain_launch_runtime.backends.gemini_headless import (
     GeminiHeadlessSession,
 )
@@ -153,6 +157,39 @@ def test_claude_headless_runs_shared_bootstrap(
     assert captured["home_path"] == tmp_path / "home"
     assert isinstance(captured["env"], dict)
     assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "home")
+
+
+def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    agent_def_dir = tmp_path / "agents"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    captured_tmux_env: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.headless_base."
+        "set_tmux_session_environment_shared",
+        lambda *, session_name, env_vars: captured_tmux_env.update(
+            {"session_name": session_name, "env_vars": dict(env_vars)}
+        ),
+    )
+
+    GeminiHeadlessSession(
+        launch_plan=_sample_gemini_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        agent_def_dir=agent_def_dir,
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="AGENTSYS-gemini",
+        ),
+    )
+
+    assert captured_tmux_env["session_name"] == "AGENTSYS-gemini"
+    env_vars = captured_tmux_env["env_vars"]
+    assert isinstance(env_vars, dict)
+    assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
+    assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(agent_def_dir.resolve())
 
 
 def test_headless_env_injects_loopback_no_proxy_by_default(

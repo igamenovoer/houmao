@@ -466,6 +466,23 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
         repo_root / "tests" / "fixtures" / "agents"
     )
 
+    send_prompt_calls = [
+        entry
+        for entry in command_log
+        if entry["module"] == "gig_agents.agents.brain_launch_runtime"
+        and entry["args"][4] == "send-prompt"
+    ]
+    assert len(send_prompt_calls) == 2
+    assert all("--agent-def-dir" not in entry["args"] for entry in send_prompt_calls)
+
+    stop_session_call = next(
+        entry
+        for entry in command_log
+        if entry["module"] == "gig_agents.agents.brain_launch_runtime"
+        and entry["args"][4] == "stop-session"
+    )
+    assert "--agent-def-dir" not in stop_session_call["args"]
+
 
 def test_demo_explicit_codex_recipe_launches_and_verifies_variant(
     tmp_path: Path,
@@ -626,6 +643,8 @@ def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify
 
     first_args = send_keys_calls[0]["args"]
     second_args = send_keys_calls[1]["args"]
+    assert "--agent-def-dir" not in first_args
+    assert "--agent-def-dir" not in second_args
     assert first_args[first_args.index("--sequence") + 1] == "<[Escape]>"
     assert "--escape-special-keys" not in first_args
     assert second_args[second_args.index("--sequence") + 1] == "/model<[Enter]>"

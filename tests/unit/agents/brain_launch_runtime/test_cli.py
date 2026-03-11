@@ -116,6 +116,7 @@ def test_stop_session_forwards_force_cleanup(
         "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
             warnings=(),
         ),
     )
@@ -263,6 +264,148 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     assert captured_kwargs["agent_def_dir"] == (tmp_path / ".agentsys" / "agents").resolve()
 
 
+def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    env_agent_def_dir = tmp_path / "env-agent-def"
+    tmux_agent_def_dir = tmp_path / "tmux-agent-def"
+    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(env_agent_def_dir))
+    captured_resume_kwargs: dict[str, object] = {}
+
+    class _FakeController:
+        def send_prompt(self, prompt: str) -> list[object]:
+            del prompt
+            return []
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=tmux_agent_def_dir.resolve(),
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "send-prompt",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--prompt",
+            "hello",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_resume_kwargs["agent_def_dir"] == tmux_agent_def_dir.resolve()
+
+
+def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    env_agent_def_dir = tmp_path / "env-agent-def"
+    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(env_agent_def_dir))
+    monkeypatch.chdir(tmp_path)
+    captured_resolve_kwargs: dict[str, object] = {}
+    captured_resume_kwargs: dict[str, object] = {}
+
+    class _FakeController:
+        def send_prompt(self, prompt: str) -> list[object]:
+            del prompt
+            return []
+
+    def _fake_resolve_agent_identity(**kwargs: object) -> object:
+        captured_resolve_kwargs.update(kwargs)
+        return SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            warnings=(),
+        )
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        _fake_resolve_agent_identity,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "send-prompt",
+            "--agent-identity",
+            str(tmp_path / "session.json"),
+            "--prompt",
+            "hello",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_resolve_kwargs == {
+        "agent_identity": str(tmp_path / "session.json"),
+        "base": tmp_path.resolve(),
+    }
+    assert captured_resume_kwargs["agent_def_dir"] == env_agent_def_dir.resolve()
+
+
+def test_stop_session_name_based_forwards_explicit_agent_def_dir_override(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    override_agent_def_dir = tmp_path / "override-agent-def"
+    captured_resolve_kwargs: dict[str, object] = {}
+    captured_resume_kwargs: dict[str, object] = {}
+
+    class _FakeController:
+        def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
+            del force_cleanup
+            return SessionControlResult(
+                status="ok",
+                action="terminate",
+                detail="cleaned",
+            )
+
+    def _fake_resolve_agent_identity(**kwargs: object) -> object:
+        captured_resolve_kwargs.update(kwargs)
+        return SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=override_agent_def_dir.resolve(),
+            warnings=(),
+        )
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        _fake_resolve_agent_identity,
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "stop-session",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--agent-def-dir",
+            str(override_agent_def_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_resolve_kwargs["explicit_agent_def_dir"] == override_agent_def_dir.resolve()
+    assert captured_resume_kwargs["agent_def_dir"] == override_agent_def_dir.resolve()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+
+
 def test_send_keys_forwards_sequence_and_escape_mode(
     monkeypatch,
     capsys,
@@ -289,6 +432,7 @@ def test_send_keys_forwards_sequence_and_escape_mode(
         "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
             warnings=(),
         ),
     )
@@ -338,6 +482,7 @@ def test_send_keys_returns_error_exit_code_on_control_input_failure(
         "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
             warnings=(),
         ),
     )

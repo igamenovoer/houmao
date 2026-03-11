@@ -20,6 +20,7 @@ from gig_agents.cao.no_proxy import (
 from gig_agents.cao.rest_client import CaoApiError, CaoRestClient
 
 from ..agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     normalize_agent_identity_name,
 )
@@ -592,6 +593,7 @@ class CaoRestSession:
         role_prompt: str,
         parsing_mode: CaoParsingMode,
         session_manifest_path: Path | None = None,
+        agent_def_dir: Path | None = None,
         agent_identity: str | None = None,
         profile_store_dir: Path | None = None,
         poll_interval_seconds: float = 0.4,
@@ -621,6 +623,10 @@ class CaoRestSession:
         }
         self._startup_warnings: list[str] = []
         self._tmux_window_name: str | None = None
+        self._agent_def_dir = agent_def_dir.resolve() if agent_def_dir is not None else None
+        self._session_manifest_path: Path | None = (
+            session_manifest_path.resolve() if session_manifest_path is not None else None
+        )
 
         if existing_state is not None:
             if existing_state.parsing_mode != self._parsing_mode:
@@ -635,14 +641,13 @@ class CaoRestSession:
             self._terminal_id = existing_state.terminal_id
             self._tmux_window_name = existing_state.tmux_window_name
             self._turn_index = existing_state.turn_index
-            self._session_manifest_path: Path | None = None
+            self._publish_tmux_session_environment()
             return
 
-        if session_manifest_path is None:
+        if self._session_manifest_path is None:
             raise BackendExecutionError(
                 "CAO session start requires an absolute session manifest path."
             )
-        self._session_manifest_path = session_manifest_path.resolve()
 
         profile_name, markdown = render_cao_profile(
             role_name=role_name,
@@ -691,6 +696,45 @@ class CaoRestSession:
 
     def _record_startup_warning(self, warning: str) -> None:
         self._startup_warnings.append(warning)
+
+    def _build_tmux_launch_env(self) -> dict[str, str]:
+        """Build the tmux launch environment including runtime-owned pointers."""
+
+        if self._session_manifest_path is None:
+            raise BackendExecutionError(
+                "CAO session is missing session_manifest_path for tmux env propagation."
+            )
+
+        launch_env = _compose_tmux_launch_env(
+            self._plan,
+            api_base_url=self._api_base_url,
+        )
+        launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
+        if self._agent_def_dir is not None:
+            launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)
+
+        if self._plan.tool == "claude":
+            ensure_claude_home_bootstrap(
+                home_path=self._plan.home_path,
+                env=launch_env,
+            )
+        if self._plan.tool == "codex":
+            ensure_codex_home_bootstrap(
+                home_path=self._plan.home_path,
+                env=launch_env,
+                working_directory=self._plan.working_directory,
+            )
+        return launch_env
+
+    def _publish_tmux_session_environment(self) -> None:
+        """Re-publish runtime-owned tmux session pointers when available."""
+
+        if self._session_manifest_path is None:
+            return
+        _set_tmux_session_environment(
+            session_name=self._session_name,
+            env_vars=self._build_tmux_launch_env(),
+        )
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send one prompt turn via CAO direct input endpoints."""
@@ -1426,27 +1470,7 @@ class CaoRestSession:
         self.terminate()
 
     def _start_terminal(self, *, session_name: str) -> str:
-        launch_env = _compose_tmux_launch_env(
-            self._plan,
-            api_base_url=self._api_base_url,
-        )
-        if self._session_manifest_path is None:
-            raise BackendExecutionError(
-                "CAO start missing session manifest path for tmux env propagation."
-            )
-        launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
-
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-            )
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-                working_directory=self._plan.working_directory,
-            )
+        launch_env = self._build_tmux_launch_env()
 
         bootstrap_window: _TmuxWindowRecord | None = None
         try:

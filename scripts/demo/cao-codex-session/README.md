@@ -7,6 +7,7 @@ This tutorial pack demonstrates a real CAO-backed Codex session: build a brain h
 - `pixi` is installed and working.
 - `tmux` is installed and available on `PATH`.
 - `cao-server` is installed and available on `PATH`.
+  Recommended install: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
   - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
   - If launcher start reuses a healthy local server with unknown ownership (`pid` unresolved), the demo retries with launcher `stop`/`start` and then fails fast with explicit ownership diagnostics if still untracked.
   - If you set `CAO_BASE_URL` to a non-default URL, the demo expects that server to already be running.

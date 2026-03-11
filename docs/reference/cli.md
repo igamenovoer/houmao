@@ -22,11 +22,10 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher --help
 
 ## Agent Definition Directory
 
-Runtime commands resolve agent definitions with precedence:
+Runtime commands use two agent-definition-directory resolution models:
 
-1. `--agent-def-dir`
-2. `AGENTSYS_AGENT_DEF_DIR`
-3. `<pwd>/.agentsys/agents`
+1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then `<pwd>/.agentsys/agents`.
+2. Name-based tmux-backed `send-prompt`, `send-keys`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `AGENTSYS_AGENT_DEF_DIR`.
 
 ## Pixi Tasks
 

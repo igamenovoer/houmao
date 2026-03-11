@@ -27,6 +27,7 @@ Important notes:
 - If startup finds a verified local `cao-server` already healthy at `http://127.0.0.1:9889`, it replaces that server automatically for the new run. There is no replacement prompt anymore.
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
+- The demo still passes `AGENT_DEF_DIR` explicitly for brain build and session start, but follow-up prompt/control/stop flows target the persisted runtime name and let `brain_launch_runtime` recover the effective agent-definition root from the live tmux session.
 
 ## Supported Startup Recipes
 
@@ -49,7 +50,7 @@ error: Multiple brain recipes matched `gpu-kernel-coder-default`: claude/gpu-ker
 
 1. Start the session from one tracked recipe.
 2. Persist the resolved `tool`, `variant_id`, and canonical `brain_recipe` in `state.json`.
-3. Reuse that persisted state for `inspect`, `send-turn`, `send-keys`, `verify`, and `stop`.
+3. Reuse that persisted state for `inspect`, `send-turn`, `send-keys`, `verify`, and `stop`, including runtime-owned recovery of the active session's agent-definition root for name-addressed control.
 4. Use `launch_alice.sh` when you want the tutorial-friendly `alice` identity, or use `run_demo.sh start` directly when you want the recipe-defined default name or a custom `--agent-name`.
 
 ## Critical Example Code
@@ -165,6 +166,8 @@ scripts/demo/cao-interactive-full-pipeline-demo/send_prompt.sh \
 
 Each prompt writes a turn artifact under `turns/turn-*.json` plus the captured stdout and stderr logs for the underlying runtime command.
 
+Because the follow-up runtime call targets the persisted `AGENTSYS-...` name, the demo does not pass an explicit `--agent-def-dir` on this path; runtime recovers it from the session's tmux environment.
+
 ## Step 4: Send Control Input Manually
 
 ```bash
@@ -181,6 +184,8 @@ scripts/demo/cao-interactive-full-pipeline-demo/send_keys.sh \
 
 Control-input artifacts live under `controls/` and do not count as prompt turns for `verify`.
 
+Like prompt turns, these name-addressed control-input calls rely on the live session's tmux-published `AGENTSYS_AGENT_DEF_DIR` instead of passing `--agent-def-dir` explicitly.
+
 ## Step 5: Stop the Session Explicitly
 
 ```bash
@@ -188,6 +193,8 @@ scripts/demo/cao-interactive-full-pipeline-demo/stop_demo.sh
 ```
 
 The stop flow marks `state.json` inactive even if the remote tmux or CAO session is already stale, as long as the failure matches the demo's stale-session tolerance rules.
+
+This stop path also targets the persisted agent name and relies on the same tmux-session-derived agent-definition-root default.
 
 ## Maintainer Appendix: Optional Verify
 

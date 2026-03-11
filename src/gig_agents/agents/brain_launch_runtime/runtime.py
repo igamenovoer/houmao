@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from .agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     is_path_like_agent_identity,
     normalize_agent_identity_name,
@@ -77,12 +78,15 @@ class AgentIdentityResolution:
         Resolved session manifest path used to resume/control a runtime session.
     canonical_agent_identity:
         Canonical tmux identity when resolved from a name input.
+    agent_def_dir:
+        Effective agent-definition root for name-based tmux resolution.
     warnings:
         Non-fatal parsing warnings surfaced to CLI callers.
     """
 
     session_manifest_path: Path
     canonical_agent_identity: str | None = None
+    agent_def_dir: Path | None = None
     warnings: tuple[str, ...] = ()
 
 
@@ -239,6 +243,7 @@ def start_runtime_session(
         launch_plan=launch_plan,
         role_name=role_name,
         role_prompt=role_package.system_prompt,
+        agent_def_dir=agent_def_dir,
         api_base_url=api_base_url,
         cao_profile_store_dir=cao_profile_store_dir,
         session_manifest_path=manifest_path,
@@ -271,7 +276,12 @@ def start_runtime_session(
     return controller
 
 
-def resolve_agent_identity(*, agent_identity: str, base: Path) -> AgentIdentityResolution:
+def resolve_agent_identity(
+    *,
+    agent_identity: str,
+    base: Path,
+    explicit_agent_def_dir: Path | None = None,
+) -> AgentIdentityResolution:
     """Resolve an `--agent-identity` into a concrete session manifest path.
 
     Parameters
@@ -280,6 +290,9 @@ def resolve_agent_identity(*, agent_identity: str, base: Path) -> AgentIdentityR
         Raw CLI identity value (manifest path or agent name).
     base:
         Base path used for resolving relative manifest paths.
+    explicit_agent_def_dir:
+        Optional explicit CLI override for the effective agent-definition root
+        when resolving a name-based tmux session.
 
     Returns
     -------
@@ -294,6 +307,7 @@ def resolve_agent_identity(*, agent_identity: str, base: Path) -> AgentIdentityR
         return AgentIdentityResolution(session_manifest_path=manifest_path.resolve())
 
     normalized = normalize_agent_identity_name(agent_identity)
+    _ensure_tmux_session_exists(session_name=normalized.canonical_name)
     manifest_path = _resolve_manifest_path_from_tmux_session(session_name=normalized.canonical_name)
     _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
@@ -302,6 +316,10 @@ def resolve_agent_identity(*, agent_identity: str, base: Path) -> AgentIdentityR
     return AgentIdentityResolution(
         session_manifest_path=manifest_path,
         canonical_agent_identity=normalized.canonical_name,
+        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
+            session_name=normalized.canonical_name,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+        ),
         warnings=normalized.warnings,
     )
 
@@ -339,6 +357,7 @@ def resume_runtime_session(
         launch_plan=launch_plan,
         role_name=role_name,
         role_prompt=role_package.system_prompt,
+        agent_def_dir=agent_def_dir,
         cao_profile_store_dir=cao_profile_store_dir,
         resume_state=manifest_payload,
         session_manifest_path=session_manifest_path.resolve(),
@@ -370,6 +389,7 @@ def _create_backend_session(
     launch_plan: LaunchPlan,
     role_name: str,
     role_prompt: str,
+    agent_def_dir: Path,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
     resume_state: SessionManifestPayloadV2 | None = None,
@@ -398,6 +418,7 @@ def _create_backend_session(
                     session_manifest_path,
                     backend=launch_plan.backend,
                 ),
+                agent_def_dir=agent_def_dir,
                 state=state,
                 tmux_session_name=agent_identity,
             ),
@@ -414,6 +435,7 @@ def _create_backend_session(
                     session_manifest_path,
                     backend=launch_plan.backend,
                 ),
+                agent_def_dir=agent_def_dir,
                 state=state,
                 tmux_session_name=agent_identity,
             ),
@@ -437,6 +459,7 @@ def _create_backend_session(
                     session_manifest_path,
                     backend=launch_plan.backend,
                 ),
+                agent_def_dir=agent_def_dir,
                 state=state,
                 tmux_session_name=agent_identity,
             ),
@@ -470,6 +493,7 @@ def _create_backend_session(
                 api_base_url=resolved_api_base_url.strip(),
                 role_name=role_name,
                 role_prompt=role_prompt,
+                agent_def_dir=agent_def_dir,
                 profile_store_dir=cao_profile_store_dir,
                 existing_state=existing_state,
                 session_manifest_path=session_manifest_path,
@@ -626,8 +650,8 @@ def _resolve_manifest_path(value: str, *, base: Path) -> Path:
     return (base / candidate).resolve()
 
 
-def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
-    """Resolve a session manifest path from tmux session environment state."""
+def _ensure_tmux_session_exists(*, session_name: str) -> None:
+    """Validate that a tmux session exists before reading its environment."""
 
     try:
         has_result = has_tmux_session_shared(session_name=session_name)
@@ -635,36 +659,46 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
         raise SessionManifestError(
             f"Agent-name resolution requires `tmux` on PATH for session `{session_name}`."
         ) from exc
-    if has_result.returncode != 0:
-        if has_result.returncode == 1:
-            raise SessionManifestError(
-                f"Agent not found: tmux session `{session_name}` does not exist. "
-                "Run `tmux ls` to discover active agents or pass a manifest path."
-            )
-        detail = tmux_error_detail_shared(has_result)
+    if has_result.returncode == 0:
+        return
+    if has_result.returncode == 1:
         raise SessionManifestError(
-            f"Failed to query tmux session `{session_name}`: {detail or 'unknown tmux error'}"
+            f"Agent not found: tmux session `{session_name}` does not exist. "
+            "Run `tmux ls` to discover active agents or pass a manifest path."
         )
+    detail = tmux_error_detail_shared(has_result)
+    raise SessionManifestError(
+        f"Failed to query tmux session `{session_name}`: {detail or 'unknown tmux error'}"
+    )
+
+
+def _read_tmux_session_env_var(
+    *,
+    session_name: str,
+    variable_name: str,
+    missing_message: str,
+) -> str:
+    """Read one tmux session environment value and reject missing/blank output."""
 
     try:
         env_result = show_tmux_environment_shared(
             session_name=session_name,
-            variable_name=AGENT_MANIFEST_PATH_ENV_VAR,
+            variable_name=variable_name,
         )
     except TmuxCommandError as exc:
         raise SessionManifestError(
             f"Agent-name resolution requires `tmux` on PATH for session `{session_name}`."
         ) from exc
+
     env_detail = tmux_error_detail_shared(env_result)
     if env_result.returncode != 0:
         if "unknown variable" in env_detail.lower():
             raise SessionManifestError(
-                f"Manifest pointer missing: tmux session `{session_name}` has no "
-                f"`{AGENT_MANIFEST_PATH_ENV_VAR}` value. "
-                "Use an explicit manifest path or restart the session."
+                f"{missing_message}: tmux session `{session_name}` has no "
+                f"`{variable_name}` value."
             )
         raise SessionManifestError(
-            f"Failed reading `{AGENT_MANIFEST_PATH_ENV_VAR}` from tmux session "
+            f"Failed reading `{variable_name}` from tmux session "
             f"`{session_name}`: {env_detail or 'unknown tmux error'}"
         )
 
@@ -675,27 +709,35 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
             line = stripped
             break
 
-    missing_line = f"-{AGENT_MANIFEST_PATH_ENV_VAR}"
-    if not line or line == missing_line:
+    if not line or line == f"-{variable_name}":
         raise SessionManifestError(
-            f"Manifest pointer missing: tmux session `{session_name}` has blank "
-            f"`{AGENT_MANIFEST_PATH_ENV_VAR}`."
+            f"{missing_message}: tmux session `{session_name}` has blank `{variable_name}`."
         )
 
-    prefix = f"{AGENT_MANIFEST_PATH_ENV_VAR}="
+    prefix = f"{variable_name}="
     if not line.startswith(prefix):
         raise SessionManifestError(
             f"Unexpected tmux environment output for `{session_name}`: {line}"
         )
 
-    manifest_raw = line[len(prefix) :].strip()
-    if not manifest_raw:
+    value = line[len(prefix) :].strip()
+    if not value:
         raise SessionManifestError(
-            f"Manifest pointer missing: tmux session `{session_name}` has blank "
-            f"`{AGENT_MANIFEST_PATH_ENV_VAR}`."
+            f"{missing_message}: tmux session `{session_name}` has blank `{variable_name}`."
         )
+    return value
 
-    manifest_path = Path(manifest_raw)
+
+def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
+    """Resolve a session manifest path from tmux session environment state."""
+
+    manifest_path = Path(
+        _read_tmux_session_env_var(
+            session_name=session_name,
+            variable_name=AGENT_MANIFEST_PATH_ENV_VAR,
+            missing_message="Manifest pointer missing",
+        )
+    )
     if not manifest_path.is_absolute():
         raise SessionManifestError(
             f"Invalid manifest pointer in tmux session `{session_name}`: "
@@ -708,6 +750,43 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
             f"session `{session_name}` points to missing file `{manifest_path}`."
         )
     return manifest_path
+
+
+def _resolve_agent_def_dir_for_name_resolution(
+    *,
+    session_name: str,
+    explicit_agent_def_dir: Path | None,
+) -> Path:
+    """Resolve the effective agent-definition root for name-based control."""
+
+    if explicit_agent_def_dir is not None:
+        resolved_override = explicit_agent_def_dir.resolve()
+        if not resolved_override.is_dir():
+            raise SessionManifestError(
+                "Explicit `--agent-def-dir` override must point to an existing directory, "
+                f"got `{resolved_override}`."
+            )
+        return resolved_override
+
+    resolved_agent_def_dir = Path(
+        _read_tmux_session_env_var(
+            session_name=session_name,
+            variable_name=AGENT_DEF_DIR_ENV_VAR,
+            missing_message="Agent definition pointer missing",
+        )
+    )
+    if not resolved_agent_def_dir.is_absolute():
+        raise SessionManifestError(
+            f"Invalid agent definition pointer in tmux session `{session_name}`: "
+            f"`{AGENT_DEF_DIR_ENV_VAR}` must be an absolute path."
+        )
+    resolved_agent_def_dir = resolved_agent_def_dir.resolve()
+    if not resolved_agent_def_dir.is_dir():
+        raise SessionManifestError(
+            f"Agent definition pointer stale: `{AGENT_DEF_DIR_ENV_VAR}` in tmux "
+            f"session `{session_name}` points to missing directory `{resolved_agent_def_dir}`."
+        )
+    return resolved_agent_def_dir
 
 
 def _validate_resolved_manifest_matches_tmux_session(

@@ -7,6 +7,7 @@ This demo validates that a CAO-managed Claude Code session can create a determin
 - `pixi` is installed and working.
 - `tmux` is installed and available on `PATH`.
 - Local CAO server access is available at `http://localhost:9889` or `http://127.0.0.1:9889`.
+  Recommended install if you need a local CAO binary: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
   - If not already running, the demo auto-starts local `cao-server` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
   - If launcher start reuses a healthy local server with unknown ownership (`pid` unresolved), the demo retries with launcher `stop`/`start` and skips with explicit ownership diagnostics if still untracked.
 - Credential profile exists under `$AGENT_DEF_DIR/brains/api-creds/claude/personal-a-default/env/vars.env`.

@@ -11,17 +11,28 @@ from pathlib import Path
 
 from gig_agents.agents.brain_builder import BuildRequest, build_brain_home
 
+from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
 from .models import BackendKind
 from .runtime import (
+    AgentIdentityResolution,
     resolve_agent_identity,
     resume_runtime_session,
     start_runtime_session,
 )
 
-_AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 _DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
+_AMBIENT_AGENT_DEF_DIR_HELP = (
+    "Agent definition directory root (contains brains/, roles/, blueprints/). "
+    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+)
+_CONTROL_AGENT_DEF_DIR_HELP = (
+    "Agent definition directory root (contains brains/, roles/, blueprints/). "
+    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents. "
+    "For name-based tmux control: explicit CLI override or the addressed session's "
+    "AGENTSYS_AGENT_DEF_DIR."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,10 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument(
         "--agent-def-dir",
         default=None,
-        help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
-        ),
+        help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
     build.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
     build.add_argument("--recipe", help="Path to brain recipe")
@@ -89,10 +97,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--agent-def-dir",
         default=None,
-        help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
-        ),
+        help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
     start.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
     start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
@@ -126,10 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prompt.add_argument(
         "--agent-def-dir",
         default=None,
-        help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
-        ),
+        help=_CONTROL_AGENT_DEF_DIR_HELP,
     )
     prompt.add_argument(
         "--agent-identity",
@@ -145,10 +147,7 @@ def _build_parser() -> argparse.ArgumentParser:
     send_keys.add_argument(
         "--agent-def-dir",
         default=None,
-        help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
-        ),
+        help=_CONTROL_AGENT_DEF_DIR_HELP,
     )
     send_keys.add_argument(
         "--agent-identity",
@@ -170,10 +169,7 @@ def _build_parser() -> argparse.ArgumentParser:
     stop.add_argument(
         "--agent-def-dir",
         default=None,
-        help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
-        ),
+        help=_CONTROL_AGENT_DEF_DIR_HELP,
     )
     stop.add_argument(
         "--agent-identity",
@@ -285,10 +281,10 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
 
 def _cmd_send_prompt(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
-    agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
-    resolved = resolve_agent_identity(
+    agent_def_dir, resolved = _resolve_control_target(
         agent_identity=args.agent_identity,
-        base=cwd,
+        agent_def_dir_cli_value=args.agent_def_dir,
+        cwd=cwd,
     )
     for warning in resolved.warnings:
         print(f"warning: {warning}", file=sys.stderr)
@@ -306,10 +302,10 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
 
 def _cmd_send_keys(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
-    agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
-    resolved = resolve_agent_identity(
+    agent_def_dir, resolved = _resolve_control_target(
         agent_identity=args.agent_identity,
-        base=cwd,
+        agent_def_dir_cli_value=args.agent_def_dir,
+        cwd=cwd,
     )
     for warning in resolved.warnings:
         print(f"warning: {warning}", file=sys.stderr)
@@ -329,10 +325,10 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
 
 def _cmd_stop_session(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
-    agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
-    resolved = resolve_agent_identity(
+    agent_def_dir, resolved = _resolve_control_target(
         agent_identity=args.agent_identity,
-        base=cwd,
+        agent_def_dir_cli_value=args.agent_def_dir,
+        cwd=cwd,
     )
     for warning in resolved.warnings:
         print(f"warning: {warning}", file=sys.stderr)
@@ -369,11 +365,48 @@ def _resolve_role(args: argparse.Namespace, *, agent_def_dir: Path) -> str:
     raise BrainLaunchRuntimeError("start-session requires --role or --blueprint")
 
 
+def _resolve_control_target(
+    *,
+    agent_identity: str,
+    agent_def_dir_cli_value: str | None,
+    cwd: Path,
+) -> tuple[Path, AgentIdentityResolution]:
+    """Resolve control target identity plus the effective agent-definition root."""
+
+    if is_path_like_agent_identity(agent_identity):
+        return (
+            _resolve_agent_def_dir(agent_def_dir_cli_value, cwd=cwd),
+            resolve_agent_identity(agent_identity=agent_identity, base=cwd),
+        )
+
+    resolved = resolve_agent_identity(
+        agent_identity=agent_identity,
+        base=cwd,
+        explicit_agent_def_dir=_resolve_explicit_agent_def_dir_override(
+            agent_def_dir_cli_value,
+            cwd=cwd,
+        ),
+    )
+    if resolved.agent_def_dir is None:
+        raise BrainLaunchRuntimeError(
+            "Name-based session control requires a resolved agent definition directory."
+        )
+    return resolved.agent_def_dir, resolved
+
+
+def _resolve_explicit_agent_def_dir_override(cli_value: str | None, *, cwd: Path) -> Path | None:
+    """Resolve only the explicit CLI override for name-based control flows."""
+
+    if cli_value is None:
+        return None
+    return _resolve_path(cli_value, base=cwd)
+
+
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     if cli_value is not None:
         return _resolve_path(cli_value, base=cwd)
 
-    env_value = os.environ.get(_AGENT_DEF_DIR_ENV_VAR)
+    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
     if env_value:
         return _resolve_path(env_value, base=cwd)
 

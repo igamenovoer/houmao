@@ -30,6 +30,7 @@ from gig_agents.demo.cao_interactive_demo import (
     load_turn_records,
     main,
     save_demo_state,
+    send_control_input,
     send_turn,
     start_demo,
     stop_demo,
@@ -302,6 +303,15 @@ class FakeRunner:
                             json.dumps({"kind": "done", "message": f"echo: {prompt}"}),
                         ]
                     )
+                elif subcommand == "send-keys":
+                    sequence = self._argument_value(command, "--sequence")
+                    stdout = json.dumps(
+                        {
+                            "status": "ok",
+                            "action": "control_input",
+                            "detail": f"control: {sequence}",
+                        }
+                    )
                 elif subcommand == "stop-session":
                     stdout = json.dumps(
                         {
@@ -373,6 +383,7 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
 
     stop_call = next(call for call in runner.calls if "stop-session" in call)
     assert stop_call[5] == "stop-session"
+    assert "--agent-def-dir" not in stop_call
     assert "--agent-identity" in stop_call
     assert stop_call[stop_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
@@ -916,7 +927,30 @@ def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> No
     records = load_turn_records(paths.turns_dir)
     assert [record.turn_index for record in records] == [1]
     send_call = next(call for call in runner.calls if "send-prompt" in call)
+    assert "--agent-def-dir" not in send_call
     assert send_call[send_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
+
+
+def test_send_control_input_omits_agent_def_dir_for_name_based_runtime_call(
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    _seed_state(paths, active=True)
+    runner = FakeRunner(tmp_path)
+
+    record = send_control_input(
+        paths=paths,
+        env=env,
+        key_stream="<[Escape]>",
+        as_raw_string=False,
+        run_command=runner,
+    )
+
+    assert record.result.status == "ok"
+    send_keys_call = next(call for call in runner.calls if "send-keys" in call)
+    assert "--agent-def-dir" not in send_keys_call
+    assert send_keys_call[send_keys_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
 
 def test_send_turn_succeeds_after_recovered_model_switch_history(tmp_path: Path) -> None:
@@ -1233,6 +1267,7 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
     paths = _make_paths(tmp_path)
     env = _make_env(tmp_path)
     _seed_state(paths, active=True)
+    commands: list[tuple[str, ...]] = []
 
     def _runner(
         command: list[str],
@@ -1241,6 +1276,7 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
         stderr_path: Path,
         timeout_seconds: float,
     ) -> CommandResult:
+        commands.append(tuple(command))
         stderr = "error: Agent not found: tmux session `AGENTSYS-demo` does not exist."
         stdout_path.parent.mkdir(parents=True, exist_ok=True)
         stderr_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1265,6 +1301,8 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
     assert state is not None
     assert state.active is False
     assert payload["stop_result"]["stale_session_tolerated"] is True
+    stop_call = next(call for call in commands if "stop-session" in call)
+    assert "--agent-def-dir" not in stop_call
 
 
 def test_verify_demo_requires_reused_agent_identity_across_two_turns(tmp_path: Path) -> None:

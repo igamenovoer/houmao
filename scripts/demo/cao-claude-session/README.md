@@ -7,6 +7,7 @@ This tutorial pack demonstrates a real CAO-backed Claude Code session: build a b
 - `pixi` is installed and working.
 - `tmux` is installed and available on `PATH`.
 - `cao-server` is installed and available on `PATH`.
+  Recommended install: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
   - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
   - If an untracked local `cao-server` is already healthy on `:9889`, the demo restarts it to ensure runtime/profile-store alignment.
   - If you set `CAO_BASE_URL` to a non-default URL, the demo expects that server to already be running.
