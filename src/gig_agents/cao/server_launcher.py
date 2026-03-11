@@ -10,6 +10,7 @@ import subprocess
 import time
 import tomllib
 from dataclasses import asdict, dataclass, is_dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
@@ -34,6 +35,7 @@ _CONTROLLED_PROXY_ENV_VARS: tuple[str, ...] = (
     "https_proxy",
     "all_proxy",
 )
+_OWNERSHIP_MANAGED_BY = "gig_agents.cao.server_launcher"
 
 
 class CaoServerLauncherError(RuntimeError):
@@ -91,6 +93,44 @@ class _LauncherConfigModel(BaseModel):
         return value
 
 
+class _LauncherOwnershipModel(BaseModel):
+    """Strict shape for launcher ownership artifact parsing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    managed_by: str
+    launch_mode: str
+    base_url: str
+    runtime_root: Path
+    artifact_dir: Path
+    home_dir: Path | None = None
+    config_path: Path
+    proxy_policy: ProxyPolicy
+    pid: int
+    process_group_id: int | None = None
+    executable_path: Path
+    started_at_utc: str
+
+    @field_validator("managed_by", "launch_mode", "started_at_utc")
+    @classmethod
+    def _validate_non_empty_string(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip()
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        return _normalize_base_url(value)
+
+    @field_validator("pid")
+    @classmethod
+    def _validate_pid(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+
 @dataclass(frozen=True)
 class CaoServerLauncherConfig:
     """Resolved launcher configuration.
@@ -138,6 +178,53 @@ class CaoServerRuntimeArtifacts:
     pid_file: Path
     log_file: Path
     launcher_result_file: Path
+    ownership_file: Path
+
+
+@dataclass(frozen=True)
+class CaoServerOwnership:
+    """Structured ownership metadata for a standalone launcher-managed CAO service.
+
+    Parameters
+    ----------
+    managed_by:
+        Stable identifier for the launcher that wrote the ownership artifact.
+    launch_mode:
+        Launch lifecycle mode used for the service.
+    base_url:
+        CAO base URL served by the tracked process.
+    runtime_root:
+        Runtime root used for launcher artifacts.
+    artifact_dir:
+        Artifact directory that owns the tracked service metadata.
+    home_dir:
+        Optional HOME override used for the launched service.
+    config_path:
+        Launcher config path used to start the service.
+    proxy_policy:
+        Proxy handling policy applied at launch time.
+    pid:
+        Process identifier for the tracked service.
+    process_group_id:
+        Optional detached process group identifier used for later signal delivery.
+    executable_path:
+        Resolved executable path used at launch time.
+    started_at_utc:
+        UTC timestamp for the successful standalone launch.
+    """
+
+    managed_by: str
+    launch_mode: str
+    base_url: str
+    runtime_root: Path
+    artifact_dir: Path
+    home_dir: Path | None
+    config_path: Path
+    proxy_policy: ProxyPolicy
+    pid: int
+    process_group_id: int | None
+    executable_path: Path
+    started_at_utc: str
 
 
 @dataclass(frozen=True)
@@ -166,6 +253,8 @@ class CaoServerStartResult:
     pid_file: Path
     log_file: Path
     launcher_result_file: Path
+    ownership_file: Path
+    ownership: CaoServerOwnership | None
     message: str
 
 
@@ -182,6 +271,10 @@ class CaoServerStopResult:
     signal_sent: str | None
     artifact_dir: Path
     pid_file: Path
+    log_file: Path
+    launcher_result_file: Path
+    ownership_file: Path
+    ownership: CaoServerOwnership | None
     message: str
 
 
@@ -292,6 +385,7 @@ def resolve_cao_server_runtime_artifacts(
         pid_file=artifact_dir / "cao-server.pid",
         log_file=artifact_dir / "cao-server.log",
         launcher_result_file=artifact_dir / "launcher_result.json",
+        ownership_file=artifact_dir / "ownership.json",
     )
 
 
@@ -343,6 +437,59 @@ def read_cao_server_pid(pid_file: Path) -> int:
     if pid <= 0:
         raise CaoServerLauncherError(f"Pidfile `{pid_file}` contains non-positive pid: `{pid}`.")
     return pid
+
+
+def write_cao_server_ownership(ownership_file: Path, ownership: CaoServerOwnership) -> None:
+    """Persist a structured ownership artifact for a standalone CAO service."""
+
+    ownership_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = dataclass_to_json_payload(ownership)
+    ownership_file.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def read_cao_server_ownership(ownership_file: Path) -> CaoServerOwnership:
+    """Read a structured ownership artifact from disk."""
+
+    if not ownership_file.exists():
+        raise CaoServerLauncherError(f"Ownership artifact not found: `{ownership_file}`.")
+    try:
+        raw_payload = json.loads(ownership_file.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CaoServerLauncherError(
+            f"Failed to read ownership artifact `{ownership_file}`: {exc}."
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise CaoServerLauncherError(
+            f"Malformed ownership artifact `{ownership_file}`: {exc}."
+        ) from exc
+
+    try:
+        parsed = _LauncherOwnershipModel.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise CaoServerLauncherError(
+            _format_pydantic_error(
+                f"Invalid ownership artifact `{ownership_file}`",
+                exc,
+            )
+        ) from exc
+
+    return CaoServerOwnership(
+        managed_by=parsed.managed_by,
+        launch_mode=parsed.launch_mode,
+        base_url=parsed.base_url,
+        runtime_root=parsed.runtime_root,
+        artifact_dir=parsed.artifact_dir,
+        home_dir=parsed.home_dir,
+        config_path=parsed.config_path,
+        proxy_policy=parsed.proxy_policy,
+        pid=int(parsed.pid),
+        process_group_id=parsed.process_group_id,
+        executable_path=parsed.executable_path,
+        started_at_utc=parsed.started_at_utc,
+    )
 
 
 def build_cao_server_environment(
@@ -501,21 +648,26 @@ def start_cao_server(
     artifacts = resolve_cao_server_runtime_artifacts(config)
     artifacts.artifact_dir.mkdir(parents=True, exist_ok=True)
 
+    tracked_pid, tracked_ownership = _resolve_tracked_running_service(
+        artifacts=artifacts,
+        base_url=config.base_url,
+    )
     initial_status = status_cao_server(config, timeout_seconds=status_timeout_seconds)
     if initial_status.healthy:
-        existing_pid = _read_pid_if_exists(artifacts.pid_file)
         result = CaoServerStartResult(
             operation="start",
             base_url=config.base_url,
             healthy=True,
             started_new_process=False,
             reused_existing_process=True,
-            pid=existing_pid,
+            pid=tracked_pid,
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
             log_file=artifacts.log_file,
             launcher_result_file=artifacts.launcher_result_file,
-            message=f"CAO server already healthy at {config.base_url}.",
+            ownership_file=artifacts.ownership_file,
+            ownership=tracked_ownership,
+            message=_healthy_reuse_message(config.base_url, tracked_pid, tracked_ownership),
         )
         _write_launcher_result(artifacts.launcher_result_file, result)
         return result
@@ -523,7 +675,8 @@ def start_cao_server(
     executable = _require_executable_on_path(
         "cao-server",
         install_hint=(
-            "Install CAO with uv (`uv tool install cli-agent-orchestrator`) and "
+            "Install CAO from the supported fork "
+            "(`uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`) and "
             "verify with `command -v cao-server`."
         ),
     )
@@ -533,20 +686,35 @@ def start_cao_server(
         home_dir=config.home_dir,
     )
 
-    with artifacts.log_file.open("a", encoding="utf-8") as log_handle:
-        process = subprocess.Popen(
-            [executable],
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            env=launch_env,
-        )
+    process = _launch_cao_server_detached(
+        executable=executable,
+        config=config,
+        artifacts=artifacts,
+        launch_env=launch_env,
+    )
 
     write_cao_server_pid(artifacts.pid_file, process.pid)
+    process_group_id = _process_group_id_for_pid(process.pid)
 
     deadline = time.monotonic() + config.startup_timeout_seconds
     while time.monotonic() < deadline:
         probe = status_cao_server(config, timeout_seconds=status_timeout_seconds)
         if probe.healthy:
+            ownership = CaoServerOwnership(
+                managed_by=_OWNERSHIP_MANAGED_BY,
+                launch_mode="detached",
+                base_url=config.base_url,
+                runtime_root=config.runtime_root,
+                artifact_dir=artifacts.artifact_dir,
+                home_dir=config.home_dir,
+                config_path=config.config_path,
+                proxy_policy=config.proxy_policy,
+                pid=process.pid,
+                process_group_id=process_group_id,
+                executable_path=Path(executable).expanduser().resolve(),
+                started_at_utc=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
+            write_cao_server_ownership(artifacts.ownership_file, ownership)
             result = CaoServerStartResult(
                 operation="start",
                 base_url=config.base_url,
@@ -558,6 +726,8 @@ def start_cao_server(
                 pid_file=artifacts.pid_file,
                 log_file=artifacts.log_file,
                 launcher_result_file=artifacts.launcher_result_file,
+                ownership_file=artifacts.ownership_file,
+                ownership=ownership,
                 message=f"Started `cao-server` (pid={process.pid}).",
             )
             _write_launcher_result(artifacts.launcher_result_file, result)
@@ -567,18 +737,24 @@ def start_cao_server(
         if returncode is not None:
             race_probe = status_cao_server(config, timeout_seconds=status_timeout_seconds)
             if race_probe.healthy:
-                artifacts.pid_file.unlink(missing_ok=True)
+                _clear_runtime_tracking_files(artifacts)
+                tracked_pid, tracked_ownership = _resolve_tracked_running_service(
+                    artifacts=artifacts,
+                    base_url=config.base_url,
+                )
                 result = CaoServerStartResult(
                     operation="start",
                     base_url=config.base_url,
                     healthy=True,
                     started_new_process=False,
                     reused_existing_process=True,
-                    pid=_read_pid_if_exists(artifacts.pid_file),
+                    pid=tracked_pid,
                     artifact_dir=artifacts.artifact_dir,
                     pid_file=artifacts.pid_file,
                     log_file=artifacts.log_file,
                     launcher_result_file=artifacts.launcher_result_file,
+                    ownership_file=artifacts.ownership_file,
+                    ownership=tracked_ownership,
                     message=(
                         "Detected a healthy CAO server after launch race; "
                         f"spawned process exited with code {returncode}."
@@ -587,7 +763,7 @@ def start_cao_server(
                 _write_launcher_result(artifacts.launcher_result_file, result)
                 return result
 
-            artifacts.pid_file.unlink(missing_ok=True)
+            _clear_runtime_tracking_files(artifacts)
             raise CaoServerLauncherError(
                 "Failed to start `cao-server`: process exited early with "
                 f"code {returncode}. See `{artifacts.log_file}`."
@@ -595,8 +771,8 @@ def start_cao_server(
 
         time.sleep(max(0.01, poll_interval_seconds))
 
-    _terminate_process_tree(process.pid)
-    artifacts.pid_file.unlink(missing_ok=True)
+    _terminate_process_tree(process.pid, process_group_id=process_group_id)
+    _clear_runtime_tracking_files(artifacts)
     raise CaoServerLauncherError(
         "Failed to start `cao-server`: health check did not become healthy "
         f"within {config.startup_timeout_seconds:.1f}s. See `{artifacts.log_file}`."
@@ -628,7 +804,7 @@ def stop_cao_server(
 
     artifacts = resolve_cao_server_runtime_artifacts(config)
     if not artifacts.pid_file.exists():
-        return CaoServerStopResult(
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=False,
@@ -638,13 +814,20 @@ def stop_cao_server(
             signal_sent=None,
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=_read_ownership_if_exists(artifacts.ownership_file),
             message=f"No pidfile found at `{artifacts.pid_file}`.",
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
     pid = read_cao_server_pid(artifacts.pid_file)
+    ownership = _read_ownership_if_exists(artifacts.ownership_file)
     if not _is_process_running(pid):
         artifacts.pid_file.unlink(missing_ok=True)
-        return CaoServerStopResult(
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=False,
@@ -654,12 +837,22 @@ def stop_cao_server(
             signal_sent=None,
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
             message=f"Process {pid} is not running; removed stale pidfile.",
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
-    cmdline = _read_process_cmdline(pid)
-    if cmdline is None:
-        return CaoServerStopResult(
+    ownership_error = _ownership_verification_error(
+        ownership=ownership,
+        pid=pid,
+        base_url=config.base_url,
+    )
+    if ownership_error is not None:
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=False,
@@ -669,14 +862,41 @@ def stop_cao_server(
             signal_sent=None,
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
+            message=ownership_error,
+        )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
+
+    cmdline = _read_process_cmdline(pid)
+    if cmdline is None:
+        result = CaoServerStopResult(
+            operation="stop",
+            base_url=config.base_url,
+            stopped=False,
+            already_stopped=False,
+            verification_passed=False,
+            pid=pid,
+            signal_sent=None,
+            artifact_dir=artifacts.artifact_dir,
+            pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
             message=(
                 "Refusing to stop process because identity could not be verified: "
                 f"cannot read cmdline for pid {pid}."
             ),
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
     if not _looks_like_cao_server_cmdline(cmdline):
-        return CaoServerStopResult(
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=False,
@@ -686,20 +906,26 @@ def stop_cao_server(
             signal_sent=None,
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
             message=(
                 "Refusing to stop process because cmdline does not look like "
                 f"`cao-server` (pid={pid}, cmdline={cmdline})."
             ),
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
-    os.kill(pid, signal.SIGTERM)
+    _send_stop_signal(pid, ownership, signal.SIGTERM)
     if _wait_for_exit(
         pid,
         timeout_seconds=grace_period_seconds,
         poll_interval_seconds=poll_interval_seconds,
     ):
         artifacts.pid_file.unlink(missing_ok=True)
-        return CaoServerStopResult(
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=True,
@@ -709,17 +935,23 @@ def stop_cao_server(
             signal_sent="SIGTERM",
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
             message=f"Stopped `cao-server` with SIGTERM (pid={pid}).",
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
-    os.kill(pid, signal.SIGKILL)
+    _send_stop_signal(pid, ownership, signal.SIGKILL)
     if _wait_for_exit(
         pid,
         timeout_seconds=2.0,
         poll_interval_seconds=poll_interval_seconds,
     ):
         artifacts.pid_file.unlink(missing_ok=True)
-        return CaoServerStopResult(
+        result = CaoServerStopResult(
             operation="stop",
             base_url=config.base_url,
             stopped=True,
@@ -729,8 +961,14 @@ def stop_cao_server(
             signal_sent="SIGKILL",
             artifact_dir=artifacts.artifact_dir,
             pid_file=artifacts.pid_file,
+            log_file=artifacts.log_file,
+            launcher_result_file=artifacts.launcher_result_file,
+            ownership_file=artifacts.ownership_file,
+            ownership=ownership,
             message=f"Stopped `cao-server` with SIGKILL (pid={pid}).",
         )
+        _write_launcher_result(artifacts.launcher_result_file, result)
+        return result
 
     raise CaoServerLauncherError(
         f"Failed to stop process {pid}: still running after SIGTERM/SIGKILL."
@@ -879,6 +1117,8 @@ def _ensure_supported_base_url(base_url: str) -> None:
 
 
 def _read_pid_if_exists(path: Path) -> int | None:
+    """Read a pidfile when it exists and looks valid."""
+
     if not path.exists():
         return None
     try:
@@ -887,7 +1127,20 @@ def _read_pid_if_exists(path: Path) -> int | None:
         return None
 
 
+def _read_ownership_if_exists(path: Path) -> CaoServerOwnership | None:
+    """Read launcher ownership metadata when it exists and is valid."""
+
+    if not path.exists():
+        return None
+    try:
+        return read_cao_server_ownership(path)
+    except CaoServerLauncherError:
+        return None
+
+
 def _write_launcher_result(path: Path, result: object) -> None:
+    """Persist the latest launcher operation payload for diagnostics."""
+
     payload: dict[str, object]
     if hasattr(result, "__dataclass_fields__"):
         payload = dataclass_to_json_payload(result)
@@ -897,6 +1150,8 @@ def _write_launcher_result(path: Path, result: object) -> None:
 
 
 def _is_process_running(pid: int) -> bool:
+    """Return whether a process id currently resolves to a live process."""
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -907,6 +1162,8 @@ def _is_process_running(pid: int) -> bool:
 
 
 def _read_process_cmdline(pid: int) -> str | None:
+    """Read `/proc/<pid>/cmdline` and collapse it into a readable string."""
+
     cmdline_path = Path("/proc") / str(pid) / "cmdline"
     if not cmdline_path.exists():
         return None
@@ -922,6 +1179,8 @@ def _read_process_cmdline(pid: int) -> str | None:
 
 
 def _looks_like_cao_server_cmdline(cmdline: str) -> bool:
+    """Return whether a process command line looks like `cao-server`."""
+
     lower = cmdline.lower()
     return "cao-server" in lower or "cli_agent_orchestrator" in lower
 
@@ -932,6 +1191,8 @@ def _wait_for_exit(
     timeout_seconds: float,
     poll_interval_seconds: float,
 ) -> bool:
+    """Wait until a process exits or the timeout budget is exhausted."""
+
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     while time.monotonic() < deadline:
         if not _is_process_running(pid):
@@ -940,16 +1201,148 @@ def _wait_for_exit(
     return not _is_process_running(pid)
 
 
-def _terminate_process_tree(pid: int) -> None:
+def _terminate_process_tree(pid: int, *, process_group_id: int | None = None) -> None:
+    """Best-effort terminate a launched service using its group when available."""
+
     if not _is_process_running(pid):
         return
     try:
-        os.kill(pid, signal.SIGTERM)
+        _signal_pid_or_group(pid, process_group_id, signal.SIGTERM)
     except OSError:
         return
     if _wait_for_exit(pid, timeout_seconds=3.0, poll_interval_seconds=0.1):
         return
     try:
-        os.kill(pid, signal.SIGKILL)
+        _signal_pid_or_group(pid, process_group_id, signal.SIGKILL)
     except OSError:
         return
+
+
+def _launch_cao_server_detached(
+    *,
+    executable: str,
+    config: CaoServerLauncherConfig,
+    artifacts: CaoServerRuntimeArtifacts,
+    launch_env: Mapping[str, str],
+) -> subprocess.Popen[bytes]:
+    """Launch `cao-server` in a detached standalone session."""
+
+    artifacts.log_file.parent.mkdir(parents=True, exist_ok=True)
+    with artifacts.log_file.open("ab") as log_handle:
+        return subprocess.Popen(
+            [executable],
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            env=dict(launch_env),
+            cwd=str(config.home_dir) if config.home_dir is not None else None,
+            start_new_session=True,
+        )
+
+
+def _healthy_reuse_message(
+    base_url: str,
+    tracked_pid: int | None,
+    tracked_ownership: CaoServerOwnership | None,
+) -> str:
+    """Build a stable human-readable message for a healthy reuse outcome."""
+
+    if tracked_pid is None or tracked_ownership is None:
+        return f"CAO server already healthy at {base_url}, but launcher ownership is unknown."
+    return (
+        f"CAO server already healthy at {base_url} "
+        f"with tracked detached ownership (pid={tracked_pid})."
+    )
+
+
+def _clear_runtime_tracking_files(artifacts: CaoServerRuntimeArtifacts) -> None:
+    """Remove runtime tracking files that should not survive failed starts."""
+
+    artifacts.pid_file.unlink(missing_ok=True)
+    artifacts.ownership_file.unlink(missing_ok=True)
+
+
+def _resolve_tracked_running_service(
+    *,
+    artifacts: CaoServerRuntimeArtifacts,
+    base_url: str,
+) -> tuple[int | None, CaoServerOwnership | None]:
+    """Return verified tracked service ownership for a live launcher-managed process."""
+
+    pid = _read_pid_if_exists(artifacts.pid_file)
+    if pid is None:
+        return None, None
+    if not _is_process_running(pid):
+        artifacts.pid_file.unlink(missing_ok=True)
+        return None, None
+
+    cmdline = _read_process_cmdline(pid)
+    if cmdline is None or not _looks_like_cao_server_cmdline(cmdline):
+        artifacts.pid_file.unlink(missing_ok=True)
+        return None, None
+
+    ownership = _read_ownership_if_exists(artifacts.ownership_file)
+    if ownership is None:
+        return pid, None
+
+    if ownership.pid != pid or ownership.base_url != base_url:
+        artifacts.pid_file.unlink(missing_ok=True)
+        return None, None
+    return pid, ownership
+
+
+def _ownership_verification_error(
+    *,
+    ownership: CaoServerOwnership | None,
+    pid: int,
+    base_url: str,
+) -> str | None:
+    """Return a stop-time ownership verification error when artifacts disagree."""
+
+    if ownership is None:
+        return None
+    if ownership.pid != pid:
+        return (
+            "Refusing to stop process because launcher ownership metadata does not match the "
+            f"pidfile (ownership pid={ownership.pid}, pidfile pid={pid})."
+        )
+    if ownership.base_url != base_url:
+        return (
+            "Refusing to stop process because launcher ownership metadata does not match the "
+            f"requested base_url ({ownership.base_url!r} != {base_url!r})."
+        )
+    return None
+
+
+def _send_stop_signal(
+    pid: int,
+    ownership: CaoServerOwnership | None,
+    signum: signal.Signals,
+) -> None:
+    """Send a stop signal to the tracked service process or detached process group."""
+
+    process_group_id = ownership.process_group_id if ownership is not None else None
+    _signal_pid_or_group(pid, process_group_id, signum)
+
+
+def _signal_pid_or_group(pid: int, process_group_id: int | None, signum: signal.Signals) -> None:
+    """Signal a detached process group when available, otherwise signal the pid."""
+
+    if process_group_id is not None:
+        try:
+            os.killpg(process_group_id, signum)
+            return
+        except ProcessLookupError:
+            raise
+        except OSError:
+            pass
+    os.kill(pid, signum)
+
+
+def _process_group_id_for_pid(pid: int) -> int | None:
+    """Return a process group id for a pid when the platform can resolve it."""
+
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None

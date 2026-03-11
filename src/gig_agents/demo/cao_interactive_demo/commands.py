@@ -11,13 +11,13 @@ from gig_agents.agents.brain_launch_runtime.agent_identity import (
 )
 from gig_agents.cao.rest_client import CaoRestClient
 
+from gig_agents.demo.cao_interactive_demo.brain_recipes import resolve_demo_brain_recipe
 from gig_agents.demo.cao_interactive_demo.cao_server import (
     _ensure_cao_server,
     _write_launcher_config,
 )
 from gig_agents.demo.cao_interactive_demo.models import (
     DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
-    DEFAULT_TOOL_NAME,
     DEFAULT_WORKTREE_DIRNAME,
     EMPTY_RESPONSE_ERROR,
     FIXED_CAO_BASE_URL,
@@ -45,7 +45,7 @@ from gig_agents.demo.cao_interactive_demo.rendering import (
     _write_json_file,
 )
 from gig_agents.demo.cao_interactive_demo.runtime import (
-    _best_effort_claude_code_state,
+    _best_effort_tool_state,
     _best_effort_output_text_tail,
     _build_brain,
     _cao_profile_store,
@@ -55,6 +55,7 @@ from gig_agents.demo.cao_interactive_demo.runtime import (
     _start_runtime_session,
     _stop_remote_session,
     _terminal_log_path,
+    _tool_display_name,
 )
 
 
@@ -62,7 +63,8 @@ def start_demo(
     *,
     paths: DemoPaths,
     env: DemoEnvironment,
-    agent_name: str,
+    agent_name_override: str | None,
+    brain_recipe_selector: str | None,
     run_command: CommandRunner,
 ) -> dict[str, object]:
     """Start or replace the interactive CAO demo session."""
@@ -75,12 +77,17 @@ def start_demo(
         _emit_startup_progress("Provisioning the default demo git worktree.")
         _provision_default_worktree(paths=paths, env=env, run_command=run_command)
 
-    normalized_identity = normalize_agent_identity_name(agent_name)
+    resolved_recipe = resolve_demo_brain_recipe(
+        agent_def_dir=env.agent_def_dir,
+        selector=brain_recipe_selector,
+    )
+    selected_agent_name = agent_name_override or resolved_recipe.default_agent_name
+    normalized_identity = normalize_agent_identity_name(selected_agent_name)
     _emit_startup_progress("Resetting any previous interactive demo session state.")
     replaced_agent_identity = _reset_demo_startup_state(
         paths=paths,
         env=env,
-        agent_identity=normalized_identity.canonical_name,
+        requested_agent_identity=normalized_identity.canonical_name,
         run_command=run_command,
     )
 
@@ -90,16 +97,34 @@ def start_demo(
     _emit_startup_progress(f"Ensuring local CAO availability at {FIXED_CAO_BASE_URL}.")
     _ensure_cao_server(paths=paths, env=env, run_command=run_command)
 
-    _emit_startup_progress("Building the Claude runtime brain for the interactive demo.")
-    build_payload = _build_brain(paths=paths, env=env, run_command=run_command)
-    _emit_startup_progress("Launching the interactive Claude session and waiting for readiness.")
+    tool_label = _tool_display_name(resolved_recipe.tool)
+    _emit_startup_progress(f"Building the interactive {tool_label} runtime brain.")
+    build_payload = _build_brain(
+        paths=paths,
+        env=env,
+        recipe_path=resolved_recipe.recipe_path,
+        run_command=run_command,
+    )
+    _emit_startup_progress(
+        f"Launching the interactive {tool_label} session and waiting for readiness."
+    )
     runtime_payload = _start_runtime_session(
         paths=paths,
         env=env,
+        tool=resolved_recipe.tool,
         agent_identity=normalized_identity.canonical_name,
         brain_manifest_path=Path(str(build_payload["manifest_path"])),
         run_command=run_command,
     )
+    started_tool = _require_non_empty_string(
+        runtime_payload.get("tool"),
+        context="start-session output missing tool",
+    )
+    if started_tool != resolved_recipe.tool:
+        raise DemoWorkflowError(
+            "start-session output tool did not match the selected brain recipe "
+            f"({started_tool!r} != {resolved_recipe.tool!r})."
+        )
 
     session_manifest_path = Path(str(runtime_payload["session_manifest"])).expanduser().resolve()
     manifest_payload = _load_json_file(session_manifest_path, context="session manifest")
@@ -122,6 +147,9 @@ def start_demo(
             runtime_payload.get("agent_identity"),
             context="start-session output missing agent_identity",
         ),
+        tool=resolved_recipe.tool,
+        variant_id=resolved_recipe.variant_id,
+        brain_recipe=resolved_recipe.canonical_selector,
         session_manifest=str(session_manifest_path),
         session_name=session_name,
         tmux_target=session_name,
@@ -320,7 +348,10 @@ def inspect_demo(
         "session_status": "active" if state.active else "inactive",
         "agent_identity": state.agent_identity,
         "session_name": state.session_name,
-        "claude_code_state": _best_effort_claude_code_state(
+        "tool": state.tool,
+        "variant_id": state.variant_id,
+        "brain_recipe": state.brain_recipe,
+        "tool_state": _best_effort_tool_state(
             terminal_id=state.terminal_id,
             client=client,
         ),
@@ -336,6 +367,7 @@ def inspect_demo(
     }
     if output_text_tail_chars is not None:
         output_text_tail = _best_effort_output_text_tail(
+            tool=state.tool,
             terminal_id=state.terminal_id,
             output_text_tail_chars=output_text_tail_chars,
             client=client,
@@ -390,7 +422,9 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
     report = VerificationReport(
         status="ok",
         backend="cao_rest",
-        tool=DEFAULT_TOOL_NAME,
+        tool=state.tool,
+        variant_id=state.variant_id,
+        brain_recipe=state.brain_recipe,
         cao_base_url=state.cao_base_url,
         agent_identity=state.agent_identity,
         unique_agent_identity_count=len(agent_identities),
@@ -560,51 +594,96 @@ def _reset_demo_startup_state(
     *,
     paths: DemoPaths,
     env: DemoEnvironment,
-    agent_identity: str,
+    requested_agent_identity: str,
     run_command: CommandRunner,
 ) -> str | None:
     """Reset prior tutorial state so startup behaves like a fresh run."""
 
-    previous = _load_previous_demo_state(env.current_run_root_path)
-    replaced_agent_identity = (
-        previous.agent_identity if previous is not None and previous.active else None
+    previous_paths, previous_state, previous_is_stale = _load_previous_demo_state_for_startup(
+        env.current_run_root_path
     )
+    current_state, current_is_stale = _load_demo_state_for_startup(paths.state_path)
 
-    _stop_remote_session(
-        paths=paths,
-        env=env,
-        agent_identity=agent_identity,
-        run_command=run_command,
-        tolerate_stale=True,
-        log_prefix="replacement-stop",
-    )
-    _kill_tmux_session(
-        paths=paths,
-        env=env,
-        session_name=agent_identity,
-        run_command=run_command,
-    )
+    cleanup_agent_identities = [requested_agent_identity]
+    cleanup_session_names = [requested_agent_identity]
+    replaced_agent_identity: str | None = None
 
-    if previous is not None:
-        previous_paths = DemoPaths.from_workspace_root(Path(previous.workspace_dir))
-        _reset_demo_artifacts(previous_paths)
-        _mark_state_inactive(previous_paths.state_path, previous)
+    for candidate_state in (previous_state, current_state):
+        if candidate_state is None or not candidate_state.active:
+            continue
+        cleanup_agent_identities.append(candidate_state.agent_identity)
+        cleanup_session_names.append(candidate_state.session_name)
+        if replaced_agent_identity is None:
+            replaced_agent_identity = candidate_state.agent_identity
 
-    if paths.state_path.exists():
-        current_state = load_demo_state(paths.state_path)
-        if current_state is not None:
-            _mark_state_inactive(paths.state_path, current_state)
+    for index, agent_identity in enumerate(
+        _dedup_preserve_order(cleanup_agent_identities), start=1
+    ):
+        _stop_remote_session(
+            paths=paths,
+            env=env,
+            agent_identity=agent_identity,
+            run_command=run_command,
+            tolerate_stale=True,
+            log_prefix=f"replacement-stop-{index}",
+        )
+
+    for session_name in _dedup_preserve_order(cleanup_session_names):
+        _kill_tmux_session(
+            paths=paths,
+            env=env,
+            session_name=session_name,
+            run_command=run_command,
+        )
+
+    if previous_paths is not None:
+        if previous_state is not None:
+            _reset_demo_artifacts(previous_paths)
+            _mark_state_inactive(previous_paths.state_path, previous_state)
+        elif previous_is_stale:
+            _reset_demo_artifacts(previous_paths)
+            _remove_stale_state_file(previous_paths.state_path)
+
+    if current_state is not None:
+        _mark_state_inactive(paths.state_path, current_state)
+    elif current_is_stale:
+        _remove_stale_state_file(paths.state_path)
 
     return replaced_agent_identity
 
 
-def _load_previous_demo_state(current_run_root_path: Path) -> DemoState | None:
-    """Load the previously recorded demo state from the current-run marker."""
+def _load_previous_demo_state_for_startup(
+    current_run_root_path: Path,
+) -> tuple[DemoPaths | None, DemoState | None, bool]:
+    """Load the previously recorded demo state for startup cleanup.
+
+    Returns
+    -------
+    tuple[DemoPaths | None, DemoState | None, bool]
+        Resolved prior workspace paths when available, the validated state when
+        it can be loaded, and a stale-state flag when the file exists but is no
+        longer compatible with the current schema.
+    """
 
     previous_workspace_root = _read_current_run_root(current_run_root_path)
     if previous_workspace_root is None:
-        return None
-    return load_demo_state(DemoPaths.from_workspace_root(previous_workspace_root).state_path)
+        return (None, None, False)
+
+    previous_paths = DemoPaths.from_workspace_root(previous_workspace_root)
+    previous_state, previous_is_stale = _load_demo_state_for_startup(previous_paths.state_path)
+    return (previous_paths, previous_state, previous_is_stale)
+
+
+def _load_demo_state_for_startup(path: Path) -> tuple[DemoState | None, bool]:
+    """Load state for startup and classify incompatible files as stale local state."""
+
+    if not path.is_file():
+        return (None, False)
+
+    try:
+        return (load_demo_state(path), False)
+    except DemoWorkflowError:
+        return (None, True)
 
 
 def _mark_state_inactive(path: Path, state: DemoState) -> None:
@@ -612,6 +691,19 @@ def _mark_state_inactive(path: Path, state: DemoState) -> None:
 
     if state.active:
         save_demo_state(path, state.model_copy(update={"active": False, "updated_at": _utc_now()}))
+
+
+def _remove_stale_state_file(path: Path) -> None:
+    """Delete an incompatible persisted state file before writing fresh startup state."""
+
+    if path.exists():
+        path.unlink()
+
+
+def _dedup_preserve_order(values: list[str]) -> list[str]:
+    """Return values without duplicates while preserving first-seen order."""
+
+    return list(dict.fromkeys(value for value in values if value.strip()))
 
 
 def _next_turn_index(paths: DemoPaths) -> int:

@@ -9,16 +9,13 @@ from typing import Callable, Literal, Sequence, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, field_validator
 
 FIXED_CAO_BASE_URL = "http://127.0.0.1:9889"
-DEFAULT_AGENT_NAME = "cao-interactive-demo"
 DEFAULT_CAO_SERVICE_NAME = "cli-agent-orchestrator"
-DEFAULT_CONFIG_PROFILE = "default"
-DEFAULT_CREDENTIAL_PROFILE = "personal-a-default"
 DEFAULT_DEMO_ROOT_DIRNAME = "cao-interactive-full-pipeline-demo"
 DEFAULT_ROLE_NAME = "gpu-kernel-coder"
 DEFAULT_WORKTREE_DIRNAME = "wktree"
 DEFAULT_TIMEOUT_SECONDS = 180.0
-DEFAULT_TOOL_NAME = "claude"
-DEFAULT_SKILLS: tuple[str, ...] = ("openspec-apply-change",)
+DEFAULT_BRAIN_RECIPE_SELECTOR = "claude/gpu-kernel-coder-default"
+BRAIN_RECIPES_RELATIVE_DIR = Path("brains") / "brain-recipes"
 DEFAULT_LIVE_CAO_TIMEOUT_SECONDS = 5.0
 DEFAULT_STARTUP_HEARTBEAT_INITIAL_DELAY_SECONDS = 2.0
 DEFAULT_STARTUP_HEARTBEAT_INTERVAL_SECONDS = 5.0
@@ -28,7 +25,7 @@ DEFAULT_CAO_STOP_CLEAR_POLL_SECONDS = 0.1
 PORT_LISTEN_STATE = "0A"
 CURRENT_RUN_ROOT_FILENAME = "current_run_root.txt"
 EMPTY_RESPONSE_ERROR = "interactive CAO turn returned an empty response"
-UNKNOWN_CLAUDE_CODE_STATE = "unknown"
+UNKNOWN_TOOL_STATE = "unknown"
 TEST_LOOPBACK_PORT_LISTENING_ENV = "AGENTSYS_TEST_INTERACTIVE_DEMO_FIXED_PORT_LISTENING"
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "agent not found",
@@ -57,6 +54,9 @@ class DemoState(_StrictModel):
 
     active: bool
     agent_identity: str
+    tool: str
+    variant_id: str
+    brain_recipe: str
     session_manifest: str
     session_name: str
     tmux_target: str
@@ -75,6 +75,9 @@ class DemoState(_StrictModel):
 
     @field_validator(
         "agent_identity",
+        "tool",
+        "variant_id",
+        "brain_recipe",
         "session_manifest",
         "session_name",
         "tmux_target",
@@ -201,6 +204,8 @@ class VerificationReport(_StrictModel):
     status: str
     backend: str
     tool: str
+    variant_id: str
+    brain_recipe: str
     cao_base_url: str
     agent_identity: str
     unique_agent_identity_count: int
@@ -217,6 +222,8 @@ class VerificationReport(_StrictModel):
         "status",
         "backend",
         "tool",
+        "variant_id",
+        "brain_recipe",
         "cao_base_url",
         "agent_identity",
         "session_manifest",
@@ -276,9 +283,6 @@ class DemoEnvironment:
     launcher_home_dir: Path
     workdir: Path
     role_name: str
-    config_profile: str
-    credential_profile: str
-    skills: tuple[str, ...]
     timeout_seconds: float
     yes_to_all: bool
     provision_worktree: bool

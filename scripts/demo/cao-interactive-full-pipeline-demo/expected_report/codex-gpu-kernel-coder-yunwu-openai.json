@@ -1,0 +1,31 @@
+{
+  "agent_identity": "<AGENT_IDENTITY>",
+  "backend": "cao_rest",
+  "brain_recipe": "codex/gpu-kernel-coder-yunwu-openai",
+  "cao_base_url": "http://127.0.0.1:9889",
+  "generated_at_utc": "<TIMESTAMP>",
+  "session_manifest": "<SESSION_MANIFEST_PATH>",
+  "status": "ok",
+  "terminal_id": "<TERMINAL_ID>",
+  "terminal_log_path": "<LAUNCHER_HOME>/.aws/cli-agent-orchestrator/logs/terminal/<TERMINAL_ID>.log",
+  "tmux_target": "<TMUX_TARGET>",
+  "tool": "codex",
+  "turns_verified_minimum": 2,
+  "unique_agent_identity_count": 1,
+  "variant_id": "codex-gpu-kernel-coder-yunwu-openai",
+  "verified_turns": [
+    {
+      "agent_identity": "<AGENT_IDENTITY>",
+      "exit_status": 0,
+      "response_text": "<NON_EMPTY_RESPONSE>",
+      "turn_index": 1
+    },
+    {
+      "agent_identity": "<AGENT_IDENTITY>",
+      "exit_status": 0,
+      "response_text": "<NON_EMPTY_RESPONSE>",
+      "turn_index": 2
+    }
+  ],
+  "workspace_dir": "<WORKSPACE_PATH>"
+}

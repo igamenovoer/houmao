@@ -1,0 +1,63 @@
+## ADDED Requirements
+
+### Requirement: Runtime-generated filesystem mailbox system skills are available to launched agents
+The system SHALL provide implemented mailbox access to agents through runtime-generated system-defined filesystem mailbox skills derived from platform-owned templates rather than requiring role-authored mailbox skill content.
+
+These filesystem mailbox system skills SHALL be injected into launched sessions that enable mailbox support in a reserved runtime-owned skill namespace.
+
+#### Scenario: Started filesystem-mailbox agent receives mailbox system skills
+- **WHEN** the runtime starts an agent session with filesystem mailbox support enabled
+- **THEN** the runtime injects the mailbox system skill set for that session from platform-owned templates
+- **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
+
+#### Scenario: Runtime-owned mailbox skills stay separate from role-authored skills
+- **WHEN** an agent session includes both role-authored skills and runtime-generated mailbox system skills
+- **THEN** the mailbox system skills use the reserved runtime-owned skill namespace
+- **AND THEN** the agent can use those mailbox system skills without overriding or depending on role-authored skill content
+
+### Requirement: Mailbox system skills use a stable env-var binding contract
+The system SHALL require runtime-generated mailbox system skills to resolve mailbox bindings through runtime-managed env vars rather than through literal paths, URLs, or mailbox addresses embedded in the generated skill text.
+
+At minimum, the runtime SHALL provide the following common mailbox binding env vars for started sessions:
+
+- `AGENTSYS_MAILBOX_TRANSPORT`
+- `AGENTSYS_MAILBOX_PRINCIPAL_ID`
+- `AGENTSYS_MAILBOX_ADDRESS`
+- `AGENTSYS_MAILBOX_BINDINGS_VERSION`
+
+The runtime SHALL additionally provide filesystem-specific mailbox binding env vars required by the implemented filesystem transport.
+
+Filesystem-specific mailbox binding env vars SHALL use the `AGENTSYS_MAILBOX_FS_` prefix.
+
+Reserved future mail-system-compatible mailbox binding env vars SHALL use the `AGENTSYS_MAILBOX_EMAIL_` prefix when a true-email adapter is added in a follow-up change.
+
+#### Scenario: Filesystem mailbox skill resolves bindings from env vars
+- **WHEN** the runtime starts an agent session with the filesystem mailbox transport
+- **THEN** the generated mailbox system skill refers to the filesystem mailbox through runtime-managed env vars
+- **AND THEN** the started session environment includes the filesystem mailbox binding env vars needed by that skill, including the transport kind and filesystem mailbox locations
+- **AND THEN** those filesystem-specific binding env vars use the `AGENTSYS_MAILBOX_FS_` prefix
+- **AND THEN** the filesystem mailbox content root is provided through `AGENTSYS_MAILBOX_FS_ROOT` rather than being inferred from a fixed run-directory location
+
+#### Scenario: Reserved future mail-system prefix stays distinct
+- **WHEN** the system documents mailbox bindings for a future true-email-compatible adapter
+- **THEN** those future mail-system-compatible binding env vars use the `AGENTSYS_MAILBOX_EMAIL_` prefix
+- **AND THEN** they remain distinct from the implemented filesystem mailbox binding env vars
+
+### Requirement: Filesystem mailbox binding env vars are refreshable on demand
+The system SHALL support on-demand refresh of runtime-managed filesystem mailbox binding env vars for active agent sessions without requiring regeneration of the mailbox system skill templates themselves.
+
+Refreshed mailbox bindings SHALL apply to subsequent runtime-controlled work for that session.
+
+#### Scenario: Filesystem mailbox binding refresh updates subsequent work
+- **WHEN** the runtime changes the effective filesystem mailbox binding for an active session
+- **THEN** the runtime refreshes the mailbox binding env vars for that session
+- **AND THEN** subsequent mailbox-related work in that session observes the refreshed filesystem mailbox bindings without requiring a new mailbox system skill template
+
+### Requirement: Runtime-owned mailbox commands rely on injected mailbox system skills
+The system SHALL allow runtime-owned mailbox command surfaces to rely on the injected mailbox system skills plus runtime-managed mailbox bindings, without requiring mailbox-specific instructions to be authored in the role or recipe.
+
+#### Scenario: Runtime mail request uses injected mailbox system skills
+- **WHEN** the runtime delivers a mailbox-operation prompt such as `check`, `send`, or `reply` to a mailbox-enabled session
+- **THEN** the launched agent can satisfy that request through the injected runtime-owned mailbox system skills and mailbox env bindings
+- **AND THEN** the runtime request can explicitly name the injected mailbox system skill the agent should use while appending mailbox-operation metadata in the same prompt
+- **AND THEN** that mailbox operation does not depend on mailbox-specific behavior being restated inside the role or recipe

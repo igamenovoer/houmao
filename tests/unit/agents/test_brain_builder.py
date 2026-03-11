@@ -11,6 +11,7 @@ from gig_agents.agents.brain_builder import (
     BuildRequest,
     _load_tool_adapter,
     build_brain_home,
+    load_brain_recipe,
 )
 
 
@@ -166,6 +167,50 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     ]
     assert "NOT_ALLOWLISTED" not in manifest_text
     assert "sk-test-123" not in manifest_text
+
+
+def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: codex
+default_agent_name: cao-codex-demo
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.default_agent_name == "cao-codex-demo"
+    assert recipe.skills == ["skill-a"]
+
+
+def test_load_brain_recipe_allows_missing_default_agent_name(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.default_agent_name is None
 
 
 def test_build_brain_home_skips_missing_optional_credential_file(

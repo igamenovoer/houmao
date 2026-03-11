@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Verify or snapshot interactive CAO full-pipeline demo reports."""
+"""Verify or snapshot interactive CAO full-pipeline demo reports.
+
+This script sanitizes runtime-specific fields from interactive-demo verification
+reports and compares the normalized payload against a tracked expected snapshot.
+The snapshot contract is variant-aware, so one expected-report file exists per
+interactive-demo `variant_id`.
+
+Functions
+---------
+main
+    Verify one report against the tracked snapshot or refresh the snapshot.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +26,21 @@ _TERMINAL_LOG_SUFFIX = Path(".aws") / "cli-agent-orchestrator" / "logs" / "termi
 
 
 def _sanitize_turn(turn: dict[str, Any], *, expected_index: int) -> dict[str, Any]:
+    """Validate and normalize one verified turn entry.
+
+    Parameters
+    ----------
+    turn:
+        Raw turn entry loaded from `report.json`.
+    expected_index:
+        Expected sequential turn index in the minimum verified set.
+
+    Returns
+    -------
+    dict[str, Any]
+        Sanitized turn payload with placeholders for runtime-specific values.
+    """
+
     turn_index = int(turn.get("turn_index", 0))
     if turn_index != expected_index:
         raise ValueError(
@@ -41,6 +67,19 @@ def _sanitize_turn(turn: dict[str, Any], *, expected_index: int) -> dict[str, An
 
 
 def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize one interactive-demo verification report.
+
+    Parameters
+    ----------
+    report:
+        Raw verification report loaded from `report.json`.
+
+    Returns
+    -------
+    dict[str, Any]
+        Variant-aware sanitized payload suitable for fixture comparison.
+    """
+
     status = str(report.get("status", "")).strip()
     if status != "ok":
         raise ValueError("report.status must be ok")
@@ -50,8 +89,20 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("report.backend must be cao_rest")
 
     tool = str(report.get("tool", "")).strip()
-    if tool != "claude":
-        raise ValueError("report.tool must be claude")
+    if tool not in {"claude", "codex"}:
+        raise ValueError("report.tool must be claude or codex")
+
+    variant_id = str(report.get("variant_id", "")).strip()
+    if not variant_id:
+        raise ValueError("report.variant_id must be non-empty")
+
+    brain_recipe = str(report.get("brain_recipe", "")).strip()
+    if not brain_recipe:
+        raise ValueError("report.brain_recipe must be non-empty")
+    if variant_id != brain_recipe.replace("/", "-"):
+        raise ValueError("report.variant_id must normalize report.brain_recipe")
+    if not brain_recipe.startswith(f"{tool}/"):
+        raise ValueError("report.brain_recipe must align with report.tool")
 
     cao_base_url = str(report.get("cao_base_url", "")).strip()
     if cao_base_url != FIXED_CAO_BASE_URL:
@@ -131,7 +182,9 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "ok",
         "backend": "cao_rest",
-        "tool": "claude",
+        "tool": tool,
+        "variant_id": variant_id,
+        "brain_recipe": brain_recipe,
         "cao_base_url": FIXED_CAO_BASE_URL,
         "agent_identity": "<AGENT_IDENTITY>",
         "unique_agent_identity_count": 1,
@@ -148,7 +201,23 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _expected_report_path(expected_target: Path, *, variant_id: str) -> Path:
+    """Resolve the expected-report snapshot path for one variant."""
+
+    if expected_target.suffix == ".json":
+        return expected_target
+    return expected_target / f"{variant_id}.json"
+
+
 def main() -> int:
+    """Run the interactive-demo verification helper.
+
+    Returns
+    -------
+    int
+        Process exit code for verification or snapshot update.
+    """
+
     parser = argparse.ArgumentParser(
         description="Verify or snapshot interactive CAO full-pipeline demo reports"
     )
@@ -159,17 +228,21 @@ def main() -> int:
 
     actual = json.loads(args.actual_report.read_text(encoding="utf-8"))
     sanitized = _sanitize(actual)
+    expected_report_path = _expected_report_path(
+        args.expected_report,
+        variant_id=str(sanitized["variant_id"]),
+    )
 
     if args.snapshot:
-        args.expected_report.parent.mkdir(parents=True, exist_ok=True)
-        args.expected_report.write_text(
+        expected_report_path.parent.mkdir(parents=True, exist_ok=True)
+        expected_report_path.write_text(
             json.dumps(sanitized, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        print(f"snapshot updated: {args.expected_report}")
+        print(f"snapshot updated: {expected_report_path}")
         return 0
 
-    expected = json.loads(args.expected_report.read_text(encoding="utf-8"))
+    expected = json.loads(expected_report_path.read_text(encoding="utf-8"))
     if sanitized != expected:
         print("sanitized report mismatch", file=sys.stderr)
         print(

@@ -238,7 +238,7 @@ if ! pixi run python -V >/dev/null 2>&1; then
   skip "pixi environment is unavailable (run 'pixi install' first)"
 fi
 if ! command -v cao-server >/dev/null 2>&1; then
-  skip "cao-server not found on PATH (install with: uv tool install cli-agent-orchestrator)"
+  skip "cao-server not found on PATH (install with: uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release)"
 fi
 
 if [[ ! -f "$SCRIPT_DIR/inputs/demo_parameters.json" ]]; then
@@ -370,6 +370,14 @@ artifact_dir = Path(str(start_payload.get("artifact_dir", "")))
 pid_file = Path(str(start_payload.get("pid_file", "")))
 log_file = Path(str(start_payload.get("log_file", "")))
 launcher_result_file = Path(str(start_payload.get("launcher_result_file", "")))
+ownership_file = Path(str(start_payload.get("ownership_file", "")))
+ownership_payload = (
+    load_json(ownership_file)
+    if ownership_file.exists()
+    else {}
+)
+started_new_process = bool(start_payload.get("started_new_process"))
+reused_existing_process = bool(start_payload.get("reused_existing_process"))
 
 artifact_checks = {
     "expected_artifact_dir": str(expected_artifact_dir),
@@ -378,11 +386,36 @@ artifact_checks = {
         and pid_file == expected_artifact_dir / "cao-server.pid"
         and log_file == expected_artifact_dir / "cao-server.log"
         and launcher_result_file == expected_artifact_dir / "launcher_result.json"
+        and ownership_file == expected_artifact_dir / "ownership.json"
     ),
     "artifact_dir_exists_after_start": artifact_dir.exists(),
     "pid_file_exists_after_start": pid_file.exists(),
     "log_file_exists_after_start": log_file.exists(),
     "launcher_result_exists_after_start": launcher_result_file.exists(),
+    "ownership_file_exists_after_start": ownership_file.exists(),
+    "ownership_metadata_matches": (
+        isinstance(ownership_payload, dict)
+        and ownership_payload.get("managed_by") == "gig_agents.cao.server_launcher"
+        and ownership_payload.get("launch_mode") == "detached"
+        and ownership_payload.get("base_url") == base_url
+        and ownership_payload.get("runtime_root") == str(runtime_root)
+        and ownership_payload.get("artifact_dir") == str(expected_artifact_dir)
+        and ownership_payload.get("pid") == start_payload.get("pid")
+    ),
+    "ownership_contract_valid": (
+        (
+            started_new_process
+            and ownership_file.exists()
+            and isinstance(ownership_payload, dict)
+            and ownership_payload.get("managed_by") == "gig_agents.cao.server_launcher"
+            and ownership_payload.get("launch_mode") == "detached"
+        )
+        or (
+            reused_existing_process
+            and not ownership_file.exists()
+            and start_payload.get("ownership") is None
+        )
+    ),
 }
 
 report = {

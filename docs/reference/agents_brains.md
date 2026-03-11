@@ -101,7 +101,9 @@ Tool notes (current adapters):
 - `codex`
   - Home selector: `CODEX_HOME=<runtime-home>`
   - Optional login-state file: `files/auth.json` is projected into the runtime
-    home when the selected credential profile provides it.
+    home when the selected credential profile provides it. Env-backed Codex
+    profiles such as `yunwu-openai` are allowed to omit `files/auth.json`
+    entirely when they rely on `OPENAI_API_KEY`/`OPENAI_BASE_URL`.
   - Env vars: allowlisted keys from `env/vars.env` are projected into the home
     dotenv file (see `brains/tool-adapters/codex.yaml`).
   - Custom OpenAI-compatible providers can use a secret-free config profile such

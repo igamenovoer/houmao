@@ -7,15 +7,19 @@ from pathlib import Path
 import pytest
 
 from gig_agents.cao.server_launcher import (
+    CaoServerOwnership,
     CaoServerLauncherError,
     ProxyPolicy,
     _require_executable_on_path,
     build_cao_server_environment,
     load_cao_server_launcher_config,
+    read_cao_server_ownership,
     read_cao_server_pid,
     resolve_cao_server_runtime_artifacts,
+    start_cao_server,
     status_cao_server,
     stop_cao_server,
+    write_cao_server_ownership,
     write_cao_server_pid,
 )
 
@@ -124,6 +128,7 @@ def test_runtime_artifacts_are_partitioned_by_host_port(tmp_path: Path) -> None:
     assert loopback_artifacts.artifact_dir.name == "127.0.0.1-9889"
     assert localhost_artifacts.pid_file.name == "cao-server.pid"
     assert localhost_artifacts.log_file.name == "cao-server.log"
+    assert localhost_artifacts.ownership_file.name == "ownership.json"
 
 
 def test_pidfile_read_write_roundtrip(tmp_path: Path) -> None:
@@ -180,6 +185,110 @@ def test_stop_refuses_to_kill_when_identity_verification_fails(
     assert result.verification_passed is False
     assert result.already_stopped is False
     assert "Refusing to stop process" in result.message
+    assert kill_calls == []
+
+
+def test_start_records_detached_ownership_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = load_cao_server_launcher_config(_write_config(tmp_path))
+
+    probe_results = iter([False, True])
+
+    def fake_status(*args, **kwargs):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        healthy = next(probe_results)
+        return type(
+            "_Status",
+            (),
+            {
+                "operation": "status",
+                "base_url": config.base_url,
+                "healthy": healthy,
+                "health_status": "ok" if healthy else None,
+                "service": "cli-agent-orchestrator" if healthy else None,
+                "error": None if healthy else "connection refused",
+            },
+        )()
+
+    class FakeProcess:
+        pid = 4242
+
+        @staticmethod
+        def poll() -> int | None:
+            return None
+
+    monkeypatch.setattr("gig_agents.cao.server_launcher.status_cao_server", fake_status)
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._require_executable_on_path",
+        lambda *args, **kwargs: "/tmp/fake-bin/cao-server",
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._launch_cao_server_detached",
+        lambda **kwargs: FakeProcess(),
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._process_group_id_for_pid",
+        lambda pid: pid,
+    )
+
+    result = start_cao_server(config)
+
+    ownership = read_cao_server_ownership(result.ownership_file)
+    assert result.started_new_process is True
+    assert result.reused_existing_process is False
+    assert result.ownership is not None
+    assert ownership.managed_by == "gig_agents.cao.server_launcher"
+    assert ownership.launch_mode == "detached"
+    assert ownership.base_url == config.base_url
+    assert ownership.pid == 4242
+    assert ownership.process_group_id == 4242
+    assert ownership.executable_path == Path("/tmp/fake-bin/cao-server")
+
+
+def test_stop_refuses_to_kill_when_ownership_metadata_disagrees_with_pidfile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = load_cao_server_launcher_config(_write_config(tmp_path))
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+    write_cao_server_pid(artifacts.pid_file, 4242)
+    write_cao_server_ownership(
+        artifacts.ownership_file,
+        CaoServerOwnership(
+            managed_by="gig_agents.cao.server_launcher",
+            launch_mode="detached",
+            base_url=config.base_url,
+            runtime_root=config.runtime_root,
+            artifact_dir=artifacts.artifact_dir,
+            home_dir=config.home_dir,
+            config_path=config.config_path,
+            proxy_policy=config.proxy_policy,
+            pid=9999,
+            process_group_id=9999,
+            executable_path=Path("/usr/bin/cao-server"),
+            started_at_utc="2026-03-11T05:00:00+00:00",
+        ),
+    )
+
+    kill_calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr("gig_agents.cao.server_launcher._is_process_running", lambda pid: True)
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._read_process_cmdline",
+        lambda pid: "python /usr/bin/cao-server",
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher.os.kill",
+        lambda pid, signum: kill_calls.append((pid, int(signum))),
+    )
+
+    result = stop_cao_server(config)
+
+    assert result.stopped is False
+    assert result.verification_passed is False
+    assert "ownership metadata does not match the pidfile" in result.message
     assert kill_calls == []
 
 

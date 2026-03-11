@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-from gig_agents.agents.brain_launch_runtime.backends.claude_code_shadow import (
-    ClaudeCodeShadowParser,
+from gig_agents.agents.brain_launch_runtime.backends.shadow_parser_stack import (
+    ShadowParserStack,
 )
 from gig_agents.cao.rest_client import CaoRestClient
 
@@ -16,10 +16,9 @@ from gig_agents.demo.cao_interactive_demo.models import (
     DEFAULT_STARTUP_HEARTBEAT_INITIAL_DELAY_SECONDS,
     DEFAULT_STARTUP_HEARTBEAT_INTERVAL_SECONDS,
     DEFAULT_TERMINAL_LOG_RELATIVE_DIR,
-    DEFAULT_TOOL_NAME,
     FIXED_CAO_BASE_URL,
     STALE_STOP_MARKERS,
-    UNKNOWN_CLAUDE_CODE_STATE,
+    UNKNOWN_TOOL_STATE,
     CommandResult,
     CommandRunner,
     DemoEnvironment,
@@ -150,9 +149,10 @@ def _build_brain(
     *,
     paths: DemoPaths,
     env: DemoEnvironment,
+    recipe_path: Path,
     run_command: CommandRunner,
 ) -> dict[str, object]:
-    """Build the Claude brain manifest used by the interactive demo."""
+    """Build the recipe-selected brain manifest used by the interactive demo."""
 
     command = _runtime_cli_command(
         [
@@ -161,13 +161,8 @@ def _build_brain(
             str(env.agent_def_dir),
             "--runtime-root",
             str(paths.runtime_root),
-            "--tool",
-            DEFAULT_TOOL_NAME,
-            *sum([["--skill", skill] for skill in env.skills], []),
-            "--config-profile",
-            env.config_profile,
-            "--cred-profile",
-            env.credential_profile,
+            "--recipe",
+            str(recipe_path),
         ]
     )
     result = run_command(
@@ -193,6 +188,7 @@ def _start_runtime_session(
     *,
     paths: DemoPaths,
     env: DemoEnvironment,
+    tool: str,
     agent_identity: str,
     brain_manifest_path: Path,
     run_command: CommandRunner,
@@ -232,7 +228,8 @@ def _start_runtime_session(
             stderr_path,
             env.timeout_seconds,
             waiting_message=(
-                "Still waiting for the interactive Claude session to launch and become "
+                "Still waiting for the interactive "
+                f"{_tool_display_name(tool)} session to launch and become "
                 "ready for input."
             ),
         )
@@ -392,25 +389,28 @@ def _launcher_home_dir_from_cao_profile_store(cao_profile_store: str) -> Path | 
     return profile_store.parent.parent.parent
 
 
-def _best_effort_claude_code_state(*, terminal_id: str, client: CaoRestClient) -> str:
+def _best_effort_tool_state(*, terminal_id: str, client: CaoRestClient) -> str:
     """Return live CAO terminal status or `unknown` when lookup fails."""
 
     try:
         terminal = client.get_terminal(terminal_id)
     except Exception:
-        return UNKNOWN_CLAUDE_CODE_STATE
+        return UNKNOWN_TOOL_STATE
     if terminal.status is None:
-        return UNKNOWN_CLAUDE_CODE_STATE
+        return UNKNOWN_TOOL_STATE
     return terminal.status.value
 
 
 def _best_effort_output_text_tail(
     *,
+    tool: str,
     terminal_id: str,
     output_text_tail_chars: int,
     client: CaoRestClient,
 ) -> OutputTextTailResult:
-    """Return a clean projected Claude dialog tail for live inspection."""
+    """Return a clean projected dialog tail for live inspection."""
+
+    tool_label = _tool_display_name(tool)
 
     try:
         terminal_output = client.get_terminal_output(terminal_id, mode="full")
@@ -418,28 +418,30 @@ def _best_effort_output_text_tail(
         return OutputTextTailResult(
             output_text_tail=None,
             note=(
-                "clean projected Claude dialog tail unavailable: "
+                f"clean projected {tool_label} dialog tail unavailable: "
                 f"live CAO output could not be fetched ({exc})"
             ),
         )
 
     try:
-        parsed_snapshot = ClaudeCodeShadowParser().parse_snapshot(
+        parsed_snapshot = ShadowParserStack(tool=tool).parse_snapshot(
             terminal_output.output,
             baseline_pos=0,
         )
     except Exception as exc:
         return OutputTextTailResult(
             output_text_tail=None,
-            note=(f"clean projected Claude dialog tail unavailable: projection failed ({exc})"),
+            note=(
+                f"clean projected {tool_label} dialog tail unavailable: projection failed ({exc})"
+            ),
         )
 
     if parsed_snapshot.surface_assessment.availability != "supported":
         return OutputTextTailResult(
             output_text_tail=None,
             note=(
-                "clean projected Claude dialog tail unavailable: "
-                "live output did not match a supported Claude surface"
+                f"clean projected {tool_label} dialog tail unavailable: "
+                f"live output did not match a supported {tool_label} surface"
             ),
         )
 
@@ -448,3 +450,14 @@ def _best_effort_output_text_tail(
         output_text_tail=dialog_text[-output_text_tail_chars:],
         note=None,
     )
+
+
+def _tool_display_name(tool: str) -> str:
+    """Return a short operator-facing label for one demo tool."""
+
+    tool_name = tool.strip()
+    if tool_name == "claude":
+        return "Claude"
+    if tool_name == "codex":
+        return "Codex"
+    return tool_name

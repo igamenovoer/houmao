@@ -1,5 +1,6 @@
 # How Do I Validate `cao_server_launcher` End-to-End?
-nDefault agent-definition directory: `tests/fixtures/agents` (override with `AGENT_DEF_DIR=/path`).
+
+Default agent-definition directory: `tests/fixtures/agents` (override with `AGENT_DEF_DIR=/path`).
 
 
 This tutorial pack answers one concrete question:
@@ -15,6 +16,7 @@ JSON payload, and confirm the run matches `expected_report/report.json`.
 - [ ] `pixi` is installed.
 - [ ] The repo environment is installed (`pixi install` once).
 - [ ] `cao-server` is on `PATH` (`command -v cao-server`).
+  Recommended install: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
 - [ ] You are running from this repository checkout.
 
 If a prerequisite is missing, the demo exits `0` with a `SKIP:` message instead
@@ -25,8 +27,9 @@ of mutating tracked files.
 1. Copy tracked inputs from `inputs/` into a fresh temp workspace.
 2. Render a workspace-local launcher config from template placeholders.
 3. Run launcher commands in order and capture JSON/exit codes for each step.
-4. Build a raw report with payloads plus artifact-path checks.
-5. Sanitize non-deterministic fields and compare against tracked expected output.
+4. Verify a later `status` still succeeds after `start` has already returned.
+5. Build a raw report with payloads plus artifact-path and ownership-contract checks.
+6. Sanitize non-deterministic fields and compare against tracked expected output.
 
 ## Critical Example Code (Launcher CLI with Inline Comments)
 
@@ -38,7 +41,7 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
   >"$WORKSPACE_DIR/status_before_start.json" \
   2>"$WORKSPACE_DIR/status_before_start.err"
 
-# 2) Start CAO server (or reuse an already healthy one).
+# 2) Start CAO server as a detached standalone service (or reuse an already healthy one).
 pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
@@ -46,7 +49,7 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
   >"$WORKSPACE_DIR/start.json" \
   2>"$WORKSPACE_DIR/start.err"
 
-# 3) Confirm health after start must be healthy (exit code 0).
+# 3) Confirm health from a later separate command after start has exited.
 pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
@@ -105,6 +108,7 @@ Sanitized contract shape written by verification tooling:
   "checks": {
     "artifact_layout_matches": true,
     "launcher_result_exists_after_start": true,
+    "ownership_contract_valid": true,
     "post_start_status_healthy": true,
     "start_exit_code_is_zero": true,
     "stop_exit_code_is_zero": true
@@ -181,7 +185,7 @@ The command writes a sanitized payload into
 - `SKIP: pixi not found on PATH`
   - Install Pixi and retry.
 - `SKIP: cao-server not found on PATH`
-  - Install CAO CLI (`uv tool install cli-agent-orchestrator`) and retry.
+  - Install CAO CLI from the supported fork (`uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`) and retry.
 - `SKIP: cao-server did not become healthy within startup timeout`
   - The local CAO runtime is unavailable in this environment; inspect
     `start.err` and launcher log files under the printed workspace path.
@@ -236,3 +240,4 @@ Generated workspace outputs (untracked):
 - `report.json`
 - `report.sanitized.json`
 - `cao-server-launcher.toml`
+- `runtime/cao-server/<host>-<port>/ownership.json`

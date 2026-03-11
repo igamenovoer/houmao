@@ -18,13 +18,10 @@ from gig_agents.demo.cao_interactive_demo.commands import (
     verify_demo,
 )
 from gig_agents.demo.cao_interactive_demo.models import (
+    DEFAULT_BRAIN_RECIPE_SELECTOR,
     CURRENT_RUN_ROOT_FILENAME,
-    DEFAULT_AGENT_NAME,
-    DEFAULT_CONFIG_PROFILE,
-    DEFAULT_CREDENTIAL_PROFILE,
     DEFAULT_DEMO_ROOT_DIRNAME,
     DEFAULT_ROLE_NAME,
-    DEFAULT_SKILLS,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_WORKTREE_DIRNAME,
     CommandRunner,
@@ -60,7 +57,8 @@ def main(
             payload = start_demo(
                 paths=paths,
                 env=env,
-                agent_name=str(args.agent_name),
+                agent_name_override=getattr(args, "agent_name", None),
+                brain_recipe_selector=getattr(args, "brain_recipe", None),
                 run_command=runner,
             )
             if bool(getattr(args, "json", False)):
@@ -169,23 +167,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Role name passed to `brain_launch_runtime start-session`.",
     )
     parser.add_argument(
-        "--config-profile",
-        default=DEFAULT_CONFIG_PROFILE,
-        help="Config profile passed to `build-brain`.",
-    )
-    parser.add_argument(
-        "--credential-profile",
-        default=DEFAULT_CREDENTIAL_PROFILE,
-        help="Credential profile passed to `build-brain`.",
-    )
-    parser.add_argument(
-        "--skill",
-        dest="skills",
-        action="append",
-        default=[],
-        help="Repeatable build-brain skill selection. Defaults to openspec-apply-change.",
-    )
-    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=DEFAULT_TIMEOUT_SECONDS,
@@ -197,8 +178,17 @@ def _build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start", help="Start or replace the interactive session")
     start.add_argument(
         "--agent-name",
-        default=DEFAULT_AGENT_NAME,
-        help="Operator-facing agent identity name (canonicalized to AGENTSYS-...).",
+        default=None,
+        help="Optional override for the selected recipe's default agent name.",
+    )
+    start.add_argument(
+        "--brain-recipe",
+        default=None,
+        help=(
+            "Brain recipe selector relative to `brains/brain-recipes/`. "
+            f"Defaults to `{DEFAULT_BRAIN_RECIPE_SELECTOR}`. Optional `.yaml` "
+            "suffix and basename-only lookup are supported."
+        ),
     )
     start.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
@@ -226,7 +216,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         metavar="NUM_TAIL_CHARS",
         help=(
-            "Include the last NUM_TAIL_CHARS of clean projected Claude dialog text "
+            "Include the last NUM_TAIL_CHARS of clean projected tool dialog text "
             "from the live CAO terminal."
         ),
     )
@@ -279,9 +269,6 @@ def _resolve_demo_invocation(args: argparse.Namespace) -> DemoInvocation:
         launcher_home_dir=launcher_home_dir,
         workdir=workdir,
         role_name=str(args.role_name),
-        config_profile=str(args.config_profile),
-        credential_profile=str(args.credential_profile),
-        skills=tuple(args.skills or DEFAULT_SKILLS),
         timeout_seconds=float(args.timeout_seconds),
         yes_to_all=bool(args.yes),
         provision_worktree=provision_worktree,

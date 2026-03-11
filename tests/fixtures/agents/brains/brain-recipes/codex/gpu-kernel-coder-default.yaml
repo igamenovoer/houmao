@@ -1,6 +1,7 @@
 schema_version: 1
 name: gpu-kernel-coder-default
 tool: codex
+default_agent_name: cao-codex-demo
 skills:
   - openspec-apply-change
   - openspec-verify-change

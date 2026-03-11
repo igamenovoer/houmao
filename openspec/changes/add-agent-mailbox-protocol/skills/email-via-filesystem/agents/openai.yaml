@@ -1,0 +1,4 @@
+interface:
+  display_name: "Email via Filesystem"
+  short_description: "Use filesystem-backed async mailbox"
+  default_prompt: "Use $email-via-filesystem to work with the filesystem-backed agent mailbox exposed through runtime env vars."

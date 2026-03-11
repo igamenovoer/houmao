@@ -223,7 +223,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
 
 ## CAO-Backed Session
 
-For an operator-oriented walkthrough of the interactive Claude CAO wrapper flow, see [Interactive CAO Full-Pipeline Demo](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md).
+For the docs-side overview of the interactive CAO wrapper flow, see [Interactive CAO Demo](./cao_interactive_demo.md). For the full step-by-step operator tutorial, see [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md).
 
 Start CAO explicitly before `start-session`:
 
@@ -315,7 +315,7 @@ CAO-dependent and tmux-backed flows preflight exact executables and fail fast
 when they are missing from `PATH`.
 
 - Missing `tmux`: install `tmux` and verify `command -v tmux`.
-- Missing `cao-server`: install CAO (`uv tool install cli-agent-orchestrator`) and
+- Missing `cao-server`: install CAO from the supported fork (`uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`) and
   verify `command -v cao-server`.
 - Missing tool executable (`codex`, `claude`, `gemini`): install the tool CLI and
   verify with `command -v <tool>`.
