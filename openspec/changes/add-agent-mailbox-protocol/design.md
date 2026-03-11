@@ -47,6 +47,7 @@ flowchart LR
 - Full mailbox push/notification infrastructure in v1.
 - Shared-work mailbox semantics where multiple workers race to claim one mailbox identity.
 - Rich MIME binary attachment transport in v1; attachment references are the primary mechanism.
+- Archive and draft mailbox workflows beyond reserving placeholder directories in the filesystem layout.
 - Per-role or per-recipe authored mailbox skill content.
 - Implementing a localhost mail server or true-email runtime transport in this change.
 
@@ -79,8 +80,8 @@ Filesystem message files use YAML front matter followed by Markdown body:
 ```md
 ---
 protocol_version: 1
-message_id: msg-20260311T041500Z-a1b2c3d4
-thread_id: msg-20260311T041500Z-a1b2c3d4
+message_id: msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+thread_id: msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
 in_reply_to: null
 references: []
 created_at_utc: 2026-03-11T04:15:00Z
@@ -94,7 +95,7 @@ cc: []
 reply_to: []
 subject: Investigate parser drift
 attachments:
-  - attachment_id: att-20260311T041500Z-a1b2c3d4-01
+  - attachment_id: att-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6-01
     kind: path_ref
     path: /abs/path/to/report.json
     media_type: application/json
@@ -106,6 +107,8 @@ headers:
 
 Message body in Markdown.
 ```
+
+In v1, `message_id` uses the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`. The timestamp prefix keeps message ids date-readable for filesystem inspection, while the UUID4 suffix makes the ids collision-resistant enough for canonical filenames, SQLite keys, and future `Message-ID` projection.
 
 Mutable state is intentionally excluded from message bodies. Read/unread, starred, archived, deleted, and thread summary state live only in SQLite. Thread ancestry is carried in the immutable envelope; thread views are cached in SQLite for speed.
 
@@ -148,6 +151,10 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
     README.md
     protocols/
     scripts/
+      deliver_message.py
+      insert_standard_headers.py
+      update_mailbox_state.py
+      repair_index.py
     skills/
   locks/
     index.lock
@@ -157,7 +164,7 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
       human-alice.lock
   messages/
     2026-03-11/
-      msg-20260311T041500Z-a1b2c3d4.md
+      msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.md
   attachments/
     managed/
       <attachment-id>/
@@ -173,11 +180,13 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
   staging/
 ```
 
-`messages/` contains the canonical immutable message files, organized as `messages/<YYYY-MM-DD>/<message-id>.md`. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. In this design, each mailbox projection is a symlink to the canonical message file rather than a copied Markdown file. Each `mailboxes/<principal>` entry may be either a concrete directory inside the shared mail root or a symlink to that principal's private mailbox directory outside the shared root. A participant dynamically joins the mail group by creating that symlink entry under `mailboxes/`, assuming filesystem permissions allow other participants to write through it. Symlink targets must expose the same mailbox substructure (`inbox/`, `sent/`, `archive/`, and `drafts/`) as an in-root mailbox directory.
+`messages/` contains the canonical immutable message files, organized as `messages/<YYYY-MM-DD>/<message-id>.md`. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. In this design, each mailbox projection is a symlink to the canonical message file rather than a copied Markdown file. Each `mailboxes/<principal>` entry may be either a concrete directory inside the shared mail root or a symlink to that principal's private mailbox directory outside the shared root. A participant dynamically joins the mail group by creating that symlink entry under `mailboxes/`, assuming filesystem permissions allow other participants to write through it. Symlink targets must expose the same mailbox substructure (`inbox/`, `sent/`, `archive/`, and `drafts/`) as an in-root mailbox directory. In v1, `archive/` and `drafts/` are reserved placeholder directories for forward compatibility rather than defined archive or draft workflows.
 
 The shared mail-group root still owns the canonical message store, locks, attachments, and shared SQLite index. Symlinked principal mailbox directories externalize mailbox projections, not the canonical message corpus itself. A delivered inbox or sent entry points back to its canonical message via a filesystem symlink.
 
 `rules/` is the mailbox-local coordination surface for standardized interaction with the shared mail group. It should contain a mailbox-local `README.md`, protocol notes under `protocols/`, helper scripts under `scripts/`, and mailbox-operation helper skills under `skills/`. Agents interacting with the shared mail root are expected to consult `rules/` first so they follow mailbox-local conventions before reading or mutating shared mailbox state.
+
+`rules/` and its core managed scripts are runtime-owned bootstrap artifacts. When the runtime initializes a filesystem mailbox root, package-internal code materializes the `rules/` tree, writes `protocol-version.txt`, and installs a fixed managed script set under `rules/scripts/`: `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`. These filenames are part of the v1 protocol surface and version together with `protocol-version.txt`; mailbox-local customization in v1 may add adjacent documentation or helpers, but it should not override the managed sensitive-operation scripts.
 
 For sensitive operations that touch `index.sqlite` or `locks/`, the shared mailbox should provide implemented scripts under `rules/scripts/` for agents to invoke rather than expecting every agent to improvise raw SQLite or lock-file handling. Those scripts may be written in Python or shell:
 
@@ -185,6 +194,8 @@ For sensitive operations that touch `index.sqlite` or `locks/`, the shared mailb
 - shell scripts may be plain `.sh`
 
 Typical sensitive operations include delivery commit, mailbox-state mutation, lock acquisition or release orchestration, index repair, and reindex flows.
+
+Filesystem mailbox initialization is a runtime-direct bootstrap path that does not depend on pre-existing `rules/scripts/`. That bootstrap path is responsible for creating or validating the mailbox root layout, SQLite schema, locks area, staging area, `rules/` tree, managed scripts, and any in-root principal mailbox directories or principal-registry rows that the runtime is bringing under mailbox control.
 
 `rules/scripts/` may also contain non-sensitive helper tools for message composition and consistency checks. A common example is a header-insertion or header-normalization script that takes parameters such as sender, recipients, subject, thread ancestry, or tags and emits or patches standardized message headers or YAML front matter. These tools act like linting or normalization helpers: agents are encouraged to use them when present, but they are not mandatory in the same way as the shared scripts for SQLite or lock-touching operations.
 
@@ -577,7 +588,7 @@ Rollback is straightforward during rollout because the mailbox layer is additive
 ## Open Questions
 
 - Should mailbox principal bindings be persisted in existing session manifests, or configured independently at launch time?
-- Do we want `bcc` and draft-send workflows in v1, or should the first version keep only `from/to/cc/reply_to`?
+- Do we want `bcc` in v1, or should the first version keep only `from/to/cc/reply_to`?
 - Should a future true-email adapter store extra structured metadata in `X-Agent-*` headers only, or also attach a canonical JSON sidecar part for lossless normalization?
 - Which follow-up implementation path is the right first true-email adapter: SMTP plus IMAP compatibility, or a narrower server interface with mail-client support deferred?
 - Should mailbox binding refresh also emit an explicit agent-visible "bindings changed" notification, or is next-turn env refresh sufficient for v1?

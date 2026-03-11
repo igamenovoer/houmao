@@ -15,6 +15,8 @@ The system SHALL represent every mailbox message in a transport-neutral canonica
 
 The canonical envelope SHALL be immutable after delivery except for transport-local projection metadata that is explicitly outside the canonical message content.
 
+In v1, `message_id` SHALL use the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`.
+
 #### Scenario: New root message receives a canonical envelope
 - **WHEN** a sender creates a new mailbox message that does not reply to an earlier message
 - **THEN** the system stores a canonical envelope containing all required fields
@@ -25,6 +27,11 @@ The canonical envelope SHALL be immutable after delivery except for transport-lo
 - **THEN** the system stores a new canonical envelope with a new `message_id`
 - **AND THEN** the new envelope sets `in_reply_to` to the direct parent message id
 - **AND THEN** the new envelope preserves the existing thread by reusing the parent `thread_id`
+
+#### Scenario: Generated message id uses timestamp plus UUID4 suffix
+- **WHEN** the system creates a new canonical mailbox message
+- **THEN** the generated `message_id` matches the v1 format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`
+- **AND THEN** that identifier remains suitable for canonical filesystem storage and future email `Message-ID` projection
 
 ### Requirement: Principal-based mailbox addressing
 The system SHALL address mailbox participants by mailbox principal rather than by a transient session handle.

@@ -7,6 +7,7 @@ When no explicit mailbox content root is configured, the filesystem mailbox tran
 
 That mailbox subtree SHALL include at minimum:
 
+- `protocol-version.txt`
 - a canonical message store
 - a shared `rules/` directory for mailbox-local protocol guidance
 - mailbox projection registrations by principal
@@ -17,12 +18,34 @@ That mailbox subtree SHALL include at minimum:
 #### Scenario: Creating a filesystem mailbox initializes required layout at an explicit mailbox root
 - **WHEN** a filesystem mailbox transport is initialized with an explicit mailbox content root binding
 - **THEN** the system creates or validates the mailbox subtree under that effective mailbox content root
-- **AND THEN** the mailbox subtree contains the required directories and index path for canonical messages, mailbox projections, locks, and staging
+- **AND THEN** the mailbox subtree contains `protocol-version.txt` plus the required directories and index path for canonical messages, mailbox projections, locks, and staging
 
 #### Scenario: Creating a filesystem mailbox falls back to runtime-root default
 - **WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root binding
 - **THEN** the system derives the effective mailbox content root from the configured runtime root
 - **AND THEN** the resulting mailbox subtree uses that derived default location while preserving the same internal layout
+
+### Requirement: Filesystem mailbox initialization is a runtime-owned bootstrap path
+The system SHALL initialize a new filesystem mailbox root through package-internal runtime bootstrap code that does not depend on pre-existing helper scripts under `rules/scripts/`.
+
+That bootstrap path SHALL create or validate at minimum:
+
+- `protocol-version.txt`
+- the SQLite schema
+- the `rules/` tree and managed scripts
+- the locks area
+- the staging area
+- any in-root principal mailbox directories and principal-registry entries being initialized
+
+#### Scenario: Bootstrap materializes a new mailbox root without pre-existing helper scripts
+- **WHEN** the runtime initializes a new filesystem mailbox root that does not yet contain shared mailbox helper scripts
+- **THEN** the runtime performs bootstrap directly through package-internal code rather than invoking pre-existing `rules/scripts/` helpers
+- **AND THEN** the resulting mailbox root contains the initialized SQLite schema, `protocol-version.txt`, and managed `rules/` content needed for later standardized mailbox operations
+
+#### Scenario: Bootstrap creates initial in-root principal registration
+- **WHEN** the runtime initializes mailbox support for a principal that uses an in-root mailbox directory
+- **THEN** the runtime bootstrap path creates that principal's mailbox directory structure directly
+- **AND THEN** the bootstrap path records the corresponding in-root principal registration in the mailbox index without requiring pre-existing shared helper scripts
 
 ### Requirement: Filesystem mailbox root publishes shared mailbox rules
 The filesystem mailbox transport SHALL publish a `rules/` directory under the mailbox root as the mailbox-local source of truth for shared mailbox interaction guidance.
@@ -38,6 +61,10 @@ Sensitive mailbox operations that touch `index.sqlite` or `locks/` SHALL be repr
 
 Those scripts MAY be implemented in Python or shell. Python implementations SHALL assume only the Python standard library and Python version `>=3.11`.
 
+In v1, the runtime-managed script set SHALL include `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py` under `rules/scripts/`.
+
+These filenames SHALL be treated as stable within a given `protocol-version.txt` value.
+
 #### Scenario: Filesystem mailbox root exposes mailbox-local rules
 - **WHEN** a participant inspects the shared filesystem mailbox root before mailbox interaction
 - **THEN** the participant can find a `rules/` directory under that mailbox root
@@ -47,6 +74,11 @@ Those scripts MAY be implemented in Python or shell. Python implementations SHAL
 - **WHEN** a participant needs to perform a standardized mailbox operation that touches `index.sqlite` or `locks/`
 - **THEN** the shared filesystem mailbox root provides a corresponding helper script under `rules/scripts/`
 - **AND THEN** any Python-based helper script for that operation relies only on the Python standard library with Python version `>=3.11`
+
+#### Scenario: Bootstrap materializes the managed script set
+- **WHEN** the runtime initializes or upgrades a filesystem mailbox root for the current protocol version
+- **THEN** `rules/scripts/` contains the managed filenames `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`
+- **AND THEN** those managed filenames correspond to the mailbox root's `protocol-version.txt`
 
 #### Scenario: Optional header helper script is available for standardized composition
 - **WHEN** a shared filesystem mailbox wants to help participants standardize message headers or YAML front matter during composition
@@ -58,6 +90,8 @@ The filesystem mailbox transport SHALL allow each principal entry under `mailbox
 
 A symlink-registered private mailbox directory SHALL expose the same mailbox substructure expected from an in-root mailbox directory.
 
+In v1, `archive/` and `drafts/` are reserved placeholder directories in that substructure rather than defined archive or draft workflows.
+
 #### Scenario: Principal joins filesystem mail group through symlink registration
 - **WHEN** an agent or human participant wants to join an existing filesystem mail group without relocating its mailbox projection directory into the shared root
 - **THEN** the system allows `mailboxes/<principal>` to be created as a symlink to that participant's private mailbox directory
@@ -67,6 +101,21 @@ A symlink-registered private mailbox directory SHALL expose the same mailbox sub
 - **WHEN** a sender delivers a mailbox message to a principal whose `mailboxes/<principal>` entry is a symlink
 - **THEN** the filesystem mailbox transport writes the mailbox projection through that symlink-resolved mailbox directory
 - **AND THEN** the canonical message store, lock files, and shared SQLite index remain anchored under the shared mail-group root
+
+### Requirement: Archive and drafts directories are reserved placeholders in v1
+The filesystem mailbox transport SHALL reserve `archive/` and `drafts/` directories in principal mailbox layouts for forward compatibility.
+
+This change SHALL NOT require archive or draft mailbox workflows beyond creating or validating those placeholder directories.
+
+#### Scenario: Bootstrap provisions placeholder archive and drafts directories
+- **WHEN** the runtime initializes an in-root filesystem mailbox directory for a principal
+- **THEN** the resulting mailbox layout includes placeholder `archive/` and `drafts/` directories
+- **AND THEN** the transport does not need to define archive or draft workflows to complete that initialization
+
+#### Scenario: V1 mailbox workflows do not depend on archive or drafts semantics
+- **WHEN** the v1 filesystem mailbox transport performs mailbox operations such as `check`, `send`, or `reply`
+- **THEN** those operations succeed without requiring archive or draft folder behavior beyond placeholder directory presence
+- **AND THEN** follow-up changes may define archive or draft workflows without changing the reserved directory names
 
 ### Requirement: Filesystem transport stores canonical messages as Markdown and projects them into mailbox folders
 The filesystem mailbox transport SHALL persist each delivered canonical message as a Markdown file in the canonical message store under `messages/<YYYY-MM-DD>/<message-id>.md` and SHALL materialize mailbox-visible projections for sender and recipient folders as symlinks to that canonical message file.

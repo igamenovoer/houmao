@@ -20,6 +20,7 @@ Use this skill to work with the mailbox transport where canonical messages live 
 - Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
 - Re-read the mailbox env vars before each mailbox action. Do not cache paths or addresses across turns.
 - Before interacting with shared mailbox state, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
+- If the mailbox claims to be initialized but the managed `rules/scripts/` files are missing, stop and report a mailbox-initialization error instead of improvising replacements.
 - For any mailbox step that touches `index.sqlite` or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
 - When the shared mailbox provides a header-helper script under `rules/scripts/`, you may use it to insert or normalize standardized headers or YAML front matter during message composition, but treat it as optional guidance rather than a required transport primitive.
 
@@ -36,6 +37,7 @@ Use this skill to work with the mailbox transport where canonical messages live 
 
 - Inspect the shared mailbox `rules/` directory first so mailbox-local rules, scripts, or helper skills can refine standardized mailbox operations for this shared mail group.
 - Use a new `message_id` for each outgoing message.
+- Generate `message_id` using the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`.
 - For a new thread, set `thread_id = message_id`.
 - For a reply, preserve the existing `thread_id`, set `in_reply_to` to the direct parent, and extend `references`.
 - Keep message bodies in Markdown.
@@ -58,6 +60,7 @@ When writing directly to the filesystem transport:
 - Do not assume mailbox content lives under the runtime root unless the env bindings explicitly point there.
 - Do not skip the shared mailbox `rules/` directory when interacting with a shared mail root; mailbox-local rules there are the first place to look for standardized operation guidance.
 - Do not hand-write raw SQLite mutations or lock-file orchestration when the shared mailbox provides a standardized helper script for that sensitive operation under `rules/scripts/`.
+- Do not invent archive or draft folder workflows in v1; treat `archive/` and `drafts/` as reserved placeholders unless a future change defines those workflows.
 - Do not treat mailbox filenames alone as unread or read markers.
 - Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
 - Do not bypass locking when creating or updating mailbox projections.

@@ -6,6 +6,8 @@ The layout below is rooted at the effective mailbox content root. That content r
 
 When an agent interacts with a shared mailbox, inspect `rules/` first. That mailbox-local rules area is where the shared mailbox can publish a README, standardized helper scripts, and mailbox-operation helper skills that refine the generic transport guidance.
 
+Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path creates or validates `protocol-version.txt`, the SQLite schema, the `rules/` tree, the managed scripts under `rules/scripts/`, and any in-root principal mailbox directories before agents are expected to use the mailbox.
+
 ```text
 <mailbox_root>/
   protocol-version.txt
@@ -54,7 +56,9 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
   Shared helper scripts for sensitive mailbox operations.
   Operations that touch `index.sqlite` or `locks/` should use these scripts instead of ad hoc direct mutations.
   Scripts may be `.py` or `.sh`; Python scripts should assume only the standard library on Python `>=3.11`.
-  The same directory may also contain optional lint-style helpers such as `insert_standard_headers.py` for standardized header or front-matter insertion given message parameters.
+  In v1, the runtime-managed script set includes `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`.
+  These filenames are stable within a given `protocol-version.txt` value.
+  `insert_standard_headers.py` remains optional at use time, but it is still part of the managed bootstrap material.
 
 - `mailboxes/<principal>/inbox`
   Recipient-facing mailbox projection for delivered messages.
@@ -68,6 +72,7 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
 - `mailboxes/<principal>`
   Principal mailbox registration entry used by the shared mail group.
   Dynamic join can be implemented by creating this entry as a symlink to a private mailbox directory that already contains `inbox/`, `sent/`, `archive/`, and `drafts/`.
+  In v1, `archive/` and `drafts/` are reserved placeholder directories for forward compatibility rather than defined archive or draft workflows.
 
 - `messages/`, `locks/`, `attachments/managed/`, and `index.sqlite`
   Shared mail-group artifacts that remain anchored under `<mailbox_root>` even when a principal mailbox entry is symlinked to a private directory.
