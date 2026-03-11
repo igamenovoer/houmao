@@ -48,9 +48,13 @@ verification/report generation.
 The runner SHALL verify launcher start/stop behavior using artifact paths under
 `runtime_root/cao-server/<host>-<port>/`.
 
-#### Scenario: End-to-end run exercises all launcher commands
+The runner SHALL also verify the standalone-service contract by performing a
+launcher `status` check after `start` has already returned.
+
+#### Scenario: End-to-end run exercises standalone launcher lifecycle across command boundaries
 - **WHEN** a developer runs the demo with prerequisites satisfied
-- **THEN** the run executes launcher `status`, `start`, and `stop` in one flow
+- **THEN** the run executes launcher `status`, `start`, a later post-start `status`, and `stop` in one flow
+- **AND THEN** the post-start `status` confirms the CAO service is still healthy after the `start` command has exited
 - **AND THEN** the run report includes parsed results from those JSON outputs
 
 ### Requirement: Expected report updates SHALL be sanitized and reproducible
@@ -82,4 +86,3 @@ The demo README SHALL document:
 - **WHEN** a new developer follows the README in order
 - **THEN** they can run the demo, locate outputs, and perform verification
   against `expected_report/` without hidden setup steps or black-box script assumptions
-

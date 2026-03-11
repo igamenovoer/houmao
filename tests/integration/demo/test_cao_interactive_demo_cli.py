@@ -128,6 +128,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
             state.setdefault("turn_count", 0)
             state.setdefault("control_count", 0)
             state.setdefault("tmux_sessions", [])
+            state.setdefault("cao_stop_count", 0)
 
             args = sys.argv[1:]
             if args[:2] != ["run", "python"]:
@@ -161,6 +162,15 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
             def save_state() -> None:
                 state_path.write_text(json.dumps(state), encoding="utf-8")
 
+            def set_loopback_port_state(value: str) -> None:
+                override = os.environ.get(
+                    "AGENTSYS_TEST_INTERACTIVE_DEMO_FIXED_PORT_LISTENING", ""
+                )
+                if not override.startswith("file:"):
+                    return
+                loopback_state_path = Path(override.removeprefix("file:"))
+                loopback_state_path.write_text(value, encoding="utf-8")
+
             if module == "gig_agents.demo.cao_interactive_demo.cli":
                 proc = subprocess.run(
                     [sys.executable, "-m", module, *args[4:]],
@@ -171,6 +181,11 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
 
             status_mode = os.environ.get("FAKE_CAO_STATUS_MODE", "unhealthy")
             stop_session_mode = os.environ.get("FAKE_STOP_SESSION_MODE", "ok")
+            stop_plan = [
+                item.strip()
+                for item in os.environ.get("FAKE_CAO_STOP_PLAN", "success").split(",")
+                if item.strip()
+            ]
             if module == "gig_agents.cao.tools.cao_server_launcher":
                 subcommand = args[4]
                 if subcommand == "status":
@@ -222,6 +237,35 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     raise SystemExit(0)
 
                 if subcommand == "stop":
+                    stop_mode = stop_plan[min(state["cao_stop_count"], len(stop_plan) - 1)]
+                    state["cao_stop_count"] = int(state.get("cao_stop_count", 0)) + 1
+                    if stop_mode == "malformed":
+                        set_loopback_port_state("1")
+                        save_state()
+                        print(
+                            "Traceback (most recent call last): "
+                            "FileNotFoundError: launcher_result.json",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(2)
+                    if stop_mode == "not-stopped":
+                        print(
+                            json.dumps(
+                                {
+                                    "stopped": False,
+                                    "already_stopped": False,
+                                    "verification_passed": False,
+                                    "pid": 5151,
+                                    "signal_sent": None,
+                                }
+                            )
+                        )
+                        set_loopback_port_state("1")
+                        save_state()
+                        raise SystemExit(2)
+                    if stop_mode != "success":
+                        raise SystemExit(f"unexpected stop mode: {stop_mode!r}")
+                    set_loopback_port_state("0")
                     print(
                         json.dumps(
                             {
@@ -365,9 +409,11 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
 def _build_env(tmp_path: Path, repo_root: Path) -> dict[str, str]:
     fake_state_path = tmp_path / "fake-pixi-state.json"
     fake_command_log_path = tmp_path / "fake-pixi-commands.jsonl"
+    loopback_state_path = tmp_path / "loopback-port-state.txt"
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
     _write_fake_tools(fake_bin_dir)
+    loopback_state_path.write_text("0", encoding="utf-8")
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}:{env.get('PATH', '')}"
@@ -376,8 +422,9 @@ def _build_env(tmp_path: Path, repo_root: Path) -> dict[str, str]:
     env["FAKE_PIXI_STATE"] = str(fake_state_path)
     env["FAKE_PIXI_COMMAND_LOG"] = str(fake_command_log_path)
     env["FAKE_CAO_STATUS_MODE"] = "unhealthy"
+    env["FAKE_CAO_STOP_PLAN"] = "success"
     env["FAKE_STOP_SESSION_MODE"] = "ok"
-    env[TEST_LOOPBACK_PORT_LISTENING_ENV] = "0"
+    env[TEST_LOOPBACK_PORT_LISTENING_ENV] = f"file:{loopback_state_path}"
     return env
 
 
@@ -699,6 +746,42 @@ def test_demo_wrapper_verified_cao_replacement_cleans_prior_artifacts_without_pr
     assert any(
         entry["module"] == "gig_agents.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
         for entry in command_log
+    )
+
+
+def test_demo_wrapper_verified_cao_replacement_retries_older_known_config_after_invalid_stop_output(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    env = _build_env(tmp_path, repo_root)
+
+    _run([str(demo_pack_dir / "launch_alice.sh"), "-y"], env=env, cwd=repo_root)
+
+    env["FAKE_CAO_STATUS_MODE"] = "verified"
+    env["FAKE_CAO_STOP_PLAN"] = "malformed,success"
+    _run([str(demo_pack_dir / "launch_alice.sh"), "-y"], env=env, cwd=repo_root)
+
+    current_run_root_path = (
+        repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
+    )
+    workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
+    state = json.loads((workspace_root / "state.json").read_text(encoding="utf-8"))
+    command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
+    stop_calls = [
+        entry
+        for entry in command_log
+        if entry["module"] == "gig_agents.cao.tools.cao_server_launcher"
+        and entry["args"][4] == "stop"
+    ]
+
+    assert state["active"] is True
+    assert len(stop_calls) == 2
+    assert (
+        stop_calls[0]["args"][stop_calls[0]["args"].index("--config") + 1]
+        != stop_calls[1]["args"][stop_calls[1]["args"].index("--config") + 1]
     )
 
 

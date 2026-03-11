@@ -38,36 +38,32 @@ When the operator omits custom workspace, launcher-home, and workdir inputs, the
 - **THEN** each run gets its own per-run demo root under `tmp/demo/cao-interactive-full-pipeline-demo/`
 - **AND THEN** CAO trusted-home state and demo-local artifacts are scoped to that run root rather than a shared workspace directory
 
-### Requirement: Interactive demo startup SHALL confirm before recycling an existing verified local loopback CAO server
-For the fixed local CAO target `http://127.0.0.1:9889`, interactive demo startup SHALL establish a fresh local `cao-server` context instead of silently reusing stale or incompatible server state.
+### Requirement: Interactive demo startup SHALL force-replace the verified local loopback CAO server during agent recreation
+For the fixed local CAO target `http://127.0.0.1:9889`, interactive demo startup SHALL establish a fresh standalone local `cao-server` context for each agent recreation instead of silently reusing stale or incompatible server state.
 
-If launcher `status` verifies that a healthy local `cli-agent-orchestrator` service is already serving the fixed loopback target, the demo SHALL treat that service as a verified local `cao-server` for replacement decisions and SHALL stay on the launcher-managed replacement path.
+If launcher `status` verifies that a healthy local `cli-agent-orchestrator`
+service is already serving the fixed loopback target, the demo SHALL treat that
+service as a verified local `cao-server` and SHALL stop it before launching the
+replacement server context for the new run.
 
-If a local `cao-server` is already serving the fixed loopback target and can be verified as `cao-server`, the demo SHALL prompt for confirmation before stopping it and launching the replacement server context for the tutorial run.
+If launcher status is not healthy but the fixed loopback target is still
+occupied, the demo MAY use best-effort process inspection as a fallback
+verification path. That fallback SHALL skip unreadable or disappearing procfs
+entries and SHALL only fail when the loopback occupant still cannot be safely
+verified as `cao-server`.
 
-If the operator supplies `-y` through the demo script surface, the demo SHALL treat that confirmation as already granted.
+If the process serving the fixed loopback target cannot be safely verified as
+`cao-server`, the demo SHALL fail explicitly and SHALL NOT create an active
+interactive state artifact.
 
-If launcher status is not healthy but the fixed loopback target is still occupied, the demo MAY use best-effort process inspection as a fallback verification path. That fallback SHALL skip unreadable or disappearing procfs entries and SHALL only fail when the loopback occupant still cannot be safely verified as `cao-server`.
+If the demo cannot complete the stop-and-restart sequence for the verified
+fixed-loopback CAO service, it SHALL fail explicitly and SHALL NOT continue
+with interactive session creation.
 
-If the process serving the fixed loopback target cannot be safely verified as `cao-server`, the demo SHALL fail explicitly and SHALL NOT create an active interactive state artifact.
-
-#### Scenario: Verified stale loopback CAO server is recycled after confirmation
+#### Scenario: Verified stale loopback CAO server is recycled automatically
 - **WHEN** a developer starts the interactive demo and a verified local `cao-server` is already healthy on `http://127.0.0.1:9889`
-- **AND WHEN** the developer confirms the replacement prompt
 - **THEN** the demo stops that server before creating the replacement local CAO server context
 - **AND THEN** the subsequent interactive session launch uses the demo's configured launcher-home context instead of the stale server context
-
-#### Scenario: `-y` bypasses the replacement prompt
-- **WHEN** a developer starts the interactive demo with `-y`
-- **AND WHEN** a verified local `cao-server` is already healthy on `http://127.0.0.1:9889`
-- **THEN** the demo replaces that server without waiting for an interactive confirmation prompt
-- **AND THEN** the new session launch continues with the demo's configured launcher-home context
-
-#### Scenario: Declining replacement leaves no active state
-- **WHEN** a developer starts the interactive demo and a verified local `cao-server` is already healthy on `http://127.0.0.1:9889`
-- **AND WHEN** the developer declines the replacement prompt
-- **THEN** startup exits without replacing the existing CAO server
-- **AND THEN** the demo does not write `state.json` as active
 
 #### Scenario: Unreadable unrelated procfs entries do not block verified replacement
 - **WHEN** a developer starts the interactive demo and launcher status already verifies a healthy local `cao-server` on the fixed loopback target
@@ -84,6 +80,39 @@ If the process serving the fixed loopback target cannot be safely verified as `c
 #### Scenario: Unverifiable loopback port occupant fails safely
 - **WHEN** a developer starts the interactive demo and the fixed loopback target is occupied by a process that cannot be safely verified as `cao-server`
 - **THEN** startup fails with an explicit diagnostic
+- **AND THEN** the demo does not write `state.json` as active
+
+#### Scenario: Replacement failure leaves no active interactive state
+- **WHEN** a developer starts the interactive demo and a verified local `cao-server` is already serving `http://127.0.0.1:9889`
+- **AND WHEN** the demo cannot successfully stop that server or cannot start its replacement CAO context
+- **THEN** startup fails explicitly
+- **AND THEN** the demo does not continue with interactive session creation
+
+### Requirement: Verified fixed-loopback CAO replacement SHALL continue across known launcher configs
+The interactive demo SHALL treat launcher-stop attempts against known configs as a search for the config that owns the live service rather than assuming the first candidate must succeed when it is replacing a verified local `cao-server` on `http://127.0.0.1:9889`.
+
+If one known-config launcher-stop attempt fails to produce usable structured
+output but the fixed loopback target is still listening and later known configs
+remain available, the demo SHALL continue trying later known configs before
+declaring replacement failure.
+
+If all known configs are exhausted and the fixed loopback service is still
+listening, the demo SHALL fail explicitly and SHALL NOT create an active
+interactive state artifact.
+
+#### Scenario: Fresh current config does not block replacement of an older verified CAO owner
+- **WHEN** a developer starts the interactive demo and launcher `status` verifies a healthy local `cli-agent-orchestrator` service on `http://127.0.0.1:9889`
+- **AND WHEN** the current run's fresh launcher config does not own that live service
+- **AND WHEN** a launcher `stop` attempt for the fresh config does not produce usable structured output
+- **AND WHEN** a later known launcher config does own the verified live service
+- **THEN** the demo continues to the later known config instead of aborting on the first stop attempt
+- **AND THEN** the verified fixed-loopback `cao-server` is replaced before interactive session startup continues
+
+#### Scenario: Exhausted known configs fail safely
+- **WHEN** a developer starts the interactive demo and launcher `status` verifies a healthy local `cli-agent-orchestrator` service on `http://127.0.0.1:9889`
+- **AND WHEN** every known launcher config fails to stop that verified live service
+- **AND WHEN** the fixed loopback target is still listening after the known-config replacement attempts finish
+- **THEN** startup fails with an explicit replacement diagnostic
 - **AND THEN** the demo does not write `state.json` as active
 
 ### Requirement: Interactive demo wrapper scripts SHALL accept a consistent `-y` contract
@@ -111,4 +140,3 @@ The reset SHALL attempt to stop any existing `AGENTSYS-alice` session, SHALL cle
 - **WHEN** a previous tutorial run left turn records or a verification report in the demo workspace
 - **THEN** the next `start` clears those prior-run artifacts before launching the replacement session
 - **AND THEN** the resulting session behaves like a fresh run for subsequent verification
-

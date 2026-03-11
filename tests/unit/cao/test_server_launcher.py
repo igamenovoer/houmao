@@ -188,6 +188,34 @@ def test_stop_refuses_to_kill_when_identity_verification_fails(
     assert kill_calls == []
 
 
+def test_stop_returns_structured_already_stopped_output_without_preexisting_artifact_dir(
+    tmp_path: Path,
+) -> None:
+    config = load_cao_server_launcher_config(
+        _write_config(
+            tmp_path,
+            base_url="http://127.0.0.1:9889",
+            runtime_root="fresh-runtime",
+            home_dir=tmp_path,
+        )
+    )
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+
+    assert not artifacts.artifact_dir.exists()
+
+    result = stop_cao_server(config)
+
+    assert result.stopped is False
+    assert result.already_stopped is True
+    assert artifacts.artifact_dir.exists()
+    assert artifacts.launcher_result_file.exists()
+
+    payload = json.loads(artifacts.launcher_result_file.read_text(encoding="utf-8"))
+    assert payload["operation"] == "stop"
+    assert payload["already_stopped"] is True
+    assert payload["launcher_result_file"] == str(artifacts.launcher_result_file)
+
+
 def test_start_records_detached_ownership_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -1146,6 +1146,7 @@ def _write_launcher_result(path: Path, result: object) -> None:
         payload = dataclass_to_json_payload(result)
     else:
         payload = {"result": to_jsonable_payload(result)}
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 

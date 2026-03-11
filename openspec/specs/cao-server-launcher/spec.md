@@ -50,12 +50,17 @@ hard-coded and not known to be configurable.
 
 ### Requirement: Start (or reuse) a local CAO server
 The system SHALL provide a CAO server launcher that can health-check a CAO API
-base URL and, when configured for a supported upstream base URL, start a local
-`cao-server` process and wait until it becomes healthy.
+base URL and, when configured for a supported upstream base URL, bootstrap a
+standalone detached local `cao-server` service and wait until it becomes
+healthy.
 
 Supported upstream base URLs are currently restricted to:
 - `http://localhost:9889`
 - `http://127.0.0.1:9889`
+
+When `start` launches a new service, the launched `cao-server` SHALL NOT depend
+on the continued lifetime of the invoking launcher command after `start`
+returns.
 
 #### Scenario: Start returns without starting when CAO is already healthy
 - **WHEN** the launcher is asked to start CAO at `http://localhost:9889`
@@ -63,12 +68,13 @@ Supported upstream base URLs are currently restricted to:
 - **THEN** the launcher reports success
 - **AND THEN** it reports that no new CAO server process was started
 
-#### Scenario: Start starts local server when unhealthy and base URL is supported
+#### Scenario: Start bootstraps a standalone detached service when unhealthy and base URL is supported
 - **WHEN** the launcher is asked to start CAO at `http://localhost:9889`
 - **AND WHEN** CAO is not healthy at that base URL
-- **THEN** the launcher starts a background `cao-server` process
+- **THEN** the launcher starts a standalone detached `cao-server` service
 - **AND THEN** it waits until `GET /health` reports `status="ok"` or a configured timeout elapses
 - **AND THEN** it reports success when CAO becomes healthy
+- **AND THEN** a later separate launcher `status` call can still reach that CAO service after the original `start` command has exited
 
 #### Scenario: Start refuses to start CAO for an unsupported base URL
 This scenario is defined as a defense-in-depth behavior. In the intended usage,
@@ -88,12 +94,13 @@ configured base URL without starting or stopping any processes.
 - **THEN** the launcher reports that CAO is healthy
 
 ### Requirement: Launcher writes pid and log artifacts under the runtime root
-When the launcher starts a `cao-server` process, it SHALL persist process
+When the launcher starts a `cao-server` process, it SHALL persist service
 artifacts under a deterministic path rooted at the configured runtime root.
 
 The launcher SHALL record at least:
-- a pid file containing the started process pid, and
-- a server log file capturing stdout/stderr.
+- a pid file containing the started process pid,
+- a server log file capturing stdout/stderr, and
+- a structured ownership artifact describing the standalone service context.
 
 The launcher SHALL partition artifacts by base URL host/port:
 `runtime_root/cao-server/<host>-<port>/`.
@@ -101,11 +108,12 @@ The launcher SHALL partition artifacts by base URL host/port:
 The launcher SHOULD additionally write a structured diagnostics file (for
 example `launcher_result.json`) in the same directory to simplify debugging.
 
-#### Scenario: Start writes pid and log files in the `<host>-<port>` directory
+#### Scenario: Start writes pid, log, and ownership artifacts in the `<host>-<port>` directory
 - **WHEN** the launcher starts a local `cao-server` process at base URL `http://localhost:9889`
 - **THEN** it writes `runtime_root/cao-server/localhost-9889/cao-server.pid`
 - **AND THEN** it writes `runtime_root/cao-server/localhost-9889/cao-server.log`
-- **AND THEN** the launcher reports the pid and log path in its result payload
+- **AND THEN** it writes a structured ownership artifact in `runtime_root/cao-server/localhost-9889/`
+- **AND THEN** the launcher reports the pid and artifact paths in its result payload
 
 ### Requirement: Stop is pidfile-based with best-effort identity verification
 The launcher SHALL provide a `stop` operation that reads the pidfile under the
@@ -114,8 +122,10 @@ before killing the process.
 
 The stop operation SHALL:
 - verify the process exists,
-- best-effort verify the process command line indicates `cao-server`, and
-- refuse to kill if verification fails (with actionable diagnostics).
+- best-effort verify the process command line indicates `cao-server`,
+- use launcher-managed artifact metadata for diagnostics and ownership checks,
+- refuse to kill if verification fails (with actionable diagnostics), and
+- remove stale pidfile state when the recorded process no longer exists.
 
 The stop operation SHALL send SIGTERM, wait up to 10 seconds, then send SIGKILL
 as a fallback.
@@ -124,6 +134,32 @@ as a fallback.
 - **WHEN** the launcher is asked to stop CAO at `http://localhost:9889`
 - **AND WHEN** the pidfile exists but the pid cannot be verified as `cao-server`
 - **THEN** the launcher refuses to kill the process
+
+#### Scenario: Stop terminates a detached service launched by an earlier start command
+- **WHEN** the launcher previously started a standalone detached `cao-server` service at `http://localhost:9889`
+- **AND WHEN** the `stop` command is run in a later separate process
+- **THEN** the launcher terminates that `cao-server` service
+- **AND THEN** the pidfile-tracked artifact state no longer describes a running CAO service
+
+### Requirement: Launcher stop SHALL persist structured diagnostics from a fresh runtime root
+The launcher SHALL ensure the parent directory for `launcher_result.json`
+exists before writing structured `stop` results under
+`runtime_root/cao-server/<host>-<port>/`.
+
+This requirement SHALL apply even when `stop` returns early because no pidfile
+exists, because the tracked pid is stale, or because process verification fails.
+
+The launcher SHALL return a structured `stop` result payload instead of raising
+a filesystem error solely because the runtime artifact directory did not exist
+before the `stop` command began.
+
+#### Scenario: Stop without a preexisting artifact directory returns structured already-stopped output
+- **WHEN** a developer runs launcher `stop` for `http://127.0.0.1:9889`
+- **AND WHEN** the resolved `runtime_root/cao-server/127.0.0.1-9889/` directory does not yet exist
+- **AND WHEN** no pidfile exists for that config
+- **THEN** the launcher returns a structured `already_stopped` result payload
+- **AND THEN** it writes `launcher_result.json` under the resolved artifact directory
+- **AND THEN** it does not fail solely because the artifact directory was missing before the command
 
 ### Requirement: Launcher uses `cao-server` from `PATH`
 The launcher SHALL invoke `cao-server` as found on `PATH` and SHALL NOT run CAO
@@ -182,4 +218,3 @@ read-only).
 #### Scenario: Missing trusted home is rejected
 - **WHEN** the launcher is asked to start `cao-server` with a trusted-home directory that does not exist
 - **THEN** the launcher fails fast with an explicit configuration error
-
