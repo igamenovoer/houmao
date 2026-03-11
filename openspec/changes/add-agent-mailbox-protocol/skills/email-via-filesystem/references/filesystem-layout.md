@@ -24,16 +24,12 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
     principals/
       <principal>.lock
   messages/
-    YYYY/
-      MM/
-        DD/
-          <message-id>.md
+    YYYY-MM-DD/
+      <message-id>.md
   attachments/
     managed/
-      sha256/
-        <digest-prefix>/
-          <digest>/
-            <filename>
+      <attachment-id>/
+        <filename>
   mailboxes/
     <principal>/
       inbox/
@@ -48,6 +44,7 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
 
 - `messages/`
   Canonical immutable Markdown message store.
+  Messages are grouped by delivery date as `messages/<YYYY-MM-DD>/<message-id>.md`.
 
 - `rules/`
   Shared mailbox-local rules area.
@@ -62,9 +59,11 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
 - `mailboxes/<principal>/inbox`
   Recipient-facing mailbox projection for delivered messages.
   The `mailboxes/<principal>` entry may be a real directory under `<mailbox_root>` or a symlink to a private mailbox directory outside `<mailbox_root>`.
+  Individual inbox entries are symlinks to canonical message files under `messages/`.
 
 - `mailboxes/<principal>/sent`
   Sender-facing mailbox projection for outbound messages.
+  Individual sent entries are symlinks to canonical message files under `messages/`.
 
 - `mailboxes/<principal>`
   Principal mailbox registration entry used by the shared mail group.
@@ -73,11 +72,17 @@ When an agent interacts with a shared mailbox, inspect `rules/` first. That mail
 - `messages/`, `locks/`, `attachments/managed/`, and `index.sqlite`
   Shared mail-group artifacts that remain anchored under `<mailbox_root>` even when a principal mailbox entry is symlinked to a private directory.
 
+- `attachments/managed/<attachment-id>/`
+  Optional managed-copy attachment storage.
+  The path is keyed by `attachment_id` for simplicity.
+  Message-to-attachment association is tracked in `index.sqlite`, not encoded in the filesystem path.
+
 - `locks/`
   Filesystem lock area used to serialize conflicting mailbox writes.
 
 - `index.sqlite`
   Query and mutable-state store for unread or read, starred, archived, and thread summary state.
+  It also tracks attachment metadata and message-to-attachment associations for managed or referenced attachments.
   This transport does not rely on `index.sqlite-wal` or `index.sqlite-shm` sidecar files.
 
 - `staging/`

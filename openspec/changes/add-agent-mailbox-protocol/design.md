@@ -94,7 +94,7 @@ cc: []
 reply_to: []
 subject: Investigate parser drift
 attachments:
-  - attachment_id: att-01
+  - attachment_id: att-20260311T041500Z-a1b2c3d4-01
     kind: path_ref
     path: /abs/path/to/report.json
     media_type: application/json
@@ -156,17 +156,12 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
       AGENTSYS-research.lock
       human-alice.lock
   messages/
-    2026/
-      03/
-        11/
-          msg-20260311T041500Z-a1b2c3d4.md
+    2026-03-11/
+      msg-20260311T041500Z-a1b2c3d4.md
   attachments/
     managed/
-      sha256/
-        ab/
-          cd/
-            <digest>/
-              report.json
+      <attachment-id>/
+        report.json
   mailboxes/
     AGENTSYS-orchestrator/
       inbox/
@@ -178,9 +173,9 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
   staging/
 ```
 
-`messages/` contains the canonical immutable message files. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. Each `mailboxes/<principal>` entry may be either a concrete directory inside the shared mail root or a symlink to that principal's private mailbox directory outside the shared root. A participant dynamically joins the mail group by creating that symlink entry under `mailboxes/`, assuming filesystem permissions allow other participants to write through it. Symlink targets must expose the same mailbox substructure (`inbox/`, `sent/`, `archive/`, and `drafts/`) as an in-root mailbox directory.
+`messages/` contains the canonical immutable message files, organized as `messages/<YYYY-MM-DD>/<message-id>.md`. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. In this design, each mailbox projection is a symlink to the canonical message file rather than a copied Markdown file. Each `mailboxes/<principal>` entry may be either a concrete directory inside the shared mail root or a symlink to that principal's private mailbox directory outside the shared root. A participant dynamically joins the mail group by creating that symlink entry under `mailboxes/`, assuming filesystem permissions allow other participants to write through it. Symlink targets must expose the same mailbox substructure (`inbox/`, `sent/`, `archive/`, and `drafts/`) as an in-root mailbox directory.
 
-The shared mail-group root still owns the canonical message store, locks, attachments, and shared SQLite index. Symlinked principal mailbox directories externalize mailbox projections, not the canonical message corpus itself.
+The shared mail-group root still owns the canonical message store, locks, attachments, and shared SQLite index. Symlinked principal mailbox directories externalize mailbox projections, not the canonical message corpus itself. A delivered inbox or sent entry points back to its canonical message via a filesystem symlink.
 
 `rules/` is the mailbox-local coordination surface for standardized interaction with the shared mail group. It should contain a mailbox-local `README.md`, protocol notes under `protocols/`, helper scripts under `scripts/`, and mailbox-operation helper skills under `skills/`. Agents interacting with the shared mail root are expected to consult `rules/` first so they follow mailbox-local conventions before reading or mutating shared mailbox state.
 
@@ -195,7 +190,7 @@ Typical sensitive operations include delivery commit, mailbox-state mutation, lo
 
 This is intentionally guidance, not hard enforcement. In v1, the system relies on the agent following its mailbox skill instructions to inspect `rules/` first. If an agent skips those shared rules and breaks the mailbox contract, that is considered agent misbehavior rather than supported transport behavior.
 
-`attachments/managed/` is optional storage for attachments that should be copied into the mailbox store. For ordinary local workflows, attachment entries may remain as path references to arbitrary filesystem paths outside the mailbox root.
+`attachments/managed/` is optional storage for attachments that should be copied into the mailbox store. When managed-copy mode is used, the copied file lives under `attachments/managed/<attachment-id>/...`. The association between that managed attachment and one or more messages is tracked in SQLite rather than being encoded into the attachment path. For ordinary local workflows, attachment entries may remain as path references to arbitrary filesystem paths outside the mailbox root.
 
 `AGENTSYS_MAILBOX_FS_ROOT` is the authoritative mailbox content root binding for sessions that use the filesystem transport. Agent-facing instructions and implementations should follow that env value rather than reconstruct mailbox paths from the runtime root.
 
@@ -207,6 +202,7 @@ This is intentionally guidance, not hard enforcement. In v1, the system relies o
 - mailbox folder projections
 - per-recipient mailbox state
 - attachment metadata
+- message-to-attachment associations
 - cached thread summaries
 
 The principal registry should record the effective mailbox registration for each principal, including whether `mailboxes/<principal>` is an in-root directory or a symlinked private mailbox target.
@@ -233,8 +229,8 @@ Write path:
 5. For operations that touch `locks/` or `index.sqlite`, invoke the shared script from `rules/scripts/` rather than hand-rolling those sensitive steps inside the agent.
 6. Acquire per-principal lock files for all affected principals in lexicographic order.
 7. Acquire `locks/index.lock`.
-8. Move the canonical message into `messages/...`.
-9. Materialize mailbox projections in resolved recipient mailbox directories and sender `sent/`; recipient mailbox entries may be in-root directories or symlinked private mailbox targets.
+8. Move the canonical message into `messages/<YYYY-MM-DD>/...`.
+9. Materialize mailbox projections as symlinks in resolved recipient mailbox directories and sender `sent/`; recipient mailbox entries may be in-root directories or symlinked private mailbox targets.
 10. Commit corresponding SQLite rows in one transaction.
 11. Release locks.
 
@@ -260,9 +256,9 @@ sequenceDiagram
     SK->>RI: resolve mailbox join<br/>registration
     SK->>SC: invoke sensitive mailbox<br/>operation script
     SC->>LK: acquire principal locks<br/>plus index.lock
-    SC->>FS: move canonical message<br/>into messages/YYYY/MM/DD/
-    SC->>RI: materialize recipient<br/>inbox projection
-    SC->>FS: materialize sender copy<br/>under sent/
+    SC->>FS: move canonical message<br/>into messages/YYYY-MM-DD/
+    SC->>RI: create recipient inbox<br/>symlink projection
+    SC->>FS: create sender sent<br/>symlink projection
     SC->>DB: insert message,<br/>projection, and state rows
     SC-->>LK: release locks
     RA->>DB: poll unread state<br/>for recipient principal
@@ -282,6 +278,7 @@ Crash recovery:
 - Canonical message files are durable first-class artifacts.
 - SQLite is treated as a rebuildable index plus mutable-state store.
 - A future `reindex`/`repair` command can rebuild message and projection tables from the filesystem corpus, preserving message bodies even if index state is lost.
+- Projection entries are symlinks to canonical message files, so projection repair can validate link targets instead of reparsing copied mailbox files.
 - Missing or dangling principal mailbox symlinks are treated as delivery-time registration failures rather than silent mailbox creation at an unexpected path.
 - Missing or stale `rules/` content increases the chance of agent misuse, so mailbox maintainers should treat `rules/` as part of the operational mailbox surface rather than optional documentation.
 - Missing or broken scripts under `rules/scripts/` can block standardized sensitive operations, so mailbox maintainers should treat those scripts as part of the operational transport surface rather than optional examples.
@@ -294,6 +291,7 @@ Alternatives considered:
 - A local queue daemon. Rejected because the filesystem flavor explicitly should not require a background process.
 - SQLite-only locking. Rejected because it does not protect multi-file projection writes by itself.
 - Require every participant to relocate mailbox projections under the shared root before joining. Rejected because symlink registration gives a simpler dynamic-join path for agent-owned private mailbox directories.
+- Copy mailbox projections instead of symlinking them to canonical messages. Rejected because it duplicates immutable message bodies and makes projection repair less direct.
 - Let every agent implement its own SQLite and lock-file mutations independently. Rejected because sensitive shared-state operations should be funneled through mailbox-local scripts under `rules/scripts/` so the group can standardize behavior.
 
 ### 5) Threading is explicit and transport-neutral
@@ -336,9 +334,9 @@ The first version treats attachments primarily as file references, not embedded 
 Two modes are supported:
 
 - `path_ref`: points at an arbitrary existing filesystem path
-- `managed_copy`: copies the file into `attachments/managed/...` and references that managed path
+- `managed_copy`: copies the file into `attachments/managed/<attachment-id>/...` and references that managed path
 
-For the filesystem flavor, either mode is valid. For the email flavor, path references remain valid because the server is localhost-only and shares the same host filesystem. Rich MIME binary transport is deferred.
+For the filesystem flavor, either mode is valid. For managed-copy attachments, the attachment path is intentionally simple and keyed by `attachment_id`; the message relationship is tracked in SQLite instead of being encoded into path names. For the email flavor, path references remain valid because the server is localhost-only and shares the same host filesystem. Rich MIME binary transport is deferred.
 
 Rationale: reference attachments match the user's requirement and avoid unnecessary copying of large artifacts.
 

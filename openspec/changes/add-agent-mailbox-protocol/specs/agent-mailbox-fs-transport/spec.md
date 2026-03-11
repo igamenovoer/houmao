@@ -69,20 +69,30 @@ A symlink-registered private mailbox directory SHALL expose the same mailbox sub
 - **AND THEN** the canonical message store, lock files, and shared SQLite index remain anchored under the shared mail-group root
 
 ### Requirement: Filesystem transport stores canonical messages as Markdown and projects them into mailbox folders
-The filesystem mailbox transport SHALL persist each delivered canonical message as a Markdown file in the canonical message store and SHALL materialize mailbox-visible projections for sender and recipient folders.
+The filesystem mailbox transport SHALL persist each delivered canonical message as a Markdown file in the canonical message store under `messages/<YYYY-MM-DD>/<message-id>.md` and SHALL materialize mailbox-visible projections for sender and recipient folders as symlinks to that canonical message file.
 
 At minimum, recipient delivery SHALL appear in the recipient `inbox` and sender delivery SHALL appear in the sender `sent` folder.
 
 #### Scenario: Delivery creates canonical message and recipient inbox projection
 - **WHEN** a sender delivers a mailbox message through the filesystem transport
 - **THEN** the system writes one canonical Markdown message file for that logical message
-- **AND THEN** the system materializes a mailbox projection of that message in each recipient inbox
-- **AND THEN** the system materializes a mailbox projection of that message in the sender sent folder
+- **AND THEN** the system materializes a symlink projection of that message in each recipient inbox
+- **AND THEN** the system materializes a symlink projection of that message in the sender sent folder
 
 #### Scenario: Multi-recipient delivery preserves one logical message id
 - **WHEN** a mailbox message is delivered to multiple recipients through the filesystem transport
 - **THEN** the system uses one canonical message id for that delivered message
-- **AND THEN** each recipient mailbox projection refers to the same logical message id even if the projection mechanism differs by filesystem capability
+- **AND THEN** each recipient mailbox projection is a symlink that resolves to the same canonical message file for that logical message
+
+### Requirement: Filesystem transport stores managed attachments in attachment-id directories
+When a sender chooses managed attachment storage, the filesystem mailbox transport SHALL copy that attachment into the shared mailbox root under an attachment-id-addressed directory.
+
+The relationship between a message and a managed attachment SHALL be tracked in SQLite index state rather than being encoded in the managed attachment path name.
+
+#### Scenario: Managed attachment is copied into an attachment-id directory
+- **WHEN** a sender delivers a filesystem mailbox message using managed attachment storage
+- **THEN** the system stores the copied attachment under `attachments/managed/<attachment-id>/...`
+- **AND THEN** the managed attachment path does not need to encode the parent message id or thread id
 
 ### Requirement: Filesystem transport is daemon-free and synchronizes writes with lock files
 The filesystem mailbox transport SHALL NOT require a background process for delivery or mailbox-state updates.
@@ -121,6 +131,8 @@ That index SHALL record at minimum:
 
 - messages and their canonical ids
 - recipient associations
+- attachment metadata
+- message-to-attachment associations
 - mailbox folder projections
 - per-recipient mailbox state
 - thread summary metadata

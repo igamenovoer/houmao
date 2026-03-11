@@ -7,7 +7,7 @@ description: Operate the filesystem-backed async mailbox transport for agents us
 
 ## Overview
 
-Use this skill to work with the mailbox transport where messages live on the local filesystem as Markdown files and mailbox state lives in SQLite. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
+Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, and mailbox state lives in SQLite. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
 
 ## References
 
@@ -27,7 +27,7 @@ Use this skill to work with the mailbox transport where messages live on the loc
 
 - Inspect the shared mailbox `rules/` directory first so mailbox-local rules can refine how this particular shared mailbox expects reads or status updates to work.
 - Inspect unread state from SQLite when available; treat the database as the source for read or unread, starred, archived, and thread summary state.
-- Read message content from the Markdown mailbox corpus, not from ad hoc cached copies.
+- Read message content by following inbox or sent symlink projections back to the canonical Markdown message file in `messages/<YYYY-MM-DD>/...`, not from ad hoc cached copies.
 - Use [references/filesystem-layout.md](references/filesystem-layout.md) for the exact mailbox tree and message file shape.
 - Preserve thread ancestry exactly as stored. Do not infer thread membership from subject lines alone.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and reload the current bindings before continuing.
@@ -47,8 +47,10 @@ When writing directly to the filesystem transport:
 1. Stage the outgoing message before exposing it to recipients.
 2. Use the shared helper script from `rules/scripts/` for sensitive steps that touch `index.sqlite` or `locks/`.
 3. Respect the mailbox `.lock` files for any principal whose mailbox state or projections will be changed.
-4. Keep canonical message content immutable after delivery.
-5. Update mutable mailbox state in SQLite instead of rewriting delivered message bodies.
+4. Place the canonical delivered Markdown message under `messages/<YYYY-MM-DD>/...`.
+5. Materialize recipient inbox and sender sent entries as symlink projections to that canonical message instead of copying the message body into mailbox folders.
+6. Keep canonical message content immutable after delivery.
+7. Update mutable mailbox state in SQLite instead of rewriting delivered message bodies.
 
 ## Guardrails
 
@@ -59,4 +61,5 @@ When writing directly to the filesystem transport:
 - Do not treat mailbox filenames alone as unread or read markers.
 - Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
 - Do not bypass locking when creating or updating mailbox projections.
+- Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
 - Do not assume a true-email runtime transport exists in this change; if the transport is not `filesystem`, stop and report that only the filesystem mailbox transport is implemented here. Use `$email-via-mail-system` only for compatibility guidance.
