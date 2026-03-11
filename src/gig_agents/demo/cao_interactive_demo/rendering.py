@@ -27,8 +27,12 @@ def _render_human_inspect_output(*, payload: dict[str, object]) -> str:
         "",
         "Session Summary",
         f"session_status: {payload['session_status']}",
-        f"claude_code_state: {payload['claude_code_state']}",
+        f"tool: {payload['tool']}",
+        f"variant_id: {payload['variant_id']}",
+        f"brain_recipe: {payload['brain_recipe']}",
+        f"tool_state: {payload['tool_state']}",
         f"agent_identity: {payload['agent_identity']}",
+        f"session_name: {payload['session_name']}",
         f"terminal_id: {payload['terminal_id']}",
         f"last_updated: {payload['updated_at']}",
         "",
@@ -66,6 +70,18 @@ def _render_start_output(*, payload: dict[str, object]) -> str:
     agent_identity = _require_non_empty_string(
         state.get("agent_identity"),
         context="start payload missing state.agent_identity",
+    )
+    tool = _require_non_empty_string(
+        state.get("tool"),
+        context="start payload missing state.tool",
+    )
+    variant_id = _require_non_empty_string(
+        state.get("variant_id"),
+        context="start payload missing state.variant_id",
+    )
+    brain_recipe = _require_non_empty_string(
+        state.get("brain_recipe"),
+        context="start payload missing state.brain_recipe",
     )
     tmux_target = _require_non_empty_string(
         state.get("tmux_target"),
@@ -113,6 +129,9 @@ def _render_start_output(*, payload: dict[str, object]) -> str:
         "",
         "Session Summary",
         "session_status: active",
+        f"tool: {tool}",
+        f"variant_id: {variant_id}",
+        f"brain_recipe: {brain_recipe}",
         f"agent_identity: {agent_identity}",
         f"terminal_id: {terminal_id}",
         f"cao_base_url: {cao_base_url}",

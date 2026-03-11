@@ -35,6 +35,13 @@ def _copy_demo_pack(repo_root: Path) -> Path:
     return demo_pack_dir
 
 
+def _copy_agent_defs(repo_root: Path) -> None:
+    shutil.copytree(
+        _source_repo_root() / "tests" / "fixtures" / "agents",
+        repo_root / "tests" / "fixtures" / "agents",
+    )
+
+
 def _write_fake_tools(fake_bin_dir: Path) -> None:
     _write_executable(
         fake_bin_dir / "cao-server",
@@ -233,6 +240,10 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 subcommand = args[4]
                 if subcommand == "build-brain":
                     runtime_root = Path(arg_value("--runtime-root"))
+                    recipe_path = Path(arg_value("--recipe"))
+                    state["last_built_tool"] = (
+                        "codex" if "codex" in recipe_path.parts else "claude"
+                    )
                     manifest_path = runtime_root / "brains" / "brain-manifest.json"
                     home_path = runtime_root / "brains" / "home"
                     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,6 +288,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                             {
                                 "session_manifest": str(session_manifest),
                                 "agent_identity": agent_identity,
+                                "tool": state.get("last_built_tool", "claude"),
                             }
                         )
                     )
@@ -399,7 +411,7 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
     outside_cwd = tmp_path / "outside"
@@ -455,12 +467,83 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     )
 
 
+def test_demo_explicit_codex_recipe_launches_and_verifies_variant(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    env = _build_env(tmp_path, repo_root)
+
+    _run(
+        [
+            str(demo_pack_dir / "launch_alice.sh"),
+            "-y",
+            "--brain-recipe",
+            "codex/gpu-kernel-coder-default",
+        ],
+        env=env,
+        cwd=repo_root,
+    )
+    _run(
+        [str(demo_pack_dir / "send_prompt.sh"), "-y", "--prompt", "first turn"],
+        env=env,
+        cwd=repo_root,
+    )
+    _run(
+        [str(demo_pack_dir / "send_prompt.sh"), "-y", "--prompt", "second turn"],
+        env=env,
+        cwd=repo_root,
+    )
+    _run([str(demo_pack_dir / "run_demo.sh"), "verify"], env=env, cwd=repo_root)
+
+    current_run_root_path = (
+        repo_root / "tmp" / "demo" / "cao-interactive-full-pipeline-demo" / "current_run_root.txt"
+    )
+    workspace_root = Path(current_run_root_path.read_text(encoding="utf-8").strip())
+    state = json.loads((workspace_root / "state.json").read_text(encoding="utf-8"))
+    report = json.loads((workspace_root / "report.json").read_text(encoding="utf-8"))
+
+    assert state["agent_identity"] == "AGENTSYS-alice"
+    assert state["tool"] == "codex"
+    assert state["variant_id"] == "codex-gpu-kernel-coder-default"
+    assert state["brain_recipe"] == "codex/gpu-kernel-coder-default"
+    assert report["tool"] == "codex"
+    assert report["variant_id"] == "codex-gpu-kernel-coder-default"
+
+
+def test_demo_start_rejects_ambiguous_recipe_basename(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    env = _build_env(tmp_path, repo_root)
+
+    result = _run(
+        [
+            str(demo_pack_dir / "run_demo.sh"),
+            "start",
+            "--brain-recipe",
+            "gpu-kernel-coder-default",
+        ],
+        env=env,
+        cwd=repo_root,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Multiple brain recipes matched `gpu-kernel-coder-default`" in result.stderr
+
+
 def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify(
     tmp_path: Path,
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
     outside_cwd = tmp_path / "outside"
@@ -554,7 +637,7 @@ def test_demo_wrapper_prompted_cao_replacement_cleans_prior_artifacts(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
 
@@ -610,7 +693,7 @@ def test_demo_wrapper_yes_flag_bypasses_verified_cao_replacement_prompt(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
     env["FAKE_CAO_STATUS_MODE"] = "verified"
@@ -630,7 +713,7 @@ def test_demo_stop_tolerates_dead_remote_session_and_cleans_tmux(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
 
@@ -662,7 +745,7 @@ def test_demo_wrapper_fails_when_existing_service_is_not_verified_cao_server(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "tests" / "fixtures" / "agents").mkdir(parents=True, exist_ok=True)
+    _copy_agent_defs(repo_root)
     demo_pack_dir = _copy_demo_pack(repo_root)
     env = _build_env(tmp_path, repo_root)
     env["FAKE_CAO_STATUS_MODE"] = "wrong-service"

@@ -30,10 +30,12 @@ Usage:
   $(basename "$0") [-y] <subcommand> [options]
 
 Subcommands:
-  start [--agent-name <name>] [--json]
+  start [--agent-name <name>] [--brain-recipe <selector>] [--json]
       Start or replace the interactive session. By default the command ends
       with a human-readable summary on stdout; pass --json for a
-      machine-readable payload. Startup progress still prints to stderr.
+      machine-readable payload. Startup progress still prints to stderr. If
+      --brain-recipe is omitted, the demo uses the tracked default recipe
+      claude/gpu-kernel-coder-default.
   send-turn (--prompt <text> | --prompt-file <path>)
       Send one prompt to the active session.
   send-keys <key-stream> [--as-raw-string]
@@ -41,7 +43,7 @@ Subcommands:
       key stream when it contains spaces or shell metacharacters.
   inspect [--json] [--with-output-text <num-tail-chars>]
       Show tmux/log inspection commands for the current state and optionally
-      include a clean projected Claude dialog tail.
+      include a clean projected tool dialog tail.
   verify [--snapshot-report]
       Generate report.json and optionally refresh the tracked snapshot.
   stop
@@ -64,8 +66,11 @@ Flags:
       \`cao-server\` on http://127.0.0.1:9889.
 
 Examples:
-  $(basename "$0") -y start --agent-name alice
-  $(basename "$0") start --agent-name alice --json
+  $(basename "$0") -y start
+  $(basename "$0") start --agent-name gpu-demo --json
+  $(basename "$0") start --brain-recipe claude/gpu-kernel-coder-default
+  $(basename "$0") start --brain-recipe codex/gpu-kernel-coder-default
+  $(basename "$0") start --brain-recipe gpu-kernel-coder-yunwu-openai
   $(basename "$0") inspect
   $(basename "$0") inspect --with-output-text 400
   $(basename "$0") send-turn --prompt "Hello from the demo"
@@ -132,12 +137,12 @@ fi
 
 if [[ "${FORWARD_ARGS[0]:-}" == "verify" ]]; then
   VERIFY_SCRIPT="$SCRIPT_DIR/scripts/verify_report.py"
-  EXPECTED_REPORT="$SCRIPT_DIR/expected_report/report.json"
+  EXPECTED_REPORT_DIR="$SCRIPT_DIR/expected_report"
   if ! WORKSPACE_ROOT="$(resolve_workspace_root)"; then
     echo "error: no interactive demo workspace was found for verify." >&2
     exit 2
   fi
-  VERIFY_ARGS=("$WORKSPACE_ROOT/report.json" "$EXPECTED_REPORT")
+  VERIFY_ARGS=("$WORKSPACE_ROOT/report.json" "$EXPECTED_REPORT_DIR")
   if [[ "$SNAPSHOT_REPORT" -eq 1 ]]; then
     VERIFY_ARGS+=("--snapshot")
   fi

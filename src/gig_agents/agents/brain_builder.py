@@ -52,6 +52,7 @@ class BrainRecipe:
     skills: list[str]
     config_profile: str
     credential_profile: str
+    default_agent_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -211,12 +212,19 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
         raise BuildError(f"{path}: only schema_version=1 recipes are supported")
 
     skills = _require_str_list(payload, "skills", where=str(path))
+    default_agent_name = payload.get("default_agent_name")
+    if default_agent_name is not None:
+        if not isinstance(default_agent_name, str) or not default_agent_name.strip():
+            raise BuildError(f"{path}: default_agent_name must be a non-empty string when set")
     recipe = BrainRecipe(
         name=_require_str(payload, "name", where=str(path)),
         tool=_require_str(payload, "tool", where=str(path)),
         skills=skills,
         config_profile=_require_str(payload, "config_profile", where=str(path)),
         credential_profile=_require_str(payload, "credential_profile", where=str(path)),
+        default_agent_name=default_agent_name.strip()
+        if isinstance(default_agent_name, str)
+        else None,
     )
     return recipe
 
