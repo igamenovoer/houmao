@@ -306,6 +306,8 @@ gig-cao-server status --config config/cao-server-launcher/local.toml
 gig-cao-server stop   --config config/cao-server-launcher/local.toml
 ```
 
+For a one-off local port override, add `--base-url http://127.0.0.1:9991`.
+
 Start a session through CAO:
 
 ```bash
@@ -315,6 +317,9 @@ gig-agents-cli start-session \
   --backend cao_rest \
   --cao-base-url http://localhost:9889
 ```
+
+Supported local CAO URLs use `http://localhost:<port>` or
+`http://127.0.0.1:<port>`.
 
 ## Developer Guide
 

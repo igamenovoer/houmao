@@ -172,7 +172,7 @@ def test_compose_tmux_launch_env_injects_loopback_no_proxy_by_default(
 
     launch_env = _compose_tmux_launch_env(
         _sample_launch_plan(tmp_path),
-        api_base_url="http://localhost:9889",
+        api_base_url="http://localhost:9991",
     )
 
     assert launch_env["HTTP_PROXY"] == "http://proxy.internal:8080"
@@ -195,7 +195,7 @@ def test_compose_tmux_launch_env_preserve_mode_leaves_no_proxy_untouched(
 
     launch_env = _compose_tmux_launch_env(
         _sample_launch_plan(tmp_path),
-        api_base_url="http://localhost:9889",
+        api_base_url="http://localhost:9991",
     )
 
     assert launch_env["HTTP_PROXY"] == "http://proxy.internal:8080"
@@ -251,7 +251,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
 
-    client = CaoRestClient("http://localhost:9889")
+    client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
     terminal = client.create_terminal(
         "s1",
@@ -277,7 +277,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     assert urls[0].endswith("/health")
     assert (
         urls[1]
-        == "http://localhost:9889/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
+        == "http://127.0.0.1:9991/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
     )
     assert urls[2].endswith("/terminals/a1b2c3d4/input?message=hello")
     assert urls[3].endswith("/terminals/a1b2c3d4/output?mode=last")
@@ -305,7 +305,7 @@ def test_cao_rest_client_injects_loopback_no_proxy_by_default(
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
 
-    client = CaoRestClient("http://localhost:9889")
+    client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
 
     assert health.status == "ok"

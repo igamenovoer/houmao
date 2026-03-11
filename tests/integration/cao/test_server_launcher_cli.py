@@ -11,9 +11,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
-
 def _source_repo_root() -> Path:
     """Return the tracked repo root for subprocess PYTHONPATH wiring."""
 
@@ -35,6 +32,17 @@ def _port_is_listening(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _pick_unused_loopback_port() -> int:
+    """Return a likely-free non-default loopback port for integration tests."""
+
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if port != 9889:
+            return port
+
+
 def _write_fake_cao_server(fake_bin_dir: Path) -> None:
     """Install a fake `cao-server` executable that serves `/health`."""
 
@@ -46,6 +54,7 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
             from __future__ import annotations
 
             import json
+            import os
             from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -68,8 +77,8 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                 def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                     return
 
-
-            server = ThreadingHTTPServer(("127.0.0.1", 9889), Handler)
+            port = int(os.environ.get("CAO_PORT", "9889"))
+            server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
             print("fake cao-server ready", flush=True)
             server.serve_forever()
             """
@@ -104,6 +113,7 @@ def _run_launcher_command(
     *,
     config_path: Path,
     env: dict[str, str],
+    extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the launcher CLI through a separate Python process."""
 
@@ -115,6 +125,7 @@ def _run_launcher_command(
             command_name,
             "--config",
             str(config_path),
+            *(extra_args or []),
         ],
         check=False,
         capture_output=True,
@@ -127,37 +138,56 @@ def _run_launcher_command(
 def test_cli_start_remains_healthy_after_launcher_process_exits(tmp_path: Path) -> None:
     """Launcher start should leave a detached service reachable from later commands."""
 
-    if _port_is_listening(9889):
-        pytest.skip("loopback port 9889 is already in use")
-
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
     _write_fake_cao_server(fake_bin_dir)
 
     config_path = _write_config(tmp_path)
+    selected_port = _pick_unused_loopback_port()
+    override_base_url = f"http://127.0.0.1:{selected_port}"
+    override_args = ["--base-url", override_base_url]
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}:{env.get('PATH', '')}"
     env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
 
-    start_result = _run_launcher_command("start", config_path=config_path, env=env)
+    start_result = _run_launcher_command(
+        "start",
+        config_path=config_path,
+        env=env,
+        extra_args=override_args,
+    )
     try:
         assert start_result.returncode == 0, start_result.stderr
         start_payload = json.loads(start_result.stdout)
         assert start_payload["healthy"] is True
         assert start_payload["started_new_process"] is True
         assert start_payload["reused_existing_process"] is False
+        assert start_payload["base_url"] == override_base_url
+        assert Path(start_payload["artifact_dir"]).name == f"127.0.0.1-{selected_port}"
+        assert 'base_url = "http://127.0.0.1:9889"' in config_path.read_text(encoding="utf-8")
 
-        status_result = _run_launcher_command("status", config_path=config_path, env=env)
+        status_result = _run_launcher_command(
+            "status",
+            config_path=config_path,
+            env=env,
+            extra_args=override_args,
+        )
         assert status_result.returncode == 0, status_result.stderr
         status_payload = json.loads(status_result.stdout)
         assert status_payload["healthy"] is True
         assert status_payload["service"] == "cli-agent-orchestrator"
+        assert status_payload["base_url"] == override_base_url
 
         ownership_file = Path(start_payload["ownership_file"])
         ownership_payload = json.loads(ownership_file.read_text(encoding="utf-8"))
         assert ownership_file.exists()
         assert ownership_payload["launch_mode"] == "detached"
-        assert ownership_payload["base_url"] == "http://127.0.0.1:9889"
+        assert ownership_payload["base_url"] == override_base_url
     finally:
-        stop_result = _run_launcher_command("stop", config_path=config_path, env=env)
+        stop_result = _run_launcher_command(
+            "stop",
+            config_path=config_path,
+            env=env,
+            extra_args=override_args,
+        )
         assert stop_result.returncode == 0, stop_result.stderr

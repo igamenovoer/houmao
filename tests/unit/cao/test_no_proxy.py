@@ -16,13 +16,14 @@ from gig_agents.cao.no_proxy import (
 
 def test_is_supported_loopback_cao_base_url_accepts_supported_values() -> None:
     assert is_supported_loopback_cao_base_url("http://localhost:9889")
-    assert is_supported_loopback_cao_base_url("http://127.0.0.1:9889/")
-    assert is_supported_loopback_cao_base_url("  http://localhost:9889  ")
+    assert is_supported_loopback_cao_base_url("http://127.0.0.1:9991/")
+    assert is_supported_loopback_cao_base_url("  http://localhost:9991  ")
 
 
 def test_is_supported_loopback_cao_base_url_rejects_non_loopback_values() -> None:
     assert not is_supported_loopback_cao_base_url("http://cao.internal:9889")
     assert not is_supported_loopback_cao_base_url("https://localhost:9889")
+    assert not is_supported_loopback_cao_base_url("http://localhost")
     assert not is_supported_loopback_cao_base_url("not-a-url")
 
 
@@ -65,7 +66,7 @@ def test_inject_loopback_no_proxy_env_for_base_url_is_loopback_scoped() -> None:
 
     applied_loopback = inject_loopback_no_proxy_env_for_cao_base_url(
         loopback_env,
-        base_url="http://localhost:9889",
+        base_url="http://localhost:9991",
     )
     applied_remote = inject_loopback_no_proxy_env_for_cao_base_url(
         remote_env,
@@ -85,7 +86,7 @@ def test_scoped_loopback_no_proxy_for_cao_base_url_restores_env(
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
 
-    with scoped_loopback_no_proxy_for_cao_base_url("http://localhost:9889") as applied:
+    with scoped_loopback_no_proxy_for_cao_base_url("http://localhost:9991") as applied:
         assert applied is True
         assert "localhost" in (os.environ.get("NO_PROXY") or "")
         assert os.environ.get("no_proxy") == os.environ.get("NO_PROXY")
@@ -96,5 +97,5 @@ def test_scoped_loopback_no_proxy_for_cao_base_url_restores_env(
 
 def test_scoped_loopback_no_proxy_for_cao_base_url_propagates_errors() -> None:
     with pytest.raises(RuntimeError, match="boom"):
-        with scoped_loopback_no_proxy_for_cao_base_url("http://localhost:9889"):
+        with scoped_loopback_no_proxy_for_cao_base_url("http://localhost:9991"):
             raise RuntimeError("boom")

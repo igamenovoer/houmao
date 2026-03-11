@@ -126,7 +126,10 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--base-url",
         default=None,
-        help="Optional base_url override (must be a supported value).",
+        help=(
+            "Optional base_url override "
+            "(supported loopback URLs: http://localhost:<port> or http://127.0.0.1:<port>)."
+        ),
     )
     parser.add_argument(
         "--runtime-root",

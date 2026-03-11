@@ -37,6 +37,7 @@ Notes:
       cred-profile=personal-a-default
       role=gpu-kernel-coder
   - If ANTHROPIC_MODEL is unset, this script sets ANTHROPIC_MODEL=opus.
+  - Supported local launcher-managed CAO URLs use http://localhost:<port> or http://127.0.0.1:<port>.
   - This script does not attach tmux, does not send prompts, and does not stop sessions.
 EOF
 }

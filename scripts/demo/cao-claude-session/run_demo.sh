@@ -71,13 +71,8 @@ raise SystemExit(0)
 PY
 }
 
-cao_url_is_local_default() {
-  case "$CAO_BASE_URL" in
-    http://localhost:9889 | http://127.0.0.1:9889)
-      return 0
-      ;;
-  esac
-  return 1
+cao_url_is_supported_loopback() {
+  [[ "$CAO_BASE_URL" =~ ^http://(localhost|127\.0\.0\.1):[0-9]+$ ]]
 }
 
 ensure_cao_server() {
@@ -87,8 +82,8 @@ ensure_cao_server() {
     fail "cao-server not found on PATH"
   fi
 
-  if ! cao_url_is_local_default && ! is_cao_server_healthy; then
-    skip "CAO server is unavailable at ${CAO_BASE_URL} (demo auto-starts only for CAO_BASE_URL=http://localhost:9889)"
+  if ! cao_url_is_supported_loopback && ! is_cao_server_healthy; then
+    skip "CAO server is unavailable at ${CAO_BASE_URL} (demo auto-starts only for supported loopback CAO_BASE_URL values like http://localhost:9889 or http://127.0.0.1:9991)"
   fi
 
   local server_log_path="$WORKSPACE_DIR/cao-server.log"
@@ -247,7 +242,7 @@ PY
   launcher_state="$(parse_launcher_start_state "$launcher_output_path")"
   IFS=":" read -r started_new_process reused_existing_process resolved_pid <<<"$launcher_state"
 
-  if cao_url_is_local_default && [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
+  if cao_url_is_supported_loopback && [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
     log "detected an untracked healthy CAO server at ${CAO_BASE_URL}; restarting to align demo runtime context"
     killed_count="$(terminate_local_cao_server_on_base_url || echo "0")"
     log "terminated ${killed_count} existing local cao-server process(es) on ${CAO_BASE_URL}"

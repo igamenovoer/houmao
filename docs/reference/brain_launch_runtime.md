@@ -266,6 +266,9 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
   --config config/cao-server-launcher/local.toml
 ```
 
+Use `--cao-base-url http://127.0.0.1:9991` to target another supported
+launcher-managed loopback port when needed.
+
 Behavior:
 
 - For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
@@ -396,7 +399,7 @@ when they are missing from `PATH`.
   [`docs/reference/cao_shadow_parser_troubleshooting.md`](./cao_shadow_parser_troubleshooting.md).
 - Loopback proxy defaults:
   - Runtime-owned CAO REST calls to supported loopback CAO base URLs
-    (`http://localhost:9889`, `http://127.0.0.1:9889`) inject loopback entries
+    (`http://localhost:<port>`, `http://127.0.0.1:<port>`) inject loopback entries
     into `NO_PROXY`/`no_proxy` by default so ambient proxy vars do not proxy
     CAO control-plane traffic.
   - CAO tmux session env composition preserves proxy vars for agent egress and
