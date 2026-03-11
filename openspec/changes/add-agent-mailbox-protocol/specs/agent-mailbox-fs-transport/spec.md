@@ -8,7 +8,8 @@ When no explicit mailbox content root is configured, the filesystem mailbox tran
 That mailbox subtree SHALL include at minimum:
 
 - a canonical message store
-- mailbox projection directories by principal
+- a shared `rules/` directory for mailbox-local protocol guidance
+- mailbox projection registrations by principal
 - a SQLite index
 - lock-file locations
 - a staging area for in-progress writes
@@ -22,6 +23,50 @@ That mailbox subtree SHALL include at minimum:
 - **WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root binding
 - **THEN** the system derives the effective mailbox content root from the configured runtime root
 - **AND THEN** the resulting mailbox subtree uses that derived default location while preserving the same internal layout
+
+### Requirement: Filesystem mailbox root publishes shared mailbox rules
+The filesystem mailbox transport SHALL publish a `rules/` directory under the mailbox root as the mailbox-local source of truth for shared mailbox interaction guidance.
+
+That `rules/` directory SHALL contain at minimum:
+
+- a human-readable `README`
+- mailbox protocol documentation
+- helper scripts for standardized mailbox operations
+- agent-skill materials for standardized mailbox operations
+
+Sensitive mailbox operations that touch `index.sqlite` or `locks/` SHALL be represented by shared scripts under `rules/scripts/`.
+
+Those scripts MAY be implemented in Python or shell. Python implementations SHALL assume only the Python standard library and Python version `>=3.11`.
+
+#### Scenario: Filesystem mailbox root exposes mailbox-local rules
+- **WHEN** a participant inspects the shared filesystem mailbox root before mailbox interaction
+- **THEN** the participant can find a `rules/` directory under that mailbox root
+- **AND THEN** that `rules/` directory contains the shared mailbox interaction guidance and helper assets needed for standardized mailbox operations
+
+#### Scenario: Sensitive mailbox scripts are available under rules/scripts
+- **WHEN** a participant needs to perform a standardized mailbox operation that touches `index.sqlite` or `locks/`
+- **THEN** the shared filesystem mailbox root provides a corresponding helper script under `rules/scripts/`
+- **AND THEN** any Python-based helper script for that operation relies only on the Python standard library with Python version `>=3.11`
+
+#### Scenario: Optional header helper script is available for standardized composition
+- **WHEN** a shared filesystem mailbox wants to help participants standardize message headers or YAML front matter during composition
+- **THEN** the shared mailbox MAY provide a helper script under `rules/scripts/` that accepts header-related parameters and inserts or normalizes those headers
+- **AND THEN** that helper script acts as an optional lint-style tool rather than a required transport primitive
+
+### Requirement: Filesystem mailbox groups support symlink-based principal registration
+The filesystem mailbox transport SHALL allow each principal entry under `mailboxes/` to be either a concrete mailbox directory inside the mail-group root or a symlink to that principal's private mailbox directory outside the root.
+
+A symlink-registered private mailbox directory SHALL expose the same mailbox substructure expected from an in-root mailbox directory.
+
+#### Scenario: Principal joins filesystem mail group through symlink registration
+- **WHEN** an agent or human participant wants to join an existing filesystem mail group without relocating its mailbox projection directory into the shared root
+- **THEN** the system allows `mailboxes/<principal>` to be created as a symlink to that participant's private mailbox directory
+- **AND THEN** delivery and mailbox reads can use that registration as the effective mailbox location for that principal
+
+#### Scenario: Delivery follows symlink-registered mailbox target
+- **WHEN** a sender delivers a mailbox message to a principal whose `mailboxes/<principal>` entry is a symlink
+- **THEN** the filesystem mailbox transport writes the mailbox projection through that symlink-resolved mailbox directory
+- **AND THEN** the canonical message store, lock files, and shared SQLite index remain anchored under the shared mail-group root
 
 ### Requirement: Filesystem transport stores canonical messages as Markdown and projects them into mailbox folders
 The filesystem mailbox transport SHALL persist each delivered canonical message as a Markdown file in the canonical message store and SHALL materialize mailbox-visible projections for sender and recipient folders.
@@ -49,10 +94,25 @@ The transport SHALL coordinate concurrent filesystem writers using deterministic
 - **THEN** the sender performs delivery directly through filesystem and SQLite operations
 - **AND THEN** the delivery does not depend on a persistent helper daemon being active
 
+#### Scenario: Sender consults mailbox-local rules before standardized delivery
+- **WHEN** an agent sender interacts with a shared filesystem mailbox through the standardized mailbox workflow
+- **THEN** that workflow instructs the agent to consult the shared mailbox `rules/` directory before performing mailbox mutations
+- **AND THEN** the transport behavior still remains daemon-free because those rules are read directly from the filesystem mailbox root
+
+#### Scenario: Sensitive delivery steps use shared mailbox scripts
+- **WHEN** a standardized filesystem mailbox operation needs to touch `index.sqlite` or `locks/`
+- **THEN** the agent-facing workflow uses the shared script under `rules/scripts/` for that sensitive portion of the operation
+- **AND THEN** the participant does not need to hand-author raw SQLite or lock-file manipulation for that step
+
 #### Scenario: Concurrent writers serialize conflicting mailbox updates
 - **WHEN** two sender processes attempt to update the same mailbox principal concurrently
 - **THEN** the system serializes conflicting writes using deterministic lock files
 - **AND THEN** recipients do not observe partially applied mailbox projections for a committed delivery
+
+#### Scenario: Missing symlink target causes explicit delivery failure
+- **WHEN** a sender attempts delivery to a principal whose `mailboxes/<principal>` symlink target is missing or invalid
+- **THEN** the filesystem mailbox transport fails that delivery explicitly
+- **AND THEN** the system does not silently create a replacement mailbox directory at an unintended path
 
 ### Requirement: SQLite indexes mailbox metadata and mutable recipient state
 The filesystem mailbox transport SHALL maintain a SQLite index for mailbox metadata and mutable per-recipient state.

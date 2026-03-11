@@ -61,3 +61,29 @@ The system SHALL allow runtime-owned mailbox command surfaces to rely on the inj
 - **THEN** the launched agent can satisfy that request through the injected runtime-owned mailbox system skills and mailbox env bindings
 - **AND THEN** the runtime request can explicitly name the injected mailbox system skill the agent should use while appending mailbox-operation metadata in the same prompt
 - **AND THEN** that mailbox operation does not depend on mailbox-specific behavior being restated inside the role or recipe
+
+### Requirement: Filesystem mailbox system skills instruct agents to consult shared mailbox rules first
+The system SHALL require the injected filesystem mailbox system skill to instruct agents to inspect the shared mailbox `rules/` directory under the effective filesystem mailbox root before interacting with shared mailbox state.
+
+This requirement is instructional rather than hard-enforced in v1.
+
+#### Scenario: Filesystem mailbox skill points agent to mailbox-local rules
+- **WHEN** an agent uses the injected filesystem mailbox system skill for mailbox reads or writes
+- **THEN** that skill instructs the agent to inspect the shared mailbox `rules/` directory before proceeding with mailbox interaction
+- **AND THEN** the agent treats those mailbox-local rules as more specific guidance for that shared mailbox when they refine the generic filesystem mailbox skill
+
+### Requirement: Filesystem mailbox system skills direct sensitive operations to shared scripts
+The system SHALL require the injected filesystem mailbox system skill to direct agents to use shared helper scripts from `rules/scripts/` for mailbox operations that touch `index.sqlite` or `locks/`.
+
+#### Scenario: Filesystem mailbox skill points sensitive work to rules/scripts
+- **WHEN** an agent uses the injected filesystem mailbox system skill for a mailbox operation that touches `index.sqlite` or `locks/`
+- **THEN** that skill instructs the agent to use the corresponding shared helper script from `rules/scripts/`
+- **AND THEN** the agent is not instructed to improvise raw SQLite or lock-file manipulation for that sensitive portion of the work
+
+### Requirement: Filesystem mailbox system skills may suggest optional header helper scripts
+The system SHALL allow the injected filesystem mailbox system skill to suggest optional helper scripts from `rules/scripts/` for standardized header insertion or normalization during message composition.
+
+#### Scenario: Filesystem mailbox skill suggests optional header helper
+- **WHEN** an agent composes a filesystem mailbox message and the shared mailbox provides a header-helper script under `rules/scripts/`
+- **THEN** the injected filesystem mailbox system skill may suggest using that helper script for standardized header insertion or normalization
+- **AND THEN** the skill does not require that helper script as a mandatory transport step when the operation does not touch `index.sqlite` or `locks/`

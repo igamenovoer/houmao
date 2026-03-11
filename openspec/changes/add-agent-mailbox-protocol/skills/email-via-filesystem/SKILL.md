@@ -19,9 +19,13 @@ Use this skill to work with the mailbox transport where messages live on the loc
 - Require the common and filesystem-specific env vars defined in [references/env-vars.md](references/env-vars.md).
 - Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
 - Re-read the mailbox env vars before each mailbox action. Do not cache paths or addresses across turns.
+- Before interacting with shared mailbox state, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
+- For any mailbox step that touches `index.sqlite` or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
+- When the shared mailbox provides a header-helper script under `rules/scripts/`, you may use it to insert or normalize standardized headers or YAML front matter during message composition, but treat it as optional guidance rather than a required transport primitive.
 
 ## Read Mail
 
+- Inspect the shared mailbox `rules/` directory first so mailbox-local rules can refine how this particular shared mailbox expects reads or status updates to work.
 - Inspect unread state from SQLite when available; treat the database as the source for read or unread, starred, archived, and thread summary state.
 - Read message content from the Markdown mailbox corpus, not from ad hoc cached copies.
 - Use [references/filesystem-layout.md](references/filesystem-layout.md) for the exact mailbox tree and message file shape.
@@ -30,6 +34,7 @@ Use this skill to work with the mailbox transport where messages live on the loc
 
 ## Send Or Reply
 
+- Inspect the shared mailbox `rules/` directory first so mailbox-local rules, scripts, or helper skills can refine standardized mailbox operations for this shared mail group.
 - Use a new `message_id` for each outgoing message.
 - For a new thread, set `thread_id = message_id`.
 - For a reply, preserve the existing `thread_id`, set `in_reply_to` to the direct parent, and extend `references`.
@@ -40,14 +45,17 @@ Use this skill to work with the mailbox transport where messages live on the loc
 When writing directly to the filesystem transport:
 
 1. Stage the outgoing message before exposing it to recipients.
-2. Respect the mailbox `.lock` files for any principal whose mailbox state or projections will be changed.
-3. Keep canonical message content immutable after delivery.
-4. Update mutable mailbox state in SQLite instead of rewriting delivered message bodies.
+2. Use the shared helper script from `rules/scripts/` for sensitive steps that touch `index.sqlite` or `locks/`.
+3. Respect the mailbox `.lock` files for any principal whose mailbox state or projections will be changed.
+4. Keep canonical message content immutable after delivery.
+5. Update mutable mailbox state in SQLite instead of rewriting delivered message bodies.
 
 ## Guardrails
 
 - Do not hardcode mailbox roots, SQLite paths, or mailbox addresses into instructions, prompts, or generated files.
 - Do not assume mailbox content lives under the runtime root unless the env bindings explicitly point there.
+- Do not skip the shared mailbox `rules/` directory when interacting with a shared mail root; mailbox-local rules there are the first place to look for standardized operation guidance.
+- Do not hand-write raw SQLite mutations or lock-file orchestration when the shared mailbox provides a standardized helper script for that sensitive operation under `rules/scripts/`.
 - Do not treat mailbox filenames alone as unread or read markers.
 - Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
 - Do not bypass locking when creating or updating mailbox projections.

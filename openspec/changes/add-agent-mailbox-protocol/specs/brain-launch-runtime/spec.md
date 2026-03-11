@@ -53,6 +53,8 @@ The runtime SHALL require one structured mailbox result payload from the agent a
 - **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
 - **AND THEN** that prompt explicitly names the injected mailbox system skill the agent should use
+- **AND THEN** that prompt tells the agent to inspect the shared mailbox `rules/` directory before interacting with shared mailbox state
+- **AND THEN** that prompt tells the agent to use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`
 - **AND THEN** that prompt appends structured mailbox metadata for the mailbox operation and result contract
 
 #### Scenario: Mail command returns structured mailbox result
