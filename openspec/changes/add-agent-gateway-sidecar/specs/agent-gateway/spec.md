@@ -42,6 +42,50 @@ The gateway SHALL recover pending work and the latest persisted status from that
 - **THEN** the system provides that status through the current gateway state artifact in the gateway root
 - **AND THEN** the caller does not need to reconstruct current state solely by replaying the append-only event log
 
+### Requirement: The gateway binds one resolved host and port per managed session
+Each gateway-managed session SHALL expose its gateway submit or status surface as an HTTP service bound on exactly one resolved listener address before the gateway sidecar starts accepting work.
+
+Allowed listener hosts in this change are exactly `127.0.0.1` and `0.0.0.0`.
+
+When no explicit all-interface bind host is configured, the gateway sidecar SHALL default to binding on `127.0.0.1:<resolved-port>`.
+
+The gateway sidecar SHALL attempt to bind that resolved port during startup and SHALL NOT silently switch to a different port if binding fails.
+
+When the resolved port is unavailable because another process already owns it or because the bind otherwise fails, startup of that gateway-managed session SHALL fail explicitly.
+
+#### Scenario: Gateway starts on the default loopback listener
+- **WHEN** the runtime starts a gateway-managed tmux-backed session with resolved gateway port `43123`
+- **AND WHEN** no explicit all-interface bind host is configured
+- **THEN** the gateway sidecar binds an HTTP service on `127.0.0.1:43123`
+- **AND THEN** gateway discovery for that session reflects port `43123` rather than an unrelated substituted port
+
+#### Scenario: Explicit all-interface bind uses 0.0.0.0
+- **WHEN** the runtime starts a gateway-managed tmux-backed session with resolved gateway host `0.0.0.0` and port `43123`
+- **THEN** the gateway sidecar binds an HTTP service on `0.0.0.0:43123`
+- **AND THEN** the service is reachable through any host interface address that maps to that port
+
+#### Scenario: Port conflict fails gateway-managed session startup
+- **WHEN** the runtime attempts to start a gateway-managed tmux-backed session whose resolved gateway port is already bound by another process
+- **THEN** the system fails that session startup with an explicit gateway-port conflict error
+- **AND THEN** it does not silently retry on a different port for that launch attempt
+
+### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
+The gateway SHALL expose an HTTP API for health inspection, status inspection, and gateway-managed request submission on the resolved listener address for that session.
+
+That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
+
+Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health or status.
+
+#### Scenario: Health inspection uses default loopback surface
+- **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
+- **THEN** it can query the gateway through the loopback HTTP surface on the resolved port
+- **AND THEN** the gateway returns a structured health response without requiring direct SQLite access
+
+#### Scenario: Request submission uses all-interface surface when configured
+- **WHEN** a tool submits gateway-managed terminal-mutating work for a session whose resolved gateway host is `0.0.0.0`
+- **THEN** it may submit that work through any reachable host interface address on the resolved port
+- **AND THEN** the gateway validates and records the request before it can compete for execution
+
 ### Requirement: Gateway status separates health, agent state, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent activity and terminal-surface readiness.
 
@@ -81,6 +125,21 @@ The gateway SHALL be able to reject requests explicitly when permissions or loca
 - **WHEN** a submitted gateway request violates configured permission or policy rules
 - **THEN** the gateway rejects that request explicitly
 - **AND THEN** the rejected request is not executed against the managed terminal surface
+
+### Requirement: Gateway-managed operation does not depend on mailbox enablement
+The gateway SHALL NOT require mailbox transport configuration, mailbox environment bindings, or mailbox-triggered workflows in order to launch, publish status, accept gateway-managed work, or recover a gateway-managed session.
+
+Future mailbox integration MAY submit work through the same validated gateway request surface in a follow-up change, but this change SHALL NOT make mailbox participation a hidden dependency of gateway operation.
+
+#### Scenario: Gateway-managed session operates without mailbox support
+- **WHEN** the runtime starts a gateway-managed tmux-backed session that does not enable any mailbox transport
+- **THEN** the gateway sidecar still launches, publishes gateway state, and accepts gateway-managed work
+- **AND THEN** gateway operation does not fail solely because mailbox support is absent
+
+#### Scenario: Missing mailbox bindings do not block gateway recovery
+- **WHEN** a gateway-managed session is resumed or recovered without mailbox-specific environment bindings
+- **THEN** gateway discovery, status inspection, and recovery continue to rely on gateway-owned state and runtime metadata
+- **AND THEN** the system does not require mailbox bindings to continue gateway-managed operation
 
 ### Requirement: Direct human TUI interaction is a supported concurrent activity
 The gateway SHALL treat direct human interaction with the managed TUI as a supported concurrent activity rather than as protocol corruption.
