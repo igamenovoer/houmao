@@ -15,9 +15,26 @@ The config file SHALL include at least:
 - proxy policy (`clear` or `inherit`), and
 - optional trusted home directory (applied as CAO server process `HOME`).
 
+The launcher CLI SHALL additionally support one-shot arguments that override
+supported config-file values for a single invocation without modifying the file
+on disk.
+
+At minimum, the launcher SHALL support CLI overrides for:
+- `base_url`
+- `runtime_root`
+- `home_dir`
+- `proxy_policy`
+- `startup_timeout_seconds`
+
 #### Scenario: Config file defines launcher inputs
 - **WHEN** a developer provides a launcher TOML config file containing `base_url`, `runtime_root`, and `proxy_policy`
 - **THEN** the launcher loads the config successfully and uses those values for `status`, `start`, and `stop` operations
+
+#### Scenario: CLI override replaces config-file base_url for one invocation
+- **WHEN** a developer runs launcher `start` with config file `base_url = "http://127.0.0.1:9889"`
+- **AND WHEN** the same command also passes CLI override `--base-url http://127.0.0.1:9991`
+- **THEN** the launcher uses `http://127.0.0.1:9991` as the effective base URL for that invocation
+- **AND THEN** the config file on disk remains unchanged
 
 ### Requirement: Launcher config files are schema-validated
 The launcher SHALL validate the config file against a schema and fail fast with
@@ -29,12 +46,14 @@ The launcher SHALL reject:
 - structurally invalid values (for example malformed base URLs or non-positive
   timeouts).
 
-The launcher SHALL currently restrict `base_url` to upstream-supported values:
-- `http://localhost:9889`
-- `http://127.0.0.1:9889`
+The launcher SHALL accept loopback `base_url` values only when all of the
+following are true:
+- the URL uses the `http` scheme,
+- the host is `localhost` or `127.0.0.1`, and
+- the URL includes an explicit port.
 
-This restriction exists because upstream `cao-server` host/port is currently
-hard-coded and not known to be configurable.
+The launcher SHALL reject non-loopback hosts, missing ports, and malformed CAO
+base URLs.
 
 #### Scenario: Unknown config keys are rejected
 - **WHEN** the launcher loads a config file that contains an unknown key
@@ -44,8 +63,16 @@ hard-coded and not known to be configurable.
 - **WHEN** the launcher loads a config file whose proxy policy value is not one of `clear` or `inherit`
 - **THEN** the launcher fails with an explicit validation error
 
+#### Scenario: Non-default loopback port values are accepted
+- **WHEN** the launcher loads a config file whose `base_url` is `http://127.0.0.1:9991`
+- **THEN** the launcher accepts that config as a supported loopback CAO target
+
+#### Scenario: Invalid CLI override values are rejected
+- **WHEN** the launcher is invoked with a CLI override whose effective `base_url` uses a non-loopback host or omits an explicit port
+- **THEN** the launcher fails with an explicit validation error for that override
+
 #### Scenario: Unsupported base_url values are rejected
-- **WHEN** the launcher loads a config file whose `base_url` is not one of the supported upstream values
+- **WHEN** the launcher loads a config file whose `base_url` uses a non-loopback host or omits an explicit port
 - **THEN** the launcher fails with an explicit validation error
 
 ### Requirement: Start (or reuse) a local CAO server
@@ -54,13 +81,21 @@ base URL and, when configured for a supported upstream base URL, bootstrap a
 standalone detached local `cao-server` service and wait until it becomes
 healthy.
 
-Supported upstream base URLs are currently restricted to:
-- `http://localhost:9889`
-- `http://127.0.0.1:9889`
+Supported launcher-managed base URLs are restricted to:
+- `http://localhost:<port>`
+- `http://127.0.0.1:<port>`
 
 When `start` launches a new service, the launched `cao-server` SHALL NOT depend
 on the continued lifetime of the invoking launcher command after `start`
 returns.
+
+When the launcher spawns `cao-server`, it SHALL derive the requested port from
+`base_url` and pass that port to the launched process using CAO's supported
+port-selection mechanism.
+
+If the requested `base_url` does not become healthy within the configured
+timeout after a spawn attempt, the launcher SHALL fail explicitly and SHALL NOT
+report success against a different loopback port.
 
 #### Scenario: Start returns without starting when CAO is already healthy
 - **WHEN** the launcher is asked to start CAO at `http://localhost:9889`
@@ -68,13 +103,18 @@ returns.
 - **THEN** the launcher reports success
 - **AND THEN** it reports that no new CAO server process was started
 
-#### Scenario: Start bootstraps a standalone detached service when unhealthy and base URL is supported
-- **WHEN** the launcher is asked to start CAO at `http://localhost:9889`
+#### Scenario: Start bootstraps a standalone detached service on a supported non-default port
+- **WHEN** the launcher is asked to start CAO at `http://127.0.0.1:9991`
 - **AND WHEN** CAO is not healthy at that base URL
-- **THEN** the launcher starts a standalone detached `cao-server` service
-- **AND THEN** it waits until `GET /health` reports `status="ok"` or a configured timeout elapses
-- **AND THEN** it reports success when CAO becomes healthy
-- **AND THEN** a later separate launcher `status` call can still reach that CAO service after the original `start` command has exited
+- **THEN** the launcher starts a standalone detached `cao-server` service configured for port `9991`
+- **AND THEN** it waits until `GET /health` reports `status="ok"` at `http://127.0.0.1:9991` or a configured timeout elapses
+- **AND THEN** it reports success when CAO becomes healthy at that requested base URL
+
+#### Scenario: Requested non-default port is not honored by the installed CAO server
+- **WHEN** the launcher is asked to start CAO at `http://127.0.0.1:9991`
+- **AND WHEN** the spawned `cao-server` process never becomes healthy at that requested base URL within the configured timeout
+- **THEN** the launcher fails with an explicit startup error
+- **AND THEN** it does not report success by falling back to a different loopback CAO port
 
 #### Scenario: Start refuses to start CAO for an unsupported base URL
 This scenario is defined as a defense-in-depth behavior. In the intended usage,
@@ -193,10 +233,11 @@ Proxy environment variables controlled by the policy are:
 - **THEN** the launched process environment includes the controlled proxy variables that were present in the caller environment
 
 The launcher SHALL preserve and merge `NO_PROXY` and/or `no_proxy` in the target
-server environment so loopback hosts bypass any configured proxy settings.
+server environment for supported loopback CAO base URLs so loopback hosts bypass
+any configured proxy settings on the selected port.
 
-#### Scenario: Launched server environment includes loopback NO_PROXY entries
-- **WHEN** the launcher starts a `cao-server` process for base URL `http://localhost:9889`
+#### Scenario: Launched server environment includes loopback NO_PROXY entries on a non-default port
+- **WHEN** the launcher starts a `cao-server` process for base URL `http://localhost:9991`
 - **THEN** the launched process environment includes `NO_PROXY` and/or `no_proxy`
 - **AND THEN** the configured value includes at least `localhost`, `127.0.0.1`, and `::1`
 

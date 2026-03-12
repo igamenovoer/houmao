@@ -92,15 +92,19 @@ Existing runtime-owned env pointers remain foundational:
 - `AGENTSYS_MANIFEST_PATH`
 - `AGENTSYS_AGENT_DEF_DIR`
 
-For runtime-owned sessions, those existing pointers already provide enough information to discover the persisted session manifest and the agent definition root. This revision proposes standardizing that into one uniform attach contract file, for example:
+For runtime-owned sessions, those existing pointers already provide enough information to discover the persisted session manifest and the agent definition root. This revision proposes standardizing that into one uniform attach contract file plus an explicit gateway-root pointer:
 
 - `AGENTSYS_GATEWAY_ATTACH_PATH`
+- `AGENTSYS_GATEWAY_ROOT`
+
+For runtime-owned sessions in v1, `AGENTSYS_GATEWAY_ATTACH_PATH` points to `<AGENTSYS_GATEWAY_ROOT>/attach.json`.
 
 That file should be a secret-free JSON payload describing how a gateway can attach to the addressed session. Runtime-owned sessions can materialize it from their manifest and launch metadata. Manual launchers can create and publish the same file directly even when no gig-agents session manifest exists.
 
 The attach contract should include fields such as:
 
 - schema version
+- runtime session id when one exists
 - canonical agent identity or tmux session name
 - backend adapter kind
 - working directory
@@ -140,14 +144,20 @@ A per-agent gateway root remains useful, but it now represents stable attachabil
     gateway.pid
 ```
 
+For runtime-owned sessions in v1, `<gateway-attach-identity>` is the runtime-generated `session_id` already used to key the session manifest. Future manual sessions can publish a different stable attach identity through their attach contract once that manual-session schema is defined.
+
 The main split is:
 
-- stable attachability pointers, such as `AGENTSYS_GATEWAY_ATTACH_PATH` and optionally `AGENTSYS_GATEWAY_ROOT`
+- stable attachability pointers, `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
 - live gateway bindings, such as `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
 
 Stable attachability metadata may exist even when no gateway process is running. Live bindings only describe the currently active gateway instance and may disappear or change across restart.
 
 Because the gateway can be stopped and started independently, listener host and port are no longer part of immutable session identity. They become current-instance metadata. Desired defaults may persist, but the active listener is valid only while the corresponding gateway instance is alive.
+
+Capability publication for runtime-owned sessions creates or materializes the gateway root, writes `protocol-version.txt` plus `attach.json`, and seeds `state.json` with a protocol-versioned offline or not-attached snapshot even before the first live gateway attach. Graceful detach rewrites `state.json` back to that offline or not-attached condition while clearing live bindings.
+
+If a gateway instance starts successfully with a system-selected port, that resolved host and port become the desired listener persisted in `desired-config.json` for later restarts until a caller explicitly overrides them.
 
 On graceful shutdown, the gateway lifecycle should clear live gateway bindings from the tmux session while preserving stable attachability metadata. On crash, stale live bindings are possible, so clients must validate them through health checks or run-state files instead of trusting tmux env alone.
 
@@ -209,7 +219,7 @@ Rationale: keeping the single-writer automation semantics limited to active gate
 Gateway restart and later attach are related but not identical:
 
 - restart: the same logical gateway root already existed, accepted queued work may already exist, and the new process must recover it
-- first attach to an ungatewayed running session: the gateway root may be created lazily, no prior queue may exist, and the initial status is seeded from a current observation snapshot
+- first attach to an ungatewayed running session: for runtime-owned sessions in v1 the gateway root already exists from capability publication, while future manual sessions may still materialize that root lazily; in either case, no prior queue may exist and the initial status is seeded from a current observation snapshot
 
 This distinction should be explicit in the design because it changes what "recovery" means. Restart is recovery of prior gateway-owned state. First attach is establishment of gateway-owned state for a session that previously had none.
 
@@ -222,7 +232,7 @@ Rationale: treating first attach and restart as the same event would blur lifecy
 Runtime integration now has three layers instead of one:
 
 1. capability publication:
-   runtime-owned tmux-backed sessions publish enough attach metadata to be gateway-capable even when no gateway is running
+   new runtime-owned tmux-backed sessions publish attach metadata by default in v1, making them gateway-capable even when no gateway is running
 2. optional auto-attach:
    a start-time flag may request immediate gateway attach after session startup, but that is a convenience path rather than the only path
 3. gateway-aware control:
@@ -233,7 +243,7 @@ This suggests a semantic shift for launch flags:
 - `--enable-gateway` is no longer best thought of as "this session may ever have a gateway"
 - it becomes "auto-attach a gateway at launch if possible"
 
-Runtime-owned direct control can remain available for non-gateway sessions and for sessions where no gateway is currently attached. Gateway-aware control paths can either require an already-running gateway or grow an explicit "ensure attached" behavior later.
+Runtime-owned direct control can remain available for non-gateway sessions and for sessions where no gateway is currently attached. In v1, gateway-aware control paths require an already-running gateway and fail explicitly if none is attached; a future explicit "ensure attached" mode can be considered later, but ordinary control commands do not auto-attach the gateway as a side effect.
 
 For future manual sessions, the same idea applies: publish attach metadata first, then decide later whether or when to actually start the gateway.
 
@@ -260,7 +270,6 @@ Rationale: this keeps runtime launch simple while making attach-later a first-cl
 
 ## Open Questions
 
-- Should runtime-owned tmux-backed sessions publish gateway attach metadata by default, or only when a caller explicitly opts into future gateway capability?
 - What is the minimal attach contract for manual sessions that is still flexible enough for future backends?
 - When an agent session is stopped by runtime-owned teardown, should the runtime stop an attached gateway automatically or leave it as an independent process that reports offline state until explicitly stopped?
-- Should gateway-aware control commands fail when no gateway is running, or should they grow an explicit "ensure attached" mode later?
+- When launch-time auto-attach fails after the agent session has already started, should the runtime keep that agent session running or tear it down as part of attach failure handling?

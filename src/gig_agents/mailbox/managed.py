@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,9 +12,12 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import sys
 import time
-from typing import Iterator, Sequence
+from typing import Callable, ClassVar, Iterator, Literal, Sequence, TextIO, TypeVar
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from gig_agents.mailbox.filesystem import (
     FilesystemMailboxPaths,
@@ -23,26 +27,49 @@ from gig_agents.mailbox.filesystem import (
     unsupported_mailbox_root_reason,
 )
 from gig_agents.mailbox.protocol import (
+    MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
     mailbox_address_path_segment,
+    normalize_utc_timestamp,
     parse_message_document,
+    validate_message_id,
 )
 
 MAILBOX_PROTOCOL_VERSION = 1
-_MESSAGE_ID_PATTERN = re.compile(r"^msg-\d{8}T\d{6}Z-[0-9a-f]{32}$")
 _MAILBOX_PLACEHOLDER_DIRS = ("inbox", "sent", "archive", "drafts")
-_REGISTER_MODES = frozenset({"safe", "force", "stash"})
-_DEREGISTER_MODES = frozenset({"deactivate", "purge"})
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _STASHED_ENTRY_RE = re.compile(r"^(?P<address>.+)--(?P<suffix>[0-9a-f]{32})$")
+
+_ManagedRequestT = TypeVar("_ManagedRequestT", bound="_ManagedRequestModel")
 
 
 class ManagedMailboxOperationError(RuntimeError):
     """Raised when a managed mailbox script cannot complete safely."""
 
 
-@dataclass(frozen=True)
-class ManagedPrincipal:
+class _ManagedMailboxModel(BaseModel):
+    """Base model for strict managed mailbox payload parsing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class _ManagedRequestModel(_ManagedMailboxModel):
+    """Base class for managed mailbox helper request models."""
+
+    PAYLOAD_NAME: ClassVar[str] = "payload"
+
+    @classmethod
+    def from_payload(
+        cls: type[_ManagedRequestT],
+        payload: object,
+    ) -> _ManagedRequestT:
+        """Validate one request payload and convert validation errors."""
+
+        return _parse_managed_request(cls, payload)
+
+
+class ManagedPrincipal(_ManagedMailboxModel):
     """Principal metadata used by managed mailbox scripts."""
 
     principal_id: str
@@ -51,22 +78,26 @@ class ManagedPrincipal:
     manifest_path_hint: str | None = None
     role: str | None = None
 
+    @field_validator("principal_id")
     @classmethod
-    def from_payload(cls, payload: object) -> "ManagedPrincipal":
-        """Build a principal from a JSON payload mapping."""
+    def _validate_principal_id(cls, value: str) -> str:
+        """Normalize required principal identifiers."""
 
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("principal payload must be a mapping")
-        return cls(
-            principal_id=_require_str(payload, "principal_id"),
-            address=mailbox_address_path_segment(_require_str(payload, "address")),
-            display_name=_optional_str(payload.get("display_name"), field_name="display_name"),
-            manifest_path_hint=_optional_str(
-                payload.get("manifest_path_hint"),
-                field_name="manifest_path_hint",
-            ),
-            role=_optional_str(payload.get("role"), field_name="role"),
-        )
+        return _normalize_non_blank_string(value)
+
+    @field_validator("address")
+    @classmethod
+    def _validate_address(cls, value: str) -> str:
+        """Validate literal mailbox path-segment addresses."""
+
+        return _validate_managed_address(value)
+
+    @field_validator("display_name", "manifest_path_hint", "role")
+    @classmethod
+    def _validate_optional_text(cls, value: str | None) -> str | None:
+        """Normalize optional non-blank string metadata."""
+
+        return _normalize_optional_non_blank_string(value)
 
     def to_mailbox_principal(self) -> MailboxPrincipal:
         """Return the canonical mailbox principal model."""
@@ -80,210 +111,287 @@ class ManagedPrincipal:
         )
 
 
-@dataclass(frozen=True)
-class DeliveryRequest:
+class ManagedAttachment(_ManagedMailboxModel):
+    """Structured attachment metadata used by managed mailbox delivery."""
+
+    attachment_id: str
+    kind: Literal["path_ref", "managed_copy"]
+    path: str
+    media_type: str
+    sha256: str | None = None
+    size_bytes: int | None = None
+    label: str | None = None
+
+    @field_validator("attachment_id", "path", "media_type")
+    @classmethod
+    def _validate_required_text(cls, value: str) -> str:
+        """Normalize required attachment string fields."""
+
+        return _normalize_non_blank_string(value)
+
+    @field_validator("sha256")
+    @classmethod
+    def _validate_sha256(cls, value: str | None) -> str | None:
+        """Validate optional SHA-256 digests."""
+
+        if value is None:
+            return None
+        normalized = _normalize_non_blank_string(value).lower()
+        if not _SHA256_PATTERN.fullmatch(normalized):
+            raise ValueError("must be a 64-character lowercase hex SHA-256 digest")
+        return normalized
+
+    @field_validator("size_bytes")
+    @classmethod
+    def _validate_size_bytes(cls, value: int | None) -> int | None:
+        """Ensure attachment sizes are non-negative."""
+
+        if value is None:
+            return None
+        if value < 0:
+            raise ValueError("must be greater than or equal to zero")
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def _validate_label(cls, value: str | None) -> str | None:
+        """Normalize optional attachment labels."""
+
+        return _normalize_optional_non_blank_string(value)
+
+    @model_validator(mode="after")
+    def _validate_kind_specific_path(self) -> "ManagedAttachment":
+        """Apply attachment-kind-specific path rules."""
+
+        if self.kind == "path_ref" and not self.path.startswith("/"):
+            raise ValueError("path_ref attachments must use an absolute path")
+        return self
+
+    def to_mailbox_attachment(self) -> MailboxAttachment:
+        """Return the canonical mailbox attachment model."""
+
+        return MailboxAttachment(
+            attachment_id=self.attachment_id,
+            kind=self.kind,
+            path=self.path,
+            media_type=self.media_type,
+            sha256=self.sha256,
+            size_bytes=self.size_bytes,
+            label=self.label,
+        )
+
+
+class DeliveryRequest(_ManagedRequestModel):
     """Structured delivery request for `deliver_message.py`."""
+
+    PAYLOAD_NAME: ClassVar[str] = "delivery payload"
 
     staged_message_path: Path
     message_id: str
     thread_id: str
-    in_reply_to: str | None
-    references: tuple[str, ...]
+    in_reply_to: str | None = None
+    references: tuple[str, ...] = Field(default_factory=tuple)
     created_at_utc: str
     sender: ManagedPrincipal
     to: tuple[ManagedPrincipal, ...]
-    cc: tuple[ManagedPrincipal, ...]
-    reply_to: tuple[ManagedPrincipal, ...]
+    cc: tuple[ManagedPrincipal, ...] = Field(default_factory=tuple)
+    reply_to: tuple[ManagedPrincipal, ...] = Field(default_factory=tuple)
     subject: str
-    attachments: tuple[dict[str, object], ...]
-    headers: dict[str, object]
+    attachments: tuple[ManagedAttachment, ...] = Field(default_factory=tuple)
+    headers: dict[str, object] = Field(default_factory=dict)
 
+    @field_validator("staged_message_path", mode="before")
     @classmethod
-    def from_payload(cls, payload: object) -> "DeliveryRequest":
-        """Build a delivery request from JSON payload data."""
+    def _coerce_staged_message_path(cls, value: object) -> object:
+        """Accept string payload paths and resolve them eagerly."""
 
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("delivery payload must be a mapping")
+        return _coerce_path_value(value)
 
-        staged_message_path = Path(_require_str(payload, "staged_message_path")).resolve()
-        message_id = _validate_message_id(_require_str(payload, "message_id"))
-        thread_id = _validate_message_id(_require_str(payload, "thread_id"))
-        in_reply_to = _validate_optional_message_id(payload.get("in_reply_to"))
-        references = _parse_message_id_list(payload.get("references", []))
-        created_at_utc = _normalize_timestamp(_require_str(payload, "created_at_utc"))
-        sender = ManagedPrincipal.from_payload(payload.get("sender"))
-        to = _parse_principal_list(payload.get("to"))
-        cc = _parse_principal_list(payload.get("cc", []))
-        reply_to = _parse_principal_list(payload.get("reply_to", []))
-        subject = _require_str(payload, "subject")
-        attachments = _parse_attachment_list(payload.get("attachments", []))
-        headers = _parse_object_mapping(payload.get("headers", {}), field_name="headers")
+    @field_validator("message_id", "thread_id")
+    @classmethod
+    def _validate_message_ids(cls, value: str) -> str:
+        """Validate canonical message identifiers."""
 
-        if not to:
-            raise ManagedMailboxOperationError(
-                "delivery payload must include at least one recipient"
-            )
-        if in_reply_to is None:
-            if thread_id != message_id:
-                raise ManagedMailboxOperationError(
-                    "root deliveries must use message_id as thread_id"
-                )
-            if references:
-                raise ManagedMailboxOperationError("root deliveries must not include references")
-        else:
-            if not references:
-                raise ManagedMailboxOperationError("reply deliveries must include references")
-            if references[-1] != in_reply_to:
-                raise ManagedMailboxOperationError("references must end with in_reply_to")
+        return _validate_managed_message_id(value)
 
-        return cls(
-            staged_message_path=staged_message_path,
-            message_id=message_id,
-            thread_id=thread_id,
-            in_reply_to=in_reply_to,
-            references=references,
-            created_at_utc=created_at_utc,
-            sender=sender,
-            to=to,
-            cc=cc,
-            reply_to=reply_to,
-            subject=subject,
-            attachments=attachments,
-            headers=headers,
-        )
+    @field_validator("in_reply_to")
+    @classmethod
+    def _validate_in_reply_to(cls, value: str | None) -> str | None:
+        """Validate optional reply threading identifiers."""
+
+        if value is None:
+            return None
+        return _validate_managed_message_id(value)
+
+    @field_validator("references", "to", "cc", "reply_to", "attachments", mode="before")
+    @classmethod
+    def _coerce_sequence_fields(cls, value: object) -> object:
+        """Accept JSON arrays for tuple-backed fields."""
+
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("references")
+    @classmethod
+    def _validate_references(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Validate each referenced message identifier."""
+
+        return tuple(_validate_managed_message_id(item) for item in value)
+
+    @field_validator("created_at_utc")
+    @classmethod
+    def _validate_created_at_utc(cls, value: str) -> str:
+        """Normalize managed delivery timestamps."""
+
+        return _normalize_managed_timestamp(value)
+
+    @field_validator("subject")
+    @classmethod
+    def _validate_subject(cls, value: str) -> str:
+        """Normalize required delivery subject text."""
+
+        return _normalize_non_blank_string(value)
+
+    @field_validator("headers")
+    @classmethod
+    def _validate_headers(cls, value: dict[str, object]) -> dict[str, object]:
+        """Reject blank header keys while preserving payload values."""
+
+        normalized_headers: dict[str, object] = {}
+        for key, item in value.items():
+            normalized_headers[_normalize_non_blank_string(key)] = item
+        return normalized_headers
+
+    @model_validator(mode="after")
+    def _validate_threading(self) -> "DeliveryRequest":
+        """Validate cross-field delivery threading rules."""
+
+        if not self.to:
+            raise ValueError("delivery payload must include at least one recipient")
+        if self.in_reply_to is None:
+            if self.thread_id != self.message_id:
+                raise ValueError("root deliveries must use message_id as thread_id")
+            if self.references:
+                raise ValueError("root deliveries must not include references")
+            return self
+
+        if not self.references:
+            raise ValueError("reply deliveries must include references")
+        if self.references[-1] != self.in_reply_to:
+            raise ValueError("references must end with in_reply_to")
+        return self
 
 
-@dataclass(frozen=True)
-class StateUpdateRequest:
+class StateUpdateRequest(_ManagedRequestModel):
     """Structured mailbox-state mutation request."""
+
+    PAYLOAD_NAME: ClassVar[str] = "state update payload"
 
     address: str
     message_id: str
-    read: bool | None
-    starred: bool | None
-    archived: bool | None
-    deleted: bool | None
+    read: bool | None = None
+    starred: bool | None = None
+    archived: bool | None = None
+    deleted: bool | None = None
 
+    @field_validator("address")
     @classmethod
-    def from_payload(cls, payload: object) -> "StateUpdateRequest":
-        """Build a state update request from JSON payload data."""
+    def _validate_address(cls, value: str) -> str:
+        """Validate managed mailbox addresses."""
 
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("state update payload must be a mapping")
+        return _validate_managed_address(value)
 
-        read = _optional_bool(payload.get("read"), field_name="read")
-        starred = _optional_bool(payload.get("starred"), field_name="starred")
-        archived = _optional_bool(payload.get("archived"), field_name="archived")
-        deleted = _optional_bool(payload.get("deleted"), field_name="deleted")
-        if read is starred is archived is deleted is None:
-            raise ManagedMailboxOperationError("state update payload must set at least one field")
+    @field_validator("message_id")
+    @classmethod
+    def _validate_message_id(cls, value: str) -> str:
+        """Validate canonical message identifiers."""
 
-        return cls(
-            address=mailbox_address_path_segment(_require_str(payload, "address")),
-            message_id=_validate_message_id(_require_str(payload, "message_id")),
-            read=read,
-            starred=starred,
-            archived=archived,
-            deleted=deleted,
-        )
+        return _validate_managed_message_id(value)
+
+    @model_validator(mode="after")
+    def _validate_mutation_request(self) -> "StateUpdateRequest":
+        """Require at least one mailbox-state flag to be present."""
+
+        if self.read is self.starred is self.archived is self.deleted is None:
+            raise ValueError("state update payload must set at least one field")
+        return self
 
 
-@dataclass(frozen=True)
-class RepairRequest:
+class RepairRequest(_ManagedRequestModel):
     """Structured mailbox repair or reindex request."""
+
+    PAYLOAD_NAME: ClassVar[str] = "repair payload"
 
     cleanup_staging: bool = True
     quarantine_staging: bool = True
 
     @classmethod
     def from_payload(cls, payload: object) -> "RepairRequest":
-        """Build a repair request from JSON payload data."""
+        """Validate one repair payload, defaulting null to the empty payload."""
 
         if payload is None:
             return cls()
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("repair payload must be a mapping")
-
-        cleanup_staging = _optional_bool(
-            payload.get("cleanup_staging"),
-            field_name="cleanup_staging",
-        )
-        quarantine_staging = _optional_bool(
-            payload.get("quarantine_staging"),
-            field_name="quarantine_staging",
-        )
-        return cls(
-            cleanup_staging=True if cleanup_staging is None else cleanup_staging,
-            quarantine_staging=True if quarantine_staging is None else quarantine_staging,
-        )
+        return _parse_managed_request(cls, payload)
 
 
-@dataclass(frozen=True)
-class RegisterMailboxRequest:
+class RegisterMailboxRequest(_ManagedRequestModel):
     """Structured mailbox registration request."""
 
-    mode: str
+    PAYLOAD_NAME: ClassVar[str] = "register payload"
+
+    mode: Literal["safe", "force", "stash"]
     address: str
     owner_principal_id: str
-    mailbox_kind: str
+    mailbox_kind: Literal["in_root", "symlink"]
     mailbox_path: Path
     display_name: str | None = None
     manifest_path_hint: str | None = None
     role: str | None = None
 
+    @field_validator("address")
     @classmethod
-    def from_payload(cls, payload: object) -> "RegisterMailboxRequest":
-        """Build a registration request from JSON payload data."""
+    def _validate_address(cls, value: str) -> str:
+        """Validate managed mailbox addresses."""
 
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("register payload must be a mapping")
-        mode = _require_str(payload, "mode")
-        if mode not in _REGISTER_MODES:
-            raise ManagedMailboxOperationError(
-                f"register mode must be one of {sorted(_REGISTER_MODES)}, got `{mode}`"
-            )
-        mailbox_kind = _require_str(payload, "mailbox_kind")
-        if mailbox_kind not in {"in_root", "symlink"}:
-            raise ManagedMailboxOperationError(
-                "register mailbox_kind must be `in_root` or `symlink`"
-            )
-        return cls(
-            mode=mode,
-            address=mailbox_address_path_segment(_require_str(payload, "address")),
-            owner_principal_id=_require_str(payload, "owner_principal_id"),
-            mailbox_kind=mailbox_kind,
-            mailbox_path=Path(_require_str(payload, "mailbox_path")).resolve(),
-            display_name=_optional_str(payload.get("display_name"), field_name="display_name"),
-            manifest_path_hint=_optional_str(
-                payload.get("manifest_path_hint"),
-                field_name="manifest_path_hint",
-            ),
-            role=_optional_str(payload.get("role"), field_name="role"),
-        )
+        return _validate_managed_address(value)
+
+    @field_validator("owner_principal_id")
+    @classmethod
+    def _validate_owner_principal_id(cls, value: str) -> str:
+        """Normalize required owner identifiers."""
+
+        return _normalize_non_blank_string(value)
+
+    @field_validator("mailbox_path", mode="before")
+    @classmethod
+    def _coerce_mailbox_path(cls, value: object) -> object:
+        """Accept string payload paths and resolve them eagerly."""
+
+        return _coerce_path_value(value)
+
+    @field_validator("display_name", "manifest_path_hint", "role")
+    @classmethod
+    def _validate_optional_text(cls, value: str | None) -> str | None:
+        """Normalize optional registration metadata."""
+
+        return _normalize_optional_non_blank_string(value)
 
 
-@dataclass(frozen=True)
-class DeregisterMailboxRequest:
+class DeregisterMailboxRequest(_ManagedRequestModel):
     """Structured mailbox deregistration request."""
 
-    mode: str
+    PAYLOAD_NAME: ClassVar[str] = "deregister payload"
+
+    mode: Literal["deactivate", "purge"]
     address: str
 
+    @field_validator("address")
     @classmethod
-    def from_payload(cls, payload: object) -> "DeregisterMailboxRequest":
-        """Build a deregistration request from JSON payload data."""
+    def _validate_address(cls, value: str) -> str:
+        """Validate managed mailbox addresses."""
 
-        if not isinstance(payload, dict):
-            raise ManagedMailboxOperationError("deregister payload must be a mapping")
-        mode = _require_str(payload, "mode")
-        if mode not in _DEREGISTER_MODES:
-            raise ManagedMailboxOperationError(
-                f"deregister mode must be one of {sorted(_DEREGISTER_MODES)}, got `{mode}`"
-            )
-        return cls(
-            mode=mode,
-            address=mailbox_address_path_segment(_require_str(payload, "address")),
-        )
+        return _validate_managed_address(value)
 
 
 @dataclass(frozen=True)
@@ -326,6 +434,140 @@ def load_json_payload(path: Path) -> object:
         raise ManagedMailboxOperationError(f"payload file not found: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ManagedMailboxOperationError(f"payload file is not valid JSON: {path}") from exc
+
+
+def run_managed_mailbox_script(
+    *,
+    description: str | None,
+    request_model: type[_ManagedRequestT],
+    handler: Callable[[Path, _ManagedRequestT], dict[str, object]],
+    payload_required: bool = True,
+    default_payload: object | None = None,
+) -> int:
+    """Run one managed mailbox wrapper script with shared validation and output handling."""
+
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--mailbox-root", required=True)
+    parser.add_argument("--payload-file", required=payload_required)
+    args = parser.parse_args()
+
+    try:
+        payload = default_payload
+        if args.payload_file is not None:
+            payload = load_json_payload(Path(args.payload_file))
+        request = request_model.from_payload(payload)
+        result = handler(Path(args.mailbox_root), request)
+    except ManagedMailboxOperationError as exc:
+        _emit_json_result({"ok": False, "error": str(exc)}, stream=sys.stdout)
+        return 1
+
+    _emit_json_result(result, stream=sys.stdout)
+    return 0
+
+
+def _emit_json_result(result: dict[str, object], *, stream: TextIO) -> None:
+    """Emit one JSON result object plus a terminating newline."""
+
+    json.dump(result, stream)
+    stream.write("\n")
+
+
+def _parse_managed_request(
+    model_cls: type[_ManagedRequestT],
+    payload: object,
+) -> _ManagedRequestT:
+    """Validate one managed request payload and normalize validation failures."""
+
+    try:
+        return model_cls.model_validate(payload)
+    except ValidationError as exc:
+        raise ManagedMailboxOperationError(
+            _format_validation_error(model_cls.PAYLOAD_NAME, exc)
+        ) from exc
+
+
+def _format_validation_error(prefix: str, exc: ValidationError) -> str:
+    """Return an actionable pydantic validation error message."""
+
+    details: list[str] = []
+    for issue in exc.errors(include_url=False):
+        location = _format_error_location(issue.get("loc", ()))
+        message = str(issue.get("msg", "validation failed"))
+        details.append(f"{location}: {message}")
+        if len(details) >= 5:
+            break
+    joined = "; ".join(details) if details else "validation failed"
+    return f"{prefix}: {joined}"
+
+
+def _format_error_location(location: object) -> str:
+    """Render one pydantic error location as a JSONPath-like string."""
+
+    if not isinstance(location, tuple) or not location:
+        return "$"
+
+    path = "$"
+    for item in location:
+        if isinstance(item, int):
+            path += f"[{item}]"
+            continue
+        path += f".{item}"
+    return path
+
+
+def _normalize_non_blank_string(value: str) -> str:
+    """Strip required strings and reject blank values."""
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("must not be empty")
+    return normalized
+
+
+def _normalize_optional_non_blank_string(value: str | None) -> str | None:
+    """Strip optional strings and reject blank values when present."""
+
+    if value is None:
+        return None
+    return _normalize_non_blank_string(value)
+
+
+def _coerce_path_value(value: object) -> object:
+    """Accept string payload paths while preserving strict path validation."""
+
+    if isinstance(value, Path):
+        return value.resolve()
+    if isinstance(value, str):
+        normalized = _normalize_non_blank_string(value)
+        return Path(normalized).resolve()
+    return value
+
+
+def _validate_managed_address(value: str) -> str:
+    """Validate one mailbox address for managed filesystem usage."""
+
+    try:
+        return mailbox_address_path_segment(_normalize_non_blank_string(value))
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _validate_managed_message_id(value: str) -> str:
+    """Validate one canonical mailbox message identifier."""
+
+    try:
+        return validate_message_id(_normalize_non_blank_string(value))
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _normalize_managed_timestamp(value: str) -> str:
+    """Normalize one managed mailbox timestamp."""
+
+    try:
+        return normalize_utc_timestamp(_normalize_non_blank_string(value))
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def register_mailbox(
@@ -1537,7 +1779,6 @@ def _insert_attachment_records(connection: sqlite3.Connection, request: Delivery
     """Insert attachment metadata rows."""
 
     for ordinal, attachment in enumerate(request.attachments):
-        attachment_id = _require_str(attachment, "attachment_id")
         connection.execute(
             """
             INSERT INTO attachments (
@@ -1552,13 +1793,13 @@ def _insert_attachment_records(connection: sqlite3.Connection, request: Delivery
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                attachment_id,
-                _require_str(attachment, "kind"),
-                _require_str(attachment, "path"),
-                _require_str(attachment, "media_type"),
-                _optional_str(attachment.get("sha256"), field_name="sha256"),
-                _optional_int(attachment.get("size_bytes"), field_name="size_bytes"),
-                _optional_str(attachment.get("label"), field_name="label"),
+                attachment.attachment_id,
+                attachment.kind,
+                attachment.path,
+                attachment.media_type,
+                attachment.sha256,
+                attachment.size_bytes,
+                attachment.label,
             ),
         )
         connection.execute(
@@ -1570,7 +1811,7 @@ def _insert_attachment_records(connection: sqlite3.Connection, request: Delivery
             )
             VALUES (?, ?, ?)
             """,
-            (request.message_id, attachment_id, ordinal),
+            (request.message_id, attachment.attachment_id, ordinal),
         )
 
 
@@ -1756,27 +1997,6 @@ def _unique_principals(principals: Sequence[ManagedPrincipal]) -> tuple[ManagedP
             )
         ordered.setdefault(principal.address, principal)
     return tuple(ordered.values())
-
-
-def _parse_principal_list(payload: object) -> tuple[ManagedPrincipal, ...]:
-    """Parse a JSON principal list."""
-
-    if not isinstance(payload, list):
-        raise ManagedMailboxOperationError("principal lists must be arrays")
-    return tuple(ManagedPrincipal.from_payload(item) for item in payload)
-
-
-def _parse_attachment_list(payload: object) -> tuple[dict[str, object], ...]:
-    """Parse attachment payloads as immutable mappings."""
-
-    if not isinstance(payload, list):
-        raise ManagedMailboxOperationError("attachments must be an array")
-    parsed: list[dict[str, object]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            raise ManagedMailboxOperationError("attachment payloads must be mappings")
-        parsed.append(dict(item))
-    return tuple(parsed)
 
 
 def _discover_mailbox_paths(mailboxes_dir: Path) -> list[_DiscoveredMailboxArtifact]:
@@ -2501,97 +2721,3 @@ def _parse_mailbox_entry_name(entry_name: str) -> tuple[str, str] | None:
             return (mailbox_address_path_segment(match.group("address")), "stashed")
         except Exception:
             return None
-
-
-def _parse_object_mapping(payload: object, *, field_name: str) -> dict[str, object]:
-    """Require a JSON object payload."""
-
-    if not isinstance(payload, dict):
-        raise ManagedMailboxOperationError(f"{field_name} must be a mapping")
-    return dict(payload)
-
-
-def _parse_message_id_list(payload: object) -> tuple[str, ...]:
-    """Parse and validate a list of message ids."""
-
-    if not isinstance(payload, list):
-        raise ManagedMailboxOperationError("references must be an array")
-    return tuple(_validate_message_id(_require_str({"value": item}, "value")) for item in payload)
-
-
-def _validate_message_id(value: str) -> str:
-    """Validate canonical mailbox message-id formatting."""
-
-    if not _MESSAGE_ID_PATTERN.fullmatch(value):
-        raise ManagedMailboxOperationError(
-            "message_id must match msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}"
-        )
-    return value
-
-
-def _validate_optional_message_id(value: object) -> str | None:
-    """Validate an optional message id payload field."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ManagedMailboxOperationError("optional message ids must be strings when present")
-    return _validate_message_id(value)
-
-
-def _normalize_timestamp(value: str) -> str:
-    """Normalize a UTC timestamp to RFC3339 seconds precision."""
-
-    if not value.endswith("Z"):
-        raise ManagedMailboxOperationError("created_at_utc must end in Z")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ManagedMailboxOperationError(
-            "created_at_utc must be a valid RFC3339 UTC timestamp"
-        ) from exc
-    if parsed.tzinfo is None:
-        raise ManagedMailboxOperationError("created_at_utc must be timezone-aware")
-    return parsed.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _require_str(payload: dict[str, object], key: str) -> str:
-    """Require a non-empty string field from a JSON mapping."""
-
-    value = payload.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ManagedMailboxOperationError(f"missing string field `{key}`")
-    return value.strip()
-
-
-def _optional_str(value: object, *, field_name: str) -> str | None:
-    """Validate an optional string payload field."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ManagedMailboxOperationError(f"{field_name} must be a string when present")
-    stripped = value.strip()
-    if not stripped:
-        raise ManagedMailboxOperationError(f"{field_name} must not be empty")
-    return stripped
-
-
-def _optional_int(value: object, *, field_name: str) -> int | None:
-    """Validate an optional integer payload field."""
-
-    if value is None:
-        return None
-    if not isinstance(value, int):
-        raise ManagedMailboxOperationError(f"{field_name} must be an integer when present")
-    return value
-
-
-def _optional_bool(value: object, *, field_name: str) -> bool | None:
-    """Validate an optional boolean payload field."""
-
-    if value is None:
-        return None
-    if not isinstance(value, bool):
-        raise ManagedMailboxOperationError(f"{field_name} must be a boolean when present")
-    return value

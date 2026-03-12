@@ -4,7 +4,7 @@
 
 - composing `{brain manifest, role}` into a backend launch plan,
 - starting interactive sessions (local or CAO),
-- sending prompts or raw control input across resumed sessions,
+- sending prompts, raw control input, or runtime-owned mailbox operations across resumed sessions,
 - persisting schema-validated session manifests.
 
 ## CLI Entry Point
@@ -21,12 +21,14 @@ Supported commands:
 - `start-session`
 - `send-prompt`
 - `send-keys`
+- `mail`
 - `stop-session`
 
 Command intent:
 
 - Use `send-prompt` for normal prompt turns that should wait for readiness/completion and advance turn state.
 - Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
+- Use `mail` for runtime-owned mailbox operations (`check`, `send`, `reply`) against resumed mailbox-enabled sessions.
 - For the detailed `send-keys` contract, grammar, and examples, see [Brain Launch Runtime Send-Keys](./brain_launch_runtime_send_keys.md).
 
 ## Agent Definition Directory Resolution
@@ -39,7 +41,7 @@ Build/start and manifest-path control (`--agent-identity /abs/session.json`) sti
 2. env `AGENTSYS_AGENT_DEF_DIR`
 3. default `<pwd>/.agentsys/agents`
 
-Name-based tmux-backed control (`send-prompt`, `send-keys`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
+Name-based tmux-backed control (`send-prompt`, `send-keys`, `mail`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
 
 1. explicit CLI `--agent-def-dir` override, otherwise
 2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`
@@ -55,6 +57,60 @@ pixi run python -m gig_agents.agents.brain_launch_runtime build-brain \
   --agent-def-dir tests/fixtures/agents \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
+
+## Mailbox-Enabled Sessions
+
+Mailbox support can come from declarative brain config or from `start-session` overrides. The implemented v1 transport is `filesystem`.
+
+```bash
+pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+  --agent-def-dir tests/fixtures/agents \
+  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --role gpu-kernel-coder \
+  --backend claude_headless \
+  --mailbox-transport filesystem \
+  --mailbox-root tmp/shared-mail \
+  --mailbox-principal-id AGENTSYS-research \
+  --mailbox-address AGENTSYS-research@agents.localhost
+```
+
+Runtime behavior for mailbox-enabled sessions:
+
+- bootstrap or validate the filesystem mailbox root before the session begins,
+- safely register the active mailbox for the session address,
+- project the runtime-owned skill `.system/mailbox/email-via-filesystem`,
+- expose `AGENTSYS_MAILBOX_*` and `AGENTSYS_MAILBOX_FS_*` bindings to the launched session,
+- persist the resolved mailbox binding in the session manifest so resume uses the same mailbox configuration.
+
+`AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration path for the session's full mailbox address, so it may resolve through a symlink-backed `mailboxes/<address>` entry into a private mailbox directory.
+
+Use `mail` against resumed mailbox-enabled sessions:
+
+```bash
+pixi run python -m gig_agents.agents.brain_launch_runtime mail check \
+  --agent-identity AGENTSYS-research \
+  --unread-only \
+  --limit 10
+
+pixi run python -m gig_agents.agents.brain_launch_runtime mail send \
+  --agent-identity AGENTSYS-research \
+  --to AGENTSYS-orchestrator@agents.localhost \
+  --subject "Investigate parser drift" \
+  --body-file body.md \
+  --attach notes.txt
+
+pixi run python -m gig_agents.agents.brain_launch_runtime mail reply \
+  --agent-identity AGENTSYS-research \
+  --message-id msg-20260312T050000Z-parent \
+  --body-content "Reply with next steps"
+```
+
+Notes:
+
+- `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
+- `mail send` and `mail reply` require explicit body content through `--body-file` or `--body-content`.
+- `mail` currently supports the filesystem mailbox transport only.
+- For the mailbox filesystem layout, env bindings, managed helper scripts, and lifecycle modes, see [Filesystem Mailbox](./mailbox.md).
 
 ## Local Codex Session (Default: `codex_headless`)
 
@@ -193,8 +249,10 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
-  --cao-base-url http://localhost:9889
+  --cao-base-url http://localhost:<port>
 ```
+
+Use the same loopback port configured for the CAO launcher. `9889` is the default example port, but any supported launcher-managed loopback port is allowed.
 
 ## Gemini Headless Resume (tmux-backed `gemini -p --resume`)
 
@@ -245,7 +303,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu \
-  --cao-base-url http://localhost:9889
+  --cao-base-url http://localhost:<port>
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
   --agent-identity AGENTSYS-gpu \
@@ -271,8 +329,8 @@ launcher-managed loopback port when needed.
 
 Behavior:
 
-- For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
-- For resumed CAO operations (`send-prompt`, `send-keys`, `stop-session`), runtime addresses
+- For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `mail`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
+- For resumed CAO operations (`send-prompt`, `send-keys`, `mail`, `stop-session`), runtime addresses
   the session strictly from the persisted manifest (`cao.api_base_url`,
   `cao.terminal_id`) after resolving `--agent-identity`; there is no resume-time
   `--cao-base-url` override.
@@ -333,7 +391,7 @@ when they are missing from `PATH`.
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
   `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
 - To discover active agent identities, run `tmux ls` and use returned
-  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `stop-session`.
+  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `mail` / `stop-session`.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:

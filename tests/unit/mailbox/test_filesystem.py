@@ -38,7 +38,7 @@ def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_director
     assert (mailbox_entry / "archive").is_dir()
     assert (mailbox_entry / "drafts").is_dir()
     assert os.access(paths.rules_scripts_dir / "deliver_message.py", os.X_OK)
-    assert "pydantic>=2.12,<3" in (paths.rules_scripts_dir / "requirements.txt").read_text(
+    assert "pydantic>=2.12" in (paths.rules_scripts_dir / "requirements.txt").read_text(
         encoding="utf-8"
     )
 

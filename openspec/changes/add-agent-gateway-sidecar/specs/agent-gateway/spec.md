@@ -22,6 +22,8 @@ The gateway companion SHALL direct its own logs away from the visible operator t
 ### Requirement: The gateway maintains a durable per-agent control root
 Each gateway-capable session SHALL have a deterministic per-agent gateway root under the runtime-owned storage hierarchy once attachability is published or a gateway first attaches.
 
+For runtime-owned sessions in v1, that deterministic gateway-root identity SHALL be the runtime-generated session id used for session-manifest storage.
+
 That gateway root SHALL contain at minimum:
 
 - a protocol-version marker
@@ -32,6 +34,8 @@ That gateway root SHALL contain at minimum:
 The gateway SHALL recover pending work and the latest persisted status from that gateway root when the gateway companion process restarts and the managed session still exists.
 
 The current gateway state artifact SHALL be a stable, protocol-versioned local read contract, SHALL use the same schema as `GET /v1/status`, and SHALL be written atomically.
+
+For gateway-capable sessions with no currently running gateway instance, the current gateway state artifact SHALL still exist and SHALL represent an offline or not-attached gateway condition rather than disappearing.
 
 The gateway root SHALL distinguish stable attachability metadata from live gateway-instance metadata.
 
@@ -50,6 +54,11 @@ The gateway root SHALL distinguish stable attachability metadata from live gatew
 - **WHEN** a gateway companion first attaches to a running tmux-backed session that previously had no gateway process
 - **THEN** the system creates or materializes the gateway root for that session
 - **AND THEN** the initial gateway state is seeded from current observation plus attach metadata rather than requiring pre-attach event history
+
+#### Scenario: Gateway-capable session exposes offline state before first attach
+- **WHEN** a runtime-owned tmux-backed session has published gateway capability but no gateway instance has ever attached yet
+- **THEN** the gateway root already contains the current gateway state artifact for that session
+- **AND THEN** that state artifact reports an offline or not-attached gateway condition
 
 ### Requirement: Stable attachability metadata is distinct from live gateway bindings
 The system SHALL publish stable attachability metadata for gateway-capable sessions independently from whether a gateway process is currently running.
@@ -79,6 +88,8 @@ The gateway companion SHALL attempt to bind that resolved port during startup an
 
 When the resolved port is unavailable because another process already owns it or because the bind otherwise fails, startup of that gateway instance SHALL fail explicitly.
 
+When a gateway instance starts successfully with a system-selected port, the system SHALL persist that resolved host and port as the desired listener for that gateway root and SHALL reuse them on later restarts unless explicitly overridden.
+
 #### Scenario: Gateway starts on the default loopback listener
 - **WHEN** the system starts a gateway companion for a gateway-capable tmux-backed session with resolved gateway port `43123`
 - **AND WHEN** no explicit all-interface bind host is configured
@@ -94,6 +105,11 @@ When the resolved port is unavailable because another process already owns it or
 - **WHEN** the system attempts to start a gateway companion whose resolved gateway port is already bound by another process
 - **THEN** the system fails that gateway start or attach operation with an explicit gateway-port conflict error
 - **AND THEN** it does not silently retry on a different port for that launch attempt
+
+#### Scenario: Successful auto-selected listener is reused on restart
+- **WHEN** a gateway companion first starts successfully with a system-selected free port
+- **THEN** the system records that resolved host and port as the desired listener for the gateway root
+- **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
 The gateway SHALL expose an HTTP API for health inspection, status inspection, and gateway-managed request submission on the resolved listener address for that session.

@@ -9,7 +9,7 @@ That attachability publication SHALL be additive and SHALL NOT make legacy non-g
 
 Blueprint `gateway.host` and `gateway.port` values SHALL act only as defaults after gateway attach is requested and SHALL NOT make a session gateway-capable or gateway-running by themselves.
 
-In v1, the runtime SHALL publish attach metadata for runtime-owned tmux-backed sessions and SHALL support live gateway attach for runtime-owned `backend=cao_rest` sessions first.
+In v1, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL support live gateway attach for runtime-owned `backend=cao_rest` sessions first.
 
 Supplying gateway listener overrides without either launch-time auto-attach or an explicit attach lifecycle action SHALL fail with an explicit error.
 
@@ -18,7 +18,7 @@ If a caller requests live gateway attach for any backend whose gateway adapter i
 #### Scenario: Blueprint gateway defaults do not auto-attach the gateway by themselves
 - **WHEN** a developer starts a session from a blueprint that declares `gateway.host` or `gateway.port`
 - **AND WHEN** the developer does not request launch-time gateway attach
-- **THEN** the runtime may still publish attachability metadata for that session
+- **THEN** the runtime publishes attachability metadata for that session
 - **AND THEN** the blueprint listener defaults do not cause a live gateway instance to start by themselves
 
 #### Scenario: Gateway host or port overrides require an attach action
@@ -38,6 +38,8 @@ The attach contract SHALL be sufficient for a later gateway attach flow to deter
 
 Runtime-owned attachability publication SHALL coexist with the existing manifest and agent-definition discovery pointers instead of replacing them.
 
+For runtime-owned sessions in v1, the deterministic gateway-root identity SHALL be the runtime-generated session id used for manifest storage, and the attach contract SHALL live at `<AGENTSYS_GATEWAY_ROOT>/attach.json`.
+
 #### Scenario: Session start publishes attach metadata without a live gateway
 - **WHEN** a developer starts a runtime-owned tmux-backed session without launch-time gateway attach
 - **THEN** the runtime publishes stable gateway attach metadata for that live session
@@ -48,6 +50,11 @@ Runtime-owned attachability publication SHALL coexist with the existing manifest
 - **AND WHEN** attachability metadata for that session can be determined from persisted session state
 - **THEN** the runtime re-publishes the attach-contract pointer for that live session
 - **AND THEN** later attach flows do not need to rediscover the session from unrelated state
+
+#### Scenario: Runtime-owned gateway root uses the persisted session id
+- **WHEN** the runtime starts a runtime-owned tmux-backed session with generated session id `cao_rest-20260312-120000Z-abcd1234`
+- **THEN** the stable gateway root for that session is derived from that persisted session id
+- **AND THEN** the attach-contract path for that session is `<gateway-root>/attach.json`
 
 ### Requirement: Runtime supports optional launch-time auto-attach for supported backends
 When a caller explicitly requests launch-time gateway attach for a supported backend, the runtime SHALL start the agent session, resolve attach metadata for that live session, and then start a gateway instance without restarting the agent.
@@ -90,6 +97,8 @@ After resolving that effective gateway host and port, the runtime SHALL use the 
 
 If the resolved gateway listener cannot be bound during gateway start, the runtime SHALL fail that attach or auto-attach action explicitly and SHALL NOT silently replace it with a different host or port.
 
+When a gateway instance starts successfully with a system-selected port, the runtime SHALL persist that resolved host and port as the desired listener for the gateway root and SHALL reuse them on later restarts unless a caller explicitly overrides them.
+
 #### Scenario: Default host remains loopback when no host override is supplied
 - **WHEN** a developer starts a gateway attach action without an explicit gateway-host override
 - **AND WHEN** caller environment omits `AGENTSYS_AGENT_GATEWAY_HOST`
@@ -122,6 +131,11 @@ If the resolved gateway listener cannot be bound during gateway start, the runti
 - **AND WHEN** the selected blueprint does not declare `gateway.port`
 - **THEN** the runtime selects one currently free local port for that session before launch
 - **AND THEN** the started session records and publishes that selected port as its effective gateway port
+
+#### Scenario: Successful auto-selected listener becomes the desired listener for restart
+- **WHEN** the runtime starts a gateway instance for a session with a system-selected free port and that gateway startup succeeds
+- **THEN** the runtime persists that resolved host and port as the desired listener for that gateway root
+- **AND THEN** a later restart reuses that same desired listener unless a caller explicitly overrides it
 
 #### Scenario: Resolved port conflict fails attach
 - **WHEN** the runtime attempts to start a gateway instance whose resolved gateway port is unavailable at bind time
@@ -156,6 +170,21 @@ For gateway-capable runtime-owned tmux sessions, the runtime SHALL persist the s
 - **WHEN** a developer resumes control of a gateway-capable runtime-owned tmux session
 - **THEN** the runtime uses the persisted session state to rediscover the expected gateway root and attach contract for that live session
 - **AND THEN** the resumed control path does not silently attach the session to a different gateway-capability identity
+
+### Requirement: Runtime seeds stable gateway state when no live gateway is attached
+When the runtime publishes gateway capability for a runtime-owned tmux session, it SHALL create or materialize the gateway root and SHALL seed `state.json` with a protocol-versioned offline or not-attached snapshot even if no live gateway instance exists yet.
+
+When a gateway instance is detached gracefully, the runtime or gateway lifecycle SHALL rewrite `state.json` to the offline or not-attached condition and SHALL clear live gateway bindings while preserving stable attachability metadata.
+
+#### Scenario: Session start seeds offline gateway state before first attach
+- **WHEN** the runtime starts a gateway-capable runtime-owned tmux session with no launch-time gateway attach requested
+- **THEN** the gateway root already contains `state.json`
+- **AND THEN** that seeded state artifact reports an offline or not-attached gateway condition rather than requiring a missing-file special case
+
+#### Scenario: Graceful detach restores offline seeded state
+- **WHEN** a gateway instance detaches gracefully from a gateway-capable runtime-owned tmux session
+- **THEN** the system rewrites `state.json` to reflect that no live gateway instance is currently attached
+- **AND THEN** the stable gateway root remains usable for later re-attach
 
 ### Requirement: Runtime publishes stable attach pointers and ephemeral live gateway bindings separately
 When the runtime makes a tmux-backed session gateway-capable, it SHALL publish stable attach pointers into the tmux session environment in addition to the existing manifest and agent-definition bindings.
@@ -211,6 +240,8 @@ In v1, this requirement applies to runtime-owned prompt-submission and interrupt
 
 Read-oriented status inspection MAY read validated gateway state without entering the mutation queue.
 
+In v1, when a gateway-aware control path targets a gateway-capable session with no live gateway instance attached, the runtime SHALL fail with an explicit no-live-gateway error and SHALL NOT auto-attach a gateway as a side effect of that control request.
+
 #### Scenario: Runtime submits managed work through the gateway queue
 - **WHEN** a runtime-owned control path submits gateway-managed terminal-mutating work for a resumed session with a live gateway instance attached
 - **THEN** the runtime writes that work through the session's gateway submission path
@@ -225,6 +256,11 @@ Read-oriented status inspection MAY read validated gateway state without enterin
 - **WHEN** a runtime-owned tmux-backed session is gateway-capable but no live gateway instance is currently attached
 - **THEN** existing non-gateway direct control paths may still operate according to their legacy behavior
 - **AND THEN** absence of a live gateway instance alone does not make the session uncontrollable
+
+#### Scenario: Gateway-aware control does not auto-attach implicitly
+- **WHEN** a gateway-aware control path targets a gateway-capable session with no live gateway instance attached
+- **THEN** the runtime fails that request with an explicit no-live-gateway error
+- **AND THEN** the runtime does not start a gateway instance implicitly as a side effect of that control request
 
 #### Scenario: Runtime reads gateway status without consuming the mutation slot
 - **WHEN** an operator or tool asks the runtime for gateway status on a session with a live gateway instance attached
