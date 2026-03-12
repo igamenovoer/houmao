@@ -6,7 +6,8 @@ This demo validates that a CAO-managed Claude Code session can be interrupted th
 
 - `pixi` is installed and working.
 - `tmux` is installed and available on `PATH`.
-- Local CAO server access is available at `http://localhost:9889` or `http://127.0.0.1:9889`.
+- Local CAO server access is available at supported loopback URLs like `http://localhost:9889` or `http://127.0.0.1:9991`.
+  Recommended install if you need a local CAO binary: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
   - If not already running, the demo auto-starts local `cao-server` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
   - If launcher start reuses a healthy local server with unknown ownership (`pid` unresolved), the demo retries with launcher `stop`/`start` and skips with explicit ownership diagnostics if still untracked.
 - Credential profile exists under `$AGENT_DEF_DIR/brains/api-creds/claude/personal-a-default/env/vars.env`.
@@ -40,7 +41,7 @@ scripts/demo/cao-claude-esc-interrupt/run_demo.sh --snapshot-report
 ## Local-Only Behavior
 
 - This demo is intentionally local-only because runtime `send-keys` targets the local tmux-backed CAO terminal.
-- If `CAO_BASE_URL` is not `http://localhost:9889` or `http://127.0.0.1:9889`, the script exits `0` with a `SKIP:` message.
+- If `CAO_BASE_URL` is not a supported loopback URL (`http://localhost:<port>` or `http://127.0.0.1:<port>`), the script exits `0` with a `SKIP:` message.
 - If processing is not observed quickly after first prompt, the script exits `0` with `SKIP:` to avoid flaky false failures.
 - If CAO cannot load the generated runtime profile, the script exits `0` with `SKIP: CAO profile store mismatch` (not `missing credentials`).
 

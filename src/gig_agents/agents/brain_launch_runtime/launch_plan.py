@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
+from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
 from .errors import LaunchPlanError
+from gig_agents.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 
@@ -40,6 +42,7 @@ class LaunchPlanRequest:
     role_package: RolePackage
     backend: BackendKind
     working_directory: Path
+    mailbox: MailboxResolvedConfig | None = None
 
 
 def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
@@ -73,6 +76,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     env_source = Path(_require_str(env_contract, "source_file")).resolve()
     allowlist = _require_str_list(env_contract, "allowlisted_env_vars")
     env_values, selected_env_names = parse_allowlisted_env(env_source, allowlist)
+    env_var_names = list(selected_env_names)
+
+    if request.mailbox is not None:
+        mailbox_env = mailbox_env_bindings(request.mailbox)
+        env_values.update(mailbox_env)
+        env_var_names = sorted({*env_var_names, *mailbox_env_var_names(request.mailbox)})
 
     role_injection = plan_role_injection(
         backend=request.backend,
@@ -140,9 +149,10 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         home_env_var=home_env_var,
         home_path=home_path,
         env=env_values,
-        env_var_names=selected_env_names,
+        env_var_names=env_var_names,
         role_injection=role_injection,
         metadata=metadata,
+        mailbox=request.mailbox,
     )
 
 

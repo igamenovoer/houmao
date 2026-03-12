@@ -63,20 +63,15 @@ print(f"{started}:{reused}:{pid_text}")
 PY
 }
 
-cao_url_is_local() {
-  case "$CAO_BASE_URL" in
-    http://localhost:9889 | http://127.0.0.1:9889)
-      return 0
-      ;;
-  esac
-  return 1
+cao_url_is_supported_loopback() {
+  [[ "$CAO_BASE_URL" =~ ^http://(localhost|127\.0\.0\.1):[0-9]+$ ]]
 }
 
 require_local_cao() {
-  if cao_url_is_local; then
+  if cao_url_is_supported_loopback; then
     return 0
   fi
-  skip "local-only demo requires CAO_BASE_URL=http://localhost:9889 or http://127.0.0.1:9889 (got ${CAO_BASE_URL})"
+  skip "local-only demo requires CAO_BASE_URL=http://localhost:<port> or http://127.0.0.1:<port> (got ${CAO_BASE_URL})"
 }
 
 ensure_cao_server() {

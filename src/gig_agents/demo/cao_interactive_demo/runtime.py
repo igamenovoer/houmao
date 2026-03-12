@@ -300,8 +300,6 @@ def _stop_remote_session(
         _runtime_cli_command(
             [
                 "stop-session",
-                "--agent-def-dir",
-                str(env.agent_def_dir),
                 "--agent-identity",
                 agent_identity,
             ]

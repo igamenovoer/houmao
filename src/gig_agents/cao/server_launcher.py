@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import time
 import tomllib
@@ -14,19 +15,23 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
-from urllib import error, parse, request
+from urllib import error, request
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from .no_proxy import (
     SUPPORTED_LOOPBACK_CAO_BASE_URLS,
+    describe_supported_loopback_cao_base_urls,
+    extract_cao_base_url_host_port,
     inject_loopback_no_proxy_env,
+    inject_loopback_no_proxy_env_for_cao_base_url,
     is_supported_loopback_cao_base_url,
     normalize_cao_base_url,
     scoped_loopback_no_proxy_for_cao_base_url,
 )
 
 SUPPORTED_CAO_BASE_URLS: tuple[str, ...] = SUPPORTED_LOOPBACK_CAO_BASE_URLS
+_DEFAULT_CAO_SERVER_PORT = 9889
 _CONTROLLED_PROXY_ENV_VARS: tuple[str, ...] = (
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -64,9 +69,9 @@ class _LauncherConfigModel(BaseModel):
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
         normalized = _normalize_base_url(value)
-        if normalized not in SUPPORTED_CAO_BASE_URLS:
-            supported = ", ".join(SUPPORTED_CAO_BASE_URLS)
-            raise ValueError(f"must be one of: {supported}")
+        if not is_supported_loopback_cao_base_url(normalized):
+            supported = describe_supported_loopback_cao_base_urls()
+            raise ValueError(f"must be a supported loopback URL with explicit port: {supported}")
         return normalized
 
     @field_validator("runtime_root")
@@ -373,11 +378,12 @@ def resolve_cao_server_runtime_artifacts(
         Paths under `runtime_root/cao-server/<host>-<port>/`.
     """
 
-    parsed = parse.urlsplit(config.base_url)
-    host = parsed.hostname
-    port = parsed.port
-    if host is None or port is None:
-        raise CaoServerLauncherError(f"Invalid base_url `{config.base_url}`: missing host or port.")
+    try:
+        host, port = extract_cao_base_url_host_port(config.base_url)
+    except ValueError as exc:
+        raise CaoServerLauncherError(
+            f"Invalid base_url `{config.base_url}`: missing host or port."
+        ) from exc
 
     artifact_dir = config.runtime_root / "cao-server" / f"{host}-{port}"
     return CaoServerRuntimeArtifacts(
@@ -497,6 +503,7 @@ def build_cao_server_environment(
     base_env: Mapping[str, str] | None = None,
     proxy_policy: ProxyPolicy = ProxyPolicy.CLEAR,
     home_dir: Path | None = None,
+    base_url: str | None = None,
 ) -> dict[str, str]:
     """Build subprocess env for launching `cao-server`.
 
@@ -508,6 +515,9 @@ def build_cao_server_environment(
         Proxy policy for controlled proxy variables.
     home_dir:
         Optional `HOME` override for launched process.
+    base_url:
+        Optional launcher-selected CAO base URL. When provided, the environment
+        also carries the selected `CAO_PORT`.
 
     Returns
     -------
@@ -522,7 +532,12 @@ def build_cao_server_environment(
     elif proxy_policy != ProxyPolicy.INHERIT:
         raise CaoServerLauncherError(f"Unsupported proxy policy: `{proxy_policy}`.")
 
-    inject_loopback_no_proxy_env(env)
+    if base_url is None:
+        inject_loopback_no_proxy_env(env)
+    else:
+        inject_loopback_no_proxy_env_for_cao_base_url(env, base_url=base_url)
+        _, selected_port = extract_cao_base_url_host_port(base_url)
+        env["CAO_PORT"] = str(selected_port)
 
     if home_dir is not None:
         env["HOME"] = str(home_dir)
@@ -684,6 +699,7 @@ def start_cao_server(
     launch_env = build_cao_server_environment(
         proxy_policy=config.proxy_policy,
         home_dir=config.home_dir,
+        base_url=config.base_url,
     )
 
     process = _launch_cao_server_detached(
@@ -728,7 +744,7 @@ def start_cao_server(
                 launcher_result_file=artifacts.launcher_result_file,
                 ownership_file=artifacts.ownership_file,
                 ownership=ownership,
-                message=f"Started `cao-server` (pid={process.pid}).",
+                message=f"Started `cao-server` for {config.base_url} (pid={process.pid}).",
             )
             _write_launcher_result(artifacts.launcher_result_file, result)
             return result
@@ -771,12 +787,14 @@ def start_cao_server(
 
         time.sleep(max(0.01, poll_interval_seconds))
 
+    timeout_error = _build_startup_timeout_error(
+        config=config,
+        artifacts=artifacts,
+        pid=process.pid,
+    )
     _terminate_process_tree(process.pid, process_group_id=process_group_id)
     _clear_runtime_tracking_files(artifacts)
-    raise CaoServerLauncherError(
-        "Failed to start `cao-server`: health check did not become healthy "
-        f"within {config.startup_timeout_seconds:.1f}s. See `{artifacts.log_file}`."
-    )
+    raise CaoServerLauncherError(timeout_error)
 
 
 def stop_cao_server(
@@ -1110,9 +1128,9 @@ def _format_error_location(location: object) -> str:
 
 def _ensure_supported_base_url(base_url: str) -> None:
     if not is_supported_loopback_cao_base_url(base_url):
-        supported = ", ".join(SUPPORTED_CAO_BASE_URLS)
+        supported = describe_supported_loopback_cao_base_urls()
         raise CaoServerLauncherError(
-            f"Unsupported base_url `{base_url}`. Supported values: {supported}."
+            f"Unsupported base_url `{base_url}`. Supported loopback URLs: {supported}."
         )
 
 
@@ -1146,6 +1164,7 @@ def _write_launcher_result(path: Path, result: object) -> None:
         payload = dataclass_to_json_payload(result)
     else:
         payload = {"result": to_jsonable_payload(result)}
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -1346,3 +1365,120 @@ def _process_group_id_for_pid(pid: int) -> int | None:
         return os.getpgid(pid)
     except OSError:
         return None
+
+
+def _build_startup_timeout_error(
+    *,
+    config: CaoServerLauncherConfig,
+    artifacts: CaoServerRuntimeArtifacts,
+    pid: int,
+) -> str:
+    """Build a startup timeout error with optional CAO port-compatibility detail."""
+
+    _, requested_port = extract_cao_base_url_host_port(config.base_url)
+    if requested_port != _DEFAULT_CAO_SERVER_PORT and _process_listens_on_loopback_port(
+        pid,
+        _DEFAULT_CAO_SERVER_PORT,
+    ):
+        return (
+            "Failed to start `cao-server`: requested base_url "
+            f"`{config.base_url}` did not become healthy within "
+            f"{config.startup_timeout_seconds:.1f}s. The spawned process appears to ignore "
+            f"`CAO_PORT` and is still listening on loopback port {_DEFAULT_CAO_SERVER_PORT}. "
+            f"Upgrade the installed `cao-server` and retry. See `{artifacts.log_file}`."
+        )
+
+    return (
+        "Failed to start `cao-server`: requested base_url "
+        f"`{config.base_url}` did not become healthy within "
+        f"{config.startup_timeout_seconds:.1f}s. See `{artifacts.log_file}`."
+    )
+
+
+def _process_listens_on_loopback_port(pid: int, port: int) -> bool:
+    """Return whether a process owns a loopback listener on the requested port."""
+
+    listener_inodes = _listener_inodes_for_port(
+        Path("/proc/net/tcp"),
+        port=port,
+        address_family=socket.AF_INET,
+    ) | _listener_inodes_for_port(
+        Path("/proc/net/tcp6"),
+        port=port,
+        address_family=socket.AF_INET6,
+    )
+    if not listener_inodes:
+        return False
+
+    fd_dir = Path("/proc") / str(pid) / "fd"
+    if not fd_dir.exists():
+        return False
+
+    try:
+        fd_entries = list(fd_dir.iterdir())
+    except OSError:
+        return False
+
+    for fd_entry in fd_entries:
+        try:
+            target = os.readlink(fd_entry)
+        except OSError:
+            continue
+        if not target.startswith("socket:["):
+            continue
+        if target[8:-1] in listener_inodes:
+            return True
+    return False
+
+
+def _listener_inodes_for_port(
+    table_path: Path,
+    *,
+    port: int,
+    address_family: socket.AddressFamily,
+) -> set[str]:
+    """Return kernel socket inodes for listening sockets on a loopback port."""
+
+    if not table_path.exists():
+        return set()
+
+    try:
+        lines = table_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return set()
+
+    accepted_hosts = _listening_host_hex_values(address_family)
+    inodes: set[str] = set()
+    for line in lines[1:]:
+        columns = line.split()
+        if len(columns) < 10:
+            continue
+        local_address = columns[1]
+        state = columns[3]
+        inode = columns[9]
+        if state != "0A":
+            continue
+        try:
+            host_hex, port_hex = local_address.split(":", maxsplit=1)
+        except ValueError:
+            continue
+        if int(port_hex, 16) != port:
+            continue
+        if host_hex not in accepted_hosts:
+            continue
+        inodes.add(inode)
+    return inodes
+
+
+def _listening_host_hex_values(address_family: socket.AddressFamily) -> set[str]:
+    """Return accepted kernel host hex values for loopback-bound listeners."""
+
+    if address_family == socket.AF_INET:
+        return {
+            "0100007F",  # 127.0.0.1
+            "00000000",  # 0.0.0.0
+        }
+    return {
+        "00000000000000000000000000000001",  # ::1
+        "00000000000000000000000000000000",  # ::
+    }

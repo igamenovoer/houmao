@@ -31,15 +31,22 @@ Command intent:
 
 ## Agent Definition Directory Resolution
 
-Runtime command surfaces resolve the agent definition directory with this
-precedence:
+Runtime command surfaces now use two resolution models.
+
+Build/start and manifest-path control (`--agent-identity /abs/session.json`) still resolve the agent definition directory with this ambient precedence:
 
 1. CLI `--agent-def-dir`
 2. env `AGENTSYS_AGENT_DEF_DIR`
 3. default `<pwd>/.agentsys/agents`
 
-The resolved directory must contain `brains/`, `roles/`, and optionally
-`blueprints/`.
+Name-based tmux-backed control (`send-prompt`, `send-keys`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
+
+1. explicit CLI `--agent-def-dir` override, otherwise
+2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`
+
+Name-based tmux control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` or cwd-derived default when the tmux session pointer is missing or stale.
+
+The resolved directory must contain `brains/`, `roles/`, and optionally `blueprints/`.
 
 ## Build a Brain
 
@@ -216,7 +223,6 @@ For tmux-backed headless sessions (`codex_headless`, `claude_headless`,
 
 ```bash
 pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
-  --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu \
   --force-cleanup
 ```
@@ -242,17 +248,14 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --cao-base-url http://localhost:9889
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
-  --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu \
   --prompt "Continue from the prior answer"
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-keys \
-  --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 
 pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
-  --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu
 ```
 
@@ -263,8 +266,12 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
   --config config/cao-server-launcher/local.toml
 ```
 
+Use `--cao-base-url http://127.0.0.1:9991` to target another supported
+launcher-managed loopback port when needed.
+
 Behavior:
 
+- For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
 - For resumed CAO operations (`send-prompt`, `send-keys`, `stop-session`), runtime addresses
   the session strictly from the persisted manifest (`cao.api_base_url`,
   `cao.terminal_id`) after resolving `--agent-identity`; there is no resume-time
@@ -308,6 +315,7 @@ Behavior:
 - `AGENTSYS` is reserved and cannot be used as the name portion.
 - `start-session --agent-identity <name>` accepts name inputs for tmux-backed
   backends (`cao_rest`, `codex_headless`, `claude_headless`, `gemini_headless`)
+  and returns the selected canonical identity in CLI JSON output.
 
 ## Missing `PATH` Troubleshooting
 
@@ -319,11 +327,11 @@ when they are missing from `PATH`.
   verify `command -v cao-server`.
 - Missing tool executable (`codex`, `claude`, `gemini`): install the tool CLI and
   verify with `command -v <tool>`.
-  and returns the selected canonical identity in CLI JSON output.
 - If no tmux-backed name is provided, runtime auto-generates a short
   `AGENTSYS-<tool-role>` identity and adds a suffix on conflicts.
 - For tmux-backed sessions runtime sets
-  `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` in tmux session env.
+  `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
+  `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
 - To discover active agent identities, run `tmux ls` and use returned
   `AGENTSYS-...` names with `send-prompt` / `send-keys` / `stop-session`.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
@@ -391,7 +399,7 @@ when they are missing from `PATH`.
   [`docs/reference/cao_shadow_parser_troubleshooting.md`](./cao_shadow_parser_troubleshooting.md).
 - Loopback proxy defaults:
   - Runtime-owned CAO REST calls to supported loopback CAO base URLs
-    (`http://localhost:9889`, `http://127.0.0.1:9889`) inject loopback entries
+    (`http://localhost:<port>`, `http://127.0.0.1:<port>`) inject loopback entries
     into `NO_PROXY`/`no_proxy` by default so ambient proxy vars do not proxy
     CAO control-plane traffic.
   - CAO tmux session env composition preserves proxy vars for agent egress and

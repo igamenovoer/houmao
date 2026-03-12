@@ -28,13 +28,15 @@ proxy_policy = "clear"
 startup_timeout_seconds = 15
 ```
 
+Any supported loopback port is allowed, for example `http://127.0.0.1:9991`.
+
 Validation rules:
 
 - Unknown keys are rejected.
 - `proxy_policy` must be `clear` or `inherit`.
-- `base_url` is currently restricted to:
-  - `http://localhost:9889`
-  - `http://127.0.0.1:9889`
+- `base_url` must be a loopback `http` URL with an explicit port:
+  - `http://localhost:<port>`
+  - `http://127.0.0.1:<port>`
 - `home_dir` must be absolute, existing, and writable.
 
 ## CLI
@@ -43,6 +45,14 @@ Validation rules:
 pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config config/cao-server-launcher/local.toml
 pixi run python -m gig_agents.cao.tools.cao_server_launcher start --config config/cao-server-launcher/local.toml
 pixi run python -m gig_agents.cao.tools.cao_server_launcher stop --config config/cao-server-launcher/local.toml
+```
+
+One-shot CLI overrides apply before validation and do not rewrite the config file:
+
+```bash
+pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+  --config config/cao-server-launcher/local.toml \
+  --base-url http://127.0.0.1:9991
 ```
 
 Each command emits structured JSON for scripting (`base_url`, health info, pid/log/pidfile paths, ownership metadata paths, and stop diagnostics).
@@ -68,6 +78,9 @@ When launching (or managing pidfile state), artifacts live under:
 
 `start` now means "bootstrap a detached standalone local service and wait until it becomes healthy." Once `start` returns successfully, a later independent `status` command should still be able to reach the same service unless it has been explicitly stopped or crashed independently.
 
+When `start` launches a new process, it derives the selected port from `base_url`
+and passes it to `cao-server` via `CAO_PORT`.
+
 ## Proxy policy contract
 
 Proxy policy affects only the launched `cao-server` process environment:
@@ -80,11 +93,16 @@ In both modes, `NO_PROXY` and `no_proxy` are merged non-destructively to ensure
 loopback coverage includes `localhost`, `127.0.0.1`, and `::1`.
 
 For launcher-owned health probes (`status`, and `start` startup polling) against
-supported loopback base URLs (`http://localhost:9889`,
-`http://127.0.0.1:9889`), the launcher applies the same loopback
+supported loopback base URLs (`http://localhost:<port>`,
+`http://127.0.0.1:<port>`), the launcher applies the same loopback
 `NO_PROXY`/`no_proxy` merge+append behavior by default before each probe so
 ambient `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` do not proxy loopback health
 traffic.
+
+If a non-default requested port never becomes healthy and the spawned process is
+still listening on `9889`, launcher `start` fails explicitly with a compatibility
+diagnostic indicating that the installed `cao-server` appears to ignore
+`CAO_PORT`.
 
 Opt-out switch:
 

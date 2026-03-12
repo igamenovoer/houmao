@@ -199,8 +199,6 @@ def send_turn(
         _runtime_cli_command(
             [
                 "send-prompt",
-                "--agent-def-dir",
-                str(env.agent_def_dir),
                 "--agent-identity",
                 state.agent_identity,
                 "--prompt",
@@ -265,8 +263,6 @@ def send_control_input(
 
     runtime_args = [
         "send-keys",
-        "--agent-def-dir",
-        str(env.agent_def_dir),
         "--agent-identity",
         state.agent_identity,
         "--sequence",

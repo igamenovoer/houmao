@@ -10,6 +10,7 @@ This change introduces a mailbox-style protocol with one implemented transport a
 Key constraints:
 
 - The filesystem flavor must remain daemon-free.
+- The filesystem flavor assumes a symlink-capable local filesystem for mailbox registration and projection writes.
 - Messages must be human-inspectable and human-authorable.
 - Mutable mailbox state such as read/unread and starring should not require rewriting delivered message bodies.
 - The protocol should fit existing `AGENTSYS-...` agent identities without making live session manifests the only addressing mechanism.
@@ -38,7 +39,7 @@ flowchart LR
 - Support async polling by agents with simple periodic checks rather than synchronous rendezvous.
 - Make human participation possible through filesystem mailboxes in this change while preserving semantics that can later be adapted to a normal mail client workflow.
 - Keep the transport layer independent from any one runtime backend such as CAO or a specific CLI tool.
-- Expose mailbox behavior to agents through runtime-generated system skills that use stable env-var bindings instead of literal transport coordinates.
+- Expose mailbox behavior to agents through runtime-owned system skills projected from platform-owned templates that use stable env-var bindings instead of literal transport coordinates.
 
 **Non-Goals:**
 
@@ -47,8 +48,10 @@ flowchart LR
 - Full mailbox push/notification infrastructure in v1.
 - Shared-work mailbox semantics where multiple workers race to claim one mailbox identity.
 - Rich MIME binary attachment transport in v1; attachment references are the primary mechanism.
+- Archive and draft mailbox workflows beyond reserving placeholder directories in the filesystem layout.
 - Per-role or per-recipe authored mailbox skill content.
 - Implementing a localhost mail server or true-email runtime transport in this change.
+- Multi-transport coexistence for one live session, in-place transport migration, or mid-session transport switching between filesystem and future true-email transports.
 
 ## Decisions
 
@@ -79,8 +82,8 @@ Filesystem message files use YAML front matter followed by Markdown body:
 ```md
 ---
 protocol_version: 1
-message_id: msg-20260311T041500Z-a1b2c3d4
-thread_id: msg-20260311T041500Z-a1b2c3d4
+message_id: msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+thread_id: msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
 in_reply_to: null
 references: []
 created_at_utc: 2026-03-11T04:15:00Z
@@ -94,7 +97,7 @@ cc: []
 reply_to: []
 subject: Investigate parser drift
 attachments:
-  - attachment_id: att-01
+  - attachment_id: att-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6-01
     kind: path_ref
     path: /abs/path/to/report.json
     media_type: application/json
@@ -106,6 +109,8 @@ headers:
 
 Message body in Markdown.
 ```
+
+In v1, `message_id` uses the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`. The timestamp prefix keeps message ids date-readable for filesystem inspection, while the UUID4 suffix makes the ids collision-resistant enough for canonical filenames, SQLite keys, and future `Message-ID` projection.
 
 Mutable state is intentionally excluded from message bodies. Read/unread, starred, archived, deleted, and thread summary state live only in SQLite. Thread ancestry is carried in the immutable envelope; thread views are cached in SQLite for speed.
 
@@ -144,6 +149,16 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
 <mailbox_root>/
   protocol-version.txt
   index.sqlite
+  rules/
+    README.md
+    protocols/
+    scripts/
+      requirements.txt
+      deliver_message.py
+      insert_standard_headers.py
+      update_mailbox_state.py
+      repair_index.py
+    skills/
   locks/
     index.lock
     principals/
@@ -151,39 +166,45 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
       AGENTSYS-research.lock
       human-alice.lock
   messages/
-    2026/
-      03/
-        11/
-          msg-20260311T041500Z-a1b2c3d4.md
+    2026-03-11/
+      msg-20260311T041500Z-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.md
   attachments/
     managed/
-      sha256/
-        ab/
-          cd/
-            <digest>/
-              report.json
+      <attachment-id>/
+        report.json
   mailboxes/
     AGENTSYS-orchestrator/
       inbox/
       sent/
       archive/
       drafts/
-    AGENTSYS-research/
-      inbox/
-      sent/
-      archive/
-      drafts/
-    human-alice/
-      inbox/
-      sent/
-      archive/
-      drafts/
+    AGENTSYS-research -> /abs/path/private-mailboxes/AGENTSYS-research
+    human-alice -> /abs/path/private-mailboxes/human-alice
   staging/
 ```
 
-`messages/` contains the canonical immutable message files. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. When possible, these projections should be hardlinks to the canonical file; when hardlinks are unavailable, plain file copies are acceptable because the message id and digest still identify the same logical message.
+`messages/` contains the canonical immutable message files, organized as `messages/<YYYY-MM-DD>/<message-id>.md`. `mailboxes/<principal>/...` contains mailbox-visible projections of those messages so recipients can work from familiar folders. In this design, each mailbox projection is a symlink to the canonical message file rather than a copied Markdown file. Each `mailboxes/<principal>` entry may be either a concrete directory inside the shared mail root or a symlink to that principal's private mailbox directory outside the shared root. A participant dynamically joins the mail group by creating that symlink entry under `mailboxes/`, assuming filesystem permissions allow other participants to write through it. Symlink targets must expose the same mailbox substructure (`inbox/`, `sent/`, `archive/`, and `drafts/`) as an in-root mailbox directory. Because those projection and registration semantics are part of the v1 transport contract, filesystem mailbox support requires a host and effective mailbox filesystem that can create and resolve symlinks; unsupported platforms or mounts must fail mailbox initialization or delivery explicitly rather than silently falling back to copies. In v1, `archive/` and `drafts/` are reserved placeholder directories for forward compatibility rather than defined archive or draft workflows.
 
-`attachments/managed/` is optional storage for attachments that should be copied into the mailbox store. For ordinary local workflows, attachment entries may remain as path references to arbitrary filesystem paths outside the mailbox root.
+The shared mail-group root still owns the canonical message store, locks, attachments, and shared SQLite index. Symlinked principal mailbox directories externalize mailbox projections, not the canonical message corpus itself. A delivered inbox or sent entry points back to its canonical message via a filesystem symlink.
+
+`rules/` is the mailbox-local coordination surface for standardized interaction with the shared mail group. It should contain a mailbox-local `README.md`, protocol notes under `protocols/`, helper scripts under `scripts/`, and mailbox-operation helper skills under `skills/`. Agents interacting with the shared mail root are expected to consult `rules/` first so they follow mailbox-local conventions before reading or mutating shared mailbox state.
+
+`rules/` and its core managed scripts are runtime-owned bootstrap artifacts. When the runtime initializes a filesystem mailbox root, package-internal code materializes the `rules/` tree, writes `protocol-version.txt`, and installs a fixed managed asset set under `rules/scripts/`: `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`. These filenames and the dependency manifest are part of the v1 protocol surface and version together with `protocol-version.txt`; mailbox-local customization in v1 may add adjacent documentation or helpers, but it should not override the managed sensitive-operation scripts or the managed dependency manifest that describes them.
+
+For sensitive operations that touch `index.sqlite` or `locks/`, the shared mailbox should provide implemented scripts under `rules/scripts/` for agents to invoke rather than expecting every agent to improvise raw SQLite or lock-file handling. Those scripts may be written in Python or shell:
+
+- Python scripts may use package-internal helpers or third-party Python packages, including packages distributed on PyPI, as long as `rules/scripts/requirements.txt` declares the dependencies agents or operators need before invoking those helpers
+- shell scripts may be plain `.sh`
+
+Typical sensitive operations include delivery commit, mailbox-state mutation, lock acquisition or release orchestration, index repair, and reindex flows.
+
+Filesystem mailbox initialization is a runtime-direct bootstrap path that does not depend on pre-existing `rules/scripts/`. That bootstrap path is responsible for creating or validating the mailbox root layout, SQLite schema, locks area, staging area, `rules/` tree, managed scripts, and any in-root principal mailbox directories or principal-registry rows that the runtime is bringing under mailbox control. On an existing mailbox root, bootstrap validates `protocol-version.txt` before continuing and fails explicitly when the on-disk protocol version is unsupported or newer than the runtime understands.
+
+`rules/scripts/` may also contain non-sensitive helper tools for message composition and consistency checks. A common example is a header-insertion or header-normalization script that takes parameters such as sender, recipients, subject, thread ancestry, or tags and emits or patches standardized message headers or YAML front matter. These tools act like linting or normalization helpers: agents are encouraged to use them when present, but they are not mandatory in the same way as the shared scripts for SQLite or lock-touching operations.
+
+This is intentionally guidance, not hard enforcement. In v1, the system relies on the agent following its mailbox skill instructions to inspect `rules/` first. If an agent skips those shared rules and breaks the mailbox contract, that is considered agent misbehavior rather than supported transport behavior.
+
+`attachments/managed/` is optional storage for attachments that should be copied into the mailbox store. When managed-copy mode is used, the copied file lives under `attachments/managed/<attachment-id>/...`. The association between that managed attachment and one or more messages is tracked in SQLite rather than being encoded into the attachment path. For ordinary local workflows, attachment entries may remain as path references to arbitrary filesystem paths outside the mailbox root.
 
 `AGENTSYS_MAILBOX_FS_ROOT` is the authoritative mailbox content root binding for sessions that use the filesystem transport. Agent-facing instructions and implementations should follow that env value rather than reconstruct mailbox paths from the runtime root.
 
@@ -195,12 +216,17 @@ The filesystem flavor stores mailbox data under a deterministic internal layout 
 - mailbox folder projections
 - per-recipient mailbox state
 - attachment metadata
+- message-to-attachment associations
 - cached thread summaries
+
+The principal registry should record the effective mailbox registration for each principal, including whether `mailboxes/<principal>` is an in-root directory or a symlinked private mailbox target.
 
 Rationale: the filesystem stays directly navigable while SQLite provides the query and mutable-state layer the user asked for.
 
 Alternatives considered:
 
+- Keep protocol guidance only in projected runtime-owned skills and repo docs, with no mailbox-local source of truth. Rejected because participants need mailbox-root-local rules, scripts, and helper skills that travel with the shared mail group itself.
+- Force every principal mailbox directory to live physically under one shared root. Rejected because participants should be able to join a mail group by linking an existing private mailbox directory into the shared root without relocating their mailbox projections.
 - Per-mailbox folders only, with no canonical message store. Rejected because multi-recipient duplication becomes harder to reconcile and reindex.
 - Canonical store only, with no mailbox folder projections. Rejected because humans and simple agent pollers should be able to inspect `inbox/` and `sent/` directly.
 
@@ -210,26 +236,70 @@ The filesystem transport has no helper daemon. Each sender performs delivery dir
 
 Write path:
 
-1. Compose and validate the message in `staging/`.
-2. Resolve recipient principal ids and attachment metadata.
-3. Acquire per-principal lock files for all affected principals in lexicographic order.
-4. Acquire `locks/index.lock`.
-5. Move the canonical message into `messages/...`.
-6. Materialize mailbox projections in recipient `inbox/` folders and sender `sent/`.
-7. Commit corresponding SQLite rows in one transaction.
-8. Release locks.
+1. Consult `rules/` for the current shared mailbox protocol guidance, helper scripts, and standardized mailbox skills.
+2. Optionally use a lint-style helper from `rules/scripts/` to insert or normalize standardized headers or front matter during message composition.
+3. Compose and validate the message in `staging/`.
+4. Resolve recipient principal ids, mailbox registration targets, and attachment metadata.
+5. For operations that touch `locks/` or `index.sqlite`, invoke the shared script from `rules/scripts/` rather than hand-rolling those sensitive steps inside the agent.
+6. Acquire per-principal lock files for all affected principals in lexicographic order.
+7. Acquire `locks/index.lock`.
+8. Move the canonical message into `messages/<YYYY-MM-DD>/...`.
+9. Materialize mailbox projections as symlinks in resolved recipient mailbox directories and sender `sent/`; recipient mailbox entries may be in-root directories or symlinked private mailbox targets.
+10. Commit corresponding SQLite rows in one transaction.
+11. Release locks.
+
+Affected principals are the sender plus every distinct resolved recipient principal whose mailbox projections or mailbox state will be changed by the operation. In v1, standardized helper scripts acquire those principal locks in ascending lexicographic `principal_id` order, then acquire `locks/index.lock`, and fail the operation explicitly if the complete lock set cannot be acquired within a bounded timeout.
+
+Sender-to-recipient delivery in the filesystem flavor looks like this:
+
+```mermaid
+sequenceDiagram
+    participant SA as Sender Agent<br/>(live session)
+    participant SK as Mail Skill<br/>email-via-filesystem
+    participant RU as Shared Rules<br/>rules dir
+    participant HL as Header Helper<br/>optional lint tool
+    participant SC as Shared Script<br/>rules/scripts
+    participant LK as Lock Files<br/>locks
+    participant FS as Mail Group Root<br/>shared store
+    participant DB as SQLite Index<br/>index.sqlite
+    participant RI as Recipient Mailbox<br/>dir or symlink target
+    participant RA as Recipient Agent<br/>(later poll)
+
+    SA->>SK: send mail<br/>(to, subject, body)
+    SK->>RU: inspect shared rules<br/>before mailbox write
+    SK->>HL: optionally normalize<br/>headers/front matter
+    SK->>FS: write staged message<br/>under staging/
+    SK->>RI: resolve mailbox join<br/>registration
+    SK->>SC: invoke sensitive mailbox<br/>operation script
+    SC->>LK: acquire principal locks<br/>plus index.lock
+    SC->>FS: move canonical message<br/>into messages/YYYY-MM-DD/
+    SC->>RI: create recipient inbox<br/>symlink projection
+    SC->>FS: create sender sent<br/>symlink projection
+    SC->>DB: insert message,<br/>projection, and state rows
+    SC-->>LK: release locks
+    RA->>DB: poll unread state<br/>for recipient principal
+    RA->>RI: read delivered message<br/>from inbox projection
+```
 
 Read path:
 
+- Agents should consult `rules/` before interpreting or mutating mailbox state so mailbox-local scripts and helper skills can refine the generic transport guidance.
 - Listing and reading mailbox files is lock-free.
-- Mutating mailbox state such as marking read or starring acquires the mailbox principal lock plus SQLite transaction.
-- SQLite uses a non-WAL journal mode so the transport does not rely on `index.sqlite-wal` or `index.sqlite-shm` sidecar files.
+- Mutating mailbox state such as marking read or starring acquires the mailbox principal lock plus SQLite transaction, and those sensitive mutations should use the shared scripts in `rules/scripts/` rather than ad hoc SQLite or lock manipulation.
+- Optional header-normalization or header-insertion scripts in `rules/scripts/` can be used as lint-style helpers during message composition, but they are not required for every mailbox interaction.
+- SQLite uses `journal_mode=DELETE` in v1 so the transport stays in a non-WAL mode and does not rely on `index.sqlite-wal` or `index.sqlite-shm` sidecar files.
 
 Crash recovery:
 
 - Canonical message files are durable first-class artifacts.
 - SQLite is treated as a rebuildable index plus mutable-state store.
 - A future `reindex`/`repair` command can rebuild message and projection tables from the filesystem corpus, preserving message bodies even if index state is lost.
+- Projection entries are symlinks to canonical message files, so projection repair can validate link targets instead of reparsing copied mailbox files.
+- Missing or dangling principal mailbox symlinks are treated as delivery-time registration failures rather than silent mailbox creation at an unexpected path.
+- `staging/` contains only pre-commit artifacts; successful deliveries remove their staged files, and repair flows clean or quarantine orphaned staged messages from interrupted deliveries without treating them as committed mail.
+- Missing or stale `rules/` content increases the chance of agent misuse, so mailbox maintainers should treat `rules/` as part of the operational mailbox surface rather than optional documentation.
+- Missing or broken scripts under `rules/scripts/`, a missing `requirements.txt`, or unsatisfied declared Python dependencies can block standardized sensitive operations, so mailbox maintainers should treat those managed assets as part of the operational transport surface rather than optional examples.
+- Optional header-helper scripts may be absent without breaking transport correctness, but their absence can reduce consistency in how agents format message headers or front matter.
 
 Rationale: the protocol stays daemon-free and plain-filesystem-friendly while still coordinating concurrent writers safely.
 
@@ -237,6 +307,9 @@ Alternatives considered:
 
 - A local queue daemon. Rejected because the filesystem flavor explicitly should not require a background process.
 - SQLite-only locking. Rejected because it does not protect multi-file projection writes by itself.
+- Require every participant to relocate mailbox projections under the shared root before joining. Rejected because symlink registration gives a simpler dynamic-join path for agent-owned private mailbox directories.
+- Copy mailbox projections instead of symlinking them to canonical messages. Rejected because it duplicates immutable message bodies and makes projection repair less direct.
+- Let every agent implement its own SQLite and lock-file mutations independently. Rejected because sensitive shared-state operations should be funneled through mailbox-local scripts under `rules/scripts/` so the group can standardize behavior.
 
 ### 5) Threading is explicit and transport-neutral
 
@@ -278,9 +351,9 @@ The first version treats attachments primarily as file references, not embedded 
 Two modes are supported:
 
 - `path_ref`: points at an arbitrary existing filesystem path
-- `managed_copy`: copies the file into `attachments/managed/...` and references that managed path
+- `managed_copy`: copies the file into `attachments/managed/<attachment-id>/...` and references that managed path
 
-For the filesystem flavor, either mode is valid. For the email flavor, path references remain valid because the server is localhost-only and shares the same host filesystem. Rich MIME binary transport is deferred.
+For the filesystem flavor, either mode is valid. For managed-copy attachments, the attachment path is intentionally simple and keyed by `attachment_id`; the message relationship is tracked in SQLite instead of being encoded into path names. For the email flavor, path references remain valid because the server is localhost-only and shares the same host filesystem. Rich MIME binary transport is deferred.
 
 Rationale: reference attachments match the user's requirement and avoid unnecessary copying of large artifacts.
 
@@ -335,22 +408,26 @@ Alternatives considered:
 
 - Push-only notifications. Rejected because they would force extra infrastructure and do not fit the daemon-free flavor.
 
-### 9) Mailbox access is exposed through runtime-owned system skills
+### 9) Mailbox enablement is declarative and mailbox skills are projected during brain build
 
-Mailbox operations should not be re-explained independently in each role or recipe. Instead, the runtime generates one or more mailbox system skills from platform-owned templates and injects them into every launched agent session under a reserved runtime-owned namespace.
+Filesystem mailbox support is enabled through declarative recipe configuration, with `start-session` CLI overrides allowed for ad hoc transport selection or filesystem-root overrides. The build/start pipeline resolves one effective mailbox configuration before launch-plan creation, persists that resolved mailbox configuration in the session manifest, and restores it on resume so mailbox-enabled sessions keep the same sender principal and transport settings across restarts.
+
+Mailbox operations should not be re-explained independently in each role or recipe. Instead, once the effective mailbox configuration enables a transport, the build pipeline projects one or more runtime-owned mailbox system skills from platform-owned templates into the brain home under a reserved runtime-owned namespace. Those projected skills share the same tool-adapter skill-destination contract as other projected skills, but remain separate from role-authored skill names and continue to rely on runtime-managed env bindings rather than embedded literals.
 
 These skills are transport-neutral at the content level: they describe mailbox behaviors and refer only to runtime-managed bindings rather than hard-coded filesystem paths, server URLs, or mailbox addresses.
 
-Rationale: this gives every agent the same mailbox affordances, keeps the mailbox UX centrally maintainable, and avoids stale or divergent instructions across roles.
+Rationale: this gives every agent the same mailbox affordances, keeps the mailbox UX centrally maintainable, preserves one skill projection path, and avoids stale or divergent instructions across roles.
 
 Alternatives considered:
 
+- Session-start-only skill injection. Rejected because it creates a second skill materialization path outside the existing brain-build flow and makes mailbox skill visibility harder to reason about across tool adapters.
 - User-selected mailbox skills only. Rejected because mailbox participation is a platform feature that should behave consistently across all agents.
 - Per-role mailbox instructions. Rejected because it duplicates transport details and becomes stale as bindings change.
+- CLI-only mailbox enablement. Rejected because mailbox participation should be declarative and version-controlled, with CLI overrides reserved for explicit ad hoc sessions.
 
-### 10) Generated mailbox skills use a stable env-var contract with refreshable bindings
+### 10) Projected mailbox skills use a stable env-var contract with refreshable bindings
 
-Generated mailbox skill templates resolve mailbox bindings through a stable set of runtime-managed env vars. The runtime populates those bindings at session start and can refresh them on demand without regenerating the underlying skill templates.
+Projected mailbox skill templates resolve mailbox bindings through a stable set of runtime-managed env vars. The runtime populates those bindings at session start, persists the resolved binding set in the session manifest for resume, and can refresh the active session bindings on demand without regenerating the underlying skill templates.
 
 The common binding contract is:
 
@@ -379,13 +456,14 @@ AGENTSYS_MAILBOX_EMAIL_IMAP_URL=imap://localhost:1143
 AGENTSYS_MAILBOX_EMAIL_SMTP_URL=smtp://localhost:1025
 ```
 
-In this change, the runtime populates only the common bindings plus filesystem-specific bindings. `AGENTSYS_MAILBOX_FS_ROOT` carries the effective filesystem mailbox root for the session; when no explicit filesystem mailbox root override is configured, the runtime defaults that binding to `<runtime_root>/mailbox`. `AGENTSYS_MAILBOX_EMAIL_*` names are reserved compatibility keys for a future true-email adapter and are not required to be populated by the current implementation.
+In this change, the runtime populates only the common bindings plus filesystem-specific bindings. `AGENTSYS_MAILBOX_FS_ROOT` carries the effective filesystem mailbox root for the session; when no explicit filesystem mailbox root override is configured, the runtime defaults that binding to `<runtime_root>/mailbox`. The persisted session manifest stores the resolved mailbox transport, principal binding, and transport-specific binding values needed to resume the same mailbox-enabled session later. `AGENTSYS_MAILBOX_EMAIL_*` names are reserved compatibility keys for a future true-email adapter and are not required to be populated by the current implementation.
 
 Refresh semantics are runtime-owned:
 
 - for turn-based headless sessions, refreshed implemented bindings MUST apply to subsequent turns,
 - for runtime-controlled long-lived sessions, refreshed implemented bindings MUST be reapplied through the session control surface the runtime owns,
-- generated skill content remains stable and reads the current binding contract rather than embedding old values.
+- the runtime updates the persisted manifest after a successful binding refresh so later resumes observe the same effective mailbox binding state, and
+- projected skill content remains stable and reads the current binding contract rather than embedding old values.
 
 Future true-email adapters SHOULD reuse the same common binding contract and the reserved `AGENTSYS_MAILBOX_EMAIL_*` namespace when they are added in a follow-up change.
 
@@ -402,11 +480,11 @@ Operators need a first-class way to ask a live agent session to perform mailbox 
 
 `mail` is intentionally agent-mediated. It does not implement a separate mailbox client inside the runtime and does not directly mutate mailbox files or SQLite state on behalf of the agent. Instead, the runtime:
 
-1. resolves the target live session through the same `--agent-identity` or session-manifest path rules used by other runtime session-control commands,
-2. constructs a runtime-owned mailbox prompt for a specific mailbox operation that explicitly names the injected mailbox skill the agent should use and appends a small structured metadata block,
+1. resolves the target live session through the same `--agent-identity` or session-manifest path rules used by other runtime session-control commands and restores the persisted mailbox binding from that session manifest,
+2. constructs a runtime-owned mailbox prompt for a specific mailbox operation that explicitly names the projected mailbox skill the agent should use and appends a small structured metadata block,
 3. delivers that request through the existing prompt-turn control path,
-4. relies on the launched agent to use its injected mailbox system skills plus runtime-managed mailbox env bindings, and
-5. parses one structured mailbox result payload back from the agent and prints it for the operator.
+4. relies on the launched agent to use its projected mailbox system skills plus runtime-managed mailbox env bindings, and
+5. parses one structured mailbox result payload back from the agent's prompt-turn output and prints it for the operator.
 
 The intended v1 operations are:
 
@@ -451,10 +529,12 @@ Shape notes:
 - `send` and `reply` accept either a concise operator instruction for agent-authored content or an explicit Markdown body file for operator-provided content
 - `reply` addresses one specific parent message by `--message-id`; recipient and threading metadata are derived from the mailbox protocol rather than restated manually on the CLI
 
-The runtime-owned mailbox request is primarily a prompt template that tells the agent which mailbox skill to use, with a small metadata block appended for operation arguments and result parsing. One suitable shape is:
+The runtime-owned mailbox request is primarily a prompt template that tells the agent which mailbox skill to use, with a small metadata block appended for operation arguments and result parsing. The `mail` command handler performs its own sentinel extraction on the prompt-turn output rather than introducing a second generic structured-response layer into the session event model. One suitable shape is:
 
 ```text
-Use the runtime-injected mailbox skill `$email-via-filesystem` to perform this mailbox operation for the current session principal.
+Use the runtime-owned filesystem mailbox skill `email-via-filesystem` from the reserved mailbox namespace to perform this mailbox operation for the current session principal.
+Inspect `<mailbox_root>/rules/` first and follow any mailbox-local README, scripts, or helper skills there before touching shared mailbox state.
+If the operation touches `index.sqlite` or `locks/`, use the shared script from `rules/scripts/` instead of improvising direct SQLite or lock-file mutations.
 
 Follow the mailbox env bindings for the current session. Do not guess paths or sender identity. Return exactly one JSON result between the required sentinels.
 
@@ -481,21 +561,26 @@ AGENTSYS_MAIL_RESULT_END
 
 This command surface follows the same single-turn session-serialization rules as existing runtime prompt commands. In v1, if the target session is already busy or cannot safely accept a new prompt turn, `mail` should fail fast with an explicit error rather than silently queueing hidden mailbox work.
 
-Rationale: this gives operators a stable mailbox UX while keeping all mailbox behavior routed through the same injected system skills and transport bindings the agent uses for autonomous mailbox work.
+If the agent output does not contain exactly one valid JSON payload between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`, the `mail` command fails explicitly with a mailbox-result parsing error and does not send an automatic retry prompt in v1.
+
+Rationale: this gives operators a stable mailbox UX while keeping all mailbox behavior routed through the same projected system skills and transport bindings the agent uses for autonomous mailbox work.
 
 Alternatives considered:
 
-- A runtime-direct mailbox client. Rejected because it would duplicate mailbox logic, bypass the injected mailbox skill model, and create two competing mailbox behavior paths.
+- A runtime-direct mailbox client. Rejected because it would duplicate mailbox logic, bypass the projected mailbox skill model, and create two competing mailbox behavior paths.
 - Treat mailbox actions as ordinary free-form `send-prompt` usage. Rejected because operators need a stable skill-directed prompt template plus parseable metadata for `check`, `send`, and `reply`.
 - Hidden internal queueing for mailbox commands. Rejected in v1 because it obscures session state and complicates operator expectations around when mailbox work actually ran.
 
 ## Risks / Trade-offs
 
 - **Dual state surfaces** (`.md` plus SQLite) → Mitigation: treat message files as immutable durable artifacts and SQLite as rebuildable index plus mutable mailbox state.
-- **Hardlinks are not universally available** → Mitigation: use hardlinks when possible and fall back to copies while preserving canonical `message_id` and digest.
+- **Filesystem symlink support may be unavailable on some hosts or mounts** → Mitigation: require a symlink-capable local filesystem for the filesystem transport and fail initialization or delivery explicitly when the required symlink operations are unavailable.
 - **Path-reference attachments are local-host scoped** → Mitigation: explicitly scope v1 to local-only transports and keep managed-copy mode available for better durability.
 - **Email transports may rewrite headers or line wrapping** → Mitigation: normalize all inbound/outbound mail through the canonical model and reserve `X-Agent-*` fields for protocol-critical metadata.
 - **Multiple live sessions using one principal can race on mailbox intent** → Mitigation: assume one active consumer per mailbox principal in v1 and leave shared-claim semantics for a follow-up change.
+- **Principal mailbox symlinks can become dangling or point at mis-shaped targets** → Mitigation: validate principal mailbox registration targets before delivery and fail explicitly when a symlink target is missing or lacks the required mailbox subdirectories.
+- **Agents may ignore mailbox-local `rules/` guidance** → Mitigation: make the projected runtime-owned mailbox skill instruct agents to inspect `rules/` first, colocate scripts and helper skills there, and treat failures to follow those rules as agent-instruction-following failures in v1.
+- **Agents may bypass shared sensitive-operation scripts and manipulate SQLite or locks directly** → Mitigation: document that all `index.sqlite` or `locks/` mutations should go through `rules/scripts/`, place those scripts in the mailbox root itself, and have the mailbox skill explicitly direct agents to use them.
 - **SQLite corruption could lose read/starred state** → Mitigation: keep message bodies outside SQLite and provide rebuild tooling for index recovery.
 - **Long-lived sessions may observe refreshed env bindings only at runtime-controlled boundaries** → Mitigation: define refresh guarantees for subsequent turns, expose `AGENTSYS_MAILBOX_BINDINGS_VERSION`, and keep generated skill templates bound to env lookups rather than literal values.
 - **Agent output may not match the runtime `mail` response contract** → Mitigation: use a runtime-owned structured request template, require one delimited JSON result payload, and validate that payload before presenting success to operators.
@@ -504,8 +589,8 @@ Alternatives considered:
 ## Migration Plan
 
 1. Introduce the canonical mailbox model and filesystem layout first, without changing existing direct prompt delivery paths.
-2. Add protocol validation, SQLite index creation, and repair/reindex support for the filesystem flavor.
-3. Add runtime-generated mailbox system skills and the mailbox env-binding contract to started sessions.
+2. Add protocol validation, SQLite index creation, managed bootstrap assets, and repair/reindex support for the filesystem flavor.
+3. Add declarative mailbox enablement, projected runtime-owned mailbox system skills, persisted manifest bindings, and the mailbox env-binding contract to mailbox-enabled sessions.
 4. Add the runtime `mail` command surface and its structured mailbox request or result contract so operators can invoke `check`, `send`, and `reply` against live mailbox-enabled sessions.
 5. Add agent-side polling hooks so runtimes can opt into mailbox-driven async work using existing `AGENTSYS-...` identities.
 6. Reserve the header mappings and `AGENTSYS_MAILBOX_EMAIL_*` env namespace needed for a follow-up true-email adapter without implementing that adapter here.
@@ -515,8 +600,7 @@ Rollback is straightforward during rollout because the mailbox layer is additive
 
 ## Open Questions
 
-- Should mailbox principal bindings be persisted in existing session manifests, or configured independently at launch time?
-- Do we want `bcc` and draft-send workflows in v1, or should the first version keep only `from/to/cc/reply_to`?
+- Do we want `bcc` in v1, or should the first version keep only `from/to/cc/reply_to`?
 - Should a future true-email adapter store extra structured metadata in `X-Agent-*` headers only, or also attach a canonical JSON sidecar part for lossless normalization?
 - Which follow-up implementation path is the right first true-email adapter: SMTP plus IMAP compatibility, or a narrower server interface with mail-client support deferred?
 - Should mailbox binding refresh also emit an explicit agent-visible "bindings changed" notification, or is next-turn env refresh sufficient for v1?

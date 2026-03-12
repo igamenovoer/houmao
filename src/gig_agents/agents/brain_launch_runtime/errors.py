@@ -29,6 +29,14 @@ class BackendExecutionError(BrainLaunchRuntimeError):
     """Raised when a backend command fails to execute successfully."""
 
 
+class MailboxCommandError(BrainLaunchRuntimeError):
+    """Raised when a runtime-owned mailbox command cannot complete safely."""
+
+
+class MailboxResultParseError(MailboxCommandError):
+    """Raised when a mailbox command result fails sentinel or JSON validation."""
+
+
 class BackendInterrupted(BackendExecutionError):
     """Raised when a backend turn is interrupted."""
 

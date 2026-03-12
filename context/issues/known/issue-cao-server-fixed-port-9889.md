@@ -1,21 +1,20 @@
-# Issue: Upstream CAO Server Port Is Fixed (localhost:9889)
+# Issue: Orphan Upstream CAO Reference Is Fixed To localhost:9889
 
 ## Summary
 
-In the upstream CLI Agent Orchestrator (CAO) implementation we reference in this
-repo (`extern/orphan/cli-agent-orchestrator`, version `1.1.0`), the `cao-server`
-entrypoint binds to `localhost:9889` via hard-coded constants and does not
-expose a supported way to change host/port (no CLI flags and no env var
-override).
+The orphan upstream CLI Agent Orchestrator (CAO) reference in this repo
+(`extern/orphan/cli-agent-orchestrator`, version `1.1.0`) is still fixed to
+`localhost:9889`.
 
-If your `cao-server` binary comes from a different CAO version (for example via
-`uv tool install`), verify whether upstream behavior has changed; do not assume
-port configurability exists unless you confirm it in that installed version.
+That orphan snapshot is now historical context, not the supported launcher
+contract for this repo. The tracked CAO fork used by our launcher/runtime path
+supports port selection through `CAO_PORT`, and this repo now supports
+launcher-managed loopback URLs on `http://localhost:<port>` and
+`http://127.0.0.1:<port>`.
 
-This is an upstream limitation that affects our ability to:
-
-- run multiple local CAO servers in parallel on different ports, and
-- choose an alternate port to avoid collisions with an existing process.
+If your installed `cao-server` binary comes from an older upstream build that
+still ignores `CAO_PORT`, launcher start on a non-default port fails explicitly
+instead of silently falling back to `9889`.
 
 ## Evidence (Upstream Source)
 
@@ -35,23 +34,30 @@ Source: `extern/orphan/cli-agent-orchestrator/src/cli_agent_orchestrator/api/mai
 There is no `click`/`argparse` parsing layer for `cao-server` (it maps directly
 to `cli_agent_orchestrator.api.main:main` via `pyproject.toml`).
 
-## Impact on This Repo
+## Current Repo Behavior
 
-- Our defaults (for example `--cao-base-url http://localhost:9889`) match
-  upstream, but any workflow that wants a different port cannot rely on vanilla
-  `cao-server`.
-- Any “CAO server launcher” we build must treat port selection as *not
-  controllable* when launching upstream `cao-server` (unless upstream changes).
+- `gig_agents.cao.tools.cao_server_launcher` accepts loopback URLs with explicit
+  ports and passes the selected port to `cao-server` through `CAO_PORT`.
+- Launcher runtime artifacts remain partitioned under
+  `runtime_root/cao-server/<host>-<port>/`.
+- Runtime CAO REST calls and tmux env composition apply loopback `NO_PROXY`
+  behavior to supported loopback hosts on any explicit port.
+- The interactive CAO demo and the CAO launcher tutorial/demo pack remain
+  intentionally pinned to `127.0.0.1:9889`.
 
-## Workarounds
+## Why This Note Still Matters
 
-If you must expose CAO on a different port without modifying upstream code:
+- The orphan source tree is still useful as a historical reference for why this
+  repo originally assumed `9889`.
+- If a developer installs an older `cao-server` build from outside the tracked
+  fork, non-default launcher ports may still fail because that binary ignores
+  `CAO_PORT`.
 
-- Run a local TCP forwarder (for example `socat`) from an alternate port to
-  `localhost:9889` (still only one CAO server process).
-- Run CAO in a container and use port mapping (container listens on 9889, host
-  maps to another port).
+## Operator Guidance
 
-If you require multiple CAO servers on the same host concurrently, upstream CAO
-would need to support configurable host/port (or you need isolated network
-namespaces/containers).
+- Preferred install: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
+- Verify the active binary with `command -v cao-server`.
+- For a one-shot non-default local port, run launcher commands with
+  `--base-url http://127.0.0.1:9991` (or another loopback port).
+- If launcher `start` says the spawned process appears to ignore `CAO_PORT`,
+  upgrade the installed `cao-server` binary and retry.

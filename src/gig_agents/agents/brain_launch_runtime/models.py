@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
+
 BackendKind = Literal[
     "codex_headless",
     "codex_app_server",
@@ -77,6 +79,8 @@ class LaunchPlan:
         Role prompt application strategy.
     metadata:
         Additional backend-specific options and resolved runtime fields.
+    mailbox:
+        Optional resolved mailbox binding for the session.
     """
 
     backend: BackendKind
@@ -90,6 +94,7 @@ class LaunchPlan:
     env_var_names: list[str]
     role_injection: RoleInjectionPlan
     metadata: dict[str, Any] = field(default_factory=dict)
+    mailbox: MailboxResolvedConfig | None = None
 
     def redacted_payload(self) -> dict[str, Any]:
         """Return a secret-free payload suitable for persistence.
@@ -116,6 +121,7 @@ class LaunchPlan:
                 "role_name": self.role_injection.role_name,
             },
             "metadata": _redact_metadata(self.metadata),
+            "mailbox": self.mailbox.redacted_payload() if self.mailbox is not None else None,
         }
 
 

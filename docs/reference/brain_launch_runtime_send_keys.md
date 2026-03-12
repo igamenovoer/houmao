@@ -42,7 +42,6 @@ Example result:
 
 ```bash
 pixi run python -m gig_agents.agents.brain_launch_runtime send-keys \
-  --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
@@ -52,7 +51,7 @@ Arguments:
 - `--agent-identity` is required and accepts the same name-or-manifest-path values used by other runtime control commands.
 - `--sequence` is required and carries the mixed literal/control-key input string.
 - `--escape-special-keys` is optional and disables special-key parsing for the full sequence.
-- `--agent-def-dir` follows the normal runtime resolution rules.
+- `--agent-def-dir` remains an explicit override. For name-based tmux control, omitting it makes runtime recover the effective agent-definition root from the addressed session's `AGENTSYS_AGENT_DEF_DIR`. Manifest-path control still uses the ambient resolution rules documented in [Brain Launch Runtime](./brain_launch_runtime.md).
 
 ## Sequence Grammar
 
@@ -170,7 +169,7 @@ Callers continue to address sessions by `agent_identity`; they do not provide ra
 
 For resumed CAO sessions the runtime resolves the live tmux destination like this:
 
-1. resolve `--agent-identity` to the persisted session manifest
+1. resolve `--agent-identity` to the persisted session manifest and effective agent-definition root
 2. read persisted CAO state from that manifest
 3. reuse `cao.tmux_window_name` when available
 4. fall back to live `GET /terminals/{id}` metadata when older manifests do not yet persist the window name

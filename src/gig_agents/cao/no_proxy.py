@@ -7,9 +7,10 @@ from contextlib import contextmanager
 from typing import Iterator, Mapping, MutableMapping
 from urllib import parse
 
+_SUPPORTED_LOOPBACK_CAO_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1"})
 SUPPORTED_LOOPBACK_CAO_BASE_URLS: tuple[str, ...] = (
-    "http://localhost:9889",
-    "http://127.0.0.1:9889",
+    "http://localhost:<port>",
+    "http://127.0.0.1:<port>",
 )
 LOOPBACK_NO_PROXY_ENTRIES: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 PRESERVE_NO_PROXY_ENV_VAR = "AGENTSYS_PRESERVE_NO_PROXY_ENV"
@@ -51,6 +52,35 @@ def normalize_cao_base_url(base_url: str) -> str:
     return f"http://{parsed.hostname}:{parsed.port}"
 
 
+def extract_cao_base_url_host_port(base_url: str) -> tuple[str, int]:
+    """Return normalized CAO base URL host and port.
+
+    Parameters
+    ----------
+    base_url:
+        Candidate CAO base URL.
+
+    Returns
+    -------
+    tuple[str, int]
+        Normalized host and explicit port.
+    """
+
+    normalized = normalize_cao_base_url(base_url)
+    parsed = parse.urlsplit(normalized)
+    host = parsed.hostname
+    port = parsed.port
+    if host is None or port is None:
+        raise ValueError("must include host and port")
+    return host, port
+
+
+def describe_supported_loopback_cao_base_urls() -> str:
+    """Return a human-readable description of supported loopback CAO URLs."""
+
+    return ", ".join(SUPPORTED_LOOPBACK_CAO_BASE_URLS)
+
+
 def is_supported_loopback_cao_base_url(base_url: str) -> bool:
     """Return whether a URL is one of the supported loopback CAO base URLs.
 
@@ -66,10 +96,10 @@ def is_supported_loopback_cao_base_url(base_url: str) -> bool:
     """
 
     try:
-        normalized = normalize_cao_base_url(base_url)
+        host, port = extract_cao_base_url_host_port(base_url)
     except ValueError:
         return False
-    return normalized in SUPPORTED_LOOPBACK_CAO_BASE_URLS
+    return host in _SUPPORTED_LOOPBACK_CAO_HOSTS and port > 0
 
 
 def merge_loopback_no_proxy(

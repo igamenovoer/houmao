@@ -27,6 +27,8 @@ At minimum, the compatibility mapping SHALL preserve:
 ### Requirement: True-email transport implementation is out of scope for this change
 This change SHALL NOT require implementation of a localhost mail server, SMTP/IMAP runtime adapter, or true-email mailbox runtime operations.
 
+This change SHALL NOT require multi-transport coexistence for one live session, in-place migration from the filesystem transport to a future true-email transport, or mid-session switching of `AGENTSYS_MAILBOX_TRANSPORT`.
+
 #### Scenario: Filesystem implementation does not require a mail service
 - **WHEN** the filesystem mailbox transport is implemented for this change
 - **THEN** the implementation succeeds without starting or depending on a localhost mail service
@@ -36,3 +38,8 @@ This change SHALL NOT require implementation of a localhost mail server, SMTP/IM
 - **WHEN** this change documents email-compatible headers or reserved mail-system env names
 - **THEN** those compatibility documents do not require the current runtime to populate or use a true-email transport
 - **AND THEN** a follow-up change can implement that transport without changing the canonical mailbox protocol
+
+#### Scenario: Compatibility documentation does not imply transport switching support
+- **WHEN** this change documents reserved future true-email mappings and env namespaces
+- **THEN** that documentation does not require one live session to switch between filesystem and true-email transports in place
+- **AND THEN** a follow-up change may define transport migration or coexistence semantics explicitly

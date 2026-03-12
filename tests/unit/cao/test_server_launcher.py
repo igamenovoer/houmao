@@ -8,6 +8,7 @@ import pytest
 
 from gig_agents.cao.server_launcher import (
     CaoServerOwnership,
+    CaoServerLauncherConfigOverrides,
     CaoServerLauncherError,
     ProxyPolicy,
     _require_executable_on_path,
@@ -80,6 +81,7 @@ def test_build_cao_server_environment_clear_sanitizes_proxy_vars() -> None:
             "PATH": "/usr/bin",
         },
         proxy_policy=ProxyPolicy.CLEAR,
+        base_url="http://localhost:9991",
     )
 
     assert "HTTP_PROXY" not in env
@@ -92,6 +94,7 @@ def test_build_cao_server_environment_clear_sanitizes_proxy_vars() -> None:
     assert "127.0.0.1" in no_proxy_tokens
     assert "::1" in no_proxy_tokens
     assert env["no_proxy"] == env["NO_PROXY"]
+    assert env["CAO_PORT"] == "9991"
 
 
 def test_build_cao_server_environment_inherit_preserves_proxy_vars() -> None:
@@ -102,6 +105,7 @@ def test_build_cao_server_environment_inherit_preserves_proxy_vars() -> None:
             "no_proxy": "localhost",
         },
         proxy_policy=ProxyPolicy.INHERIT,
+        base_url="http://127.0.0.1:9991",
     )
 
     assert env["HTTP_PROXY"] == "http://proxy.internal:8080"
@@ -111,6 +115,7 @@ def test_build_cao_server_environment_inherit_preserves_proxy_vars() -> None:
     assert "127.0.0.1" in no_proxy_tokens
     assert "::1" in no_proxy_tokens
     assert env["no_proxy"] == env["NO_PROXY"]
+    assert env["CAO_PORT"] == "9991"
 
 
 def test_runtime_artifacts_are_partitioned_by_host_port(tmp_path: Path) -> None:
@@ -155,6 +160,26 @@ def test_config_validation_rejects_unsupported_base_url(tmp_path: Path) -> None:
         load_cao_server_launcher_config(config_path)
 
 
+def test_config_validation_accepts_non_default_loopback_port(tmp_path: Path) -> None:
+    config = load_cao_server_launcher_config(
+        _write_config(tmp_path, base_url="http://127.0.0.1:9991")
+    )
+
+    assert config.base_url == "http://127.0.0.1:9991"
+
+
+def test_load_config_applies_one_shot_base_url_override(tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, base_url="http://127.0.0.1:9889")
+
+    config = load_cao_server_launcher_config(
+        config_path,
+        overrides=CaoServerLauncherConfigOverrides(base_url="http://127.0.0.1:9991"),
+    )
+
+    assert config.base_url == "http://127.0.0.1:9991"
+    assert 'base_url = "http://127.0.0.1:9889"' in config_path.read_text(encoding="utf-8")
+
+
 def test_stop_refuses_to_kill_when_identity_verification_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -188,13 +213,44 @@ def test_stop_refuses_to_kill_when_identity_verification_fails(
     assert kill_calls == []
 
 
+def test_stop_returns_structured_already_stopped_output_without_preexisting_artifact_dir(
+    tmp_path: Path,
+) -> None:
+    config = load_cao_server_launcher_config(
+        _write_config(
+            tmp_path,
+            base_url="http://127.0.0.1:9889",
+            runtime_root="fresh-runtime",
+            home_dir=tmp_path,
+        )
+    )
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+
+    assert not artifacts.artifact_dir.exists()
+
+    result = stop_cao_server(config)
+
+    assert result.stopped is False
+    assert result.already_stopped is True
+    assert artifacts.artifact_dir.exists()
+    assert artifacts.launcher_result_file.exists()
+
+    payload = json.loads(artifacts.launcher_result_file.read_text(encoding="utf-8"))
+    assert payload["operation"] == "stop"
+    assert payload["already_stopped"] is True
+    assert payload["launcher_result_file"] == str(artifacts.launcher_result_file)
+
+
 def test_start_records_detached_ownership_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config = load_cao_server_launcher_config(_write_config(tmp_path))
+    config = load_cao_server_launcher_config(
+        _write_config(tmp_path, base_url="http://127.0.0.1:9991")
+    )
 
     probe_results = iter([False, True])
+    captured_launch_env: dict[str, str] = {}
 
     def fake_status(*args, **kwargs):  # type: ignore[no-untyped-def]
         del args, kwargs
@@ -226,7 +282,7 @@ def test_start_records_detached_ownership_metadata(
     )
     monkeypatch.setattr(
         "gig_agents.cao.server_launcher._launch_cao_server_detached",
-        lambda **kwargs: FakeProcess(),
+        lambda **kwargs: captured_launch_env.update(kwargs["launch_env"]) or FakeProcess(),
     )
     monkeypatch.setattr(
         "gig_agents.cao.server_launcher._process_group_id_for_pid",
@@ -245,6 +301,7 @@ def test_start_records_detached_ownership_metadata(
     assert ownership.pid == 4242
     assert ownership.process_group_id == 4242
     assert ownership.executable_path == Path("/tmp/fake-bin/cao-server")
+    assert captured_launch_env["CAO_PORT"] == "9991"
 
 
 def test_stop_refuses_to_kill_when_ownership_metadata_disagrees_with_pidfile(
@@ -296,7 +353,9 @@ def test_status_cao_server_injects_loopback_no_proxy_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config = load_cao_server_launcher_config(_write_config(tmp_path))
+    config = load_cao_server_launcher_config(
+        _write_config(tmp_path, base_url="http://127.0.0.1:9991")
+    )
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
@@ -333,7 +392,9 @@ def test_status_cao_server_preserve_mode_leaves_no_proxy_untouched(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config = load_cao_server_launcher_config(_write_config(tmp_path))
+    config = load_cao_server_launcher_config(
+        _write_config(tmp_path, base_url="http://127.0.0.1:9991")
+    )
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
     monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
@@ -386,3 +447,70 @@ def test_launcher_preflight_accepts_present_executable(
         )
         == "/usr/bin/cao-server"
     )
+
+
+def test_start_surfaces_explicit_error_when_spawned_server_ignores_cao_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = load_cao_server_launcher_config(
+        _write_config(
+            tmp_path,
+            base_url="http://127.0.0.1:9991",
+            startup_timeout_seconds=0.05,
+        )
+    )
+
+    class FakeProcess:
+        pid = 4242
+
+        @staticmethod
+        def poll() -> int | None:
+            return None
+
+    def fake_status(*args, **kwargs):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        return type(
+            "_Status",
+            (),
+            {
+                "operation": "status",
+                "base_url": config.base_url,
+                "healthy": False,
+                "health_status": None,
+                "service": None,
+                "error": "connection refused",
+            },
+        )()
+
+    monotonic_values = iter([0.0, 0.0, 0.1])
+
+    monkeypatch.setattr("gig_agents.cao.server_launcher.status_cao_server", fake_status)
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._require_executable_on_path",
+        lambda *args, **kwargs: "/tmp/fake-bin/cao-server",
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._launch_cao_server_detached",
+        lambda **kwargs: FakeProcess(),
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._process_group_id_for_pid",
+        lambda pid: pid,
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._process_listens_on_loopback_port",
+        lambda pid, port: port == 9889,
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher._terminate_process_tree",
+        lambda pid, process_group_id=None: None,
+    )
+    monkeypatch.setattr(
+        "gig_agents.cao.server_launcher.time.monotonic",
+        lambda: next(monotonic_values),
+    )
+    monkeypatch.setattr("gig_agents.cao.server_launcher.time.sleep", lambda _: None)
+
+    with pytest.raises(CaoServerLauncherError, match=r"ignore `CAO_PORT`"):
+        start_cao_server(config)

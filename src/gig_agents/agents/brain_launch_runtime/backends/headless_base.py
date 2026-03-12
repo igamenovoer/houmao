@@ -10,7 +10,7 @@ from typing import Any
 
 from gig_agents.cao.no_proxy import inject_loopback_no_proxy_env
 
-from ..agent_identity import AGENT_MANIFEST_PATH_ENV_VAR
+from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
 from ..errors import BackendExecutionError
 from ..models import BackendKind, LaunchPlan, SessionControlResult, SessionEvent
 from .claude_bootstrap import ensure_claude_home_bootstrap
@@ -49,6 +49,7 @@ class HeadlessInteractiveSession:
         launch_plan: LaunchPlan,
         role_name: str,
         session_manifest_path: Path,
+        agent_def_dir: Path | None = None,
         state: HeadlessSessionState | None = None,
         tmux_session_name: str | None = None,
         output_format: str = "stream-json",
@@ -65,6 +66,7 @@ class HeadlessInteractiveSession:
         self._runner = HeadlessCliRunner()
         self._output_format = output_format
         self._session_manifest_path = session_manifest_path.resolve()
+        self._agent_def_dir = agent_def_dir.resolve() if agent_def_dir is not None else None
         self._turn_artifacts_root = (
             self._session_manifest_path.parent
             / f"{self._session_manifest_path.stem}.turn-artifacts"
@@ -130,7 +132,7 @@ class HeadlessInteractiveSession:
 
         if run_result.session_id:
             self._state.session_id = run_result.session_id
-            self._publish_tmux_manifest_pointer()
+            self._publish_tmux_session_environment()
 
         events = list(run_result.events)
         if self._state.session_id is None:
@@ -204,6 +206,12 @@ class HeadlessInteractiveSession:
 
         self.terminate()
 
+    def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
+        """Replace the launch plan and republish tmux session environment."""
+
+        self._plan = launch_plan
+        self._publish_tmux_session_environment()
+
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         effective_prompt = prompt
@@ -251,7 +259,7 @@ class HeadlessInteractiveSession:
                     f"`{persisted}` but it is unavailable: {detail}"
                 )
             self._state.tmux_session_name = persisted
-            self._publish_tmux_manifest_pointer()
+            self._publish_tmux_session_environment()
             return
 
         requested = (requested_tmux_session_name or "").strip()
@@ -284,9 +292,9 @@ class HeadlessInteractiveSession:
             raise BackendExecutionError(str(exc)) from exc
 
         self._state.tmux_session_name = session_name
-        self._publish_tmux_manifest_pointer()
+        self._publish_tmux_session_environment()
 
-    def _publish_tmux_manifest_pointer(self) -> None:
+    def _publish_tmux_session_environment(self) -> None:
         session_name = self._state.tmux_session_name
         if not session_name:
             return
@@ -295,6 +303,8 @@ class HeadlessInteractiveSession:
         launch_env.update(self._plan.env)
         launch_env[self._plan.home_env_var] = str(self._plan.home_path)
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
+        if self._agent_def_dir is not None:
+            launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)
         launch_env["AGENTSYS_TOOL"] = self._plan.tool
         if self._state.session_id:
             launch_env["AGENTSYS_RESUME_ID"] = self._state.session_id

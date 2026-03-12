@@ -12,6 +12,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from gig_agents.agents.mailbox_runtime_support import (
+    parse_declarative_mailbox_config,
+    project_runtime_mailbox_system_skills,
+    serialize_declarative_mailbox_config,
+)
+from gig_agents.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+
 _AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 _DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
 
@@ -53,6 +60,7 @@ class BrainRecipe:
     config_profile: str
     credential_profile: str
     default_agent_name: str | None = None
+    mailbox: MailboxDeclarativeConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +71,7 @@ class BuildRequest:
     skills: list[str]
     config_profile: str
     credential_profile: str
+    mailbox: MailboxDeclarativeConfig | None = None
     home_id: str | None = None
     reuse_home: bool = False
 
@@ -216,6 +225,13 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
     if default_agent_name is not None:
         if not isinstance(default_agent_name, str) or not default_agent_name.strip():
             raise BuildError(f"{path}: default_agent_name must be a non-empty string when set")
+    try:
+        mailbox = parse_declarative_mailbox_config(
+            payload.get("mailbox"),
+            source=str(path),
+        )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
     recipe = BrainRecipe(
         name=_require_str(payload, "name", where=str(path)),
         tool=_require_str(payload, "tool", where=str(path)),
@@ -225,6 +241,7 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
         default_agent_name=default_agent_name.strip()
         if isinstance(default_agent_name, str)
         else None,
+        mailbox=mailbox,
     )
     return recipe
 
@@ -474,6 +491,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         source = skills_root / skill_name
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
+    project_runtime_mailbox_system_skills(skill_destination_dir)
 
     _validate_relative_path(adapter.credential_files_dir, field="credential_projection.files_dir")
     credential_files_dir = credential_profile_dir / adapter.credential_files_dir
@@ -557,6 +575,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             },
         },
     }
+    if request.mailbox is not None:
+        manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
 
     manifest_path = manifests_dir / f"{home_id}.yaml"
     _write_mapping_file(manifest_path, manifest)
@@ -657,6 +677,7 @@ def main(argv: list[str] | None = None) -> int:
         skills=skills,
         config_profile=config_profile_raw,
         credential_profile=credential_profile_raw,
+        mailbox=recipe.mailbox if recipe else None,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
     )

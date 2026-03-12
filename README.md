@@ -70,10 +70,10 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from the official repository:
+CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `gig-agents` and may include features beyond upstream `main`:
 
 ```bash
-uv tool install git+https://github.com/awslabs/cli-agent-orchestrator.git@main --upgrade
+uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
 ```
 
 Verify the required executables are available:
@@ -306,6 +306,8 @@ gig-cao-server status --config config/cao-server-launcher/local.toml
 gig-cao-server stop   --config config/cao-server-launcher/local.toml
 ```
 
+For a one-off local port override, add `--base-url http://127.0.0.1:9991`.
+
 Start a session through CAO:
 
 ```bash
@@ -315,6 +317,9 @@ gig-agents-cli start-session \
   --backend cao_rest \
   --cao-base-url http://localhost:9889
 ```
+
+Supported local CAO URLs use `http://localhost:<port>` or
+`http://127.0.0.1:<port>`.
 
 ## Developer Guide
 
@@ -418,18 +423,19 @@ pixi run test-runtime
 
 ### CAO
 
-CAO (CLI Agent Orchestrator) is the upstream service that provides the REST session/terminal control plane used by the `cao_rest` backend and the local `gig-cao-server` launcher flow.
+CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used by the `cao_rest` backend and the local `gig-cao-server` launcher flow.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
-Install CAO (external) and verify required executables are on `PATH`:
+Install CAO from our forked `hz-release` branch and verify required executables are on `PATH`. We recommend the fork because `gig-agents` may depend on CAO features that are not yet present on upstream `main`:
 
 ```bash
-uv tool install cli-agent-orchestrator
+uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
 command -v cao-server
 command -v tmux
 ```
 
-Official upstream links:
+Primary CAO links:
 
-- Repository: <https://github.com/awslabs/cli-agent-orchestrator>
-- Repository README (install + usage): <https://github.com/awslabs/cli-agent-orchestrator#readme>
+- Supported fork: <https://github.com/imsight-forks/cli-agent-orchestrator/tree/hz-release>
+- Fork README (install + usage): <https://github.com/imsight-forks/cli-agent-orchestrator/tree/hz-release#readme>
+- Original upstream project: <https://github.com/awslabs/cli-agent-orchestrator>

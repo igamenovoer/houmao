@@ -174,26 +174,10 @@ def _replace_existing_cao_server(
     if _stop_cao_server_with_known_configs(paths=paths, env=env, run_command=run_command):
         return
 
-    candidate_pids = _find_listening_pids_for_port(_fixed_cao_port())
-    if len(candidate_pids) != 1:
-        raise DemoWorkflowError(
-            "Refusing to replace the fixed loopback `cao-server` because the listening "
-            "process could not be uniquely identified."
-        )
-
-    pid = candidate_pids[0]
-    cmdline = _read_process_cmdline(pid)
-    if cmdline is None or not _looks_like_cao_server_cmdline(cmdline):
-        raise DemoWorkflowError(
-            "Refusing to replace the fixed loopback service because the listening "
-            f"process did not verify as `cao-server` (pid={pid})."
-        )
-
-    _terminate_process(pid)
-    if _loopback_port_is_listening(FIXED_CAO_BASE_URL):
-        raise DemoWorkflowError(
-            "Failed to clear the fixed loopback `cao-server` before replacement."
-        )
+    raise DemoWorkflowError(
+        "Failed to replace the verified fixed loopback `cao-server`: exhausted known "
+        "launcher configs while the service was still listening."
+    )
 
 
 def _stop_cao_server_with_known_configs(
@@ -205,6 +189,7 @@ def _stop_cao_server_with_known_configs(
     """Try launcher-managed stop using the current and previously recorded demo configs."""
 
     config_paths = _known_launcher_config_paths(paths=paths, env=env)
+    candidate_count = len(config_paths)
     for index, config_path in enumerate(config_paths, start=1):
         result = run_command(
             _launcher_cli_command(["stop", "--config", str(config_path)]),
@@ -213,11 +198,23 @@ def _stop_cao_server_with_known_configs(
             paths.logs_dir / f"cao-stop-{index}.stderr",
             env.timeout_seconds,
         )
-        stop_payload = _parse_command_json_output(
-            result,
-            context="CAO launcher stop output",
-            allow_stderr_json=True,
-        )
+        try:
+            stop_payload = _parse_command_json_output(
+                result,
+                context="CAO launcher stop output",
+                allow_stderr_json=True,
+            )
+        except DemoWorkflowError:
+            if not _loopback_port_is_listening(FIXED_CAO_BASE_URL):
+                return True
+            if index < candidate_count:
+                _require_verified_loopback_replacement_target(
+                    paths=paths,
+                    env=env,
+                    run_command=run_command,
+                )
+                continue
+            return False
         if bool(stop_payload.get("stopped")) or bool(stop_payload.get("already_stopped")):
             if _wait_for_loopback_port_clear(
                 timeout_seconds=DEFAULT_CAO_STOP_CLEAR_TIMEOUT_SECONDS
@@ -225,7 +222,39 @@ def _stop_cao_server_with_known_configs(
                 return True
         if not _loopback_port_is_listening(FIXED_CAO_BASE_URL):
             return True
+        if index < candidate_count:
+            _require_verified_loopback_replacement_target(
+                paths=paths,
+                env=env,
+                run_command=run_command,
+            )
     return False
+
+
+def _require_verified_loopback_replacement_target(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    run_command: CommandRunner,
+) -> None:
+    """Require that the fixed loopback target still verifies as the managed CAO server."""
+
+    status_payload = _launcher_status_payload(paths=paths, env=env, run_command=run_command)
+    if _launcher_status_is_verified_cao_server(status_payload):
+        return
+
+    details: list[str] = []
+    service = status_payload.get("service")
+    if isinstance(service, str) and service.strip():
+        details.append(f"service={service!r}")
+    error = status_payload.get("error")
+    if isinstance(error, str) and error.strip():
+        details.append(f"error={error!r}")
+    suffix = f" ({', '.join(details)})." if details else "."
+    raise DemoWorkflowError(
+        "The fixed loopback target could no longer be safely verified as `cao-server` "
+        f"during replacement{suffix}"
+    )
 
 
 def _known_launcher_config_paths(*, paths: DemoPaths, env: DemoEnvironment) -> list[Path]:
@@ -268,11 +297,9 @@ def _loopback_port_is_listening(_: str) -> bool:
 
     forced_state = os.environ.get(TEST_LOOPBACK_PORT_LISTENING_ENV)
     if forced_state is not None:
-        normalized = forced_state.strip().lower()
-        if normalized in {"1", "true", "yes", "y", "occupied", "listening"}:
-            return True
-        if normalized in {"0", "false", "no", "n", "free", "not_listening"}:
-            return False
+        interpreted_state = _interpret_forced_loopback_port_state(forced_state)
+        if interpreted_state is not None:
+            return interpreted_state
 
     parsed = socket.getaddrinfo("127.0.0.1", _fixed_cao_port(), type=socket.SOCK_STREAM)
     for family, socktype, proto, _, sockaddr in parsed:
@@ -284,6 +311,25 @@ def _loopback_port_is_listening(_: str) -> bool:
         except OSError:
             continue
     return False
+
+
+def _interpret_forced_loopback_port_state(raw_value: str) -> bool | None:
+    """Interpret the test-only loopback-port override when one is configured."""
+
+    normalized = raw_value.strip()
+    if normalized.startswith("file:"):
+        state_path = Path(normalized.removeprefix("file:")).expanduser()
+        try:
+            normalized = state_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+
+    lowered = normalized.lower()
+    if lowered in {"1", "true", "yes", "y", "occupied", "listening"}:
+        return True
+    if lowered in {"0", "false", "no", "n", "free", "not_listening"}:
+        return False
+    return None
 
 
 def _fixed_cao_port() -> int:

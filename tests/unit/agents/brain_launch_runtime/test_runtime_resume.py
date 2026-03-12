@@ -199,6 +199,8 @@ def test_resume_cao_uses_manifest_api_base_url(
 
     assert captured["api_base_url"] == "http://manifest-only.example:9444"
     assert captured["existing_state"].api_base_url == "http://manifest-only.example:9444"
+    assert captured["agent_def_dir"] == agent_def_dir.resolve()
+    assert captured["session_manifest_path"] == session_path.resolve()
     assert controller.launch_plan.backend == "cao_rest"
     assert "api_base_url" not in inspect.signature(resume_runtime_session).parameters
 

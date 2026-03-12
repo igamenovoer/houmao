@@ -45,6 +45,7 @@ The demo keeps prompt turns and raw control input separate:
 - `send_prompt.sh` records prompt/response artifacts under `turns/`
 - `send_keys.sh` and `run_demo.sh send-keys ...` record control-input artifacts under `controls/`
 - control-input actions do not count as prompt turns for `verify`
+- those name-addressed follow-up commands intentionally omit explicit `--agent-def-dir` when they call runtime `send-prompt`, `send-keys`, and `stop-session`, so runtime recovers the active session's agent-definition root from tmux session state
 
 ## Inspect And Verify Surfaces
 
@@ -90,5 +91,6 @@ The canonical package is `gig_agents.demo.cao_interactive_demo`.
 3. The demo package resolves the selected brain recipe under `tests/fixtures/agents/brains/brain-recipes/` (or the overridden agent-definition directory).
 4. The demo delegates brain construction through `gig_agents.agents.brain_launch_runtime build-brain --recipe <resolved-path>`.
 5. The demo uses `gig_agents.agents.brain_launch_runtime` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
+6. Build/start still pass the explicit demo-selected agent-definition directory, but prompt/control/stop flows target the persisted agent name and rely on the session's published `AGENTSYS_AGENT_DEF_DIR`.
 
 For the lower-level runtime contract, see [Brain Launch Runtime](./brain_launch_runtime.md).

@@ -10,6 +10,7 @@ from urllib import error
 import pytest
 
 from gig_agents.agents.brain_launch_runtime.agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
 from gig_agents.agents.brain_launch_runtime.backends.cao_rest import (
@@ -171,7 +172,7 @@ def test_compose_tmux_launch_env_injects_loopback_no_proxy_by_default(
 
     launch_env = _compose_tmux_launch_env(
         _sample_launch_plan(tmp_path),
-        api_base_url="http://localhost:9889",
+        api_base_url="http://localhost:9991",
     )
 
     assert launch_env["HTTP_PROXY"] == "http://proxy.internal:8080"
@@ -194,7 +195,7 @@ def test_compose_tmux_launch_env_preserve_mode_leaves_no_proxy_untouched(
 
     launch_env = _compose_tmux_launch_env(
         _sample_launch_plan(tmp_path),
-        api_base_url="http://localhost:9889",
+        api_base_url="http://localhost:9991",
     )
 
     assert launch_env["HTTP_PROXY"] == "http://proxy.internal:8080"
@@ -250,7 +251,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
 
-    client = CaoRestClient("http://localhost:9889")
+    client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
     terminal = client.create_terminal(
         "s1",
@@ -276,7 +277,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     assert urls[0].endswith("/health")
     assert (
         urls[1]
-        == "http://localhost:9889/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
+        == "http://127.0.0.1:9991/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
     )
     assert urls[2].endswith("/terminals/a1b2c3d4/input?message=hello")
     assert urls[3].endswith("/terminals/a1b2c3d4/output?mode=last")
@@ -304,7 +305,7 @@ def test_cao_rest_client_injects_loopback_no_proxy_by_default(
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
 
-    client = CaoRestClient("http://localhost:9889")
+    client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
 
     assert health.status == "ok"
@@ -610,6 +611,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
         role_prompt="role prompt",
         parsing_mode=parsing_mode,  # type: ignore[arg-type]
         session_manifest_path=tmp_path / "session.json",
+        agent_def_dir=tmp_path,
     )
 
     assert captured_tmux["available"] is True
@@ -623,6 +625,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert env_vars["UNALLOWLISTED_TMUX_VAR"] == "present"
     assert env_vars["INHERITED_CALLER_ENV"] == "caller-value"
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str(tmp_path / "session.json")
+    assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(tmp_path.resolve())
     assert captured_codex_bootstrap["home_path"] == tmp_path / "home"
     assert captured_codex_bootstrap["env"]["OPENAI_API_KEY"] == "secret"
     assert captured_codex_bootstrap["working_directory"] == tmp_path
@@ -652,6 +655,52 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
             "head": "hello\nresponse",
             "tail": "hello\nresponse",
         }
+
+
+def test_cao_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "agents"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    captured_tmux_env: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest._set_tmux_session_environment",
+        lambda *, session_name, env_vars: captured_tmux_env.update(
+            {"session_name": session_name, "env_vars": dict(env_vars)}
+        ),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.backends.cao_rest.ensure_codex_home_bootstrap",
+        lambda **kwargs: None,
+    )
+
+    CaoRestSession(
+        launch_plan=_sample_launch_plan(tmp_path, tool="codex"),
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        session_manifest_path=tmp_path / "session.json",
+        agent_def_dir=agent_def_dir,
+        existing_state=CaoSessionState(
+            api_base_url="http://localhost:9889",
+            session_name="AGENTSYS-gpu",
+            terminal_id="term-123",
+            profile_name="runtime-profile",
+            profile_path=str(tmp_path / "runtime-profile.md"),
+            parsing_mode="shadow_only",
+            tmux_window_name="developer-1",
+            turn_index=2,
+        ),
+    )
+
+    assert captured_tmux_env["session_name"] == "AGENTSYS-gpu"
+    env_vars = captured_tmux_env["env_vars"]
+    assert isinstance(env_vars, dict)
+    assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
+    assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(agent_def_dir.resolve())
 
 
 def test_cao_backend_startup_prune_failure_warns_but_keeps_launch_successful(

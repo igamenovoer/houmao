@@ -65,13 +65,8 @@ print(f"{started}:{reused}:{pid_text}")
 PY
 }
 
-cao_url_is_local_default() {
-  case "$CAO_BASE_URL" in
-    http://localhost:9889 | http://127.0.0.1:9889)
-      return 0
-      ;;
-  esac
-  return 1
+cao_url_is_supported_loopback() {
+  [[ "$CAO_BASE_URL" =~ ^http://(localhost|127\.0\.0\.1):[0-9]+$ ]]
 }
 
 ensure_cao_server() {
@@ -87,11 +82,11 @@ ensure_cao_server() {
     status_healthy=1
   fi
 
-  if [[ "$status_healthy" -eq 1 ]] && ! cao_url_is_local_default; then
+  if [[ "$status_healthy" -eq 1 ]] && ! cao_url_is_supported_loopback; then
     log "CAO server is healthy at ${CAO_BASE_URL} (launcher status)"
     return 0
   fi
-  if ! cao_url_is_local_default; then
+  if ! cao_url_is_supported_loopback; then
     skip "CAO server is unavailable at ${CAO_BASE_URL} (launcher status probe failed; see $launcher_status_error_path)"
   fi
 

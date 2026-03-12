@@ -30,6 +30,7 @@ from gig_agents.demo.cao_interactive_demo import (
     load_turn_records,
     main,
     save_demo_state,
+    send_control_input,
     send_turn,
     start_demo,
     stop_demo,
@@ -207,6 +208,7 @@ class FakeRunner:
                 },
             )
         ]
+        self.m_launcher_stop_raw_responses: list[tuple[int, str, str]] = []
 
     @property
     def calls(self) -> list[tuple[str, ...]]:
@@ -249,8 +251,11 @@ class FakeRunner:
                     returncode, payload = self.m_launcher_start_response
                     stdout = json.dumps(payload)
                 elif subcommand == "stop":
-                    returncode, payload = self.m_launcher_stop_responses.pop(0)
-                    stdout = json.dumps(payload)
+                    if self.m_launcher_stop_raw_responses:
+                        returncode, stdout, stderr = self.m_launcher_stop_raw_responses.pop(0)
+                    else:
+                        returncode, payload = self.m_launcher_stop_responses.pop(0)
+                        stdout = json.dumps(payload)
             elif module == "gig_agents.agents.brain_launch_runtime":
                 if subcommand == "build-brain":
                     runtime_root = Path(self._argument_value(command, "--runtime-root"))
@@ -301,6 +306,15 @@ class FakeRunner:
                             json.dumps({"kind": "submitted", "message": "submitted"}),
                             json.dumps({"kind": "done", "message": f"echo: {prompt}"}),
                         ]
+                    )
+                elif subcommand == "send-keys":
+                    sequence = self._argument_value(command, "--sequence")
+                    stdout = json.dumps(
+                        {
+                            "status": "ok",
+                            "action": "control_input",
+                            "detail": f"control: {sequence}",
+                        }
                     )
                 elif subcommand == "stop-session":
                     stdout = json.dumps(
@@ -373,6 +387,7 @@ def test_start_demo_replaces_active_state_and_persists_new_metadata(
 
     stop_call = next(call for call in runner.calls if "stop-session" in call)
     assert stop_call[5] == "stop-session"
+    assert "--agent-def-dir" not in stop_call
     assert "--agent-identity" in stop_call
     assert stop_call[stop_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
@@ -779,13 +794,21 @@ def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
     )
 
 
-def test_start_demo_verified_cao_replacement_failure_leaves_no_active_state(
+def test_start_demo_verified_cao_replacement_retries_later_known_configs_after_invalid_stop_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     paths = _make_paths(tmp_path)
     env = _make_env(tmp_path)
     runner = FakeRunner(tmp_path)
+    previous_paths = DemoPaths.from_workspace_root(env.demo_base_root / "20260311-older")
+    demo_cao_server._write_launcher_config(
+        previous_paths.launcher_config_path,
+        env=env,
+        runtime_root=previous_paths.runtime_root,
+    )
+    env.current_run_root_path.parent.mkdir(parents=True, exist_ok=True)
+    env.current_run_root_path.write_text(f"{previous_paths.workspace_root}\n", encoding="utf-8")
     runner.m_launcher_status_responses = [
         (
             0,
@@ -797,6 +820,108 @@ def test_start_demo_verified_cao_replacement_failure_leaves_no_active_state(
                 "service": "cli-agent-orchestrator",
                 "error": None,
             },
+        ),
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        ),
+    ]
+    runner.m_launcher_stop_raw_responses = [
+        (
+            2,
+            "",
+            "Traceback (most recent call last):\nFileNotFoundError: launcher_result.json",
+        )
+    ]
+
+    _patch_demo_tools_available(monkeypatch)
+    monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: True)
+    monkeypatch.setattr(
+        demo_cao_server,
+        "_wait_for_loopback_port_clear",
+        lambda *, timeout_seconds: True,
+    )
+    monkeypatch.setattr(
+        demo_cao_server,
+        "_find_listening_pids_for_port",
+        lambda _: pytest.fail("unexpected procfs fallback for verified replacement"),
+    )
+
+    payload = start_demo(
+        paths=paths,
+        env=env,
+        agent_name_override="demo",
+        brain_recipe_selector=None,
+        run_command=runner,
+    )
+
+    assert payload["state"]["active"] is True
+
+    stop_calls = [
+        call
+        for call in runner.calls
+        if len(call) > 5
+        and call[4] == "gig_agents.cao.tools.cao_server_launcher"
+        and call[5] == "stop"
+    ]
+    assert len(stop_calls) == 2
+    assert stop_calls[0][stop_calls[0].index("--config") + 1] == str(paths.launcher_config_path)
+    assert stop_calls[1][stop_calls[1].index("--config") + 1] == str(
+        previous_paths.launcher_config_path
+    )
+
+
+def test_start_demo_verified_cao_replacement_failure_after_exhausting_known_configs_leaves_no_active_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    runner = FakeRunner(tmp_path)
+    previous_paths = DemoPaths.from_workspace_root(env.demo_base_root / "20260311-older")
+    demo_cao_server._write_launcher_config(
+        previous_paths.launcher_config_path,
+        env=env,
+        runtime_root=previous_paths.runtime_root,
+    )
+    env.current_run_root_path.parent.mkdir(parents=True, exist_ok=True)
+    env.current_run_root_path.write_text(f"{previous_paths.workspace_root}\n", encoding="utf-8")
+    runner.m_launcher_status_responses = [
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        ),
+        (
+            0,
+            {
+                "operation": "status",
+                "base_url": FIXED_CAO_BASE_URL,
+                "healthy": True,
+                "health_status": "ok",
+                "service": "cli-agent-orchestrator",
+                "error": None,
+            },
+        ),
+    ]
+    runner.m_launcher_stop_raw_responses = [
+        (
+            2,
+            "",
+            "Traceback (most recent call last):\nFileNotFoundError: launcher_result.json",
         )
     ]
     runner.m_launcher_stop_responses = [
@@ -814,9 +939,16 @@ def test_start_demo_verified_cao_replacement_failure_leaves_no_active_state(
 
     _patch_demo_tools_available(monkeypatch)
     monkeypatch.setattr(demo_cao_server, "_loopback_port_is_listening", lambda _: True)
-    monkeypatch.setattr(demo_cao_server, "_find_listening_pids_for_port", lambda _: [])
+    monkeypatch.setattr(
+        demo_cao_server,
+        "_find_listening_pids_for_port",
+        lambda _: pytest.fail("unexpected procfs fallback after known-config exhaustion"),
+    )
 
-    with pytest.raises(DemoWorkflowError, match="could not be uniquely identified"):
+    with pytest.raises(
+        DemoWorkflowError,
+        match="exhausted known launcher configs while the service was still listening",
+    ):
         start_demo(
             paths=paths,
             env=env,
@@ -916,7 +1048,30 @@ def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> No
     records = load_turn_records(paths.turns_dir)
     assert [record.turn_index for record in records] == [1]
     send_call = next(call for call in runner.calls if "send-prompt" in call)
+    assert "--agent-def-dir" not in send_call
     assert send_call[send_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
+
+
+def test_send_control_input_omits_agent_def_dir_for_name_based_runtime_call(
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    _seed_state(paths, active=True)
+    runner = FakeRunner(tmp_path)
+
+    record = send_control_input(
+        paths=paths,
+        env=env,
+        key_stream="<[Escape]>",
+        as_raw_string=False,
+        run_command=runner,
+    )
+
+    assert record.result.status == "ok"
+    send_keys_call = next(call for call in runner.calls if "send-keys" in call)
+    assert "--agent-def-dir" not in send_keys_call
+    assert send_keys_call[send_keys_call.index("--agent-identity") + 1] == "AGENTSYS-demo"
 
 
 def test_send_turn_succeeds_after_recovered_model_switch_history(tmp_path: Path) -> None:
@@ -1233,6 +1388,7 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
     paths = _make_paths(tmp_path)
     env = _make_env(tmp_path)
     _seed_state(paths, active=True)
+    commands: list[tuple[str, ...]] = []
 
     def _runner(
         command: list[str],
@@ -1241,6 +1397,7 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
         stderr_path: Path,
         timeout_seconds: float,
     ) -> CommandResult:
+        commands.append(tuple(command))
         stderr = "error: Agent not found: tmux session `AGENTSYS-demo` does not exist."
         stdout_path.parent.mkdir(parents=True, exist_ok=True)
         stderr_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1265,6 +1422,8 @@ def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) 
     assert state is not None
     assert state.active is False
     assert payload["stop_result"]["stale_session_tolerated"] is True
+    stop_call = next(call for call in commands if "stop-session" in call)
+    assert "--agent-def-dir" not in stop_call
 
 
 def test_verify_demo_requires_reused_agent_identity_across_two_turns(tmp_path: Path) -> None:
