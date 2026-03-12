@@ -50,7 +50,7 @@ When writing directly to the filesystem transport:
 1. Stage the outgoing message before exposing it to recipients.
 2. Inspect `rules/scripts/requirements.txt` before invoking a shared Python helper from `rules/scripts/`.
 3. Use the shared helper script from `rules/scripts/` for sensitive steps that touch `index.sqlite` or `locks/`.
-4. Respect the mailbox `.lock` files for any principal whose mailbox state or projections will be changed.
+4. Respect the mailbox `.lock` files for any full mailbox address whose registration, mailbox state, or projections will be changed.
 5. Place the canonical delivered Markdown message under `messages/<YYYY-MM-DD>/...`.
 6. Materialize recipient inbox and sender sent entries as symlink projections to that canonical message instead of copying the message body into mailbox folders.
 7. Keep canonical message content immutable after delivery.

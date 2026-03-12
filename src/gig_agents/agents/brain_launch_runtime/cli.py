@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from gig_agents.agents.brain_builder import BuildRequest, build_brain_home
+from gig_agents.mailbox.protocol import mailbox_address_path_segment
 
 from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
@@ -222,8 +223,8 @@ def _build_parser() -> argparse.ArgumentParser:
     mail_send.add_argument("--to", action="append", required=True, dest="to_recipients")
     mail_send.add_argument("--cc", action="append", default=[], dest="cc_recipients")
     mail_send.add_argument("--subject", required=True)
-    mail_send.add_argument("--instruction")
     mail_send.add_argument("--body-file")
+    mail_send.add_argument("--body-content")
     mail_send.add_argument("--attach", action="append", default=[], dest="attachments")
 
     mail_reply = mail_subparsers.add_parser(
@@ -232,8 +233,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_mail_common_args(mail_reply)
     mail_reply.add_argument("--message-id", required=True)
-    mail_reply.add_argument("--instruction")
     mail_reply.add_argument("--body-file")
+    mail_reply.add_argument("--body-content")
     mail_reply.add_argument("--attach", action="append", default=[], dest="attachments")
 
     return parser
@@ -534,31 +535,46 @@ def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, obj
     attachments = validate_attachment_paths(
         [_resolve_path(value, base=cwd) for value in list(getattr(args, "attachments", ()) or ())]
     )
-    body_markdown = (
-        load_mail_body_file(_resolve_path(args.body_file, base=cwd))
-        if getattr(args, "body_file", None)
-        else None
-    )
-    instruction = str(args.instruction) if getattr(args, "instruction", None) is not None else None
-    if body_markdown is None and (instruction is None or not instruction.strip()):
+    body_file = getattr(args, "body_file", None)
+    body_content = getattr(args, "body_content", None)
+    if body_file and body_content:
         raise BrainLaunchRuntimeError(
-            f"mail {args.mail_command} requires --instruction or --body-file."
+            f"mail {args.mail_command} accepts only one of --body-file or --body-content."
         )
+    body_markdown = load_mail_body_file(_resolve_path(body_file, base=cwd)) if body_file else None
+    if body_markdown is None and (body_content is None or not str(body_content).strip()):
+        raise BrainLaunchRuntimeError(
+            f"mail {args.mail_command} requires explicit body content via --body-file or --body-content."
+        )
+    if body_markdown is None:
+        body_markdown = str(body_content)
 
     if args.mail_command == "send":
         return {
-            "to": [str(value) for value in args.to_recipients],
-            "cc": [str(value) for value in args.cc_recipients],
+            "to": _validated_mailbox_addresses(list(args.to_recipients)),
+            "cc": _validated_mailbox_addresses(list(args.cc_recipients)),
             "subject": str(args.subject),
-            "instruction": instruction,
-            "body_markdown": body_markdown,
+            "body_content": body_markdown,
             "attachments": attachments,
         }
     if args.mail_command == "reply":
         return {
             "message_id": str(args.message_id),
-            "instruction": instruction,
-            "body_markdown": body_markdown,
+            "body_content": body_markdown,
             "attachments": attachments,
         }
     raise BrainLaunchRuntimeError(f"Unsupported mail subcommand: {args.mail_command!r}")
+
+
+def _validated_mailbox_addresses(values: list[str]) -> list[str]:
+    """Validate full mailbox recipient addresses for runtime mail commands."""
+
+    normalized: list[str] = []
+    for value in values:
+        try:
+            normalized.append(mailbox_address_path_segment(str(value)))
+        except RuntimeError as exc:
+            raise BrainLaunchRuntimeError(
+                f"mail recipients must use full mailbox addresses; got `{value}` ({exc})"
+            ) from exc
+    return normalized

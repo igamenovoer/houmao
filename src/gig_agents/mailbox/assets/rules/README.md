@@ -6,6 +6,8 @@ This mailbox root is managed by `gig-agents`.
 
 - `protocols/filesystem-mailbox-v1.md` documents the v1 filesystem mailbox contract shipped with this build.
 - `scripts/requirements.txt` declares the third-party Python dependencies needed by the managed mailbox scripts in this mailbox root.
+- `scripts/register_mailbox.py` is the managed entrypoint for `safe`, `force`, and `stash` mailbox registration flows.
+- `scripts/deregister_mailbox.py` is the managed entrypoint for `deactivate` and `purge` mailbox deregistration flows.
 - `scripts/deliver_message.py` is the managed delivery entrypoint for mailbox writes that touch projections or SQLite state.
 - `scripts/insert_standard_headers.py` is the managed helper for standard mailbox front matter and header normalization.
 - `scripts/update_mailbox_state.py` is the managed entrypoint for mailbox-state mutations.

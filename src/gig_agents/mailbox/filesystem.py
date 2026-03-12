@@ -1,9 +1,8 @@
-"""Filesystem mailbox bootstrap helpers."""
+"""Filesystem mailbox bootstrap helpers and registration lookups."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -11,24 +10,46 @@ import sqlite3
 import stat
 
 from gig_agents.mailbox.errors import MailboxBootstrapError
-from gig_agents.mailbox.protocol import MAILBOX_PROTOCOL_VERSION, MailboxPrincipal
+from gig_agents.mailbox.protocol import (
+    MAILBOX_PROTOCOL_VERSION,
+    MailboxPrincipal,
+    mailbox_address_path_segment,
+)
 
 _PROTOCOL_VERSION_FILENAME = "protocol-version.txt"
 _SQLITE_JOURNAL_MODE = "DELETE"
 _MAILBOX_PLACEHOLDER_DIRS = ("inbox", "sent", "archive", "drafts")
+_STASHED_ENTRY_SUFFIX_LENGTH = 32
 
-_SCHEMA_STATEMENTS = (
+_REGISTRATION_SCHEMA_STATEMENTS = (
     """
-    CREATE TABLE IF NOT EXISTS principals (
-        principal_id TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS mailbox_registrations (
+        registration_id TEXT PRIMARY KEY,
         address TEXT NOT NULL,
+        owner_principal_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'stashed')),
+        mailbox_kind TEXT NOT NULL CHECK (mailbox_kind IN ('in_root', 'symlink')),
+        mailbox_path TEXT NOT NULL,
+        mailbox_entry_path TEXT NOT NULL,
         display_name TEXT,
         manifest_path_hint TEXT,
         role TEXT,
-        mailbox_kind TEXT NOT NULL,
-        mailbox_path TEXT NOT NULL,
-        created_at_utc TEXT NOT NULL
+        created_at_utc TEXT NOT NULL,
+        deactivated_at_utc TEXT,
+        replaced_by_registration_id TEXT,
+        FOREIGN KEY (replaced_by_registration_id)
+            REFERENCES mailbox_registrations(registration_id)
+            ON DELETE SET NULL
     )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mailbox_registrations_active_address
+    ON mailbox_registrations(address)
+    WHERE status = 'active'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mailbox_registrations_owner_principal
+    ON mailbox_registrations(owner_principal_id)
     """,
     """
     CREATE TABLE IF NOT EXISTS messages (
@@ -39,18 +60,28 @@ _SCHEMA_STATEMENTS = (
         canonical_path TEXT NOT NULL,
         subject TEXT NOT NULL,
         body_markdown TEXT NOT NULL,
-        headers_json TEXT NOT NULL DEFAULT '{}'
+        headers_json TEXT NOT NULL DEFAULT '{}',
+        sender_principal_id TEXT NOT NULL,
+        sender_address TEXT NOT NULL,
+        sender_display_name TEXT,
+        sender_manifest_path_hint TEXT,
+        sender_role TEXT,
+        sender_registration_id TEXT
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS message_recipients (
         message_id TEXT NOT NULL,
-        principal_id TEXT NOT NULL,
         recipient_kind TEXT NOT NULL,
         ordinal INTEGER NOT NULL,
-        PRIMARY KEY (message_id, principal_id, recipient_kind),
-        FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE,
-        FOREIGN KEY (principal_id) REFERENCES principals(principal_id) ON DELETE RESTRICT
+        address TEXT NOT NULL,
+        owner_principal_id TEXT NOT NULL,
+        display_name TEXT,
+        manifest_path_hint TEXT,
+        role TEXT,
+        delivered_registration_id TEXT,
+        PRIMARY KEY (message_id, recipient_kind, ordinal),
+        FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
     )
     """,
     """
@@ -76,25 +107,29 @@ _SCHEMA_STATEMENTS = (
     """,
     """
     CREATE TABLE IF NOT EXISTS mailbox_projections (
-        principal_id TEXT NOT NULL,
+        registration_id TEXT NOT NULL,
         message_id TEXT NOT NULL,
         folder_name TEXT NOT NULL,
         projection_path TEXT NOT NULL,
-        PRIMARY KEY (principal_id, message_id, folder_name),
-        FOREIGN KEY (principal_id) REFERENCES principals(principal_id) ON DELETE CASCADE,
+        PRIMARY KEY (registration_id, message_id, folder_name),
+        FOREIGN KEY (registration_id)
+            REFERENCES mailbox_registrations(registration_id)
+            ON DELETE CASCADE,
         FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS mailbox_state (
-        principal_id TEXT NOT NULL,
+        registration_id TEXT NOT NULL,
         message_id TEXT NOT NULL,
         is_read INTEGER NOT NULL DEFAULT 0,
         is_starred INTEGER NOT NULL DEFAULT 0,
         is_archived INTEGER NOT NULL DEFAULT 0,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (principal_id, message_id),
-        FOREIGN KEY (principal_id) REFERENCES principals(principal_id) ON DELETE CASCADE,
+        PRIMARY KEY (registration_id, message_id),
+        FOREIGN KEY (registration_id)
+            REFERENCES mailbox_registrations(registration_id)
+            ON DELETE CASCADE,
         FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
     )
     """,
@@ -108,9 +143,28 @@ _SCHEMA_STATEMENTS = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id)",
-    "CREATE INDEX IF NOT EXISTS idx_recipients_principal_id ON message_recipients(principal_id)",
-    "CREATE INDEX IF NOT EXISTS idx_state_principal_id ON mailbox_state(principal_id)",
+    "CREATE INDEX IF NOT EXISTS idx_recipients_address ON message_recipients(address)",
+    "CREATE INDEX IF NOT EXISTS idx_state_registration_id ON mailbox_state(registration_id)",
 )
+
+
+@dataclass(frozen=True)
+class MailboxRegistration:
+    """Registration metadata loaded from the mailbox index."""
+
+    registration_id: str
+    address: str
+    owner_principal_id: str
+    status: str
+    mailbox_kind: str
+    mailbox_path: Path
+    mailbox_entry_path: Path
+    display_name: str | None
+    manifest_path_hint: str | None
+    role: str | None
+    created_at_utc: str
+    deactivated_at_utc: str | None
+    replaced_by_registration_id: str | None
 
 
 @dataclass(frozen=True)
@@ -125,31 +179,30 @@ class FilesystemMailboxPaths:
     rules_scripts_dir: Path
     rules_skills_dir: Path
     locks_dir: Path
-    principal_locks_dir: Path
+    address_locks_dir: Path
     messages_dir: Path
     attachments_managed_dir: Path
     mailboxes_dir: Path
     staging_dir: Path
 
-    def principal_mailbox_dir(self, principal_id: str) -> Path:
-        """Return the mailbox directory for an in-root principal."""
+    def mailbox_entry_path(self, address: str) -> Path:
+        """Return the shared-root mailbox entry for an address."""
 
-        return self.mailboxes_dir / principal_id
+        return self.mailboxes_dir / mailbox_address_path_segment(address)
+
+    def stashed_mailbox_entry_path(self, address: str, suffix: str) -> Path:
+        """Return the shared-root path for a stashed mailbox artifact."""
+
+        return self.mailboxes_dir / f"{mailbox_address_path_segment(address)}--{suffix}"
+
+    def address_lock_path(self, address: str) -> Path:
+        """Return the shared address-scoped lock path."""
+
+        return self.address_locks_dir / f"{mailbox_address_path_segment(address)}.lock"
 
 
 def resolve_filesystem_mailbox_paths(mailbox_root: Path) -> FilesystemMailboxPaths:
-    """Resolve canonical filesystem mailbox paths.
-
-    Parameters
-    ----------
-    mailbox_root:
-        Root directory of the filesystem mailbox.
-
-    Returns
-    -------
-    FilesystemMailboxPaths
-        Canonical paths rooted at ``mailbox_root``.
-    """
+    """Resolve canonical filesystem mailbox paths."""
 
     root = mailbox_root.resolve()
     rules_dir = root / "rules"
@@ -162,7 +215,7 @@ def resolve_filesystem_mailbox_paths(mailbox_root: Path) -> FilesystemMailboxPat
         rules_scripts_dir=rules_dir / "scripts",
         rules_skills_dir=rules_dir / "skills",
         locks_dir=root / "locks",
-        principal_locks_dir=root / "locks" / "principals",
+        address_locks_dir=root / "locks" / "addresses",
         messages_dir=root / "messages",
         attachments_managed_dir=root / "attachments" / "managed",
         mailboxes_dir=root / "mailboxes",
@@ -175,29 +228,34 @@ def bootstrap_filesystem_mailbox(
     *,
     principal: MailboxPrincipal | None = None,
 ) -> FilesystemMailboxPaths:
-    """Create or validate a filesystem mailbox root.
-
-    Parameters
-    ----------
-    mailbox_root:
-        Target mailbox root.
-    principal:
-        Optional in-root principal to register during bootstrap.
-
-    Returns
-    -------
-    FilesystemMailboxPaths
-        Resolved mailbox paths for the bootstrapped root.
-    """
+    """Create or validate a filesystem mailbox root."""
 
     paths = resolve_filesystem_mailbox_paths(mailbox_root)
+    reason = unsupported_mailbox_root_reason(paths.root)
+    if reason is not None:
+        raise MailboxBootstrapError(reason)
+
     _ensure_directory_layout(paths)
     _ensure_protocol_version(paths.protocol_version_file)
     materialize_managed_rules_assets(paths)
     initialize_sqlite_schema(paths.sqlite_path)
 
     if principal is not None:
-        _register_in_root_principal(paths, principal)
+        from gig_agents.mailbox.managed import RegisterMailboxRequest, register_mailbox
+
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=principal.address,
+                owner_principal_id=principal.principal_id,
+                mailbox_kind="in_root",
+                mailbox_path=paths.mailbox_entry_path(principal.address),
+                display_name=principal.display_name,
+                manifest_path_hint=principal.manifest_path_hint,
+                role=principal.role,
+            ),
+        )
 
     return paths
 
@@ -220,6 +278,151 @@ def read_protocol_version(protocol_version_file: Path) -> int:
     return MAILBOX_PROTOCOL_VERSION
 
 
+def initialize_sqlite_schema(sqlite_path: Path) -> None:
+    """Create or validate the filesystem mailbox SQLite schema."""
+
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA journal_mode={_SQLITE_JOURNAL_MODE}")
+        for statement in _REGISTRATION_SCHEMA_STATEMENTS:
+            connection.execute(statement)
+        connection.commit()
+
+
+def materialize_managed_rules_assets(paths: FilesystemMailboxPaths) -> None:
+    """Copy managed mailbox `rules/` assets into the target mailbox root."""
+
+    source_root = resources.files("gig_agents.mailbox.assets") / "rules"
+    _copy_resource_tree(source_root, paths.rules_dir)
+
+
+def unsupported_mailbox_root_reason(mailbox_root: Path) -> str | None:
+    """Return a stale-root error message when a mailbox root is unsupported."""
+
+    root = mailbox_root.resolve()
+    if not root.exists():
+        return None
+
+    legacy_lock_dir = root / "locks" / "principals"
+    if legacy_lock_dir.exists():
+        return _stale_root_message(root, "legacy principal-scoped lock directory detected")
+
+    sqlite_path = root / "index.sqlite"
+    if sqlite_path.exists():
+        try:
+            with sqlite3.connect(sqlite_path) as connection:
+                table_rows = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+        except sqlite3.DatabaseError:
+            return _stale_root_message(
+                root,
+                "mailbox index is unreadable and cannot be reused safely",
+            )
+
+        table_names = {str(row[0]) for row in table_rows}
+        if "principals" in table_names:
+            return _stale_root_message(root, "legacy principal-scoped mailbox schema detected")
+
+    mailboxes_dir = root / "mailboxes"
+    if mailboxes_dir.exists():
+        try:
+            entries = list(mailboxes_dir.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
+            if _parse_mailbox_entry_name(entry.name) is None:
+                return _stale_root_message(
+                    root,
+                    f"unsupported mailbox entry `{entry.name}` detected",
+                )
+
+    return None
+
+
+def load_active_mailbox_registration(
+    mailbox_root: Path,
+    *,
+    address: str,
+) -> MailboxRegistration:
+    """Load the active registration for one mailbox address."""
+
+    paths = resolve_filesystem_mailbox_paths(mailbox_root)
+    reason = unsupported_mailbox_root_reason(paths.root)
+    if reason is not None:
+        raise MailboxBootstrapError(reason)
+    read_protocol_version(paths.protocol_version_file)
+
+    if not paths.sqlite_path.exists():
+        raise MailboxBootstrapError(f"missing mailbox index: {paths.sqlite_path}")
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                registration_id,
+                address,
+                owner_principal_id,
+                status,
+                mailbox_kind,
+                mailbox_path,
+                mailbox_entry_path,
+                display_name,
+                manifest_path_hint,
+                role,
+                created_at_utc,
+                deactivated_at_utc,
+                replaced_by_registration_id
+            FROM mailbox_registrations
+            WHERE address = ? AND status = 'active'
+            """,
+            (mailbox_address_path_segment(address),),
+        ).fetchone()
+
+    if row is None:
+        raise MailboxBootstrapError(
+            f"no active mailbox registration exists for `{mailbox_address_path_segment(address)}`"
+        )
+    return _row_to_mailbox_registration(row)
+
+
+def resolve_active_mailbox_inbox_dir(mailbox_root: Path, *, address: str) -> Path:
+    """Resolve the concrete inbox path for an active mailbox registration."""
+
+    normalized_address = mailbox_address_path_segment(address)
+    paths = resolve_filesystem_mailbox_paths(mailbox_root)
+    reason = unsupported_mailbox_root_reason(paths.root)
+    if reason is not None:
+        raise MailboxBootstrapError(reason)
+
+    if not paths.protocol_version_file.exists() or not paths.sqlite_path.exists():
+        return paths.mailbox_entry_path(normalized_address) / "inbox"
+
+    registration = load_active_mailbox_registration(paths.root, address=normalized_address)
+    return registration.mailbox_path / "inbox"
+
+
+def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
+    """Copy packaged text resources into the mailbox rules tree."""
+
+    for child in source_root.iterdir():
+        if child.name == "__pycache__" or child.name.endswith(".pyc"):
+            continue
+        destination_path = destination_root / child.name
+        if child.is_dir():
+            destination_path.mkdir(parents=True, exist_ok=True)
+            _copy_resource_tree(child, destination_path)
+            continue
+
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        destination_path.write_text(child.read_text(encoding="utf-8"), encoding="utf-8")
+        if destination_path.suffix == ".py":
+            destination_path.chmod(
+                destination_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            )
+
+
 def _ensure_directory_layout(paths: FilesystemMailboxPaths) -> None:
     """Create the base directory layout for a filesystem mailbox."""
 
@@ -230,7 +433,7 @@ def _ensure_directory_layout(paths: FilesystemMailboxPaths) -> None:
         paths.rules_scripts_dir,
         paths.rules_skills_dir,
         paths.locks_dir,
-        paths.principal_locks_dir,
+        paths.address_locks_dir,
         paths.messages_dir,
         paths.attachments_managed_dir,
         paths.mailboxes_dir,
@@ -249,107 +452,50 @@ def _ensure_protocol_version(protocol_version_file: Path) -> None:
     protocol_version_file.write_text(f"{MAILBOX_PROTOCOL_VERSION}\n", encoding="utf-8")
 
 
-def initialize_sqlite_schema(sqlite_path: Path) -> None:
-    """Create or validate the filesystem mailbox SQLite schema."""
+def _parse_mailbox_entry_name(entry_name: str) -> tuple[str, str] | None:
+    """Parse one mailbox entry name into `(address, status)`."""
 
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA journal_mode={_SQLITE_JOURNAL_MODE}")
-        for statement in _SCHEMA_STATEMENTS:
-            connection.execute(statement)
-        connection.commit()
+    try:
+        return (mailbox_address_path_segment(entry_name), "active")
+    except Exception:
+        if "--" not in entry_name:
+            return None
 
-
-def materialize_managed_rules_assets(paths: FilesystemMailboxPaths) -> None:
-    """Copy managed mailbox `rules/` assets into the target mailbox root.
-
-    Parameters
-    ----------
-    paths:
-        Resolved filesystem mailbox paths.
-    """
-
-    source_root = resources.files("gig_agents.mailbox.assets") / "rules"
-    _copy_resource_tree(source_root, paths.rules_dir)
+    address_part, suffix = entry_name.rsplit("--", 1)
+    if len(suffix) != _STASHED_ENTRY_SUFFIX_LENGTH or any(
+        character not in "0123456789abcdef" for character in suffix
+    ):
+        return None
+    try:
+        return (mailbox_address_path_segment(address_part), "stashed")
+    except Exception:
+        return None
 
 
-def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
-    """Copy packaged text resources into the mailbox rules tree."""
+def _row_to_mailbox_registration(row: tuple[object, ...]) -> MailboxRegistration:
+    """Convert a SQLite row into one registration record."""
 
-    for child in source_root.iterdir():
-        destination_path = destination_root / child.name
-        if child.is_dir():
-            destination_path.mkdir(parents=True, exist_ok=True)
-            _copy_resource_tree(child, destination_path)
-            continue
+    return MailboxRegistration(
+        registration_id=str(row[0]),
+        address=str(row[1]),
+        owner_principal_id=str(row[2]),
+        status=str(row[3]),
+        mailbox_kind=str(row[4]),
+        mailbox_path=Path(str(row[5])),
+        mailbox_entry_path=Path(str(row[6])),
+        display_name=None if row[7] is None else str(row[7]),
+        manifest_path_hint=None if row[8] is None else str(row[8]),
+        role=None if row[9] is None else str(row[9]),
+        created_at_utc=str(row[10]),
+        deactivated_at_utc=None if row[11] is None else str(row[11]),
+        replaced_by_registration_id=None if row[12] is None else str(row[12]),
+    )
 
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        destination_path.write_text(child.read_text(encoding="utf-8"), encoding="utf-8")
-        if destination_path.suffix == ".py":
-            destination_path.chmod(
-                destination_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-            )
 
+def _stale_root_message(root: Path, detail: str) -> str:
+    """Build a direct operator-facing stale-root error message."""
 
-def _register_in_root_principal(
-    paths: FilesystemMailboxPaths,
-    principal: MailboxPrincipal,
-) -> None:
-    """Register an in-root principal mailbox in SQLite and on disk."""
-
-    principal_root = paths.principal_mailbox_dir(principal.principal_id)
-    for directory_name in _MAILBOX_PLACEHOLDER_DIRS:
-        (principal_root / directory_name).mkdir(parents=True, exist_ok=True)
-
-    mailbox_path = str(principal_root)
-    created_at_utc = datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    with sqlite3.connect(paths.sqlite_path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        existing_row = connection.execute(
-            """
-            SELECT address, mailbox_kind, mailbox_path
-            FROM principals
-            WHERE principal_id = ?
-            """,
-            (principal.principal_id,),
-        ).fetchone()
-
-        if existing_row is not None:
-            existing_address, existing_kind, existing_path = existing_row
-            if existing_kind != "in_root" or existing_path != mailbox_path:
-                raise MailboxBootstrapError(
-                    f"principal `{principal.principal_id}` is already registered at a different mailbox path"
-                )
-            if existing_address != principal.address:
-                raise MailboxBootstrapError(
-                    f"principal `{principal.principal_id}` is already registered with a different address"
-                )
-            return
-
-        connection.execute(
-            """
-            INSERT INTO principals (
-                principal_id,
-                address,
-                display_name,
-                manifest_path_hint,
-                role,
-                mailbox_kind,
-                mailbox_path,
-                created_at_utc
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                principal.principal_id,
-                principal.address,
-                principal.display_name,
-                principal.manifest_path_hint,
-                principal.role,
-                "in_root",
-                mailbox_path,
-                created_at_utc,
-            ),
-        )
-        connection.commit()
+    return (
+        f"unsupported stale mailbox root at `{root}`: {detail}. "
+        "Delete this mailbox root and re-bootstrap it with the current address-routed v1 layout."
+    )

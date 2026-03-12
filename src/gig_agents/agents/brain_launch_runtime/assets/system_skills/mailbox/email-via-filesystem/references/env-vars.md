@@ -31,9 +31,9 @@
   Example: `<mailbox_root>/index.sqlite`
 
 - `AGENTSYS_MAILBOX_FS_INBOX_DIR`
-  Meaning: Mailbox projection directory for the current principal inbox.
-  Example: `<mailbox_root>/mailboxes/<principal>/inbox`
-  Note: this path may traverse a symlinked `mailboxes/<principal>` entry into a private mailbox directory outside `<mailbox_root>`.
+  Meaning: Mailbox projection directory for the current session's active mailbox registration.
+  Example: `<mailbox_root>/mailboxes/<address>/inbox`
+  Note: this path follows the active registration path for `AGENTSYS_MAILBOX_ADDRESS`, which may traverse a symlinked `mailboxes/<address>` entry into a private mailbox directory outside `<mailbox_root>`.
 
 ## Usage rules
 

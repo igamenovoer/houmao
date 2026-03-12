@@ -1,321 +1,266 @@
 ## Context
 
-This repo already has strong building blocks for live agent sessions: tmux-backed agent identities, persisted session manifests, runtime-managed environment publication, and CAO-backed interactive terminals. A separate mailbox protocol is being explored elsewhere in the repo, but that system is not mature enough to become a dependency of this change. What the repo still lacks is a per-agent control plane that sits close to one live session, exposes a stable HTTP gateway endpoint, arbitrates competing requests, normalizes backend status, schedules follow-up work, and records recovery decisions.
+This repo already has strong building blocks for live agent sessions: tmux-backed agent identities, persisted session manifests, runtime-managed environment publication, and backend-specific control adapters. A separate mailbox protocol is being explored elsewhere in the repo, but that system is not mature enough to become a dependency of this change. What the repo still lacks is a per-agent control plane that can sit close to one live session, expose a stable HTTP endpoint, arbitrate competing requests, normalize backend status, schedule follow-up work, and record recovery decisions.
 
-The user-facing constraint for this change is unusually specific and should drive the architecture: the gateway must not appear as a separate tmux window or pane. It must live in the same tmux window as the managed agent TUI, run silently as a background process, and avoid turning the session into a two-surface operator experience. At the same time, direct human interaction with the agent TUI remains a supported feature of the system, not an error case. That means the gateway cannot assume exclusive ownership of the terminal surface and must be designed to observe, tolerate, and reconcile human-driven TUI changes.
+The key architectural change in this revision is to decouple gateway lifecycle from agent lifecycle. The gateway remains optional. A session may run with no gateway, may start with a gateway already attached, or may gain a gateway later after the managed TUI is already running. That change preserves rollout flexibility and unlocks a more powerful long-term story: runtime-owned sessions can gain gateway support after launch, and manually launched tmux-backed sessions can become gateway-attachable later if they publish the same attach contract.
 
-The first implementation only needs to cover one host's network interfaces and one port per managed session. The default bind host should remain loopback (`127.0.0.1`) for safer local operation, while `0.0.0.0` remains an explicit opt-in when operators need all-interface access. CAO remains a useful lower-level backend adapter, but the gateway contract should not be CAO-specific so it can survive backend replacement later.
+The operator-facing UX constraint also shifts slightly in order to support that lifecycle. The system still must not create a second visible operator surface, but the gateway no longer needs to live in the same tmux window as the TUI. Instead, the gateway becomes an out-of-band companion process that discovers and controls the live session through tmux env pointers, backend metadata, and durable per-agent state. That makes "attach later" and "stop or restart independently" tractable without trying to inject a background shell into an already-running interactive TUI surface.
 
-This revision also keeps the gateway explicitly independent from the mailbox system. Mailbox-triggered enqueueing, mailbox-aware scheduling rules, mailbox-specific env bindings, and mailbox-specific request kinds are deferred until the mailbox contract is mature enough to integrate cleanly.
+This revision keeps the gateway explicitly independent from the mailbox system. Mailbox-triggered enqueueing, mailbox-aware scheduling rules, mailbox-specific env bindings, and mailbox-specific request kinds are still deferred until the mailbox contract is mature enough to integrate cleanly.
 
 ```mermaid
 flowchart LR
-  A[Other agents or operator tools] --> B[Gateway HTTP submit/status API]
-  B --> C[Per-agent gateway root]
-  C --> D[Gateway event loop]
-  D --> E[Backend adapter]
-  E --> F[Managed agent TUI]
-  F --> G[Human direct interaction]
-  D --> H[Queue and events]
-  D --> I[State and heartbeats]
+  A[Operator or tool] --> B[Resolve tmux session]
+  B --> C[Read attach metadata]
+  C --> D[Gateway attach/start]
+  D --> E[Gateway HTTP API]
+  E --> F[Backend adapter]
+  F --> G[Managed agent TUI]
+  G --> H[Human direct interaction]
+  D --> I[Gateway root]
+  I --> J[Queue]
+  I --> K[State]
+  I --> L[Events]
 ```
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Add a per-agent gateway sidecar that runs in the same tmux window lifecycle as the managed agent TUI without introducing a separate visible tmux surface.
-- Resolve one stable HTTP gateway host and port for each gateway-managed session before launch and publish that listener address for discovery.
-- Give each managed agent one durable local control plane for request admission, permission policy, priority ordering, queueing, timer-driven wakeups, health observation, and recovery.
-- Preserve direct human TUI interaction as a supported workflow by treating it as concurrent operator activity that the gateway must tolerate rather than forbid.
-- Normalize backend-specific state into gateway-owned status records that external tools can query without scraping raw tmux output directly.
-- Store queued work and gateway events durably so gateway restart or transient failures do not lose outstanding requests.
-- Keep the gateway contract backend-neutral and single-port-per-session, with a safe default bind host and explicit all-interface opt-in, so future discovery, access control, or distributed coordination can build on it later without redefining the per-agent model.
+- Keep the gateway optional and additive so non-gateway sessions remain valid and usable.
+- Allow the gateway to start either together with the agent or later by attaching to a running tmux-backed session.
+- Preserve the operator UX requirement that gateway support introduces no second visible tmux pane or window.
+- Reuse existing tmux session env publication patterns for discovery and extend them into a stable gateway-attach contract.
+- Separate "gateway-capable session" from "gateway-running session" so the gateway can be started, stopped, and restarted independently.
+- Support runtime-owned attach first while designing the attach contract so manually launched sessions can participate later.
+- Keep a durable per-agent queue and state root so gateway restart does not lose accepted work and later attach flows have somewhere to persist state.
+- Keep the HTTP contract backend-extensible and independent from the mailbox protocol.
 
 **Non-Goals:**
 
 - Hard security isolation against a human with direct tmux access on the same host.
-- Recovering a full tmux-session or tmux-server loss from inside the in-window sidecar itself.
-- Distributed agent discovery, remote queue replication, or cross-host request delivery in v1.
-- Integrating the gateway directly with the mailbox system in v1; mailbox-triggered enqueueing and mailbox-aware automation are deferred until the mailbox contract is mature.
-- Silently hopping to a different port after launch-time gateway-port resolution or bind failure.
-- Requiring exclusive gateway ownership of the TUI surface or treating human direct interaction as protocol corruption.
-- Designing a generic cluster-wide scheduler in this change.
+- Requiring the gateway to be co-started with every agent session.
+- Requiring the gateway to share the same shell process or tmux window as the foreground TUI.
+- Recovering a full tmux-session or tmux-server loss from inside the gateway process itself.
+- Automatically attaching a gateway to arbitrary tmux sessions that expose no attach metadata at all.
+- Integrating the gateway directly with the mailbox system in v1.
 - Solving authentication, authorization, or network perimeter hardening for explicitly enabled all-interface HTTP exposure in v1.
 
 ## Decisions
 
-### 1) The gateway runs as a silent same-window sidecar process launched before the foreground TUI
+### 1) The gateway is an optional independently managed companion process, not a launch prerequisite
 
-The gateway will be started in the same tmux window as the managed agent by a wrapper-style launch contract that backgrounds the gateway and then `exec`s the foreground TUI command. The sidecar itself will run a FastAPI application served as an HTTP service whose bind host defaults to `127.0.0.1` and may be set to `0.0.0.0` when explicitly configured. The steady-state operator experience remains a single visible TUI surface.
+The gateway is an independently managed per-agent companion process. It may be absent, may be attached immediately after session startup, or may be attached later to an already-running session. The gateway must not create a visible tmux pane or window of its own, but it does not need to share the same shell lifecycle as the managed TUI.
 
-Conceptually, the launch shape is:
+There are two primary activation paths:
 
-```sh
-gatewayd --config /abs/path/gateway-bootstrap.json --host 127.0.0.1 --port 43123 >>/abs/path/logs/gateway.log 2>&1 &
-exec <managed-agent-foreground-command>
-```
+- launch-attached: the runtime starts the agent session, then immediately resolves attach metadata and starts the gateway companion for that live session
+- attach-later: a lifecycle command resolves an already-running tmux session, reads its attach metadata, and starts the gateway companion without restarting the agent
 
-This structure matters for two reasons:
-
-- there is no second visible tmux window or pane for operators to accidentally enter, and
-- there is no idle shell prompt left behind during normal execution.
-
-The sidecar must not read from stdin, print to the terminal, or rely on an interactive terminal UI of its own. All stdout and stderr are redirected to log files under the gateway root. Regardless of whether it binds on `127.0.0.1` or `0.0.0.0`, the FastAPI service is not part of the visible operator terminal surface.
-
-For CAO-backed sessions, the runtime-owned bootstrap path should wrap the provider launch so the gateway starts in the same tmux window before the provider TUI takes over. For other tmux-backed interactive surfaces, the same wrapper contract should be used when the runtime owns a persistent foreground command.
-
-FastAPI is the chosen service framework for this change because it gives the gateway a well-typed local HTTP contract, predictable request and response validation, and a straightforward path to internal health and status endpoints without coupling callers to SQLite schema details.
-
-Rationale: this satisfies the operator UX constraint directly while preserving the shared lifecycle between the gateway and the managed terminal surface.
-
-Alternatives considered:
-
-- Separate tmux window or pane. Rejected because it creates an operator-visible surface the user explicitly does not want.
-- Central broker process per runtime root. Rejected because it weakens per-agent locality and recovery independence.
-- In-process gateway inside the agent TUI binary. Rejected because it couples policy and recovery to tool-specific internals and makes backend replacement harder.
-
-### 2) Gateway listener host and port resolution happen once at launch with explicit precedence and fail-fast conflict handling
-
-Each gateway-managed session gets one effective HTTP gateway bind host and port resolved before the sidecar is launched.
-
-The precedence order for the bind host is:
-
-1. `start-session --gateway-host`
-2. caller env `AGENTSYS_AGENT_GATEWAY_HOST`
-3. blueprint config `gateway.host`
-4. default `127.0.0.1`
-
-Allowed bind-host values in this change are exactly:
-
-- `127.0.0.1`
-- `0.0.0.0`
-
-The precedence order for the port is:
-
-1. `start-session --gateway-port <port>`
-2. caller env `AGENTSYS_AGENT_GATEWAY_PORT=<port>`
-3. blueprint config `gateway.port: <port>`
-4. one system-selected free port when no explicit port source is present
-
-The resolved bind host and port become part of the session's gateway identity. The runtime writes them into gateway bootstrap metadata, persists them in the session manifest, and publishes them into the tmux session environment for discovery by gateway-aware tools. When the effective host is `127.0.0.1`, the gateway is reachable only through loopback on that port. When the effective host is `0.0.0.0`, local callers may still use `127.0.0.1:<resolved-port>` while non-local callers may use any reachable interface address for the host with the same port.
-
-Blueprint configuration should remain secret-free and minimal. A representative shape is:
-
-```yaml
-schema_version: 1
-name: gpu-kernel-coder
-brain_recipe: ../brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
-role: gpu-kernel-coder
-gateway:
-  host: 127.0.0.1
-  port: 43123
-```
-
-When the port comes from the free-port fallback, the runtime chooses one currently available local port exactly once during launch preparation and then treats that selected port as fixed for the session being launched. If the FastAPI sidecar later cannot bind the resolved host-plus-port listener because another process already owns it, the launch fails explicitly and the agent session is not started. The runtime must not silently choose a different port after resolution, because that would break discovery and make operator expectations drift from what the launch inputs declared.
-
-Rationale: operators and tests sometimes need a predictable listener address, ad hoc sessions need easy overrides, loopback should remain the safe default, and free-port fallback is still useful for default ergonomics. A single precedence chain plus fail-fast bind behavior keeps the resulting session identity unambiguous.
-
-Alternatives considered:
-
-- Always require an explicit gateway port. Rejected because it adds friction to routine local launches.
-- Always auto-pick a free port. Rejected because it removes a useful control point for operator workflows, tests, and blueprint-defined defaults.
-- Treat port conflicts as permission to silently pick the next free port. Rejected because it would make discovery unstable and violates the requested fail-fast behavior.
-- Default to `0.0.0.0` for every session. Rejected because loopback is the safer default for ordinary local workflows.
-- Put gateway-port defaults in recipes rather than blueprints. Rejected for this change because the requested default belongs to named launched-agent definitions rather than reusable brain recipes.
-
-### 3) Each gateway gets a durable per-agent root under the runtime root plus live tmux env pointers
-
-The gateway state should live in a deterministic per-agent directory such as:
+Conceptually:
 
 ```text
-<runtime_root>/gateways/<canonical-agent-identity>/
+launch-attached
+  start agent session
+  -> publish attach metadata
+  -> start gateway daemon
+  -> publish live gateway bindings
+
+attach-later
+  resolve live tmux session
+  -> read attach metadata
+  -> start gateway daemon
+  -> publish live gateway bindings
+```
+
+This design is intentionally different from the earlier same-window wrapper model. A co-start wrapper remains an optional implementation strategy for some backends later, but it is no longer the defining lifecycle contract. The gateway must not depend on being injected before the TUI `exec`s, because that would make post-launch attach and independent stop or restart awkward or impossible.
+
+Rationale: independent lifecycle is the cleanest way to keep the gateway optional while still making it usable later for already-running agents and future manual sessions.
+
+Alternatives considered:
+
+- Mandatory same-window sidecar wrapper. Rejected because it over-couples gateway availability to backend launch and blocks later attach flows.
+- Separate visible tmux pane or window. Rejected because it violates the operator UX constraint.
+- In-process gateway inside the agent TUI process. Rejected because it ties lifecycle and recovery to tool-specific internals.
+
+### 2) Attach discovery is tmux-env-driven and unified by a secret-free attach contract
+
+The gateway attaches to a running session by resolving tmux session identity and reading secret-free discovery metadata from that session's tmux environment.
+
+Existing runtime-owned env pointers remain foundational:
+
+- `AGENTSYS_MANIFEST_PATH`
+- `AGENTSYS_AGENT_DEF_DIR`
+
+For runtime-owned sessions, those existing pointers already provide enough information to discover the persisted session manifest and the agent definition root. This revision proposes standardizing that into one uniform attach contract file, for example:
+
+- `AGENTSYS_GATEWAY_ATTACH_PATH`
+
+That file should be a secret-free JSON payload describing how a gateway can attach to the addressed session. Runtime-owned sessions can materialize it from their manifest and launch metadata. Manual launchers can create and publish the same file directly even when no gig-agents session manifest exists.
+
+The attach contract should include fields such as:
+
+- schema version
+- canonical agent identity or tmux session name
+- backend adapter kind
+- working directory
+- manifest path when one exists
+- agent definition directory when one exists
+- backend adapter metadata needed for observation or control
+- default gateway host or port preferences when available
+
+The important distinction is that attach metadata describes how to attach a gateway to a live session, not whether a gateway is currently running.
+
+Rationale: this keeps discovery grounded in existing tmux env patterns while giving runtime-owned and manual sessions one future-proof attachability contract.
+
+Alternatives considered:
+
+- Derive everything only from `AGENTSYS_MANIFEST_PATH`. Rejected because manually launched sessions may have no runtime manifest at all.
+- Encode all attach metadata directly in tmux env vars. Rejected because the contract will grow and is easier to evolve as a versioned file path.
+- Require every attach-later flow to be fully hand-configured from CLI flags. Rejected because it is too error-prone for routine operator use.
+
+### 3) Stable attachability metadata and live gateway bindings are separate concepts
+
+This revision separates stable "this session can have a gateway" metadata from ephemeral "a gateway is running right now" metadata.
+
+A per-agent gateway root remains useful, but it now represents stable attachability and durable state rather than only the lifecycle of one co-started sidecar instance. A representative layout is:
+
+```text
+<runtime_root>/gateways/<gateway-attach-identity>/
   protocol-version.txt
-  bootstrap.json
+  attach.json
+  desired-config.json
   state.json
   queue.sqlite
   events.jsonl
   logs/
     gateway.log
-  locks/
-    gateway.lock
   run/
+    current-instance.json
     gateway.pid
 ```
 
-`state.json` is the current read-optimized status snapshot for external readers. `queue.sqlite` is the durable source of truth for queued requests, timers, execution leases, and completion records. `events.jsonl` is append-only audit history. `bootstrap.json` captures the runtime-provided launch configuration the sidecar needs after restart, including the resolved gateway host and port.
+The main split is:
 
-The runtime should publish live tmux session environment pointers for the addressed session, including at minimum:
+- stable attachability pointers, such as `AGENTSYS_GATEWAY_ATTACH_PATH` and optionally `AGENTSYS_GATEWAY_ROOT`
+- live gateway bindings, such as `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_ROOT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+Stable attachability metadata may exist even when no gateway process is running. Live bindings only describe the currently active gateway instance and may disappear or change across restart.
 
-The persisted session manifest should also record the gateway launch mode and root path so a resumed control path can discover the expected gateway layout even if live tmux env needs validation or refresh.
+Because the gateway can be stopped and started independently, listener host and port are no longer part of immutable session identity. They become current-instance metadata. Desired defaults may persist, but the active listener is valid only while the corresponding gateway instance is alive.
 
-Rationale: external tooling needs a stable discovery path, and the gateway needs durable queue state that survives process restart.
+On graceful shutdown, the gateway lifecycle should clear live gateway bindings from the tmux session while preserving stable attachability metadata. On crash, stale live bindings are possible, so clients must validate them through health checks or run-state files instead of trusting tmux env alone.
 
-Alternatives considered:
-
-- Purely in-memory queue and status. Rejected because recovery and audit would be too weak.
-- Tmux environment as the only source of gateway state. Rejected because env variables are useful pointers, not a durable event store.
-- One shared runtime-wide gateway database. Rejected because it creates unnecessary coupling between otherwise independent agent sessions.
-
-### 4) External callers interact through package-owned HTTP clients over the resolved local port, while SQLite is the internal persistence layer
-
-The gateway protocol should be reachable through the resolved gateway listener address, but external callers should not mutate `queue.sqlite` directly. Instead, the repo should expose package-owned submit and query surfaces that talk to the gateway's FastAPI service over HTTP and let that service validate and serialize requests into the gateway store.
-
-This boundary is intentional for mailbox maturity as well: the gateway does not grow a special mailbox path in this change. If a future mailbox workflow wants to enqueue work, it should do so through the same validated submission interface as any other local caller in a follow-up change.
-
-At minimum, the HTTP surface should cover:
-
-- health or liveness inspection,
-- current gateway status inspection, and
-- submission of gateway-managed requests.
-
-Requests should be stored as structured records with fields such as:
-
-- `request_id`
-- `sender_principal_id`
-- `target_agent_identity`
-- `kind`
-- `priority`
-- `not_before_utc`
-- `expires_at_utc`
-- `payload_json`
-- `requires_submit_ready`
-- `coalescing_key`
-- `status`
-
-Informational queries, such as gateway status inspection, should be served by read-oriented HTTP routes backed by `state.json` or equivalent validated state reads and should not enter the execution queue. Terminal-mutating work should always flow through the durable queue so the gateway can serialize it.
-
-Rationale: the gateway needs a stable contract for multiple local writers without turning SQLite schema details into a public interface.
+Rationale: independent lifecycle only works cleanly if discovery of attachability is more stable than discovery of the currently running gateway process.
 
 Alternatives considered:
 
-- Raw file-drop request directories. Rejected because ordering, de-duplication, and update semantics become harder once priorities and retries are involved.
-- Raw SQLite writes by any caller. Rejected because it freezes low-level schema details into the public control contract.
-- Direct tmux or CAO calls from all orchestrators. Rejected because it reintroduces the race conditions this change exists to remove.
-- Ad hoc per-caller HTTP route definitions outside the gateway package. Rejected because the gateway needs one owned contract rather than path drift across callers.
+- Treat host and port as permanent session identity. Rejected because independent stop or restart makes them instance-level facts, not timeless identity.
+- Publish only live host and port bindings. Rejected because attach-later becomes impossible when the gateway is not already running.
 
-### 5) The status model separates gateway health, agent state, terminal surface state, and execution state
+### 4) The HTTP API remains package-owned, but gateway lifecycle control is a separate concern
 
-The gateway should publish a structured status snapshot that keeps these concerns separate:
+The gateway still exposes a local HTTP API for health inspection, status inspection, and gateway-managed request submission. The current v1 API shape remains directionally good:
 
-- `gateway_state`: `booting | online | degraded | recovering | offline`
-- `agent_state`: `idle | busy | waiting_input | awaiting_operator | error | unknown`
-- `surface_state`: `submit_ready | modal | blocked | disconnected | unknown`
-- `execution_state`: `idle | running | backoff | blocked`
+- `GET /health`
+- `GET /v1/status`
+- `POST /v1/requests`
 
-It should also include supporting fields such as:
+The important refinement is that gateway lifecycle is not part of that per-agent request API. Starting, attaching, detaching, or stopping a gateway is a lifecycle-control action that happens before a caller can use the HTTP surface.
 
-- `gateway_port`
-- `active_request_id`
-- `queue_depth`
-- `last_gateway_heartbeat_utc`
-- `last_agent_observation_utc`
-- `recovery_attempt_count`
-- `last_error`
+That means gateway-aware callers now have two phases:
 
-This separation is important because human interaction changes the surface frequently without necessarily implying that the gateway or agent is broken. For example, a human opening a slash-command menu should move `surface_state` out of `submit_ready` and pause queued injection, but it should not mark the gateway unhealthy.
+1. ensure a gateway is attached and healthy for the target session
+2. use the HTTP API for status or queued work submission
 
-Backend adapters should map CAO-native or shadow-parser evidence, headless runtime state, and tmux availability into this normalized status model. When the gateway cannot classify the surface safely, it should prefer `unknown` and avoid injection rather than guessing that the prompt is free.
+The queue remains durable and gateway-owned. External callers still do not mutate SQLite directly.
 
-Rationale: explicit separation makes the gateway robust to non-exclusive control of the TUI surface.
+Rationale: separating lifecycle control from request submission keeps the HTTP contract small and lets gateway activation evolve independently from per-request semantics.
 
-Alternatives considered:
+### 5) Initial gateway state is snapshot-based, and `offline` includes "not currently attached"
 
-- One flat `status` field like `busy` or `idle`. Rejected because it collapses health, control eligibility, and operator state into one ambiguous label.
-- Treating any manual surface deviation as `error`. Rejected because direct human interaction is a supported feature, not misuse.
+Because the gateway may attach after the agent has already been running, the gateway cannot assume it observed the entire session from launch. When attaching to an already-running session, it initializes from:
 
-### 6) The gateway scheduler owns a single terminal-mutation slot and treats human activity as a first-class scheduling signal
+- the current live observation of the backend or tmux surface
+- any previously persisted gateway root state when one exists
+- the attach contract
 
-Only one queued request at a time may hold the terminal-mutation lease for a given agent. The scheduler should order pending work by policy, priority, age, and eligibility while preserving single-writer semantics for terminal input.
+It does not attempt to reconstruct every pre-attach operator action or backend transition that occurred before the gateway existed.
 
-Requests should divide into two broad classes:
+The status model remains useful, but `gateway_state=offline` now has a broader meaning: the gateway may simply not be attached right now, not necessarily that it crashed unexpectedly. `state.json` remains a stable local read contract, but it may describe last-known status plus current gateway absence rather than continuous full-session observation from the original agent launch.
 
-- non-mutating reads, which can be served from gateway state without terminal injection, and
-- terminal-mutating actions, which require the single active execution slot.
+Rationale: later attach is only viable if the gateway is allowed to seed itself from current state instead of pretending it has launch-time omniscience.
 
-Low-value repeated work such as periodic wakeup nudges or deferred follow-up prompts should support coalescing so multiple pending requests collapse into one effective queued action. Timer-driven work should become ordinary queued requests rather than bypassing policy.
+### 6) The scheduler still owns single-writer automation, but only while a gateway is attached
 
-Human direct TUI interaction should not invalidate the queue. Instead:
+The queueing and single-writer scheduling model still holds. When a gateway is attached, terminal-mutating work flows through one durable execution slot and human interaction remains a first-class scheduling signal.
 
-- when the surface is not safely submit-ready, queued injection waits,
-- when a human changes the surface mid-request, the gateway records the observation and reevaluates completion or retry policy,
-- when the human resolves the blocking surface and the gateway sees a safe ready state again, queued work may continue.
+The key difference is that this control plane is active only while a gateway is attached. Direct runtime or operator interaction remains possible when no gateway is running. That means the design should distinguish:
 
-The gateway should never assume that it may inject text merely because a request exists. Injection is allowed only when the backend adapter says the surface is eligible for that specific action.
+- gateway-capable session: attach metadata exists and a gateway could be attached
+- gateway-running session: a live gateway instance is attached and currently owns the automation queue
 
-Rationale: this keeps queue semantics stable while making human interaction a feature the scheduler understands rather than a source of silent corruption.
+In v1, public terminal-mutating request kinds can still remain narrow, such as `submit_prompt` and `interrupt`, while timer-driven or wakeup-oriented work remains internal scheduler behavior.
 
-Alternatives considered:
+Rationale: keeping the single-writer automation semantics limited to active gateway periods avoids pretending the system always has a control plane when it explicitly does not.
 
-- Optimistic concurrent sends with “last writer wins.” Rejected because it recreates the raw tmux race problem.
-- Automatic interruption of human activity for high-priority gateway work. Rejected for v1 because it would make the operator experience brittle and surprising.
+### 7) Gateway restart and later attach both recover from stable roots, but they mean different things
 
-### 7) Recovery is conservative, backend-adapter-driven, and explicitly scoped below whole-session supervision
+Gateway restart and later attach are related but not identical:
 
-The gateway should own a bounded recovery ladder for failures inside the live agent surface:
+- restart: the same logical gateway root already existed, accepted queued work may already exist, and the new process must recover it
+- first attach to an ungatewayed running session: the gateway root may be created lazily, no prior queue may exist, and the initial status is seeded from a current observation snapshot
 
-1. refresh status and re-validate the latest observation,
-2. wait or back off if the surface is merely non-ready or manually occupied,
-3. attempt backend-native interruption or wakeup when policy allows,
-4. restart the managed TUI using the runtime-owned backend adapter when the agent process is gone or unrecoverable,
-5. move to `degraded` after the retry budget is exhausted.
+This distinction should be explicit in the design because it changes what "recovery" means. Restart is recovery of prior gateway-owned state. First attach is establishment of gateway-owned state for a session that previously had none.
 
-Recovery must remain conservative because human interaction is allowed. The gateway should not forcibly inject control sequences into an unknown or operator-blocked surface unless the request type and policy explicitly permit that behavior.
+Independent stop or restart should not require stopping the agent itself. Conversely, normal agent-session teardown may choose to stop the gateway as cleanup when the runtime owns both processes, but that is a policy decision rather than a hard lifecycle constraint.
 
-Full tmux-session or tmux-server loss is out of scope for the same-window sidecar. If the whole tmux container disappears, an outer launcher or supervisor layer is responsible for re-establishing the session and then starting a fresh gateway from persisted runtime state.
+Rationale: treating first attach and restart as the same event would blur lifecycle edges and make state semantics harder to reason about.
 
-Rationale: the sidecar can recover many agent-local failures, but it cannot be the recovery authority for the container it lives inside.
+### 8) Runtime integration splits into capability publication, optional auto-attach, and gateway-aware control
 
-Alternatives considered:
+Runtime integration now has three layers instead of one:
 
-- Aggressive automatic control-input recovery on any stall. Rejected because it would fight with valid human interaction and increase unintended terminal mutation.
-- Making the gateway responsible for tmux-server resurrection. Rejected because that violates the failure-domain boundary created by same-window colocation.
+1. capability publication:
+   runtime-owned tmux-backed sessions publish enough attach metadata to be gateway-capable even when no gateway is running
+2. optional auto-attach:
+   a start-time flag may request immediate gateway attach after session startup, but that is a convenience path rather than the only path
+3. gateway-aware control:
+   when a live gateway exists, gateway-aware tools use it for managed request submission and status reads
 
-### 8) Runtime integration is additive and should preserve non-gateway sessions
+This suggests a semantic shift for launch flags:
 
-The runtime should treat gateway support as an additive session feature. New tmux-backed sessions that enable the gateway publish gateway pointers and launch the sidecar. Existing sessions without gateway support remain valid and resumable without backfilling a gateway requirement.
+- `--enable-gateway` is no longer best thought of as "this session may ever have a gateway"
+- it becomes "auto-attach a gateway at launch if possible"
 
-This design implies three integration points:
+Runtime-owned direct control can remain available for non-gateway sessions and for sessions where no gateway is currently attached. Gateway-aware control paths can either require an already-running gateway or grow an explicit "ensure attached" behavior later.
 
-- session startup resolves the effective gateway port from CLI, env, blueprint, or free-port fallback, creates the gateway root, writes `bootstrap.json`, publishes tmux env pointers, and launches the same-window wrapper,
-- session resume validates and republishes gateway pointers, including the persisted gateway port, and consults gateway state when the session is gateway-enabled,
-- control commands targeting a gateway-enabled session prefer gateway-mediated request submission over raw concurrent tmux mutation.
+For future manual sessions, the same idea applies: publish attach metadata first, then decide later whether or when to actually start the gateway.
 
-Rationale: this reduces rollout risk and keeps older manifests and sessions from becoming invalid immediately.
-
-Alternatives considered:
-
-- Make the gateway mandatory for all existing tmux-backed sessions immediately. Rejected because it complicates rollout and recovery for sessions created before the new contract exists.
-- Hide the gateway entirely from runtime/session metadata. Rejected because discovery and debugging would be unnecessarily difficult.
+Rationale: this keeps runtime launch simple while making attach-later a first-class design goal instead of a special exception.
 
 ## Risks / Trade-offs
 
-- [Background sidecar accidentally writes into the visible terminal] -> Redirect all gateway stdout and stderr to log files, forbid stdin reads, and keep all terminal interaction behind backend adapters or tmux control primitives rather than direct console writes.
-- [A requested or resolved gateway listener address is already in use by another process] -> Resolve the effective host and port before launch, treat FastAPI bind failure as an explicit startup error, and do not silently substitute a different listener after resolution.
-- [An explicitly enabled all-interface HTTP service expands the network-visible attack surface] -> Default to `127.0.0.1`, require explicit configuration for `0.0.0.0`, document that any host interface may expose the gateway in that mode, and defer authentication, authorization, and perimeter-hardening policy to follow-up changes or deployment controls.
-- [Human operators can bypass gateway policy by typing directly into the TUI] -> Define the gateway as the supported automation path rather than a hard local security boundary, observe surface changes explicitly, and log when direct interaction changes queue eligibility or request outcomes.
-- [Same-window colocation prevents the gateway from surviving full tmux-session loss] -> Persist queue and status on disk, keep recovery of whole-session loss in an outer supervisor layer, and scope the gateway to agent-local recovery only.
-- [Readiness classification may be wrong on complex terminal surfaces] -> Normalize backend signals conservatively, publish `unknown` when confidence is low, and refuse automatic injection on uncertain surfaces.
-- [Durable queue storage adds schema and compatibility burden] -> Keep the external protocol at the package-owned command layer, version the gateway root with `protocol-version.txt`, and treat SQLite as an internal implementation detail.
-- [Gateway restart can leave stale active-request state] -> Store execution leases durably with heartbeat timestamps, reconcile incomplete leases on startup, and move abandoned work back to pending or failed according to policy.
+- [Gateway attach metadata is present but incomplete or stale] -> Version the attach contract, validate it strictly, and fail attach explicitly rather than guessing.
+- [Clients trust stale live gateway env bindings after a crash] -> Treat tmux env bindings as hints and require health or run-state validation before use.
+- [Later attach misses important earlier operator or backend events] -> Define the initial attach state as snapshot-based and do not promise full pre-attach history.
+- [Independent lifecycle makes host and port less stable] -> Distinguish desired listener config from live instance bindings and avoid treating host or port as permanent session identity.
+- [Manual session support becomes too magical] -> Require a documented attach contract for manual sessions instead of trying to infer arbitrary tmux layouts.
+- [Runtime and gateway-aware control paths diverge] -> Keep gateway-aware behavior explicit and preserve direct control for sessions with no gateway attached.
+- [Operator expectations become unclear about whether a session "has a gateway"] -> Use explicit language and status distinctions between gateway-capable and gateway-running.
 
 ## Migration Plan
 
-1. Add gateway-aware manifest and tmux environment publication in an additive way so older sessions remain valid, including publication of the effective gateway port.
-2. Introduce launch-time gateway-port resolution from CLI, env, blueprint, or free-port fallback for new gateway-enabled tmux-backed sessions.
-3. Fail launch explicitly when the resolved gateway port cannot be bound instead of silently selecting another port.
-4. Keep existing direct runtime control paths available for sessions that are not gateway-enabled.
-5. On rollback, stop launching the sidecar for new sessions and ignore gateway-specific metadata for existing sessions; preserved gateway roots remain inspectable and can be cleaned up out of band.
-6. Defer any default-on rollout until status normalization, listener-port discovery, and recovery behavior have been validated against real human-plus-automation interaction patterns.
+1. Reframe the design from "same-window sidecar launched before the TUI" to "optional independently managed companion process with no visible operator surface."
+2. Introduce a stable secret-free attach contract for runtime-owned tmux sessions and publish it through tmux envs alongside existing manifest and agent-definition pointers.
+3. Keep start-time gateway attachment as an optional convenience flow rather than a prerequisite for gateway capability.
+4. Add explicit attach and detach lifecycle surfaces for runtime-owned sessions so the gateway can be started or stopped independently.
+5. Keep the HTTP request API stable and queue-backed while treating lifecycle control as a separate layer.
+6. Extend the same attach contract to future manual launchers so manually started sessions can opt into gateway attachability later without requiring gig-agents to have launched them originally.
 
 ## Open Questions
 
-- Should the first implemented backend integration target only CAO-backed interactive sessions, or should it also cover other tmux-backed sessions that maintain a persistent foreground TUI?
-- Do we want an explicit operator-facing “pause gateway queue” control in v1, or is observed surface state sufficient for the initial design?
-- Which gateway request kinds should be first-class in v1 beyond generic prompt turns, wakeup nudges, and recovery-oriented actions, and which should wait for follow-up changes?
+- Should runtime-owned tmux-backed sessions publish gateway attach metadata by default, or only when a caller explicitly opts into future gateway capability?
+- What is the minimal attach contract for manual sessions that is still flexible enough for future backends?
+- When an agent session is stopped by runtime-owned teardown, should the runtime stop an attached gateway automatically or leave it as an independent process that reports offline state until explicitly stopped?
+- Should gateway-aware control commands fail when no gateway is running, or should they grow an explicit "ensure attached" mode later?

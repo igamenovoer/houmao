@@ -1,26 +1,26 @@
 ## ADDED Requirements
 
-### Requirement: Per-agent gateway sidecar shares the managed tmux window without adding a visible operator surface
-The system SHALL support a per-agent gateway sidecar for gateway-managed tmux-backed sessions.
+### Requirement: Per-agent gateway companion introduces no visible operator surface and may attach after session start
+The system SHALL support a per-agent gateway companion for gateway-capable tmux-backed sessions.
 
-The gateway sidecar SHALL run as a background process in the same tmux window and terminal lifecycle as the managed agent TUI.
+The gateway companion SHALL NOT require or create a separate visible tmux window or pane for normal operation.
 
-The gateway sidecar SHALL NOT require or create a separate visible tmux window or pane for normal operation.
+The gateway companion MAY be started immediately after a managed session starts or later by attaching to an already-running tmux-backed session.
 
-The gateway sidecar SHALL NOT read interactive stdin from the shared terminal surface and SHALL direct its own logs away from the visible operator terminal.
+The gateway companion SHALL direct its own logs away from the visible operator terminal.
 
-#### Scenario: Gateway-managed session starts with one visible TUI surface
-- **WHEN** the runtime starts a gateway-managed tmux-backed session
-- **THEN** the managed agent TUI remains the only visible operator surface in that tmux window
-- **AND THEN** the gateway sidecar is running in the background within the same tmux window lifecycle
+#### Scenario: Attach-later preserves a single visible TUI surface
+- **WHEN** a gateway companion attaches to an already-running tmux-backed session
+- **THEN** the managed agent TUI remains the only visible operator surface for normal interaction
+- **AND THEN** the attach flow does not require creating a visible tmux pane or window for the gateway
 
 #### Scenario: Gateway logging does not paint onto the shared terminal
-- **WHEN** the gateway sidecar emits logs or diagnostics during normal operation
+- **WHEN** the gateway companion emits logs or diagnostics during normal operation
 - **THEN** that output is written to gateway-owned log storage rather than the visible tmux terminal
 - **AND THEN** normal gateway activity does not inject its own text into the operator-facing TUI surface
 
 ### Requirement: The gateway maintains a durable per-agent control root
-Each gateway-managed session SHALL have a deterministic per-agent gateway root under the runtime-owned storage hierarchy.
+Each gateway-capable session SHALL have a deterministic per-agent gateway root under the runtime-owned storage hierarchy once attachability is published or a gateway first attaches.
 
 That gateway root SHALL contain at minimum:
 
@@ -29,12 +29,16 @@ That gateway root SHALL contain at minimum:
 - a durable queued-request store
 - an append-only event log
 
-The gateway SHALL recover pending work and the latest persisted status from that gateway root when the gateway sidecar process restarts and the managed session still exists.
+The gateway SHALL recover pending work and the latest persisted status from that gateway root when the gateway companion process restarts and the managed session still exists.
+
+The current gateway state artifact SHALL be a stable, protocol-versioned local read contract, SHALL use the same schema as `GET /v1/status`, and SHALL be written atomically.
+
+The gateway root SHALL distinguish stable attachability metadata from live gateway-instance metadata.
 
 #### Scenario: Gateway restart recovers queued work from durable state
-- **WHEN** the gateway sidecar process exits unexpectedly while its managed tmux session remains available
+- **WHEN** the gateway companion process exits unexpectedly while its managed tmux session remains available
 - **AND WHEN** durable queued requests exist in the gateway root
-- **THEN** a restarted gateway sidecar recovers those queued requests from durable storage
+- **THEN** a restarted gateway companion recovers those queued requests from durable storage
 - **AND THEN** the gateway does not require callers to resubmit already accepted pending work solely because the sidecar process restarted
 
 #### Scenario: External readers can inspect the latest gateway state without replaying the event log
@@ -42,62 +46,111 @@ The gateway SHALL recover pending work and the latest persisted status from that
 - **THEN** the system provides that status through the current gateway state artifact in the gateway root
 - **AND THEN** the caller does not need to reconstruct current state solely by replaying the append-only event log
 
-### Requirement: The gateway binds one resolved host and port per managed session
-Each gateway-managed session SHALL expose its gateway submit or status surface as an HTTP service bound on exactly one resolved listener address before the gateway sidecar starts accepting work.
+#### Scenario: First attach creates gateway-owned durable state for a running session
+- **WHEN** a gateway companion first attaches to a running tmux-backed session that previously had no gateway process
+- **THEN** the system creates or materializes the gateway root for that session
+- **AND THEN** the initial gateway state is seeded from current observation plus attach metadata rather than requiring pre-attach event history
+
+### Requirement: Stable attachability metadata is distinct from live gateway bindings
+The system SHALL publish stable attachability metadata for gateway-capable sessions independently from whether a gateway process is currently running.
+
+Stable attachability metadata SHALL be sufficient for a later attach flow to determine how to attach to the live session.
+
+Live gateway bindings such as active host, port, and state-path pointers SHALL describe only the currently running gateway instance and SHALL be treated as ephemeral.
+
+#### Scenario: Gateway-capable session exists with no running gateway
+- **WHEN** a tmux-backed session has published attach metadata but no gateway companion is currently running
+- **THEN** the session remains gateway-capable
+- **AND THEN** callers can distinguish that state from one where a live gateway instance is currently attached
+
+#### Scenario: Live gateway bindings are cleared on graceful stop
+- **WHEN** an attached gateway companion stops gracefully while the managed tmux session remains live
+- **THEN** the system preserves stable attachability metadata for later re-attach
+- **AND THEN** live gateway host or port bindings are removed or invalidated for that stopped instance
+
+### Requirement: Each running gateway instance binds one resolved host and port
+Each running gateway instance SHALL expose its gateway submit or status surface as an HTTP service bound on exactly one resolved listener address before that gateway instance starts accepting work.
 
 Allowed listener hosts in this change are exactly `127.0.0.1` and `0.0.0.0`.
 
-When no explicit all-interface bind host is configured, the gateway sidecar SHALL default to binding on `127.0.0.1:<resolved-port>`.
+When no explicit all-interface bind host is configured, the gateway companion SHALL default to binding on `127.0.0.1:<resolved-port>`.
 
-The gateway sidecar SHALL attempt to bind that resolved port during startup and SHALL NOT silently switch to a different port if binding fails.
+The gateway companion SHALL attempt to bind that resolved port during startup and SHALL NOT silently switch to a different port if binding fails.
 
-When the resolved port is unavailable because another process already owns it or because the bind otherwise fails, startup of that gateway-managed session SHALL fail explicitly.
+When the resolved port is unavailable because another process already owns it or because the bind otherwise fails, startup of that gateway instance SHALL fail explicitly.
 
 #### Scenario: Gateway starts on the default loopback listener
-- **WHEN** the runtime starts a gateway-managed tmux-backed session with resolved gateway port `43123`
+- **WHEN** the system starts a gateway companion for a gateway-capable tmux-backed session with resolved gateway port `43123`
 - **AND WHEN** no explicit all-interface bind host is configured
-- **THEN** the gateway sidecar binds an HTTP service on `127.0.0.1:43123`
-- **AND THEN** gateway discovery for that session reflects port `43123` rather than an unrelated substituted port
+- **THEN** the gateway companion binds an HTTP service on `127.0.0.1:43123`
+- **AND THEN** live gateway discovery for that instance reflects port `43123` rather than an unrelated substituted port
 
 #### Scenario: Explicit all-interface bind uses 0.0.0.0
-- **WHEN** the runtime starts a gateway-managed tmux-backed session with resolved gateway host `0.0.0.0` and port `43123`
-- **THEN** the gateway sidecar binds an HTTP service on `0.0.0.0:43123`
+- **WHEN** the system starts a gateway companion with resolved gateway host `0.0.0.0` and port `43123`
+- **THEN** the gateway companion binds an HTTP service on `0.0.0.0:43123`
 - **AND THEN** the service is reachable through any host interface address that maps to that port
 
-#### Scenario: Port conflict fails gateway-managed session startup
-- **WHEN** the runtime attempts to start a gateway-managed tmux-backed session whose resolved gateway port is already bound by another process
-- **THEN** the system fails that session startup with an explicit gateway-port conflict error
+#### Scenario: Port conflict fails gateway attach or start
+- **WHEN** the system attempts to start a gateway companion whose resolved gateway port is already bound by another process
+- **THEN** the system fails that gateway start or attach operation with an explicit gateway-port conflict error
 - **AND THEN** it does not silently retry on a different port for that launch attempt
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
 The gateway SHALL expose an HTTP API for health inspection, status inspection, and gateway-managed request submission on the resolved listener address for that session.
 
+In v1, that HTTP API SHALL expose exactly `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+
+`GET /health` SHALL return a structured response suitable for runtime launch-readiness checks and SHALL include gateway protocol-version information.
+
+`GET /v1/status` SHALL return the same versioned status model that the gateway persists to `state.json`.
+
+`POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
+
 That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
+
+Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts SHALL return HTTP `409`.
 
 Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health or status.
 
 #### Scenario: Health inspection uses default loopback surface
 - **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
-- **THEN** it can query the gateway through the loopback HTTP surface on the resolved port
+- **THEN** it can query `GET /health` through the loopback HTTP surface on the resolved port
 - **AND THEN** the gateway returns a structured health response without requiring direct SQLite access
+
+#### Scenario: Status inspection matches the stable state artifact
+- **WHEN** a tool queries `GET /v1/status` for a gateway-managed session
+- **THEN** the gateway returns the same versioned status model that it persists to `state.json`
+- **AND THEN** local readers can rely on either surface without schema drift
 
 #### Scenario: Request submission uses all-interface surface when configured
 - **WHEN** a tool submits gateway-managed terminal-mutating work for a session whose resolved gateway host is `0.0.0.0`
-- **THEN** it may submit that work through any reachable host interface address on the resolved port
+- **THEN** it may submit that work through `POST /v1/requests` on any reachable host interface address on the resolved port
 - **AND THEN** the gateway validates and records the request before it can compete for execution
+
+#### Scenario: Invalid request payload is rejected with validation semantics
+- **WHEN** a caller submits a malformed `POST /v1/requests` payload
+- **THEN** the gateway returns HTTP `422`
+- **AND THEN** the malformed request is not accepted into durable queue state
 
 ### Requirement: Gateway status separates health, agent state, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent activity and terminal-surface readiness.
 
+That published status model SHALL be protocol-versioned and SHALL be shared by both `state.json` and `GET /v1/status`.
+
 At minimum, the published gateway status SHALL distinguish:
 
+- protocol version
 - gateway health state
 - managed-agent state
 - terminal-surface eligibility state
 - active execution state
+- gateway host
+- gateway port
 - queue depth
 
 When the gateway cannot safely classify the managed terminal surface, it SHALL publish an explicit unknown-like state rather than inferring readiness.
+
+`gateway health state` SHALL support representing that no gateway instance is currently attached to an otherwise gateway-capable session.
 
 #### Scenario: Manual modal interaction changes surface eligibility without corrupting gateway health
 - **WHEN** a human operator opens or leaves the managed TUI in a non-submit-ready modal surface
@@ -112,9 +165,23 @@ When the gateway cannot safely classify the managed terminal surface, it SHALL p
 ### Requirement: The gateway serializes terminal-mutating work and applies admission policy
 The gateway SHALL accept structured local requests for gateway-managed work and SHALL apply gateway-owned admission policy before execution.
 
+In v1, the public terminal-mutating request kinds SHALL be exactly `submit_prompt` and `interrupt`.
+
+The HTTP submission contract SHALL expose typed per-kind payloads. Any persisted `payload_json` field remains an internal storage detail rather than part of the public protocol contract.
+
 For accepted terminal-mutating requests, the gateway SHALL persist them durably, SHALL serialize execution through a single active terminal-mutation slot per managed agent, and SHALL order eligible work according to gateway policy such as priority, timing constraints, or coalescing rules.
 
 The gateway SHALL be able to reject requests explicitly when permissions or local policy do not allow them.
+
+#### Scenario: Prompt submission is accepted as a typed request
+- **WHEN** a caller submits a `submit_prompt` request with a prompt-string payload
+- **THEN** the gateway validates and durably enqueues that request
+- **AND THEN** the accepted response includes a durable request identifier
+
+#### Scenario: Interrupt submission is accepted as a typed request
+- **WHEN** a caller submits an `interrupt` request for a gateway-managed session
+- **THEN** the gateway records it as a gateway-managed control action
+- **AND THEN** the caller does not need to bypass the gateway with direct concurrent terminal mutation
 
 #### Scenario: Concurrent terminal-mutating requests are serialized
 - **WHEN** multiple accepted terminal-mutating requests target the same managed agent concurrently
@@ -132,8 +199,8 @@ The gateway SHALL NOT require mailbox transport configuration, mailbox environme
 Future mailbox integration MAY submit work through the same validated gateway request surface in a follow-up change, but this change SHALL NOT make mailbox participation a hidden dependency of gateway operation.
 
 #### Scenario: Gateway-managed session operates without mailbox support
-- **WHEN** the runtime starts a gateway-managed tmux-backed session that does not enable any mailbox transport
-- **THEN** the gateway sidecar still launches, publishes gateway state, and accepts gateway-managed work
+- **WHEN** the system starts or attaches a gateway companion for a tmux-backed session that does not enable any mailbox transport
+- **THEN** the gateway companion still launches, publishes gateway state, and accepts gateway-managed work
 - **AND THEN** gateway operation does not fail solely because mailbox support is absent
 
 #### Scenario: Missing mailbox bindings do not block gateway recovery
@@ -159,12 +226,16 @@ Direct human interaction SHALL NOT, by itself, invalidate already accepted queue
 - **THEN** the gateway records that observation in its state or event history
 - **AND THEN** the gateway reevaluates the active request outcome according to its recovery or retry policy instead of assuming the session is irreparably corrupted
 
-### Requirement: The gateway supports timers, heartbeats, and bounded local recovery
+### Requirement: The gateway supports timers, heartbeats, bounded local recovery, and snapshot-based later attach
 The gateway SHALL support regular gateway heartbeats, managed-agent liveness observation, timer-driven request creation, and bounded recovery for agent-local failures.
 
-When the managed agent fails or becomes unavailable while the gateway sidecar remains alive, the gateway SHALL attempt bounded recovery through the runtime-owned backend integration for that session and SHALL record the recovery outcome.
+Timer-driven or wakeup-oriented queued work in v1 SHALL remain gateway-owned internal behavior rather than additional externally submitted public request kinds.
 
-When the entire tmux session or tmux server hosting the same-window sidecar disappears, the gateway SHALL surface that loss as an offline or degraded condition and SHALL NOT claim full self-recovery of the destroyed tmux container from within the sidecar itself.
+When a gateway first attaches to an already-running session, the gateway SHALL initialize from current observation plus attach metadata rather than requiring continuous launch-time observation.
+
+When the managed agent fails or becomes unavailable while the gateway companion remains alive, the gateway SHALL attempt bounded recovery through the runtime-owned backend integration for that session and SHALL record the recovery outcome.
+
+When the entire tmux session or tmux server hosting the managed agent disappears, the gateway SHALL surface that loss as an offline or degraded condition and SHALL NOT claim full self-recovery of the destroyed tmux container from within the gateway companion itself.
 
 #### Scenario: Agent-local failure triggers bounded gateway recovery
 - **WHEN** the gateway remains alive but observes that the managed agent process or terminal surface has failed in a recoverable way
@@ -172,6 +243,6 @@ When the entire tmux session or tmux server hosting the same-window sidecar disa
 - **AND THEN** the gateway records whether recovery succeeded, retried, or exhausted its retry budget
 
 #### Scenario: Whole tmux-session loss is surfaced for outer supervision
-- **WHEN** the tmux session hosting the same-window gateway sidecar and managed TUI is destroyed
+- **WHEN** the tmux session hosting the managed TUI is destroyed while a gateway instance had been attached
 - **THEN** the gateway contract surfaces that loss as an offline or degraded condition when state is next inspected
-- **AND THEN** recovery of the destroyed tmux container is left to an outer launcher or supervisor layer rather than being claimed by the in-window sidecar alone
+- **AND THEN** recovery of the destroyed tmux container is left to an outer launcher or supervisor layer rather than being claimed by the gateway companion alone
