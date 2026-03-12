@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
 from gig_agents.agents.brain_launch_runtime.launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
@@ -110,6 +111,61 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     redacted = plan.redacted_payload()
     assert redacted["env_var_names"] == ["OPENAI_API_KEY", "OPENAI_BASE_URL"]
     assert "sk-secret" not in str(redacted)
+
+
+def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
+    _write(role_prompt_path, "Test role prompt")
+
+    manifest = {
+        "inputs": {"tool": "codex"},
+        "runtime": {
+            "launch_executable": "codex",
+            "launch_args": [],
+            "launch_home_selector": {
+                "env_var": "CODEX_HOME",
+                "value": str(tmp_path / "home"),
+            },
+        },
+        "credentials": {
+            "env_contract": {
+                "source_file": str(env_file),
+                "allowlisted_env_vars": ["OPENAI_API_KEY"],
+            }
+        },
+    }
+
+    role = load_role_package(tmp_path / "repo", "test-role")
+    mailbox = MailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root=(tmp_path / "shared-mail").resolve(),
+        bindings_version="2026-03-12T05:00:00.000001Z",
+    )
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="codex_headless",
+            working_directory=tmp_path,
+            mailbox=mailbox,
+        )
+    )
+
+    assert plan.mailbox == mailbox
+    assert plan.env["AGENTSYS_MAILBOX_TRANSPORT"] == "filesystem"
+    assert plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(mailbox.filesystem_root)
+    assert plan.env["AGENTSYS_MAILBOX_FS_SQLITE_PATH"] == str(
+        mailbox.filesystem_root / "index.sqlite"
+    )
+    assert plan.env["AGENTSYS_MAILBOX_FS_INBOX_DIR"] == str(
+        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research" / "inbox"
+    )
+    assert "AGENTSYS_MAILBOX_FS_ROOT" in plan.env_var_names
+    assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
 
 
 def test_parse_allowlisted_env_selects_claude_model_selection_vars(

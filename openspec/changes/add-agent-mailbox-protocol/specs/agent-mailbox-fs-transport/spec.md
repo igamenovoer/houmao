@@ -5,6 +5,8 @@ The filesystem mailbox transport SHALL persist mailbox artifacts under a mailbox
 
 When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to a deterministic path under the configured runtime root.
 
+The filesystem mailbox transport SHALL require a symlink-capable local filesystem for principal registration and mailbox projection writes.
+
 That mailbox subtree SHALL include at minimum:
 
 - `protocol-version.txt`
@@ -25,6 +27,11 @@ That mailbox subtree SHALL include at minimum:
 - **THEN** the system derives the effective mailbox content root from the configured runtime root
 - **AND THEN** the resulting mailbox subtree uses that derived default location while preserving the same internal layout
 
+#### Scenario: Unsupported symlink capability fails explicitly
+- **WHEN** the effective mailbox filesystem cannot create or resolve the symlinks required for mailbox principal registration or inbox and sent projections
+- **THEN** the filesystem mailbox transport fails initialization or delivery explicitly
+- **AND THEN** the transport does not silently replace those symlinks with copied or duplicated message files
+
 ### Requirement: Filesystem mailbox initialization is a runtime-owned bootstrap path
 The system SHALL initialize a new filesystem mailbox root through package-internal runtime bootstrap code that does not depend on pre-existing helper scripts under `rules/scripts/`.
 
@@ -37,6 +44,8 @@ That bootstrap path SHALL create or validate at minimum:
 - the staging area
 - any in-root principal mailbox directories and principal-registry entries being initialized
 
+On an existing mailbox root, bootstrap SHALL validate `protocol-version.txt` before continuing and SHALL fail explicitly when the on-disk protocol version is unsupported.
+
 #### Scenario: Bootstrap materializes a new mailbox root without pre-existing helper scripts
 - **WHEN** the runtime initializes a new filesystem mailbox root that does not yet contain shared mailbox helper scripts
 - **THEN** the runtime performs bootstrap directly through package-internal code rather than invoking pre-existing `rules/scripts/` helpers
@@ -47,6 +56,11 @@ That bootstrap path SHALL create or validate at minimum:
 - **THEN** the runtime bootstrap path creates that principal's mailbox directory structure directly
 - **AND THEN** the bootstrap path records the corresponding in-root principal registration in the mailbox index without requiring pre-existing shared helper scripts
 
+#### Scenario: Unsupported protocol version fails bootstrap
+- **WHEN** the runtime encounters an existing filesystem mailbox root whose `protocol-version.txt` value is unsupported by the current implementation
+- **THEN** bootstrap fails explicitly before mutating that mailbox root
+- **AND THEN** the runtime does not proceed with partial initialization against the unsupported on-disk protocol
+
 ### Requirement: Filesystem mailbox root publishes shared mailbox rules
 The filesystem mailbox transport SHALL publish a `rules/` directory under the mailbox root as the mailbox-local source of truth for shared mailbox interaction guidance.
 
@@ -55,13 +69,14 @@ That `rules/` directory SHALL contain at minimum:
 - a human-readable `README`
 - mailbox protocol documentation
 - helper scripts for standardized mailbox operations
+- a dependency manifest for Python-based helper scripts
 - agent-skill materials for standardized mailbox operations
 
 Sensitive mailbox operations that touch `index.sqlite` or `locks/` SHALL be represented by shared scripts under `rules/scripts/`.
 
-Those scripts MAY be implemented in Python or shell. Python implementations SHALL assume only the Python standard library and Python version `>=3.11`.
+Those scripts MAY be implemented in Python or shell. Python implementations MAY depend on the Python standard library and/or additional Python packages, including packages distributed on PyPI, as long as `rules/scripts/requirements.txt` declares the dependencies needed by the published Python helpers.
 
-In v1, the runtime-managed script set SHALL include `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py` under `rules/scripts/`.
+In v1, the runtime-managed asset set under `rules/scripts/` SHALL include `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`.
 
 These filenames SHALL be treated as stable within a given `protocol-version.txt` value.
 
@@ -73,12 +88,12 @@ These filenames SHALL be treated as stable within a given `protocol-version.txt`
 #### Scenario: Sensitive mailbox scripts are available under rules/scripts
 - **WHEN** a participant needs to perform a standardized mailbox operation that touches `index.sqlite` or `locks/`
 - **THEN** the shared filesystem mailbox root provides a corresponding helper script under `rules/scripts/`
-- **AND THEN** any Python-based helper script for that operation relies only on the Python standard library with Python version `>=3.11`
+- **AND THEN** if that helper is Python-based, the shared filesystem mailbox root also provides `rules/scripts/requirements.txt` so the participant can discover the dependencies needed before invoking it
 
 #### Scenario: Bootstrap materializes the managed script set
 - **WHEN** the runtime initializes or upgrades a filesystem mailbox root for the current protocol version
-- **THEN** `rules/scripts/` contains the managed filenames `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`
-- **AND THEN** those managed filenames correspond to the mailbox root's `protocol-version.txt`
+- **THEN** `rules/scripts/` contains the managed filenames `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`
+- **AND THEN** those managed assets correspond to the mailbox root's `protocol-version.txt`
 
 #### Scenario: Optional header helper script is available for standardized composition
 - **WHEN** a shared filesystem mailbox wants to help participants standardize message headers or YAML front matter during composition
@@ -148,6 +163,8 @@ The filesystem mailbox transport SHALL NOT require a background process for deli
 
 The transport SHALL coordinate concurrent filesystem writers using deterministic `.lock` files and SHALL combine multi-file delivery changes with transactional SQLite index updates.
 
+Standardized filesystem write flows SHALL acquire all affected principal locks in ascending lexicographic principal order before acquiring `locks/index.lock`.
+
 #### Scenario: Sender delivers mail without a helper daemon
 - **WHEN** a sender process writes a mailbox message through the filesystem transport
 - **THEN** the sender performs delivery directly through filesystem and SQLite operations
@@ -168,10 +185,23 @@ The transport SHALL coordinate concurrent filesystem writers using deterministic
 - **THEN** the system serializes conflicting writes using deterministic lock files
 - **AND THEN** recipients do not observe partially applied mailbox projections for a committed delivery
 
+#### Scenario: Lock acquisition order avoids deadlock
+- **WHEN** a standardized filesystem mailbox write affects multiple principals
+- **THEN** the helper workflow acquires the corresponding principal locks in ascending lexicographic `principal_id` order before acquiring `locks/index.lock`
+- **AND THEN** the operation fails explicitly rather than partially committing delivery if it cannot obtain the required lock set within its bounded timeout
+
 #### Scenario: Missing symlink target causes explicit delivery failure
 - **WHEN** a sender attempts delivery to a principal whose `mailboxes/<principal>` symlink target is missing or invalid
 - **THEN** the filesystem mailbox transport fails that delivery explicitly
 - **AND THEN** the system does not silently create a replacement mailbox directory at an unintended path
+
+### Requirement: Filesystem mailbox SQLite stays in a non-WAL journal mode
+The filesystem mailbox transport SHALL configure its shared SQLite index to use a non-WAL journal mode in v1.
+
+#### Scenario: Filesystem mailbox index avoids WAL sidecar files
+- **WHEN** the runtime bootstraps or opens the shared filesystem mailbox SQLite index
+- **THEN** the runtime configures that index with a non-WAL journal mode for v1
+- **AND THEN** the transport does not require `index.sqlite-wal` or `index.sqlite-shm` sidecar files for correct operation
 
 ### Requirement: SQLite indexes mailbox metadata and mutable recipient state
 The filesystem mailbox transport SHALL maintain a SQLite index for mailbox metadata and mutable per-recipient state.
@@ -199,6 +229,8 @@ That index SHALL record at minimum:
 ### Requirement: Filesystem transport supports recovery from the message corpus
 The filesystem mailbox transport SHALL treat canonical Markdown message files as durable recovery artifacts and SHALL support rebuilding structural mailbox indexes from the message corpus when the SQLite index is missing or unusable.
 
+Interrupted deliveries SHALL leave only staging artifacts that can be cleaned or quarantined without treating them as committed mail.
+
 #### Scenario: Reindex rebuilds structural message catalog
 - **WHEN** the SQLite mailbox index is missing or corrupted but canonical Markdown message files remain present
 - **THEN** the system can rebuild the structural message and projection catalog from the filesystem mailbox corpus
@@ -208,3 +240,8 @@ The filesystem mailbox transport SHALL treat canonical Markdown message files as
 - **WHEN** the system rebuilds mailbox indexes from canonical message files without prior mutable mailbox-state records
 - **THEN** the system recreates mailbox catalog entries for the recovered messages
 - **AND THEN** the system initializes per-recipient mailbox state using deterministic defaults rather than silently dropping the recovered messages
+
+#### Scenario: Repair cleans orphaned staging artifacts after interrupted delivery
+- **WHEN** a delivery attempt terminates after writing staging artifacts but before committing the canonical message and SQLite transaction
+- **THEN** repair or cleanup logic removes or quarantines those orphaned staging artifacts without treating them as delivered mail
+- **AND THEN** subsequent delivery or reindex flows can proceed without confusing orphaned staging files for committed mailbox messages

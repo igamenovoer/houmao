@@ -13,6 +13,7 @@ from gig_agents.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
+from gig_agents.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 
 
 def _write(path: Path, content: str) -> None:
@@ -147,6 +148,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
+    assert (home / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert not (home / "skills/skill-b").exists()
 
     # Credential file projection and env contract setup.
@@ -192,6 +194,37 @@ credential_profile: personal-a
     assert recipe.skills == ["skill-a"]
 
 
+def test_load_brain_recipe_accepts_mailbox_config(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: codex
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+mailbox:
+  transport: filesystem
+  principal_id: AGENTSYS-research
+  address: AGENTSYS-research@agents.localhost
+  filesystem_root: shared-mail
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.mailbox == MailboxDeclarativeConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root="shared-mail",
+    )
+
+
 def test_load_brain_recipe_allows_missing_default_agent_name(tmp_path: Path) -> None:
     recipe_path = tmp_path / "recipe.yaml"
     _write(
@@ -211,6 +244,39 @@ credential_profile: personal-a
     recipe = load_brain_recipe(recipe_path)
 
     assert recipe.default_agent_name is None
+
+
+def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            mailbox=MailboxDeclarativeConfig(
+                transport="filesystem",
+                principal_id="AGENTSYS-research",
+                address="AGENTSYS-research@agents.localhost",
+                filesystem_root="shared-mail",
+            ),
+            home_id="home-mailbox-001",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["mailbox"] == {
+        "transport": "filesystem",
+        "principal_id": "AGENTSYS-research",
+        "address": "AGENTSYS-research@agents.localhost",
+        "filesystem_root": "shared-mail",
+    }
 
 
 def test_build_brain_home_skips_missing_optional_credential_file(

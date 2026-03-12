@@ -6,9 +6,7 @@ The layout below is rooted at the effective mailbox content root. That content r
 
 When an agent interacts with a shared mailbox, inspect `rules/` first. That mailbox-local rules area is where the shared mailbox can publish a README, standardized helper scripts, and mailbox-operation helper skills that refine the generic transport guidance.
 
-Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path creates or validates `protocol-version.txt`, the SQLite schema, the `rules/` tree, the managed scripts under `rules/scripts/`, the sibling `rules/scripts/requirements.txt` dependency manifest, and any in-root principal mailbox directories before agents are expected to use the mailbox.
-
-The runtime-owned filesystem mailbox system skill itself is projected into the agent's active brain home under the reserved namespace `.system/mailbox/email-via-filesystem`. That projected skill is distinct from any mailbox-local helper materials that may be published inside the shared mailbox root under `rules/skills/`.
+Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path creates or validates `protocol-version.txt`, the SQLite schema, the `rules/` tree, the managed scripts under `rules/scripts/`, and any in-root principal mailbox directories before agents are expected to use the mailbox.
 
 ```text
 <mailbox_root>/
@@ -62,7 +60,6 @@ The runtime-owned filesystem mailbox system skill itself is projected into the a
   In v1, the runtime-managed asset set includes `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`.
   These filenames are stable within a given `protocol-version.txt` value.
   `insert_standard_headers.py` remains optional at use time, but it is still part of the managed bootstrap material.
-  Treat these files as mailbox-managed assets published by bootstrap or refresh, not as a user-authored rules area.
 
 - `mailboxes/<principal>/inbox`
   Recipient-facing mailbox projection for delivered messages.
@@ -76,7 +73,7 @@ The runtime-owned filesystem mailbox system skill itself is projected into the a
 - `mailboxes/<principal>`
   Principal mailbox registration entry used by the shared mail group.
   Dynamic join can be implemented by creating this entry as a symlink to a private mailbox directory that already contains `inbox/`, `sent/`, `archive/`, and `drafts/`.
-  In v1, bootstrap creates `archive/` and `drafts/` as reserved placeholder directories for forward compatibility rather than as defined archive or draft workflows.
+  In v1, `archive/` and `drafts/` are reserved placeholder directories for forward compatibility rather than defined archive or draft workflows.
 
 - `messages/`, `locks/`, `attachments/managed/`, and `index.sqlite`
   Shared mail-group artifacts that remain anchored under `<mailbox_root>` even when a principal mailbox entry is symlinked to a private directory.

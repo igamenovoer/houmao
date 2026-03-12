@@ -12,6 +12,8 @@ from pydantic import (
     model_validator,
 )
 
+from gig_agents.agents.mailbox_runtime_models import MailboxTransport
+
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -53,6 +55,28 @@ class LaunchPlanRoleInjectionV1(_StrictBoundaryModel):
         return value
 
 
+class LaunchPlanMailboxV1(_StrictBoundaryModel):
+    """Persisted resolved mailbox binding for `launch_plan.v1`."""
+
+    transport: MailboxTransport
+    principal_id: str
+    address: str
+    bindings_version: str
+    filesystem_root: str
+
+    @field_validator(
+        "principal_id",
+        "address",
+        "bindings_version",
+        "filesystem_root",
+    )
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class LaunchPlanPayloadV1(_StrictBoundaryModel):
     """Persisted `launch_plan.v1` payload."""
 
@@ -65,6 +89,7 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     env_var_names: list[str]
     role_injection: LaunchPlanRoleInjectionV1
     metadata: JsonObject
+    mailbox: LaunchPlanMailboxV1 | None = None
 
     @field_validator("tool", "executable", "working_directory")
     @classmethod

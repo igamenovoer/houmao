@@ -40,5 +40,4 @@
 - Require all common bindings plus all filesystem-specific bindings before mailbox work.
 - Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative for mailbox content location; do not reconstruct it from the runtime root unless the runtime has already chosen that as the default.
 - Re-read these bindings before each mailbox action.
-- Use the refreshed bindings after session resume or mailbox-binding refresh instead of assuming the mailbox root or inbox directory stayed stable.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes, discard cached filesystem assumptions and reload the current bindings.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
@@ -45,6 +45,19 @@ from .launch_plan import (
     resolve_cao_parsing_mode,
 )
 from .loaders import load_brain_manifest, load_role_package
+from gig_agents.agents.mailbox_runtime_support import (
+    MAILBOX_TRANSPORT_FILESYSTEM,
+    bootstrap_resolved_mailbox,
+    mailbox_env_bindings,
+    parse_declarative_mailbox_config,
+    refresh_filesystem_mailbox_config,
+    resolve_effective_mailbox_config,
+    resolved_mailbox_config_from_payload,
+)
+from gig_agents.agents.mailbox_runtime_models import (
+    MailboxDeclarativeConfig,
+    MailboxResolvedConfig,
+)
 from .manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -171,6 +184,46 @@ class RuntimeSessionController:
         self.backend_session.close()
         self.persist_manifest()
 
+    def refresh_mailbox_bindings(
+        self,
+        *,
+        filesystem_root: Path | None = None,
+    ) -> MailboxResolvedConfig:
+        """Refresh mailbox env bindings for an active session."""
+
+        mailbox = self.launch_plan.mailbox
+        if mailbox is None:
+            raise SessionManifestError("Session does not have mailbox support enabled.")
+        if mailbox.transport != MAILBOX_TRANSPORT_FILESYSTEM:
+            raise SessionManifestError(
+                f"Mailbox binding refresh is not implemented for transport={mailbox.transport!r}."
+            )
+
+        refreshed = refresh_filesystem_mailbox_config(
+            mailbox,
+            filesystem_root=filesystem_root,
+        )
+        try:
+            bootstrap_resolved_mailbox(
+                refreshed,
+                manifest_path_hint=self.manifest_path,
+                role_name=self.role_name,
+            )
+        except RuntimeError as exc:
+            raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
+
+        updated_launch_plan = _launch_plan_with_mailbox(
+            self.launch_plan,
+            refreshed,
+        )
+        _refresh_backend_launch_plan(
+            backend_session=self.backend_session,
+            launch_plan=updated_launch_plan,
+        )
+        self.launch_plan = updated_launch_plan
+        self.persist_manifest()
+        return refreshed
+
     def persist_manifest(self) -> None:
         """Persist current backend state to session manifest."""
 
@@ -198,6 +251,10 @@ def start_runtime_session(
     cao_profile_store_dir: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
+    mailbox_transport: str | None = None,
+    mailbox_root: Path | None = None,
+    mailbox_principal_id: str | None = None,
+    mailbox_address: str | None = None,
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
 
@@ -207,6 +264,24 @@ def start_runtime_session(
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = backend or backend_for_tool(tool)
     selected_workdir = (working_directory or Path.cwd()).resolve()
+    declared_mailbox = _declared_mailbox_from_manifest(
+        manifest,
+        source=str(brain_manifest_path),
+    )
+    try:
+        resolved_mailbox = resolve_effective_mailbox_config(
+            declared_config=declared_mailbox,
+            runtime_root=runtime_root.resolve(),
+            tool=tool,
+            role_name=role_name,
+            agent_identity=agent_identity,
+            transport_override=mailbox_transport,
+            filesystem_root_override=mailbox_root,
+            principal_id_override=mailbox_principal_id,
+            address_override=mailbox_address,
+        )
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
 
     launch_plan = build_launch_plan(
         LaunchPlanRequest(
@@ -214,12 +289,22 @@ def start_runtime_session(
             role_package=role_package,
             backend=selected_backend,
             working_directory=selected_workdir,
+            mailbox=resolved_mailbox,
         )
     )
 
     session_id = generate_session_id(prefix=selected_backend)
     manifest_path = default_manifest_path(runtime_root, selected_backend, session_id)
     manifest_path = manifest_path.resolve()
+    if resolved_mailbox is not None:
+        try:
+            bootstrap_resolved_mailbox(
+                resolved_mailbox,
+                manifest_path_hint=manifest_path,
+                role_name=role_name,
+            )
+        except RuntimeError as exc:
+            raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
 
     canonical_agent_identity: str | None = None
     agent_identity_warnings: tuple[str, ...] = ()
@@ -350,6 +435,7 @@ def resume_runtime_session(
             role_package=role_package,
             backend=backend,
             working_directory=Path(manifest_payload.working_directory),
+            mailbox=_resolved_mailbox_from_manifest_payload(manifest_payload),
         )
     )
 
@@ -641,6 +727,58 @@ def _backend_state_for_session(session: InteractiveSession) -> dict[str, object]
     return {}
 
 
+def _declared_mailbox_from_manifest(
+    manifest: dict[str, object],
+    *,
+    source: str,
+) -> MailboxDeclarativeConfig | None:
+    try:
+        return parse_declarative_mailbox_config(
+            manifest.get("mailbox"),
+            source=source,
+        )
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+
+
+def _resolved_mailbox_from_manifest_payload(
+    payload: SessionManifestPayloadV2,
+) -> MailboxResolvedConfig | None:
+    try:
+        return resolved_mailbox_config_from_payload(payload.launch_plan.mailbox)
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+
+
+def _launch_plan_with_mailbox(
+    launch_plan: LaunchPlan,
+    mailbox: MailboxResolvedConfig,
+) -> LaunchPlan:
+    mailbox_env = mailbox_env_bindings(mailbox)
+    updated_env = dict(launch_plan.env)
+    updated_env.update(mailbox_env)
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=sorted({*launch_plan.env_var_names, *mailbox_env.keys()}),
+        mailbox=mailbox,
+    )
+
+
+def _refresh_backend_launch_plan(
+    *,
+    backend_session: InteractiveSession,
+    launch_plan: LaunchPlan,
+) -> None:
+    update_method = getattr(backend_session, "update_launch_plan", None)
+    if callable(update_method):
+        update_method(launch_plan)
+        return
+    raise SessionManifestError(
+        f"backend={launch_plan.backend!r} does not support mailbox binding refresh."
+    )
+
+
 def _resolve_manifest_path(value: str, *, base: Path) -> Path:
     """Resolve a manifest path relative to the provided base directory."""
 
@@ -694,8 +832,7 @@ def _read_tmux_session_env_var(
     if env_result.returncode != 0:
         if "unknown variable" in env_detail.lower():
             raise SessionManifestError(
-                f"{missing_message}: tmux session `{session_name}` has no "
-                f"`{variable_name}` value."
+                f"{missing_message}: tmux session `{session_name}` has no `{variable_name}` value."
             )
         raise SessionManifestError(
             f"Failed reading `{variable_name}` from tmux session "

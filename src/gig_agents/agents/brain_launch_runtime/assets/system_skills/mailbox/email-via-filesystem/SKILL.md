@@ -7,9 +7,7 @@ description: Operate the filesystem-backed async mailbox transport for agents us
 
 ## Overview
 
-Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, and mailbox state lives in SQLite. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. The runtime projects this skill into the active brain home under the reserved runtime-owned namespace `.system/mailbox/email-via-filesystem`, separate from any role-authored skills and separate from mailbox-local helper materials published under the shared mailbox `rules/skills/` directory. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
-
-The shared mailbox root also contains managed helper assets under `rules/scripts/`. Those files are bootstrap-published mailbox-local operation helpers, not copies of this runtime-owned skill. Agents may inspect and invoke them, but should treat the managed filenames and their sibling `requirements.txt` manifest as owned by the mailbox bootstrap contract rather than as ad hoc scratch files to rewrite.
+Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, and mailbox state lives in SQLite. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
 
 ## References
 
@@ -23,7 +21,7 @@ The shared mailbox root also contains managed helper assets under `rules/scripts
 - Re-read the mailbox env vars before each mailbox action. Do not cache paths or addresses across turns.
 - Before interacting with shared mailbox state, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
 - If the mailbox claims to be initialized but the managed `rules/scripts/` files are missing, stop and report a mailbox-initialization error instead of improvising replacements.
-- Before invoking a shared Python helper from `rules/scripts/`, inspect `rules/scripts/requirements.txt` so you know which Python dependencies must already be installed or need to be installed for that mailbox. Treat that manifest as the mailbox-local dependency contract for the managed helper set.
+- Before invoking a shared Python helper from `rules/scripts/`, inspect `rules/scripts/requirements.txt` so you know which Python dependencies must already be installed or need to be installed for that mailbox.
 - For any mailbox step that touches `index.sqlite` or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
 - When the shared mailbox provides a header-helper script under `rules/scripts/`, you may use it to insert or normalize standardized headers or YAML front matter during message composition, but treat it as optional guidance rather than a required transport primitive.
 
@@ -65,9 +63,9 @@ When writing directly to the filesystem transport:
 - Do not skip the shared mailbox `rules/` directory when interacting with a shared mail root; mailbox-local rules there are the first place to look for standardized operation guidance.
 - Do not hand-write raw SQLite mutations or lock-file orchestration when the shared mailbox provides a standardized helper script for that sensitive operation under `rules/scripts/`.
 - Do not assume shared Python helper dependencies are already available without checking `rules/scripts/requirements.txt`.
-- Do not invent archive or draft folder workflows in v1; bootstrap creates `archive/` and `drafts/` as reserved placeholders for forward compatibility, but this change does not define archive or draft behavior yet.
+- Do not invent archive or draft folder workflows in v1; treat `archive/` and `drafts/` as reserved placeholders unless a future change defines those workflows.
 - Do not treat mailbox filenames alone as unread or read markers.
 - Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
 - Do not bypass locking when creating or updating mailbox projections.
 - Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
-- Do not assume a true-email runtime transport exists in this change; if the transport is not `filesystem`, stop and report that only the filesystem mailbox transport is implemented here. Use `$email-via-mail-system` only for compatibility guidance.
+- Do not assume a true-email runtime transport exists in this change; if the transport is not `filesystem`, stop and report that only the filesystem mailbox transport is implemented here.

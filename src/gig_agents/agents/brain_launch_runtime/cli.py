@@ -14,6 +14,13 @@ from gig_agents.agents.brain_builder import BuildRequest, build_brain_home
 from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
+from .mail_commands import (
+    ensure_mailbox_command_ready,
+    load_mail_body_file,
+    prepare_mail_prompt,
+    run_mail_prompt,
+    validate_attachment_paths,
+)
 from .models import BackendKind
 from .runtime import (
     AgentIdentityResolution,
@@ -63,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_send_keys(args)
         if args.command == "stop-session":
             return _cmd_stop_session(args)
+        if args.command == "mail":
+            return _cmd_mail(args)
     except BrainLaunchRuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -126,6 +135,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "--agent-identity",
         help="Optional tmux-backed agent name",
     )
+    start.add_argument(
+        "--mailbox-transport",
+        choices=["filesystem", "none"],
+        help="Optional mailbox transport override",
+    )
+    start.add_argument(
+        "--mailbox-root",
+        help="Optional filesystem mailbox root override",
+    )
+    start.add_argument(
+        "--mailbox-principal-id",
+        help="Optional mailbox principal-id override",
+    )
+    start.add_argument(
+        "--mailbox-address",
+        help="Optional mailbox address override",
+    )
 
     prompt = subparsers.add_parser("send-prompt", help="Send a prompt to a resumed session")
     prompt.add_argument(
@@ -182,6 +208,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="For tmux-backed headless sessions, also delete tmux session",
     )
 
+    mail = subparsers.add_parser("mail", help="Run mailbox operations against a resumed session")
+    mail_subparsers = mail.add_subparsers(dest="mail_command")
+
+    mail_check = mail_subparsers.add_parser("check", help="Ask a session to check its mailbox")
+    _add_mail_common_args(mail_check)
+    mail_check.add_argument("--unread-only", action="store_true")
+    mail_check.add_argument("--limit", type=int)
+    mail_check.add_argument("--since", help="Optional RFC3339 lower bound")
+
+    mail_send = mail_subparsers.add_parser("send", help="Ask a session to send mailbox content")
+    _add_mail_common_args(mail_send)
+    mail_send.add_argument("--to", action="append", required=True, dest="to_recipients")
+    mail_send.add_argument("--cc", action="append", default=[], dest="cc_recipients")
+    mail_send.add_argument("--subject", required=True)
+    mail_send.add_argument("--instruction")
+    mail_send.add_argument("--body-file")
+    mail_send.add_argument("--attach", action="append", default=[], dest="attachments")
+
+    mail_reply = mail_subparsers.add_parser(
+        "reply",
+        help="Ask a session to reply to an existing mailbox message",
+    )
+    _add_mail_common_args(mail_reply)
+    mail_reply.add_argument("--message-id", required=True)
+    mail_reply.add_argument("--instruction")
+    mail_reply.add_argument("--body-file")
+    mail_reply.add_argument("--attach", action="append", default=[], dest="attachments")
+
     return parser
 
 
@@ -222,6 +276,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             skills=[str(skill) for skill in skills],
             config_profile=str(config_profile),
             credential_profile=str(credential_profile),
+            mailbox=recipe.mailbox if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
         )
@@ -258,6 +313,10 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),
         agent_identity=args.agent_identity,
         cao_parsing_mode=args.cao_parsing_mode,
+        mailbox_transport=args.mailbox_transport,
+        mailbox_root=_optional_path(args.mailbox_root, base=cwd),
+        mailbox_principal_id=args.mailbox_principal_id,
+        mailbox_address=args.mailbox_address,
     )
 
     for warning in controller.agent_identity_warnings:
@@ -274,6 +333,9 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         payload["agent_identity"] = controller.agent_identity
     if controller.parsing_mode is not None:
         payload["parsing_mode"] = controller.parsing_mode
+    mailbox = getattr(controller.launch_plan, "mailbox", None)
+    if mailbox is not None:
+        payload["mailbox"] = mailbox.redacted_payload()
 
     print(json.dumps(payload, indent=2))
     return 0
@@ -341,6 +403,38 @@ def _cmd_stop_session(args: argparse.Namespace) -> int:
     result = controller.stop(force_cleanup=bool(args.force_cleanup))
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
     return 0 if result.status == "ok" else 2
+
+
+def _cmd_mail(args: argparse.Namespace) -> int:
+    if args.mail_command is None:
+        raise BrainLaunchRuntimeError("mail requires a subcommand: check, send, or reply.")
+
+    cwd = Path.cwd().resolve()
+    agent_def_dir, resolved = _resolve_control_target(
+        agent_identity=args.agent_identity,
+        agent_def_dir_cli_value=args.agent_def_dir,
+        cwd=cwd,
+    )
+    for warning in resolved.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=resolved.session_manifest_path,
+    )
+    mailbox = ensure_mailbox_command_ready(controller.launch_plan)
+    prompt_request = prepare_mail_prompt(
+        launch_plan=controller.launch_plan,
+        operation=args.mail_command,
+        args=_mail_args_from_cli(args, cwd=cwd),
+    )
+    result = run_mail_prompt(
+        send_prompt=controller.send_prompt,
+        prompt_request=prompt_request,
+        mailbox=mailbox,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:
@@ -411,3 +505,60 @@ def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
         return _resolve_path(env_value, base=cwd)
 
     return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+
+
+def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agent-def-dir",
+        default=None,
+        help=_CONTROL_AGENT_DEF_DIR_HELP,
+    )
+    parser.add_argument(
+        "--agent-identity",
+        required=True,
+        help="Agent name or manifest path",
+    )
+
+
+def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, object]:
+    if args.mail_command == "check":
+        payload: dict[str, object] = {}
+        if bool(args.unread_only):
+            payload["unread_only"] = True
+        if args.limit is not None:
+            payload["limit"] = int(args.limit)
+        if args.since is not None:
+            payload["since"] = str(args.since)
+        return payload
+
+    attachments = validate_attachment_paths(
+        [_resolve_path(value, base=cwd) for value in list(getattr(args, "attachments", ()) or ())]
+    )
+    body_markdown = (
+        load_mail_body_file(_resolve_path(args.body_file, base=cwd))
+        if getattr(args, "body_file", None)
+        else None
+    )
+    instruction = str(args.instruction) if getattr(args, "instruction", None) is not None else None
+    if body_markdown is None and (instruction is None or not instruction.strip()):
+        raise BrainLaunchRuntimeError(
+            f"mail {args.mail_command} requires --instruction or --body-file."
+        )
+
+    if args.mail_command == "send":
+        return {
+            "to": [str(value) for value in args.to_recipients],
+            "cc": [str(value) for value in args.cc_recipients],
+            "subject": str(args.subject),
+            "instruction": instruction,
+            "body_markdown": body_markdown,
+            "attachments": attachments,
+        }
+    if args.mail_command == "reply":
+        return {
+            "message_id": str(args.message_id),
+            "instruction": instruction,
+            "body_markdown": body_markdown,
+            "attachments": attachments,
+        }
+    raise BrainLaunchRuntimeError(f"Unsupported mail subcommand: {args.mail_command!r}")

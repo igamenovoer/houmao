@@ -96,6 +96,53 @@ def test_start_session_forwards_cao_parsing_mode_override(monkeypatch, tmp_path:
     assert captured_kwargs["cao_parsing_mode"] == "shadow_only"
 
 
+def test_start_session_forwards_mailbox_overrides(monkeypatch, tmp_path: Path) -> None:
+    manifest_path = tmp_path / "session.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_start_runtime_session(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            manifest_path=manifest_path,
+            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex", mailbox=None),
+            agent_identity=None,
+            agent_identity_warnings=(),
+            startup_warnings=(),
+            parsing_mode=None,
+        )
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.start_runtime_session",
+        _fake_start_runtime_session,
+    )
+
+    mailbox_root = tmp_path / "shared-mail"
+    exit_code = cli.main(
+        [
+            "start-session",
+            "--brain-manifest",
+            "tmp/brain.yaml",
+            "--role",
+            "gpu-kernel-coder",
+            "--mailbox-transport",
+            "filesystem",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--mailbox-principal-id",
+            "AGENTSYS-research",
+            "--mailbox-address",
+            "AGENTSYS-research@agents.localhost",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["mailbox_transport"] == "filesystem"
+    assert captured_kwargs["mailbox_root"] == mailbox_root.resolve()
+    assert captured_kwargs["mailbox_principal_id"] == "AGENTSYS-research"
+    assert captured_kwargs["mailbox_address"] == "AGENTSYS-research@agents.localhost"
+
+
 def test_stop_session_forwards_force_cleanup(
     monkeypatch,
     capsys,

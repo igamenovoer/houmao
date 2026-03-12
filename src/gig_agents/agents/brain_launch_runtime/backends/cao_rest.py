@@ -736,6 +736,13 @@ class CaoRestSession:
             env_vars=self._build_tmux_launch_env(),
         )
 
+    def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
+        """Replace the launch plan and republish tmux session environment."""
+
+        self._plan = launch_plan
+        self._shadow_stall_policy = _resolve_shadow_stall_policy(launch_plan)
+        self._publish_tmux_session_environment()
+
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send one prompt turn via CAO direct input endpoints."""
 

@@ -206,6 +206,12 @@ class HeadlessInteractiveSession:
 
         self.terminate()
 
+    def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
+        """Replace the launch plan and republish tmux session environment."""
+
+        self._plan = launch_plan
+        self._publish_tmux_session_environment()
+
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         effective_prompt = prompt
