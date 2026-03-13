@@ -5,6 +5,10 @@ The system MAY support "agent blueprints" that bind a brain recipe and a role in
 
 Blueprints MAY additionally include an optional secret-free `gateway` configuration section. In this change, that section MAY declare `gateway.host` and `gateway.port` as the default HTTP gateway listener address for gateway attach actions affecting sessions launched from that blueprint.
 
+In v1, `gateway.host` and `gateway.port` are the only supported gateway keys in that section.
+
+Blueprint parsing for this change SHALL use a strict typed schema that rejects unknown top-level fields and unknown nested gateway fields rather than silently ignoring them.
+
 Blueprint-declared gateway listener defaults SHALL NOT, by themselves, enable gateway behavior for sessions launched from that blueprint.
 
 #### Scenario: Blueprint binds brain, role, and optional gateway listener defaults without secrets
@@ -23,3 +27,13 @@ Blueprint-declared gateway listener defaults SHALL NOT, by themselves, enable ga
 - **WHEN** an agent blueprint declares an invalid `gateway.host` value or an invalid `gateway.port` value such as a non-integer or out-of-range port
 - **THEN** the system fails blueprint validation with an explicit error
 - **AND THEN** the runtime does not treat those invalid values as usable gateway-listener defaults
+
+#### Scenario: Unknown top-level blueprint fields are rejected
+- **WHEN** an agent blueprint declares an unsupported top-level field for this schema version
+- **THEN** the system fails blueprint validation with an explicit error
+- **AND THEN** the runtime does not silently ignore that field
+
+#### Scenario: Unknown nested gateway fields are rejected
+- **WHEN** an agent blueprint declares an unsupported nested field under `gateway` other than `host` or `port`
+- **THEN** the system fails blueprint validation with an explicit error
+- **AND THEN** the runtime does not silently ignore that nested gateway field

@@ -53,10 +53,25 @@ def generate_session_id(prefix: str = "session") -> str:
     return f"{prefix}-{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
+def default_session_root(runtime_root: Path, backend: str, session_id: str) -> Path:
+    """Resolve the runtime-owned session root directory."""
+
+    return runtime_root / "sessions" / backend / session_id
+
+
 def default_manifest_path(runtime_root: Path, backend: str, session_id: str) -> Path:
     """Resolve a default manifest path under the runtime root."""
 
-    return runtime_root / "sessions" / backend / f"{session_id}.json"
+    return default_session_root(runtime_root, backend, session_id) / "manifest.json"
+
+
+def runtime_owned_session_root_from_manifest_path(manifest_path: Path) -> Path | None:
+    """Return the session root for runtime-owned manifests using the nested layout."""
+
+    resolved = manifest_path.resolve()
+    if resolved.name != "manifest.json":
+        return None
+    return resolved.parent
 
 
 def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str, Any]:

@@ -10,6 +10,8 @@ For gateway-capable tmux-backed sessions, the system SHALL set tmux session envi
 
 `AGENTSYS_GATEWAY_ROOT` SHALL be the absolute path of the per-agent gateway root for that session.
 
+For runtime-owned sessions in v1, `AGENTSYS_GATEWAY_ROOT` SHALL point to the nested `gateway/` subdirectory under that session's runtime-owned session root, and `AGENTSYS_GATEWAY_ATTACH_PATH` SHALL point to `<AGENTSYS_GATEWAY_ROOT>/attach.json`.
+
 When a live gateway instance is currently attached, the system SHALL additionally set:
 
 - `AGENTSYS_AGENT_GATEWAY_HOST`
@@ -30,7 +32,7 @@ When tmux-backed backend code later resumes control of the same live session wit
 #### Scenario: Session start sets stable attach pointers
 - **WHEN** the runtime starts a gateway-capable tmux-backed session with tmux session name `AGENTSYS-gpu`
 - **THEN** the tmux session environment contains `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
-- **AND THEN** those pointers are absolute paths for that session's attach contract and gateway root even if no gateway instance is currently running
+- **AND THEN** those pointers are absolute paths for that session's attach contract and nested session-owned gateway root even if no gateway instance is currently running
 
 #### Scenario: Live gateway attach sets active gateway pointers
 - **WHEN** a gateway instance is attached to tmux session `AGENTSYS-gpu`

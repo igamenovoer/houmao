@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
@@ -33,10 +39,58 @@ from .backends.headless_base import (
 from .backends.tmux_runtime import (
     TmuxCommandError,
     has_tmux_session as has_tmux_session_shared,
+    set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
+    unset_tmux_session_environment as unset_tmux_session_environment_shared,
 )
-from .errors import SessionManifestError
+from .errors import (
+    GatewayAttachError,
+    GatewayDiscoveryError,
+    GatewayHttpError,
+    GatewayNoLiveInstanceError,
+    GatewayProtocolError,
+    GatewayUnsupportedBackendError,
+    SessionManifestError,
+)
+from .gateway_client import GatewayClient, GatewayEndpoint
+from .gateway_models import (
+    GATEWAY_PROTOCOL_VERSION,
+    BlueprintGatewayDefaults,
+    GatewayAcceptedRequestV1,
+    GatewayAttachContractV1,
+    GatewayDesiredConfigV1,
+    GatewayHost,
+    GatewayRequestCreateV1,
+    GatewayRequestPayloadInterruptV1,
+    GatewayRequestPayloadSubmitPromptV1,
+    GatewayStatusV1,
+)
+from .gateway_storage import (
+    AGENT_GATEWAY_HOST_ENV_VAR,
+    AGENT_GATEWAY_PORT_ENV_VAR,
+    AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    AGENT_GATEWAY_STATE_PATH_ENV_VAR,
+    GatewayCapabilityPublication,
+    GatewayPaths,
+    build_live_gateway_bindings,
+    build_offline_gateway_status,
+    delete_gateway_current_instance,
+    ensure_gateway_capability,
+    gateway_paths_from_manifest_path,
+    is_pid_running,
+    live_gateway_env_var_names,
+    load_attach_contract,
+    load_gateway_current_instance,
+    load_gateway_desired_config,
+    load_gateway_status,
+    publish_live_gateway_env,
+    publish_stable_gateway_env,
+    read_pid_file,
+    write_attach_contract,
+    write_gateway_desired_config,
+    write_gateway_status,
+)
 from .launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
@@ -70,6 +124,7 @@ from .manifest import (
 from .models import (
     BackendKind,
     CaoParsingMode,
+    GatewayControlResult,
     InteractiveSession,
     LaunchPlan,
     SessionControlResult,
@@ -112,10 +167,16 @@ class RuntimeSessionController:
     brain_manifest_path: Path
     manifest_path: Path
     backend_session: InteractiveSession
+    agent_def_dir: Path | None = None
     agent_identity: str | None = None
     agent_identity_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
     parsing_mode: CaoParsingMode | None = None
+    gateway_root: Path | None = None
+    gateway_attach_path: Path | None = None
+    gateway_auto_attach_error: str | None = None
+    gateway_host: str | None = None
+    gateway_port: int | None = None
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
@@ -172,6 +233,14 @@ class RuntimeSessionController:
     def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
         """Terminate backend resources and persist state."""
 
+        if self._is_tmux_backed():
+            try:
+                detach_result = self.detach_gateway()
+            except GatewayDiscoveryError:
+                detach_result = None
+            if detach_result is not None and detach_result.status == "ok":
+                self.gateway_host = None
+                self.gateway_port = None
         if isinstance(self.backend_session, HeadlessInteractiveSession):
             self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
         result = self.backend_session.terminate()
@@ -238,6 +307,104 @@ class RuntimeSessionController:
         )
         write_session_manifest(self.manifest_path, payload)
 
+    def ensure_gateway_capability(
+        self,
+        *,
+        blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
+    ) -> None:
+        """Publish stable gateway capability for runtime-owned tmux-backed sessions."""
+
+        if not self._is_tmux_backed():
+            return
+        session_name = _tmux_session_name_for_controller(self)
+        if session_name is None:
+            return
+        session_id = _runtime_session_id_from_manifest_path(self.manifest_path)
+        if session_id is None:
+            return
+        paths = ensure_gateway_capability(
+            GatewayCapabilityPublication(
+                manifest_path=self.manifest_path,
+                backend=self.launch_plan.backend,
+                tool=self.launch_plan.tool,
+                session_id=session_id,
+                tmux_session_name=session_name,
+                working_directory=self.launch_plan.working_directory,
+                backend_state=_backend_state_for_session(self.backend_session),
+                agent_def_dir=_runtime_agent_def_dir(self),
+                blueprint_gateway_defaults=blueprint_gateway_defaults,
+            )
+        )
+        publish_stable_gateway_env(
+            session_name=session_name,
+            attach_path=paths.attach_path,
+            gateway_root=paths.gateway_root,
+            set_env=set_tmux_session_environment_shared,
+        )
+        self.gateway_root = paths.gateway_root
+        self.gateway_attach_path = paths.attach_path
+
+    def attach_gateway(
+        self,
+        *,
+        host_override: str | None = None,
+        port_override: int | None = None,
+    ) -> GatewayControlResult:
+        """Start a live gateway instance for the addressed session."""
+
+        return _attach_gateway_for_controller(
+            self,
+            host_override=host_override,
+            port_override=port_override,
+        )
+
+    def detach_gateway(self) -> GatewayControlResult:
+        """Stop a live gateway instance while preserving attachability metadata."""
+
+        return _detach_gateway_for_controller(self)
+
+    def gateway_status(self) -> GatewayStatusV1:
+        """Return current gateway status from the live gateway or stable state file."""
+
+        return _gateway_status_for_controller(self)
+
+    def send_prompt_via_gateway(self, prompt: str) -> GatewayAcceptedRequestV1:
+        """Submit a prompt through the live gateway queue."""
+
+        return _submit_gateway_request_for_controller(
+            self,
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt=prompt),
+            ),
+        )
+
+    def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:
+        """Submit an interrupt through the live gateway queue."""
+
+        return _submit_gateway_request_for_controller(
+            self,
+            GatewayRequestCreateV1(
+                kind="interrupt",
+                payload=GatewayRequestPayloadInterruptV1(),
+            ),
+        )
+
+    def _is_tmux_backed(self) -> bool:
+        """Return whether this controller manages a tmux-backed backend."""
+
+        return self.launch_plan.backend in _TMUX_BACKED_BACKENDS
+
+    def _require_tmux_session_name(self) -> str:
+        """Return the controller's tmux session name."""
+
+        session_name = _tmux_session_name_for_controller(self)
+        if session_name is None:
+            raise SessionManifestError(
+                f"backend={self.launch_plan.backend!r} is missing a tmux session binding."
+            )
+        return session_name
+
 
 def start_runtime_session(
     *,
@@ -255,14 +422,27 @@ def start_runtime_session(
     mailbox_root: Path | None = None,
     mailbox_principal_id: str | None = None,
     mailbox_address: str | None = None,
+    blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
+    gateway_auto_attach: bool = False,
+    gateway_host: str | None = None,
+    gateway_port: int | None = None,
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
+
+    if (gateway_host is not None or gateway_port is not None) and not gateway_auto_attach:
+        raise SessionManifestError(
+            "Gateway host or port overrides require launch-time gateway attach."
+        )
 
     manifest = load_brain_manifest(brain_manifest_path)
     role_package = load_role_package(agent_def_dir, role_name)
 
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = backend or backend_for_tool(tool)
+    if gateway_auto_attach and selected_backend not in _TMUX_BACKED_BACKENDS:
+        raise SessionManifestError(
+            "Launch-time gateway attach is only supported for tmux-backed backends."
+        )
     selected_workdir = (working_directory or Path.cwd()).resolve()
     declared_mailbox = _declared_mailbox_from_manifest(
         manifest,
@@ -351,6 +531,7 @@ def start_runtime_session(
         role_name=role_name,
         brain_manifest_path=brain_manifest_path.resolve(),
         manifest_path=manifest_path,
+        agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
         agent_identity=resolved_agent_identity,
         agent_identity_warnings=agent_identity_warnings,
@@ -358,6 +539,19 @@ def start_runtime_session(
         parsing_mode=resolved_parsing_mode,
     )
     controller.persist_manifest()
+    controller.ensure_gateway_capability(
+        blueprint_gateway_defaults=blueprint_gateway_defaults,
+    )
+    if gateway_auto_attach:
+        attach_result = controller.attach_gateway(
+            host_override=gateway_host,
+            port_override=gateway_port,
+        )
+        if attach_result.status == "error":
+            controller.gateway_auto_attach_error = attach_result.detail
+        else:
+            controller.gateway_host = attach_result.gateway_host
+            controller.gateway_port = attach_result.gateway_port
     return controller
 
 
@@ -455,11 +649,12 @@ def resume_runtime_session(
     elif isinstance(backend_session, HeadlessInteractiveSession):
         resolved_agent_identity = backend_session.state.tmux_session_name
 
-    return RuntimeSessionController(
+    controller = RuntimeSessionController(
         launch_plan=launch_plan,
         role_name=role_name,
         brain_manifest_path=brain_manifest_path,
         manifest_path=session_manifest_path.resolve(),
+        agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
         agent_identity=resolved_agent_identity,
         parsing_mode=(
@@ -468,6 +663,8 @@ def resume_runtime_session(
             else None
         ),
     )
+    controller.ensure_gateway_capability()
+    return controller
 
 
 def _create_backend_session(
@@ -973,3 +1170,591 @@ def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV2, manifest_
             "`payload.backend_state.tmux_session_name`."
         )
     return persisted_backend.strip()
+
+
+def _runtime_session_id_from_manifest_path(manifest_path: Path) -> str | None:
+    """Return the runtime-owned session id derived from the nested manifest layout."""
+
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    if paths is None:
+        return None
+    return paths.session_root.name
+
+
+def _runtime_agent_def_dir(controller: RuntimeSessionController) -> Path | None:
+    """Return the runtime-owned agent-definition directory when available."""
+
+    if controller.agent_def_dir is None:
+        return None
+    return controller.agent_def_dir.resolve()
+
+
+def _tmux_session_name_for_controller(controller: RuntimeSessionController) -> str | None:
+    """Return the tmux session name for a runtime controller."""
+
+    if isinstance(controller.backend_session, CaoRestSession):
+        return controller.backend_session.state.session_name
+    if isinstance(controller.backend_session, HeadlessInteractiveSession):
+        return controller.backend_session.state.tmux_session_name
+    return controller.agent_identity
+
+
+def _require_gateway_paths_for_controller(controller: RuntimeSessionController) -> GatewayPaths:
+    """Return the runtime-owned gateway paths for a controller."""
+
+    controller.ensure_gateway_capability()
+    paths = gateway_paths_from_manifest_path(controller.manifest_path)
+    if paths is None:
+        raise GatewayDiscoveryError(
+            "Gateway operations require a runtime-owned session manifest rooted at "
+            "`<session-root>/manifest.json`."
+        )
+    return paths
+
+
+def _attach_gateway_for_controller(
+    controller: RuntimeSessionController,
+    *,
+    host_override: str | None,
+    port_override: int | None,
+) -> GatewayControlResult:
+    """Start a live gateway process for one runtime-owned controller."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    attach_contract = load_attach_contract(paths.attach_path)
+    if controller.launch_plan.backend != "cao_rest":
+        detail = (
+            "Gateway attach is only implemented for runtime-owned backend='cao_rest' "
+            f"sessions in v1, got backend={controller.launch_plan.backend!r}."
+        )
+        return GatewayControlResult(
+            status="error",
+            action="gateway_attach",
+            detail=detail,
+            gateway_root=str(paths.gateway_root),
+        )
+
+    try:
+        host, requested_port = _resolve_gateway_listener(
+            paths=paths,
+            attach_contract=attach_contract,
+            host_override=host_override,
+            port_override=port_override,
+        )
+        resolved_port = _start_gateway_process(
+            controller=controller,
+            paths=paths,
+            host=host,
+            port=requested_port,
+        )
+    except (
+        GatewayAttachError,
+        GatewayDiscoveryError,
+        GatewayProtocolError,
+        GatewayUnsupportedBackendError,
+        TmuxCommandError,
+    ) as exc:
+        _clear_stale_gateway_runtime_state(
+            controller=controller,
+            paths=paths,
+            attach_contract=attach_contract,
+        )
+        return GatewayControlResult(
+            status="error",
+            action="gateway_attach",
+            detail=str(exc),
+            gateway_root=str(paths.gateway_root),
+        )
+
+    controller.gateway_root = paths.gateway_root
+    controller.gateway_attach_path = paths.attach_path
+    controller.gateway_host = host
+    controller.gateway_port = resolved_port
+    return GatewayControlResult(
+        status="ok",
+        action="gateway_attach",
+        detail=(
+            f"Attached gateway for session `{controller._require_tmux_session_name()}` on "
+            f"{host}:{resolved_port}."
+        ),
+        gateway_root=str(paths.gateway_root),
+        gateway_host=host,
+        gateway_port=resolved_port,
+    )
+
+
+def _detach_gateway_for_controller(controller: RuntimeSessionController) -> GatewayControlResult:
+    """Detach a live gateway instance while preserving stable attachability metadata."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    attach_contract = load_attach_contract(paths.attach_path)
+    listener = _live_gateway_listener_from_status(paths)
+    pid = read_pid_file(paths.pid_path)
+    was_running = pid is not None and is_pid_running(pid)
+    if was_running and pid is not None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError as exc:
+            return GatewayControlResult(
+                status="error",
+                action="gateway_detach",
+                detail=f"Failed to terminate gateway process {pid}: {exc}",
+                gateway_root=str(paths.gateway_root),
+            )
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if _gateway_process_stopped(pid=pid, listener=listener):
+                break
+            time.sleep(0.1)
+        if not _gateway_process_stopped(pid=pid, listener=listener):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError as exc:
+                return GatewayControlResult(
+                    status="error",
+                    action="gateway_detach",
+                    detail=f"Failed to terminate gateway process {pid}: {exc}",
+                    gateway_root=str(paths.gateway_root),
+                )
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if _gateway_process_stopped(pid=pid, listener=listener):
+                    break
+                time.sleep(0.1)
+            if not _gateway_process_stopped(pid=pid, listener=listener):
+                return GatewayControlResult(
+                    status="error",
+                    action="gateway_detach",
+                    detail=f"Gateway listener did not stop cleanly for process {pid}.",
+                    gateway_root=str(paths.gateway_root),
+                )
+
+    _clear_stale_gateway_runtime_state(
+        controller=controller,
+        paths=paths,
+        attach_contract=attach_contract,
+    )
+    controller.gateway_host = None
+    controller.gateway_port = None
+    return GatewayControlResult(
+        status="ok",
+        action="gateway_detach",
+        detail=(
+            "Detached live gateway instance."
+            if was_running
+            else "Cleared stale or absent live gateway bindings."
+        ),
+        gateway_root=str(paths.gateway_root),
+    )
+
+
+def _gateway_status_for_controller(controller: RuntimeSessionController) -> GatewayStatusV1:
+    """Return live gateway status when attached, otherwise return the stable state artifact."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    try:
+        client = _validated_gateway_client_for_controller(controller, paths=paths)
+    except GatewayNoLiveInstanceError:
+        return load_gateway_status(paths.state_path)
+    return client.status()
+
+
+def _submit_gateway_request_for_controller(
+    controller: RuntimeSessionController,
+    request_payload: GatewayRequestCreateV1,
+) -> GatewayAcceptedRequestV1:
+    """Submit a gateway-managed request through the validated live gateway client."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    client = _validated_gateway_client_for_controller(controller, paths=paths)
+    return client.create_request(request_payload)
+
+
+def _validated_gateway_client_for_controller(
+    controller: RuntimeSessionController,
+    *,
+    paths: GatewayPaths,
+) -> GatewayClient:
+    """Validate live gateway bindings structurally and via `GET /health`."""
+
+    session_name = controller._require_tmux_session_name()
+    attach_contract = load_attach_contract(paths.attach_path)
+    host_value = _read_optional_tmux_session_env_var(
+        session_name=session_name,
+        variable_name=AGENT_GATEWAY_HOST_ENV_VAR,
+    )
+    port_value = _read_optional_tmux_session_env_var(
+        session_name=session_name,
+        variable_name=AGENT_GATEWAY_PORT_ENV_VAR,
+    )
+    state_path_value = _read_optional_tmux_session_env_var(
+        session_name=session_name,
+        variable_name=AGENT_GATEWAY_STATE_PATH_ENV_VAR,
+    )
+    protocol_value = _read_optional_tmux_session_env_var(
+        session_name=session_name,
+        variable_name=AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    )
+    if (
+        host_value is None
+        or port_value is None
+        or state_path_value is None
+        or protocol_value is None
+    ):
+        raise GatewayNoLiveInstanceError(
+            f"No live gateway is attached for session `{session_name}`."
+        )
+    if host_value not in {"127.0.0.1", "0.0.0.0"}:
+        raise GatewayDiscoveryError(
+            f"Invalid `{AGENT_GATEWAY_HOST_ENV_VAR}` value {host_value!r} in tmux session "
+            f"`{session_name}`."
+        )
+    try:
+        port = int(port_value)
+    except ValueError as exc:
+        raise GatewayDiscoveryError(
+            f"Invalid `{AGENT_GATEWAY_PORT_ENV_VAR}` value {port_value!r} in tmux session "
+            f"`{session_name}`."
+        ) from exc
+    if port < 1 or port > 65535:
+        raise GatewayDiscoveryError(
+            f"Invalid `{AGENT_GATEWAY_PORT_ENV_VAR}` value {port!r} in tmux session "
+            f"`{session_name}`."
+        )
+    state_path = Path(state_path_value)
+    if not state_path.is_absolute() or state_path.resolve() != paths.state_path:
+        raise GatewayDiscoveryError(
+            f"Invalid `{AGENT_GATEWAY_STATE_PATH_ENV_VAR}` value {state_path_value!r} in tmux "
+            f"session `{session_name}`."
+        )
+    if protocol_value != GATEWAY_PROTOCOL_VERSION:
+        raise GatewayProtocolError(
+            f"Unsupported gateway protocol version {protocol_value!r}; expected "
+            f"{GATEWAY_PROTOCOL_VERSION!r}."
+        )
+    endpoint = GatewayEndpoint(
+        host=cast(GatewayHost, host_value),
+        port=port,
+    )
+    client = GatewayClient(endpoint=endpoint)
+    try:
+        health = client.health()
+    except GatewayHttpError as exc:
+        _clear_stale_gateway_runtime_state(
+            controller=controller,
+            paths=paths,
+            attach_contract=attach_contract,
+        )
+        raise GatewayNoLiveInstanceError(
+            f"No live gateway is attached for session `{session_name}`."
+        ) from exc
+    if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
+        raise GatewayProtocolError(
+            f"Gateway health reported incompatible protocol version {health.protocol_version!r}."
+        )
+    return client
+
+
+def _resolve_gateway_listener(
+    *,
+    paths: GatewayPaths,
+    attach_contract: GatewayAttachContractV1,
+    host_override: str | None,
+    port_override: int | None,
+) -> tuple[GatewayHost, int]:
+    """Resolve one gateway host plus one requested gateway port.
+
+    A returned port of `0` delegates automatic port assignment to the gateway
+    server bind step.
+    """
+
+    desired_config = _load_optional_desired_config(paths)
+    host_candidate = (
+        host_override
+        or os.environ.get(AGENT_GATEWAY_HOST_ENV_VAR)
+        or (desired_config.desired_host if desired_config is not None else None)
+        or attach_contract.desired_host
+        or "127.0.0.1"
+    )
+    if host_candidate not in {"127.0.0.1", "0.0.0.0"}:
+        raise GatewayAttachError("Gateway host must resolve to exactly '127.0.0.1' or '0.0.0.0'.")
+    env_port = os.environ.get(AGENT_GATEWAY_PORT_ENV_VAR)
+    port_candidate: int | None = port_override
+    if port_candidate is None and env_port:
+        try:
+            port_candidate = int(env_port)
+        except ValueError as exc:
+            raise GatewayAttachError(
+                f"Invalid `{AGENT_GATEWAY_PORT_ENV_VAR}` value {env_port!r}."
+            ) from exc
+    if port_candidate is None and desired_config is not None:
+        port_candidate = desired_config.desired_port
+    if port_candidate is None:
+        port_candidate = attach_contract.desired_port
+    if port_candidate is None:
+        port_candidate = 0
+    if port_candidate < 1 or port_candidate > 65535:
+        if port_candidate != 0:
+            raise GatewayAttachError("Gateway port must be between 1 and 65535.")
+    return cast(GatewayHost, host_candidate), port_candidate
+
+
+def _start_gateway_process(
+    *,
+    controller: RuntimeSessionController,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    port: int,
+) -> int:
+    """Launch the gateway subprocess and wait for health readiness."""
+
+    session_name = controller._require_tmux_session_name()
+    log_stream = paths.log_path.open("a", encoding="utf-8")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "gig_agents.agents.brain_launch_runtime.gateway_service",
+            "--gateway-root",
+            str(paths.gateway_root),
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        stdout=log_stream,
+        stderr=subprocess.STDOUT,
+        cwd=str(controller.launch_plan.working_directory),
+        start_new_session=True,
+        text=True,
+    )
+    log_stream.close()
+    deadline = time.monotonic() + 10.0
+    try:
+        endpoint = _wait_for_gateway_endpoint(
+            process=process,
+            paths=paths,
+            host=host,
+            requested_port=port,
+            deadline=deadline,
+        )
+        client = GatewayClient(endpoint=endpoint)
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise GatewayAttachError(
+                    _gateway_process_start_failure_detail(
+                        log_path=paths.log_path,
+                        host=host,
+                        port=port,
+                    )
+                )
+            try:
+                health = client.health()
+            except GatewayHttpError:
+                time.sleep(0.1)
+                continue
+            if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
+                raise GatewayProtocolError(
+                    f"Gateway health returned incompatible protocol version "
+                    f"{health.protocol_version!r}."
+                )
+            write_gateway_desired_config(
+                paths.desired_config_path,
+                GatewayDesiredConfigV1(
+                    desired_host=host,
+                    desired_port=endpoint.port,
+                ),
+            )
+            write_attach_contract(
+                paths.attach_path,
+                load_attach_contract(paths.attach_path).model_copy(
+                    update={"desired_host": host, "desired_port": endpoint.port}
+                ),
+            )
+            publish_live_gateway_env(
+                session_name=session_name,
+                live_bindings=build_live_gateway_bindings(
+                    host=host,
+                    port=endpoint.port,
+                    state_path=paths.state_path,
+                ),
+                set_env=set_tmux_session_environment_shared,
+            )
+            return endpoint.port
+        raise GatewayAttachError(
+            f"Timed out waiting for gateway health readiness on {host}:{endpoint.port}."
+        )
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2.0)
+        raise
+
+
+def _wait_for_gateway_endpoint(
+    *,
+    process: subprocess.Popen[str],
+    paths: GatewayPaths,
+    host: GatewayHost,
+    requested_port: int,
+    deadline: float,
+) -> GatewayEndpoint:
+    """Wait until the child gateway process publishes its bound listener."""
+
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise GatewayAttachError(
+                _gateway_process_start_failure_detail(
+                    log_path=paths.log_path,
+                    host=host,
+                    port=requested_port,
+                )
+            )
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            time.sleep(0.1)
+            continue
+        if current_instance.pid != process.pid:
+            time.sleep(0.1)
+            continue
+        if requested_port not in {0, current_instance.port}:
+            raise GatewayAttachError(
+                "Gateway startup published a listener port that does not match the "
+                f"requested port {requested_port}."
+            )
+        return GatewayEndpoint(
+            host=host,
+            port=current_instance.port,
+        )
+    if requested_port == 0:
+        raise GatewayAttachError("Timed out waiting for gateway startup to publish its bound port.")
+    raise GatewayAttachError(
+        f"Timed out waiting for gateway startup to publish listener {host}:{requested_port}."
+    )
+
+
+def _clear_stale_gateway_runtime_state(
+    *,
+    controller: RuntimeSessionController,
+    paths: GatewayPaths,
+    attach_contract: GatewayAttachContractV1,
+) -> None:
+    """Clear live bindings and restore the offline seeded gateway state."""
+
+    session_name = _tmux_session_name_for_controller(controller)
+    if session_name is not None:
+        try:
+            unset_tmux_session_environment_shared(
+                session_name=session_name,
+                variable_names=list(live_gateway_env_var_names()),
+            )
+        except TmuxCommandError:
+            pass
+    delete_gateway_current_instance(paths)
+    existing_epoch = 0
+    try:
+        existing_status = load_gateway_status(paths.state_path)
+    except SessionManifestError:
+        existing_status = None
+    if existing_status is not None:
+        existing_epoch = existing_status.managed_agent_instance_epoch
+    write_gateway_status(
+        paths.state_path,
+        build_offline_gateway_status(
+            attach_contract=attach_contract,
+            managed_agent_instance_epoch=existing_epoch,
+        ),
+    )
+
+
+def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1 | None:
+    """Load desired gateway listener config when present."""
+
+    if not paths.desired_config_path.is_file():
+        return None
+    return load_gateway_desired_config(paths.desired_config_path)
+
+
+def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, port: int) -> str:
+    """Return a user-facing startup failure detail for an exited gateway process."""
+
+    try:
+        log_text = log_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        log_text = ""
+    lowered = log_text.lower()
+    if "address already in use" in lowered or "errno 98" in lowered:
+        return f"Gateway attach failed because listener {host}:{port} is already in use."
+    return f"Gateway attach failed before health readiness; see `{log_path}`."
+
+
+def _live_gateway_listener_from_status(paths: GatewayPaths) -> tuple[GatewayHost, int] | None:
+    """Return the last live gateway listener from the persisted status snapshot."""
+
+    try:
+        status = load_gateway_status(paths.state_path)
+    except SessionManifestError:
+        return None
+    if status.gateway_host is None or status.gateway_port is None:
+        return None
+    return status.gateway_host, status.gateway_port
+
+
+def _gateway_process_stopped(
+    *,
+    pid: int,
+    listener: tuple[GatewayHost, int] | None,
+) -> bool:
+    """Return whether a gateway process has stopped serving its listener."""
+
+    if listener is not None:
+        return _gateway_listener_available_for_bind(
+            host=listener[0],
+            port=listener[1],
+        )
+    return not is_pid_running(pid)
+
+
+def _gateway_listener_available_for_bind(*, host: GatewayHost, port: int) -> bool:
+    """Return whether the addressed gateway listener can be rebound locally."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def _read_optional_tmux_session_env_var(*, session_name: str, variable_name: str) -> str | None:
+    """Read one tmux env var and return `None` when it is unset or unknown."""
+
+    try:
+        env_result = show_tmux_environment_shared(
+            session_name=session_name,
+            variable_name=variable_name,
+        )
+    except TmuxCommandError:
+        return None
+
+    if env_result.returncode != 0:
+        detail = tmux_error_detail_shared(env_result).lower()
+        if "unknown variable" in detail:
+            return None
+        return None
+
+    line = ""
+    for raw_line in env_result.stdout.splitlines():
+        stripped = raw_line.strip()
+        if stripped:
+            line = stripped
+            break
+    if not line or line == f"-{variable_name}":
+        return None
+    prefix = f"{variable_name}="
+    if not line.startswith(prefix):
+        return None
+    value = line[len(prefix) :].strip()
+    return value or None
