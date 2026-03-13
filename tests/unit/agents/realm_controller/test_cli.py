@@ -318,11 +318,8 @@ def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -
             registry_root=(tmp_path / "registry").resolve(),
             removed_agent_keys=("dead",),
             preserved_agent_keys=("live",),
+            failed_agent_keys=("stuck",),
         ),
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.resolve_global_registry_root",
-        lambda: (tmp_path / "registry").resolve(),
     )
 
     exit_code = cli.main(["cleanup-registry", "--grace-seconds", "0"])
@@ -332,6 +329,7 @@ def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -
     assert payload["grace_seconds"] == 0
     assert payload["removed_agent_keys"] == ["dead"]
     assert payload["preserved_agent_keys"] == ["live"]
+    assert payload["failed_agent_keys"] == ["stuck"]
 
 
 def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
@@ -373,6 +371,47 @@ def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
 
     assert exit_code == 0
     assert captured_resume_kwargs["agent_def_dir"] == tmux_agent_def_dir.resolve()
+
+
+def test_send_prompt_prints_controller_operation_warnings(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    class _FakeController:
+        def send_prompt(self, prompt: str) -> list[object]:
+            del prompt
+            return []
+
+        def consume_operation_warnings(self) -> tuple[str, ...]:
+            return ("registry refresh warning",)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "send-prompt",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--prompt",
+            "hello",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "warning: registry refresh warning" in captured.err
 
 
 def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
@@ -474,6 +513,49 @@ def test_stop_session_name_based_forwards_explicit_agent_def_dir_override(
     assert captured_resume_kwargs["agent_def_dir"] == override_agent_def_dir.resolve()
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
+
+
+def test_stop_session_prints_controller_operation_warnings(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    class _FakeController:
+        def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
+            del force_cleanup
+            return SessionControlResult(
+                status="ok",
+                action="terminate",
+                detail="cleaned",
+            )
+
+        def consume_operation_warnings(self) -> tuple[str, ...]:
+            return ("registry cleanup warning",)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "stop-session",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "warning: registry cleanup warning" in captured.err
 
 
 def test_send_keys_forwards_sequence_and_escape_mode(

@@ -8,6 +8,7 @@ import pytest
 
 from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.models import LaunchPlan, SessionControlResult
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
 
@@ -175,3 +176,107 @@ def test_cli_runtime_registry_contract_start_send_and_stop(
 
     assert stop_exit == 0
     assert resolve_live_agent_record("gpu") is None
+
+
+def test_cli_runtime_registry_contract_surfaces_nonfatal_registry_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(
+                kwargs.get("agent_identity")
+                or kwargs["resume_state"].backend_state["tmux_session_name"]
+            ),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    start_exit = cli.main(
+        [
+            "start-session",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--runtime-root",
+            str(runtime_root),
+            "--brain-manifest",
+            str(brain_manifest_path),
+            "--role",
+            "r",
+            "--backend",
+            "claude_headless",
+            "--workdir",
+            str(tmp_path),
+            "--agent-identity",
+            "gpu",
+        ]
+    )
+    manifest_path = Path(json.loads(capsys.readouterr().out)["session_manifest"])
+    assert start_exit == 0
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self, blueprint_gateway_defaults=None: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.publish_live_agent_record",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            SessionManifestError("registry publish down")
+        ),
+    )
+
+    prompt_exit = cli.main(
+        [
+            "send-prompt",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+            "--prompt",
+            "hello",
+        ]
+    )
+    prompt_capture = capsys.readouterr()
+
+    assert prompt_exit == 0
+    assert (
+        "warning: Shared-registry refresh failed after manifest persistence" in prompt_capture.err
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.remove_live_agent_record",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+
+    stop_exit = cli.main(
+        [
+            "stop-session",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+        ]
+    )
+    stop_capture = capsys.readouterr()
+
+    assert stop_exit == 0
+    assert (
+        "warning: Shared-registry cleanup failed after successful stop-session teardown"
+        in stop_capture.err
+    )

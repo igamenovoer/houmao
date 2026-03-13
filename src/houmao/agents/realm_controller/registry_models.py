@@ -244,6 +244,9 @@ def _parse_iso8601_timestamp(value: str, *, field_name: str) -> datetime:
     """Parse one ISO-8601 timestamp and raise a consistent field error on failure."""
 
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"{field_name} must be a valid ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must be a timezone-aware ISO-8601 timestamp")
+    return parsed

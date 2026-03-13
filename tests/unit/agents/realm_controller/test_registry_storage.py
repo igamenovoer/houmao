@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.registry_models import (
@@ -100,6 +102,37 @@ def test_registry_rejects_fresh_duplicate_generation(
         publish_live_agent_record(_sample_record(generation_id="generation-2"))
 
 
+def test_resolve_live_agent_record_returns_none_for_malformed_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record_dir = registry_root / "live_agents" / derive_agent_key("AGENTSYS-gpu")
+    record_dir.mkdir(parents=True)
+    (record_dir / "record.json").write_text("{not-json}\n", encoding="utf-8")
+
+    assert resolve_live_agent_record("gpu") is None
+
+
+def test_registry_rejects_naive_timestamps() -> None:
+    with pytest.raises(ValidationError, match="timezone-aware ISO-8601 timestamp"):
+        LiveAgentRegistryRecordV1(
+            agent_name="AGENTSYS-gpu",
+            agent_key=derive_agent_key("AGENTSYS-gpu"),
+            generation_id="generation-1",
+            published_at="2026-03-13T12:00:00",
+            lease_expires_at="2026-03-14T12:00:00",
+            identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
+            runtime=RegistryRuntimeV1(
+                manifest_path="/tmp/runtime/session/manifest.json",
+                session_root="/tmp/runtime/session",
+                agent_def_dir="/tmp/agents",
+            ),
+            terminal=RegistryTerminalV1(session_name="AGENTSYS-gpu"),
+        )
+
+
 def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -145,6 +178,90 @@ def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
 
     assert sorted(result.removed_agent_keys) == sorted([expired_record.agent_key, "malformed"])
     assert result.preserved_agent_keys == (fresh_record.agent_key,)
+    assert result.failed_agent_keys == ()
     assert not expired_dir.exists()
     assert not malformed_dir.exists()
     assert fresh_dir.exists()
+
+
+def test_publish_cleans_up_temp_file_when_atomic_replace_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+
+    def _fail_replace(self: Path, target: Path) -> Path:
+        del target
+        raise OSError(f"replace failed for {self}")
+
+    monkeypatch.setattr(Path, "replace", _fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        publish_live_agent_record(_sample_record())
+
+    live_agents_dir = tmp_path / "registry" / "live_agents"
+    assert list(live_agents_dir.rglob("*.tmp")) == []
+
+
+def test_cleanup_reports_failed_removals_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    expired_record = _sample_record(
+        agent_name="AGENTSYS-old",
+        generation_id=new_registry_generation_id(),
+        now=now - timedelta(days=2),
+    )
+    removable_dir = live_agents_dir / expired_record.agent_key
+    removable_dir.mkdir()
+    (removable_dir / "record.json").write_text(
+        json.dumps(expired_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    failed_dir = live_agents_dir / "stale-failure"
+    failed_dir.mkdir()
+    (failed_dir / "record.json").write_text("{not-json}\n", encoding="utf-8")
+
+    fresh_record = _sample_record(
+        agent_name="AGENTSYS-fresh",
+        generation_id=new_registry_generation_id(),
+        now=now,
+    )
+    fresh_dir = live_agents_dir / fresh_record.agent_key
+    fresh_dir.mkdir()
+    (fresh_dir / "record.json").write_text(
+        json.dumps(fresh_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    original_rmtree = shutil.rmtree
+
+    def _fake_rmtree(path: Path, *, ignore_errors: bool = False) -> None:
+        del ignore_errors
+        if Path(path).name == "stale-failure":
+            raise OSError("directory busy")
+        original_rmtree(path)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.shutil.rmtree",
+        _fake_rmtree,
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+    )
+
+    assert result.removed_agent_keys == (expired_record.agent_key,)
+    assert result.preserved_agent_keys == (fresh_record.agent_key,)
+    assert result.failed_agent_keys == ("stale-failure",)
+    assert not removable_dir.exists()
+    assert fresh_dir.exists()
+    assert failed_dir.exists()

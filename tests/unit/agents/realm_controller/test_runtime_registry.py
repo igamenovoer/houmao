@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
 from houmao.agents.realm_controller.gateway_storage import (
     delete_gateway_current_instance,
@@ -164,6 +165,157 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     stop_result = resumed.stop(force_cleanup=True)
     assert stop_result.status == "ok"
     assert resolve_live_agent_record("gpu") is None
+
+
+def test_send_prompt_preserves_success_when_registry_refresh_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_identity="gpu",
+    )
+    monkeypatch.setattr(
+        controller,
+        "refresh_shared_registry_record",
+        lambda: (_ for _ in ()).throw(SessionManifestError("registry write failed")),
+    )
+
+    events = controller.send_prompt("hello")
+
+    assert events == []
+    assert controller.consume_operation_warnings() == (
+        "Shared-registry refresh failed after manifest persistence: registry write failed",
+    )
+
+
+def test_stop_preserves_success_when_registry_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_identity="gpu",
+    )
+    monkeypatch.setattr(
+        controller,
+        "clear_shared_registry_record",
+        lambda: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+
+    result = controller.stop(force_cleanup=True)
+
+    assert result.status == "ok"
+    assert controller.consume_operation_warnings() == (
+        "Shared-registry cleanup failed after successful stop-session teardown: permission denied",
+    )
+
+
+def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_identity="gpu",
+        mailbox_transport="filesystem",
+        mailbox_root=tmp_path / "mail-old",
+        mailbox_principal_id="AGENTSYS-research",
+        mailbox_address="AGENTSYS-research@agents.localhost",
+    )
+    monkeypatch.setattr(
+        controller,
+        "refresh_shared_registry_record",
+        lambda: (_ for _ in ()).throw(SessionManifestError("registry refresh failed")),
+    )
+
+    refreshed = controller.refresh_mailbox_bindings(filesystem_root=tmp_path / "mail-new")
+
+    assert refreshed.filesystem_root == (tmp_path / "mail-new").resolve()
+    assert controller.consume_operation_warnings() == (
+        "Shared-registry refresh failed after manifest persistence: registry refresh failed",
+    )
 
 
 def test_attach_and_detach_gateway_refreshes_registry_payload(

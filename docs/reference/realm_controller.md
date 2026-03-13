@@ -52,11 +52,12 @@ Runtime-owned tmux-backed sessions now publish a shared discovery record under o
 - Default root: `~/.houmao/registry/live_agents/<sha256(agent_name)>/record.json`
 - Override for CI or controlled environments: `AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/to/registry`
 - Canonical identity: registry-facing input accepts both `gpu` and `AGENTSYS-gpu`, but the stored `agent_name` is always the canonical `AGENTSYS-...` form.
-- Freshness: records use a 24-hour soft lease in v1 and are refreshed on runtime-owned manifest persistence, gateway capability or attach changes, mailbox binding refresh, and resume flows.
+- Freshness: records use a 24-hour soft lease in v1, `published_at` and `lease_expires_at` must be timezone-aware timestamps, and the lease is refreshed on runtime-owned manifest persistence, gateway capability or attach changes, mailbox binding refresh, and resume flows.
 - Ownership: one fresh logical agent name maps to one live `generation_id`; duplicate fresh publishers stand down instead of coexisting.
+- Resolution behavior: missing, malformed, schema-invalid, or expired `record.json` files are treated as stale or unusable discovery state rather than as live records.
 - Scope: the registry stores only secret-free pointers such as manifest path, session root, gateway attach path, and mailbox identity. Authoritative runtime state remains under each session root.
 
-When name-based control cannot resolve a local tmux session, runtime falls back to the shared registry and validates the published manifest path plus stored `agent_def_dir` before resuming control.
+When name-based control cannot resolve tmux-local discovery state, runtime falls back to the shared registry and validates the published manifest path plus stored `agent_def_dir` before resuming control. In practice this fallback covers missing tmux sessions as well as missing or stale `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_DEF_DIR` pointers, while manifest/session identity mismatches still fail fast.
 
 Use the minimal cleanup entrypoint when stale directories accumulate:
 
@@ -64,6 +65,8 @@ Use the minimal cleanup entrypoint when stale directories accumulate:
 pixi run python -m houmao.agents.realm_controller cleanup-registry
 pixi run python -m houmao.agents.realm_controller cleanup-registry --grace-seconds 0
 ```
+
+The cleanup command now reports three buckets: removed stale directories, preserved lease-fresh directories, and stale directories whose removal failed so operators can distinguish live entries from filesystem cleanup problems.
 
 ## Gateway-Capable Sessions
 

@@ -42,6 +42,7 @@ class RegistryCleanupResult:
     registry_root: Path
     removed_agent_keys: tuple[str, ...]
     preserved_agent_keys: tuple[str, ...]
+    failed_agent_keys: tuple[str, ...]
 
 
 def resolve_global_registry_root(*, env: Mapping[str, str] | None = None) -> Path:
@@ -108,7 +109,10 @@ def resolve_live_agent_record(
     """Resolve one fresh registry record by canonical or unprefixed agent name."""
 
     canonical_name = canonicalize_registry_agent_name(agent_name)
-    record = load_live_agent_record(canonical_name, env=env)
+    try:
+        record = load_live_agent_record(canonical_name, env=env)
+    except SessionManifestError:
+        return None
     if record is None:
         return None
     if record.agent_name != canonical_name:
@@ -200,10 +204,12 @@ def cleanup_stale_live_agent_records(
             registry_root=paths.root,
             removed_agent_keys=(),
             preserved_agent_keys=(),
+            failed_agent_keys=(),
         )
 
     removed: list[str] = []
     preserved: list[str] = []
+    failed: list[str] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
         if not candidate.is_dir():
             continue
@@ -223,8 +229,12 @@ def cleanup_stale_live_agent_records(
                 )
 
         if should_remove:
-            shutil.rmtree(candidate, ignore_errors=False)
-            removed.append(candidate.name)
+            try:
+                shutil.rmtree(candidate, ignore_errors=False)
+            except OSError:
+                failed.append(candidate.name)
+            else:
+                removed.append(candidate.name)
             continue
 
         preserved.append(candidate.name)
@@ -233,6 +243,7 @@ def cleanup_stale_live_agent_records(
         registry_root=paths.root,
         removed_agent_keys=tuple(removed),
         preserved_agent_keys=tuple(preserved),
+        failed_agent_keys=tuple(failed),
     )
 
 
@@ -334,7 +345,11 @@ def _write_json_atomically(path: Path, payload: dict[str, object]) -> None:
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    temp_path.replace(path)
+    try:
+        temp_path.replace(path)
+    except OSError:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _parse_timestamp(value: str) -> datetime:

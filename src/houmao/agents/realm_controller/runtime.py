@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import socket
@@ -155,6 +156,11 @@ from .registry_storage import (
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {"codex_headless", "claude_headless", "gemini_headless", "cao_rest"}
 )
+_LOGGER = logging.getLogger(__name__)
+
+
+class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
+    """Raised when tmux-local discovery pointers are unavailable for fallback."""
 
 
 @dataclass(frozen=True)
@@ -199,10 +205,12 @@ class RuntimeSessionController:
     gateway_host: str | None = None
     gateway_port: int | None = None
     registry_generation_id: str | None = None
+    operation_warnings: tuple[str, ...] = ()
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
 
+        self._reset_operation_warnings()
         events = self.backend_session.send_prompt(prompt)
         self.persist_manifest()
         return events
@@ -210,6 +218,7 @@ class RuntimeSessionController:
     def interrupt(self) -> SessionControlResult:
         """Interrupt in-flight backend work and persist state."""
 
+        self._reset_operation_warnings()
         result = self.backend_session.interrupt()
         self.persist_manifest()
         return result
@@ -233,6 +242,7 @@ class RuntimeSessionController:
             Control-action result describing whether delivery succeeded.
         """
 
+        self._reset_operation_warnings()
         if isinstance(self.backend_session, CaoRestSession):
             result = self.backend_session.send_input_ex(
                 sequence,
@@ -255,10 +265,17 @@ class RuntimeSessionController:
     def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
         """Terminate backend resources and persist state."""
 
+        self._reset_operation_warnings()
         if self._is_tmux_backed():
             try:
                 detach_result = self.detach_gateway()
             except GatewayDiscoveryError:
+                detach_result = None
+            except (OSError, SessionManifestError) as exc:
+                self._record_registry_warning(
+                    "Shared-registry refresh failed during pre-stop gateway detach",
+                    exc,
+                )
                 detach_result = None
             if detach_result is not None and detach_result.status == "ok":
                 self.gateway_host = None
@@ -268,7 +285,13 @@ class RuntimeSessionController:
         result = self.backend_session.terminate()
         if result.status == "ok":
             self.persist_manifest(refresh_registry=False)
-            self.clear_shared_registry_record()
+            try:
+                self.clear_shared_registry_record()
+            except (OSError, SessionManifestError) as exc:
+                self._record_registry_warning(
+                    "Shared-registry cleanup failed after successful stop-session teardown",
+                    exc,
+                )
         else:
             self.persist_manifest()
         return result
@@ -276,6 +299,7 @@ class RuntimeSessionController:
     def close(self) -> None:
         """Close the backend session."""
 
+        self._reset_operation_warnings()
         self.backend_session.close()
         self.persist_manifest()
 
@@ -286,6 +310,7 @@ class RuntimeSessionController:
     ) -> MailboxResolvedConfig:
         """Refresh mailbox env bindings for an active session."""
 
+        self._reset_operation_warnings()
         mailbox = self.launch_plan.mailbox
         if mailbox is None:
             raise SessionManifestError("Session does not have mailbox support enabled.")
@@ -334,7 +359,20 @@ class RuntimeSessionController:
         )
         write_session_manifest(self.manifest_path, payload)
         if refresh_registry:
-            self.refresh_shared_registry_record()
+            try:
+                self.refresh_shared_registry_record()
+            except (OSError, SessionManifestError) as exc:
+                self._record_registry_warning(
+                    "Shared-registry refresh failed after manifest persistence",
+                    exc,
+                )
+
+    def consume_operation_warnings(self) -> tuple[str, ...]:
+        """Return and clear non-fatal warnings captured during the last operation."""
+
+        warnings = self.operation_warnings
+        self.operation_warnings = ()
+        return warnings
 
     def ensure_gateway_capability(
         self,
@@ -459,6 +497,18 @@ class RuntimeSessionController:
             session_name,
             generation_id=self.registry_generation_id,
         )
+
+    def _reset_operation_warnings(self) -> None:
+        """Clear non-fatal warnings before starting a new controller operation."""
+
+        self.operation_warnings = ()
+
+    def _record_registry_warning(self, prefix: str, exc: Exception) -> None:
+        """Capture one non-fatal shared-registry warning for the current operation."""
+
+        message = f"{prefix}: {exc}"
+        self.operation_warnings = (*self.operation_warnings, message)
+        _LOGGER.warning(message)
 
 
 def start_runtime_session(
@@ -659,20 +709,24 @@ def resolve_agent_identity(
             f"`{normalized.canonical_name}`."
         ) from tmux_error
 
-    manifest_path = _resolve_manifest_path_from_tmux_session(session_name=normalized.canonical_name)
-    _validate_resolved_manifest_matches_tmux_session(
-        manifest_path=manifest_path,
-        session_name=normalized.canonical_name,
-    )
-    return AgentIdentityResolution(
-        session_manifest_path=manifest_path,
-        canonical_agent_identity=normalized.canonical_name,
-        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
-            session_name=normalized.canonical_name,
+    try:
+        return _resolve_agent_identity_from_tmux_local(
+            canonical_agent_identity=normalized.canonical_name,
             explicit_agent_def_dir=explicit_agent_def_dir,
-        ),
-        warnings=normalized.warnings,
-    )
+            warnings=normalized.warnings,
+        )
+    except _TmuxLocalDiscoveryUnavailableError as discovery_error:
+        registry_resolution = _resolve_agent_identity_from_shared_registry(
+            canonical_agent_identity=normalized.canonical_name,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+            warnings=normalized.warnings,
+        )
+        if registry_resolution is not None:
+            return registry_resolution
+        raise SessionManifestError(
+            f"{discovery_error} Shared-registry fallback did not find a fresh record for "
+            f"`{normalized.canonical_name}`."
+        ) from discovery_error
 
 
 def resume_runtime_session(
@@ -1119,7 +1173,7 @@ def _read_tmux_session_env_var(
     env_detail = tmux_error_detail_shared(env_result)
     if env_result.returncode != 0:
         if "unknown variable" in env_detail.lower():
-            raise SessionManifestError(
+            raise _TmuxLocalDiscoveryUnavailableError(
                 f"{missing_message}: tmux session `{session_name}` has no `{variable_name}` value."
             )
         raise SessionManifestError(
@@ -1135,7 +1189,7 @@ def _read_tmux_session_env_var(
             break
 
     if not line or line == f"-{variable_name}":
-        raise SessionManifestError(
+        raise _TmuxLocalDiscoveryUnavailableError(
             f"{missing_message}: tmux session `{session_name}` has blank `{variable_name}`."
         )
 
@@ -1147,7 +1201,7 @@ def _read_tmux_session_env_var(
 
     value = line[len(prefix) :].strip()
     if not value:
-        raise SessionManifestError(
+        raise _TmuxLocalDiscoveryUnavailableError(
             f"{missing_message}: tmux session `{session_name}` has blank `{variable_name}`."
         )
     return value
@@ -1170,11 +1224,35 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
         )
     manifest_path = manifest_path.resolve()
     if not manifest_path.is_file():
-        raise SessionManifestError(
+        raise _TmuxLocalDiscoveryUnavailableError(
             f"Manifest pointer stale: `{AGENT_MANIFEST_PATH_ENV_VAR}` in tmux "
             f"session `{session_name}` points to missing file `{manifest_path}`."
         )
     return manifest_path
+
+
+def _resolve_agent_identity_from_tmux_local(
+    *,
+    canonical_agent_identity: str,
+    explicit_agent_def_dir: Path | None,
+    warnings: tuple[str, ...],
+) -> AgentIdentityResolution:
+    """Resolve a control target from tmux-local discovery pointers."""
+
+    manifest_path = _resolve_manifest_path_from_tmux_session(session_name=canonical_agent_identity)
+    _validate_resolved_manifest_matches_tmux_session(
+        manifest_path=manifest_path,
+        session_name=canonical_agent_identity,
+    )
+    return AgentIdentityResolution(
+        session_manifest_path=manifest_path,
+        canonical_agent_identity=canonical_agent_identity,
+        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
+            session_name=canonical_agent_identity,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+        ),
+        warnings=warnings,
+    )
 
 
 def _resolve_agent_identity_from_shared_registry(
@@ -1247,7 +1325,7 @@ def _resolve_agent_def_dir_for_name_resolution(
         )
     resolved_agent_def_dir = resolved_agent_def_dir.resolve()
     if not resolved_agent_def_dir.is_dir():
-        raise SessionManifestError(
+        raise _TmuxLocalDiscoveryUnavailableError(
             f"Agent definition pointer stale: `{AGENT_DEF_DIR_ENV_VAR}` in tmux "
             f"session `{session_name}` points to missing directory `{resolved_agent_def_dir}`."
         )

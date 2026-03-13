@@ -24,7 +24,7 @@ from .mail_commands import (
     validate_attachment_paths,
 )
 from .models import BackendKind
-from .registry_storage import cleanup_stale_live_agent_records, resolve_global_registry_root
+from .registry_storage import cleanup_stale_live_agent_records
 from .runtime import (
     AgentIdentityResolution,
     resolve_agent_identity,
@@ -508,6 +508,7 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
     events = controller.send_prompt(args.prompt)
     for event in events:
         print(json.dumps(asdict(event), sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0
 
 
@@ -550,6 +551,7 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
         escape_special_keys=bool(args.escape_special_keys),
     )
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0 if result.status == "ok" else 2
 
 
@@ -589,6 +591,7 @@ def _cmd_stop_session(args: argparse.Namespace) -> int:
 
     result = controller.stop(force_cleanup=bool(args.force_cleanup))
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0 if result.status == "ok" else 2
 
 
@@ -661,12 +664,14 @@ def _cmd_cleanup_registry(args: argparse.Namespace) -> int:
         grace_period=timedelta(seconds=grace_seconds),
     )
     payload = {
-        "registry_root": str(resolve_global_registry_root()),
+        "registry_root": str(result.registry_root),
         "grace_seconds": grace_seconds,
         "removed_agent_keys": list(result.removed_agent_keys),
         "preserved_agent_keys": list(result.preserved_agent_keys),
+        "failed_agent_keys": list(result.failed_agent_keys),
         "removed_count": len(result.removed_agent_keys),
         "preserved_count": len(result.preserved_agent_keys),
+        "failed_count": len(result.failed_agent_keys),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
@@ -701,7 +706,18 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         mailbox=mailbox,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0
+
+
+def _emit_controller_operation_warnings(controller: object) -> None:
+    """Print non-fatal controller warnings for the just-finished operation."""
+
+    consume = getattr(controller, "consume_operation_warnings", None)
+    if not callable(consume):
+        return
+    for warning in consume():
+        print(f"warning: {warning}", file=sys.stderr)
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:

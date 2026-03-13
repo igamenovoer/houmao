@@ -164,6 +164,34 @@ def _build_headless_manifest(
     return path
 
 
+def _publish_registry_resolution_record(
+    *,
+    manifest_path: Path,
+    agent_def_dir: Path,
+    session_name: str = "AGENTSYS-gpu",
+) -> None:
+    """Publish one fresh shared-registry record for resolution tests."""
+
+    publish_live_agent_record(
+        LiveAgentRegistryRecordV1(
+            agent_name=session_name,
+            agent_key=derive_agent_key(session_name),
+            generation_id="generation-1",
+            published_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC).isoformat(timespec="seconds"),
+            lease_expires_at=(
+                datetime(2026, 3, 13, 12, 0, tzinfo=UTC) + timedelta(hours=24)
+            ).isoformat(timespec="seconds"),
+            identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
+            runtime=RegistryRuntimeV1(
+                manifest_path=str(manifest_path.resolve()),
+                session_root=str(manifest_path.parent.resolve()),
+                agent_def_dir=str(agent_def_dir.resolve()),
+            ),
+            terminal=RegistryTerminalV1(session_name=session_name),
+        )
+    )
+
+
 def _completed(
     args: list[str], *, returncode: int = 0, stdout: str = "", stderr: str = ""
 ) -> subprocess.CompletedProcess[str]:
@@ -286,6 +314,47 @@ def test_resolve_agent_identity_name_fails_when_manifest_pointer_missing(
     monkeypatch.setattr("subprocess.run", _fake_run)
     with pytest.raises(SessionManifestError, match="Manifest pointer missing"):
         resolve_agent_identity(agent_identity="gpu", base=tmp_path)
+
+
+def test_resolve_agent_identity_name_falls_back_when_manifest_pointer_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    registry_root = tmp_path / "registry"
+    manifest_path = _build_cao_manifest(
+        agent_def_dir,
+        tmp_path,
+        session_name="AGENTSYS-gpu",
+        path=tmp_path / "sessions" / "cao.json",
+    )
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    _publish_registry_resolution_record(
+        manifest_path=manifest_path,
+        agent_def_dir=agent_def_dir,
+    )
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        if cmd[1:3] == ["has-session", "-t"]:
+            return _completed(cmd)
+        return _completed(cmd, returncode=1, stderr="unknown variable: AGENTSYS_MANIFEST_PATH")
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
+
+    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.session_manifest_path == manifest_path.resolve()
+    assert resolved.agent_def_dir == agent_def_dir.resolve()
 
 
 def test_resolve_agent_identity_name_fails_when_manifest_mismatch(
@@ -456,6 +525,56 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_missing(
 
     with pytest.raises(SessionManifestError, match="Agent definition pointer missing"):
         resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
+
+
+def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    stale_agent_def_dir = tmp_path / "stale-agent-defs"
+    registry_root = tmp_path / "registry"
+    manifest_path = _build_cao_manifest(
+        agent_def_dir,
+        tmp_path,
+        session_name="AGENTSYS-gpu",
+        path=tmp_path / "sessions" / "cao.json",
+    )
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    _publish_registry_resolution_record(
+        manifest_path=manifest_path,
+        agent_def_dir=agent_def_dir,
+    )
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        if cmd[1:3] == ["has-session", "-t"]:
+            return _completed(cmd)
+        if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
+            return _completed(
+                cmd,
+                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
+            )
+        return _completed(
+            cmd,
+            stdout=f"{AGENT_DEF_DIR_ENV_VAR}={stale_agent_def_dir}\n",
+        )
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
+
+    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.session_manifest_path == manifest_path.resolve()
+    assert resolved.agent_def_dir == agent_def_dir.resolve()
 
 
 def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_blank(
