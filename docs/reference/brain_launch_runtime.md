@@ -7,6 +7,12 @@
 - sending prompts, raw control input, or runtime-owned mailbox operations across resumed sessions,
 - persisting schema-validated session manifests.
 
+For the new detailed reference trees, use:
+
+- [Runtime-Managed Agents Reference](./agents/index.md) for session targeting, interaction-path comparison, runtime-owned state, and recovery boundaries.
+- [Agent Gateway Reference](./gateway/index.md) for gateway attachability, HTTP and status contracts, queue behavior, and lifecycle handling.
+- [Mailbox Reference](./mailbox/index.md) for filesystem mailbox behavior and managed mailbox flows.
+
 ## CLI Entry Point
 
 Use the module CLI:
@@ -40,6 +46,8 @@ Command intent:
 ## Gateway-Capable Sessions
 
 New runtime-owned tmux-backed sessions now publish gateway capability by default even when no live gateway process is attached yet.
+
+Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. This page keeps the gateway overview short so those details live in one place.
 
 - Runtime-owned session state now lives under `<runtime_root>/sessions/<backend>/<session-id>/`.
 - The session manifest lives at `<session-root>/manifest.json`.
@@ -83,6 +91,8 @@ pixi run python -m gig_agents.agents.brain_launch_runtime detach-gateway \
 ## Agent Definition Directory Resolution
 
 Runtime command surfaces now use two resolution models.
+
+For the detailed session-targeting model and how it relates to the runtime-managed interaction paths, see [Runtime-Managed Agent Public Interfaces](./agents/contracts/public-interfaces.md).
 
 Build/start and manifest-path control (`--agent-identity /abs/.../manifest.json`) still resolve the agent definition directory with this ambient precedence:
 
@@ -414,6 +424,8 @@ Behavior:
   backends (`cao_rest`, `codex_headless`, `claude_headless`, `gemini_headless`)
   and returns the selected canonical identity in CLI JSON output.
 
+For deeper runtime-managed message-passing guidance, use [Session And Message Flows](./agents/operations/session-and-message-flows.md). For the gateway-specific lifecycle and queue semantics behind the gateway-aware bullets above, use [Gateway Lifecycle And Operator Flows](./gateway/operations/lifecycle.md) and [Gateway Queue And Recovery](./gateway/internals/queue-and-recovery.md).
+
 ## Missing `PATH` Troubleshooting
 
 CAO-dependent and tmux-backed flows preflight exact executables and fail fast
@@ -538,6 +550,8 @@ egress and injects loopback entries into `NO_PROXY`/`no_proxy` by default.
   `NO_PROXY`/`no_proxy` unchanged.
 
 ## Session Manifest
+
+For the broader runtime-owned storage model, discovery pointers, and gateway nesting under the same session root, see [Runtime-Managed State And Recovery](./agents/internals/state-and-recovery.md) and [Gateway Protocol And State Contracts](./gateway/contracts/protocol-and-state.md).
 
 Session manifests are written under:
 
