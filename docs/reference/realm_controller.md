@@ -32,6 +32,7 @@ Supported commands:
 - `detach-gateway`
 - `gateway-status`
 - `gateway-interrupt`
+- `cleanup-registry`
 - `mail`
 - `stop-session`
 
@@ -41,7 +42,28 @@ Command intent:
 - Use `gateway-send-prompt` and `gateway-interrupt` only after a live gateway is already attached; they do not auto-attach a gateway implicitly.
 - Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
 - Use `mail` for runtime-owned mailbox operations (`check`, `send`, `reply`) against resumed mailbox-enabled sessions.
+- Use `cleanup-registry` to remove stale shared-registry `live_agents/` directories left behind by crashes or expired soft leases.
 - For the detailed `send-keys` contract, grammar, and examples, see [Realm Controller Send-Keys](./realm_controller_send_keys.md).
+
+## Shared Agent Registry
+
+Runtime-owned tmux-backed sessions now publish a shared discovery record under one per-user registry root:
+
+- Default root: `~/.houmao/registry/live_agents/<sha256(agent_name)>/record.json`
+- Override for CI or controlled environments: `AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/to/registry`
+- Canonical identity: registry-facing input accepts both `gpu` and `AGENTSYS-gpu`, but the stored `agent_name` is always the canonical `AGENTSYS-...` form.
+- Freshness: records use a 24-hour soft lease in v1 and are refreshed on runtime-owned manifest persistence, gateway capability or attach changes, mailbox binding refresh, and resume flows.
+- Ownership: one fresh logical agent name maps to one live `generation_id`; duplicate fresh publishers stand down instead of coexisting.
+- Scope: the registry stores only secret-free pointers such as manifest path, session root, gateway attach path, and mailbox identity. Authoritative runtime state remains under each session root.
+
+When name-based control cannot resolve a local tmux session, runtime falls back to the shared registry and validates the published manifest path plus stored `agent_def_dir` before resuming control.
+
+Use the minimal cleanup entrypoint when stale directories accumulate:
+
+```bash
+pixi run python -m houmao.agents.realm_controller cleanup-registry
+pixi run python -m houmao.agents.realm_controller cleanup-registry --grace-seconds 0
+```
 
 ## Gateway-Capable Sessions
 
@@ -103,9 +125,10 @@ Build/start and manifest-path control (`--agent-identity /abs/.../manifest.json`
 Name-based tmux-backed control (`send-prompt`, `send-keys`, `mail`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
 
 1. explicit CLI `--agent-def-dir` override, otherwise
-2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`
+2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`, or
+3. the fresh shared-registry record's stored `runtime.agent_def_dir` when tmux-local discovery is unavailable
 
-Name-based tmux control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` or cwd-derived default when the tmux session pointer is missing or stale.
+Name-based tmux control still does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` or cwd-derived default when the live session pointer is missing or stale.
 
 The resolved directory must contain `brains/`, `roles/`, and optionally `blueprints/`.
 

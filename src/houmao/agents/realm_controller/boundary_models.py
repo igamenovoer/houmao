@@ -169,6 +169,7 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
     created_at_utc: str
     working_directory: str
     brain_manifest_path: str
+    registry_generation_id: str | None = None
     launch_plan: LaunchPlanPayloadV1
     backend_state: JsonObject
     codex: CodexSectionV1 | None = None
@@ -181,9 +182,12 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
         "created_at_utc",
         "working_directory",
         "brain_manifest_path",
+        "registry_generation_id",
     )
     @classmethod
-    def _not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value

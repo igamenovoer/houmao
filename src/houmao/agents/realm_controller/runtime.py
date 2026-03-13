@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -62,6 +63,7 @@ from .gateway_models import (
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayProtocolVersion,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -120,6 +122,7 @@ from .manifest import (
     generate_session_id,
     load_session_manifest,
     parse_session_manifest_payload,
+    runtime_owned_session_root_from_manifest_path,
     write_session_manifest,
 )
 from .models import (
@@ -130,6 +133,23 @@ from .models import (
     LaunchPlan,
     SessionControlResult,
     SessionEvent,
+)
+from .registry_models import (
+    LiveAgentRegistryRecordV1,
+    RegistryGatewayV1,
+    RegistryIdentityV1,
+    RegistryMailboxV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV1,
+    canonicalize_registry_agent_name,
+    derive_agent_key,
+)
+from .registry_storage import (
+    DEFAULT_REGISTRY_LEASE_TTL,
+    new_registry_generation_id,
+    publish_live_agent_record,
+    remove_live_agent_record,
+    resolve_live_agent_record,
 )
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
@@ -178,6 +198,7 @@ class RuntimeSessionController:
     gateway_auto_attach_error: str | None = None
     gateway_host: str | None = None
     gateway_port: int | None = None
+    registry_generation_id: str | None = None
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
@@ -245,7 +266,11 @@ class RuntimeSessionController:
         if isinstance(self.backend_session, HeadlessInteractiveSession):
             self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
         result = self.backend_session.terminate()
-        self.persist_manifest()
+        if result.status == "ok":
+            self.persist_manifest(refresh_registry=False)
+            self.clear_shared_registry_record()
+        else:
+            self.persist_manifest()
         return result
 
     def close(self) -> None:
@@ -294,7 +319,7 @@ class RuntimeSessionController:
         self.persist_manifest()
         return refreshed
 
-    def persist_manifest(self) -> None:
+    def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         """Persist current backend state to session manifest."""
 
         backend_state = _backend_state_for_session(self.backend_session)
@@ -304,9 +329,12 @@ class RuntimeSessionController:
                 role_name=self.role_name,
                 brain_manifest_path=self.brain_manifest_path,
                 backend_state=backend_state,
+                registry_generation_id=self.registry_generation_id,
             )
         )
         write_session_manifest(self.manifest_path, payload)
+        if refresh_registry:
+            self.refresh_shared_registry_record()
 
     def ensure_gateway_capability(
         self,
@@ -344,6 +372,7 @@ class RuntimeSessionController:
         )
         self.gateway_root = paths.gateway_root
         self.gateway_attach_path = paths.attach_path
+        self.refresh_shared_registry_record()
 
     def attach_gateway(
         self,
@@ -353,16 +382,22 @@ class RuntimeSessionController:
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
-        return _attach_gateway_for_controller(
+        result = _attach_gateway_for_controller(
             self,
             host_override=host_override,
             port_override=port_override,
         )
+        if result.status == "ok":
+            self.refresh_shared_registry_record()
+        return result
 
     def detach_gateway(self) -> GatewayControlResult:
         """Stop a live gateway instance while preserving attachability metadata."""
 
-        return _detach_gateway_for_controller(self)
+        result = _detach_gateway_for_controller(self)
+        if result.status == "ok":
+            self.refresh_shared_registry_record()
+        return result
 
     def gateway_status(self) -> GatewayStatusV1:
         """Return current gateway status from the live gateway or stable state file."""
@@ -405,6 +440,25 @@ class RuntimeSessionController:
                 f"backend={self.launch_plan.backend!r} is missing a tmux session binding."
             )
         return session_name
+
+    def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV1 | None:
+        """Publish or refresh the shared-registry record for this live session."""
+
+        record = _build_shared_registry_record_for_controller(self)
+        if record is None:
+            return None
+        return publish_live_agent_record(record)
+
+    def clear_shared_registry_record(self) -> bool:
+        """Remove this session's shared-registry record during authoritative teardown."""
+
+        session_name = _tmux_session_name_for_controller(self)
+        if not self._is_tmux_backed() or session_name is None:
+            return False
+        return remove_live_agent_record(
+            session_name,
+            generation_id=self.registry_generation_id,
+        )
 
 
 def start_runtime_session(
@@ -538,8 +592,11 @@ def start_runtime_session(
         agent_identity_warnings=agent_identity_warnings,
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
+        registry_generation_id=(
+            new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
+        ),
     )
-    controller.persist_manifest()
+    controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
         blueprint_gateway_defaults=blueprint_gateway_defaults,
     )
@@ -587,7 +644,21 @@ def resolve_agent_identity(
         return AgentIdentityResolution(session_manifest_path=manifest_path.resolve())
 
     normalized = normalize_agent_identity_name(agent_identity)
-    _ensure_tmux_session_exists(session_name=normalized.canonical_name)
+    try:
+        _ensure_tmux_session_exists(session_name=normalized.canonical_name)
+    except SessionManifestError as tmux_error:
+        registry_resolution = _resolve_agent_identity_from_shared_registry(
+            canonical_agent_identity=normalized.canonical_name,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+            warnings=normalized.warnings,
+        )
+        if registry_resolution is not None:
+            return registry_resolution
+        raise SessionManifestError(
+            f"{tmux_error} Shared-registry fallback did not find a fresh record for "
+            f"`{normalized.canonical_name}`."
+        ) from tmux_error
+
     manifest_path = _resolve_manifest_path_from_tmux_session(session_name=normalized.canonical_name)
     _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
@@ -650,6 +721,10 @@ def resume_runtime_session(
     elif isinstance(backend_session, HeadlessInteractiveSession):
         resolved_agent_identity = backend_session.state.tmux_session_name
 
+    registry_generation_id = manifest_payload.registry_generation_id
+    if backend in _TMUX_BACKED_BACKENDS and registry_generation_id is None:
+        registry_generation_id = new_registry_generation_id()
+
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
         role_name=role_name,
@@ -663,6 +738,7 @@ def resume_runtime_session(
             if isinstance(backend_session, CaoRestSession)
             else None
         ),
+        registry_generation_id=registry_generation_id,
     )
     controller.ensure_gateway_capability()
     return controller
@@ -1101,6 +1177,46 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
     return manifest_path
 
 
+def _resolve_agent_identity_from_shared_registry(
+    *,
+    canonical_agent_identity: str,
+    explicit_agent_def_dir: Path | None,
+    warnings: tuple[str, ...],
+) -> AgentIdentityResolution | None:
+    """Resolve a control target from the shared live-agent registry."""
+
+    record = resolve_live_agent_record(canonical_agent_identity)
+    if record is None:
+        return None
+
+    manifest_path = Path(record.runtime.manifest_path)
+    if not manifest_path.is_absolute():
+        raise SessionManifestError(
+            "Shared-registry record has invalid manifest_path: expected an absolute path, "
+            f"got `{manifest_path}`."
+        )
+    manifest_path = manifest_path.resolve()
+    if not manifest_path.is_file():
+        raise SessionManifestError(
+            f"Shared-registry manifest pointer is stale: `{manifest_path}` does not exist."
+        )
+
+    _validate_resolved_manifest_matches_tmux_session(
+        manifest_path=manifest_path,
+        session_name=canonical_agent_identity,
+    )
+
+    return AgentIdentityResolution(
+        session_manifest_path=manifest_path,
+        canonical_agent_identity=canonical_agent_identity,
+        agent_def_dir=_resolve_agent_def_dir_for_registry_resolution(
+            record=record,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+        ),
+        warnings=warnings,
+    )
+
+
 def _resolve_agent_def_dir_for_name_resolution(
     *,
     session_name: str,
@@ -1134,6 +1250,45 @@ def _resolve_agent_def_dir_for_name_resolution(
         raise SessionManifestError(
             f"Agent definition pointer stale: `{AGENT_DEF_DIR_ENV_VAR}` in tmux "
             f"session `{session_name}` points to missing directory `{resolved_agent_def_dir}`."
+        )
+    return resolved_agent_def_dir
+
+
+def _resolve_agent_def_dir_for_registry_resolution(
+    *,
+    record: LiveAgentRegistryRecordV1,
+    explicit_agent_def_dir: Path | None,
+) -> Path:
+    """Resolve the effective agent-definition root for registry-based control."""
+
+    if explicit_agent_def_dir is not None:
+        resolved_override = explicit_agent_def_dir.resolve()
+        if not resolved_override.is_dir():
+            raise SessionManifestError(
+                "Explicit `--agent-def-dir` override must point to an existing directory, "
+                f"got `{resolved_override}`."
+            )
+        return resolved_override
+
+    agent_def_dir_value = record.runtime.agent_def_dir
+    if agent_def_dir_value is None:
+        raise SessionManifestError(
+            "Shared-registry record is missing `runtime.agent_def_dir`, so name-based "
+            "control requires an explicit `--agent-def-dir` override."
+        )
+
+    resolved_agent_def_dir = Path(agent_def_dir_value)
+    if not resolved_agent_def_dir.is_absolute():
+        raise SessionManifestError(
+            "Shared-registry record has invalid runtime.agent_def_dir: "
+            f"expected an absolute path, got `{resolved_agent_def_dir}`."
+        )
+
+    resolved_agent_def_dir = resolved_agent_def_dir.resolve()
+    if not resolved_agent_def_dir.is_dir():
+        raise SessionManifestError(
+            "Shared-registry agent-definition pointer is stale: "
+            f"`{resolved_agent_def_dir}` does not exist."
         )
     return resolved_agent_def_dir
 
@@ -1202,6 +1357,103 @@ def _runtime_agent_def_dir(controller: RuntimeSessionController) -> Path | None:
     if controller.agent_def_dir is None:
         return None
     return controller.agent_def_dir.resolve()
+
+
+def _build_shared_registry_record_for_controller(
+    controller: RuntimeSessionController,
+) -> LiveAgentRegistryRecordV1 | None:
+    """Build one shared-registry record from current runtime-owned session state."""
+
+    if not controller._is_tmux_backed():
+        return None
+
+    session_name = _tmux_session_name_for_controller(controller)
+    if session_name is None:
+        return None
+
+    canonical_agent_name = canonicalize_registry_agent_name(session_name)
+    generation_id = controller.registry_generation_id
+    if generation_id is None:
+        return None
+
+    published_at = datetime.now(UTC)
+    session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
+    mailbox = controller.launch_plan.mailbox
+
+    gateway_payload = _shared_registry_gateway_payload(controller)
+    mailbox_payload = (
+        RegistryMailboxV1(
+            transport=mailbox.transport,
+            principal_id=mailbox.principal_id,
+            address=mailbox.address,
+            filesystem_root=str(mailbox.filesystem_root.resolve()),
+            bindings_version=mailbox.bindings_version,
+        )
+        if mailbox is not None
+        else None
+    )
+
+    return LiveAgentRegistryRecordV1(
+        agent_name=canonical_agent_name,
+        agent_key=derive_agent_key(canonical_agent_name),
+        generation_id=generation_id,
+        published_at=published_at.isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        identity=RegistryIdentityV1(
+            backend=controller.launch_plan.backend,
+            tool=controller.launch_plan.tool,
+        ),
+        runtime=RegistryRuntimeV1(
+            manifest_path=str(controller.manifest_path.resolve()),
+            session_root=str(session_root.resolve()) if session_root is not None else None,
+            agent_def_dir=(
+                str(controller.agent_def_dir.resolve())
+                if controller.agent_def_dir is not None
+                else None
+            ),
+        ),
+        terminal=RegistryTerminalV1(
+            kind="tmux",
+            session_name=canonical_agent_name,
+        ),
+        gateway=gateway_payload,
+        mailbox=mailbox_payload,
+    )
+
+
+def _shared_registry_gateway_payload(
+    controller: RuntimeSessionController,
+) -> RegistryGatewayV1 | None:
+    """Build stable and live gateway metadata for registry publication."""
+
+    paths = gateway_paths_from_manifest_path(controller.manifest_path)
+    if paths is None or not paths.attach_path.is_file():
+        return None
+
+    host: str | None = None
+    port: int | None = None
+    state_path: str | None = None
+    protocol_version: GatewayProtocolVersion | None = None
+
+    if paths.current_instance_path.is_file():
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            current_instance = None
+        if current_instance is not None:
+            host = current_instance.host
+            port = current_instance.port
+            state_path = str(paths.state_path.resolve())
+            protocol_version = current_instance.protocol_version
+
+    return RegistryGatewayV1(
+        gateway_root=str(paths.gateway_root.resolve()),
+        attach_path=str(paths.attach_path.resolve()),
+        host=cast(GatewayHost | None, host),
+        port=port,
+        state_path=state_path,
+        protocol_version=protocol_version,
+    )
 
 
 def _tmux_session_name_for_controller(controller: RuntimeSessionController) -> str | None:

@@ -33,6 +33,7 @@ class SessionManifestRequest:
     brain_manifest_path: Path
     backend_state: dict[str, Any]
     created_at_utc: str | None = None
+    registry_generation_id: str | None = None
 
 
 def generate_session_id(prefix: str = "session") -> str:
@@ -101,6 +102,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "created_at_utc": request.created_at_utc or datetime.now(UTC).isoformat(timespec="seconds"),
         "working_directory": str(request.launch_plan.working_directory),
         "brain_manifest_path": str(request.brain_manifest_path),
+        "registry_generation_id": request.registry_generation_id,
         "launch_plan": launch_payload,
         "backend_state": dict(request.backend_state),
     }

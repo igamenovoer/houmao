@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from dataclasses import asdict
+from datetime import timedelta
 from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
@@ -23,6 +24,7 @@ from .mail_commands import (
     validate_attachment_paths,
 )
 from .models import BackendKind
+from .registry_storage import cleanup_stale_live_agent_records, resolve_global_registry_root
 from .runtime import (
     AgentIdentityResolution,
     resolve_agent_identity,
@@ -81,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_detach_gateway(args)
         if args.command == "gateway-status":
             return _cmd_gateway_status(args)
+        if args.command == "cleanup-registry":
+            return _cmd_cleanup_registry(args)
         if args.command == "mail":
             return _cmd_mail(args)
     except BrainLaunchRuntimeError as exc:
@@ -92,9 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Realm controller CLI (build/start/prompt/stop)."
-    )
+    parser = argparse.ArgumentParser(description="Realm controller CLI (build/start/prompt/stop).")
     subparsers = parser.add_subparsers(dest="command")
 
     build = subparsers.add_parser("build-brain", help="Build a brain home")
@@ -246,6 +248,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--agent-identity",
         required=True,
         help="Agent name or manifest path",
+    )
+
+    cleanup_registry = subparsers.add_parser(
+        "cleanup-registry",
+        help="Remove stale shared-registry live-agent directories",
+    )
+    cleanup_registry.add_argument(
+        "--grace-seconds",
+        type=int,
+        default=300,
+        help="Extra grace period after lease expiry before removing stale directories.",
     )
 
     stop = subparsers.add_parser("stop-session", help="Stop a session")
@@ -636,6 +649,26 @@ def _cmd_gateway_status(args: argparse.Namespace) -> int:
     )
     payload = controller.gateway_status()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_cleanup_registry(args: argparse.Namespace) -> int:
+    grace_seconds = int(args.grace_seconds)
+    if grace_seconds < 0:
+        raise BrainLaunchRuntimeError("--grace-seconds must be >= 0.")
+
+    result = cleanup_stale_live_agent_records(
+        grace_period=timedelta(seconds=grace_seconds),
+    )
+    payload = {
+        "registry_root": str(resolve_global_registry_root()),
+        "grace_seconds": grace_seconds,
+        "removed_agent_keys": list(result.removed_agent_keys),
+        "preserved_agent_keys": list(result.preserved_agent_keys),
+        "removed_count": len(result.removed_agent_keys),
+        "preserved_count": len(result.preserved_agent_keys),
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 

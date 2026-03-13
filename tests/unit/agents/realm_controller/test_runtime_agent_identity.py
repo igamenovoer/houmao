@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,14 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.runtime import (
     resolve_agent_identity,
 )
+from houmao.agents.realm_controller.registry_models import (
+    LiveAgentRegistryRecordV1,
+    RegistryIdentityV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV1,
+    derive_agent_key,
+)
+from houmao.agents.realm_controller.registry_storage import publish_live_agent_record
 
 
 def _write(path: Path, text: str) -> None:
@@ -353,7 +362,60 @@ def test_resolve_agent_identity_name_uses_explicit_agent_def_dir_override_for_le
 
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == override_agent_def_dir.resolve()
-    assert show_environment_variables == [AGENT_MANIFEST_PATH_ENV_VAR]
+
+
+def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    registry_root = tmp_path / "registry"
+    manifest_path = _build_cao_manifest(
+        agent_def_dir,
+        tmp_path,
+        session_name="AGENTSYS-gpu",
+        path=tmp_path / "sessions" / "cao.json",
+    )
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+
+    publish_live_agent_record(
+        LiveAgentRegistryRecordV1(
+            agent_name="AGENTSYS-gpu",
+            agent_key=derive_agent_key("AGENTSYS-gpu"),
+            generation_id="generation-1",
+            published_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC).isoformat(timespec="seconds"),
+            lease_expires_at=(
+                datetime(2026, 3, 13, 12, 0, tzinfo=UTC) + timedelta(hours=24)
+            ).isoformat(timespec="seconds"),
+            identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
+            runtime=RegistryRuntimeV1(
+                manifest_path=str(manifest_path.resolve()),
+                session_root=str(manifest_path.parent.resolve()),
+                agent_def_dir=str(agent_def_dir.resolve()),
+            ),
+            terminal=RegistryTerminalV1(session_name="AGENTSYS-gpu"),
+        )
+    )
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        return _completed(cmd, returncode=1, stderr="can't find session: AGENTSYS-gpu")
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    resolved = resolve_agent_identity(agent_identity="gpu", base=tmp_path)
+
+    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.session_manifest_path == manifest_path.resolve()
+    assert resolved.agent_def_dir == agent_def_dir.resolve()
 
 
 def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_missing(

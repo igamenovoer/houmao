@@ -17,6 +17,7 @@ The requested solution is a central registry rooted at `~/.houmao/registry`, whi
 - Add one fixed per-user shared registry at `~/.houmao/registry` by default.
 - Define a strict secret-free record contract for locating a live published agent across runtime roots.
 - Make runtime-owned tmux-backed sessions publish and refresh registry records automatically as part of existing lifecycle flows.
+- Provide a minimal operator-facing cleanup entrypoint for stale `live_agents/` directories in v1.
 - Preserve session-root and gateway-root artifacts as the authoritative runtime state.
 - Support future terminal-container backends beyond tmux by keeping the registry record contract generic enough for later `psmux`-style publication.
 - Allow CI and other controlled environments to redirect the registry root through `AGENTSYS_GLOBAL_REGISTRY_DIR` without changing the default user-facing contract.
@@ -27,6 +28,7 @@ The requested solution is a central registry rooted at `~/.houmao/registry`, whi
 - Introducing a network daemon, central database service, or cross-host distributed registry in v1.
 - Solving manifest portability or `agent_def_dir` portability across checkouts in this change.
 - Redesigning mailbox or gateway protocols beyond publishing secret-free pointers into the new registry.
+- Adding general-purpose registry list, inspect, or resolve CLI commands in v1 beyond the minimal stale-cleanup entrypoint.
 
 ## Decisions
 
@@ -64,15 +66,17 @@ Alternatives considered:
 
 Each published live agent will own one hashed directory under `~/.houmao/registry/live_agents/`.
 
-The directory name will be a deterministic hash of the globally unique published agent name rather than the raw name itself. The only authoritative file inside that directory will be `record.json`, updated atomically.
+The directory name will be the full lowercase SHA-256 hex digest of the canonical published agent name rather than the raw name itself. The only authoritative file inside that directory will be `record.json`, updated atomically.
 
 Rationale:
 - isolated per-agent directories remove most inter-publisher write races,
 - hashed directory names avoid path-separator, case-sensitivity, and reserved-name issues,
+- using the full digest keeps the shared on-disk contract simple and avoids introducing a second truncation parameter or avoidable collision tradeoff,
 - one-record-per-live-agent is enough for direct name resolution and avoids a shared mutable index.
 
 Alternatives considered:
 - raw agent names as directory names: rejected because they are less portable and less robust across filesystems.
+- truncated digests: rejected because they add a second choice to the contract without materially improving operator debuggability once `record.json` still carries the canonical agent name.
 - global `index.json`: rejected because it would create a shared hot file and cross-process write contention.
 - shared SQLite: rejected because direct known-name lookup does not require a database.
 
@@ -84,12 +88,13 @@ For runtime-owned tmux-backed sessions in v1, that `agent_name` will default to 
 
 Registry-facing input should accept agent names with or without the exact `AGENTSYS-` prefix and canonicalize them using the same normalization rules already established by the `agent-identity` contract. Internally, publication, hashing, duplicate detection, and lookup should all operate on the canonical `AGENTSYS-...` form.
 
-Each record will also include a `generation_id` that changes per process start or per publication generation.
+Each record will also include a `generation_id` that is allocated once for a newly created live session, persisted in that session's runtime-owned state, and reused for later refreshes or resume-driven republishes of the same logical live session.
 
 Rationale:
 - reusing canonical `AGENTSYS-...` identity keeps the first implementation aligned with the existing identity model,
 - optional input prefix keeps operator ergonomics aligned with the rest of runtime naming,
 - the `generation_id` distinguishes "same logical name, replacement live instance" from "same live process still publishing",
+- persisting `generation_id` in runtime-owned session state keeps resume flows aligned with the same live session instead of manufacturing a replacement generation,
 - this avoids inventing project or group naming layers that do not yet exist in current runtime configuration.
 
 Alternatives considered:
@@ -115,6 +120,41 @@ The record will not copy or centralize:
 - mailbox messages or mailbox SQLite state,
 - secrets.
 
+Representative v1 record shape:
+
+```json
+{
+  "schema_version": 1,
+  "agent_name": "AGENTSYS-gpu",
+  "agent_key": "<sha256-hex-canonical-agent-name>",
+  "generation_id": "<uuid-for-live-session>",
+  "published_at": "2026-03-13T10:20:00Z",
+  "lease_expires_at": "2026-03-14T10:20:00Z",
+  "identity": {
+    "backend": "cao_rest",
+    "tool": "codex"
+  },
+  "runtime": {
+    "manifest_path": "/abs/path/to/manifest.json",
+    "session_root": "/abs/path/to/session-root",
+    "agent_def_dir": "/abs/path/to/agents"
+  },
+  "gateway": {
+    "attach_path": "/abs/path/to/gateway/attach.json",
+    "gateway_root": "/abs/path/to/gateway",
+    "connect_url": "http://127.0.0.1:43123"
+  },
+  "mailbox": {
+    "principal_id": "AGENTSYS-gpu",
+    "address": "AGENTSYS-gpu@agents.localhost"
+  },
+  "terminal": {
+    "kind": "tmux",
+    "session_name": "AGENTSYS-gpu"
+  }
+}
+```
+
 Rationale:
 - this preserves the existing authority boundary around session-root state,
 - it keeps the registry small and safe to inspect,
@@ -126,27 +166,31 @@ Alternatives considered:
 
 ### 5. Make publication lease-based with atomic replace semantics
 
-Each record will carry lease/freshness timestamps, and readers will trust lease freshness rather than directory existence.
+Each record will carry lease/freshness timestamps, and readers will trust lease freshness rather than directory existence. In v1, published records will use a 24-hour default soft lease TTL. The system will refresh that lease only when runtime-owned publication events occur; v1 will not add a background heartbeat or separate registry daemon.
 
 Publishers will update records by writing a temp file in the same live-agent directory and atomically replacing `record.json`.
 
 Graceful teardown will remove or expire the record. Unexpected crashes may leave stale live-agent directories behind, which readers will ignore once the lease expires and which cleanup tooling can remove later.
 
-If a fresh record already exists for the same `agent_name` but a different `generation_id`, publication will fail or the new publisher will otherwise stand down rather than allowing two fresh live records for one logical identity.
+If a fresh record already exists for the same `agent_name` but a different `generation_id`, publication will fail or the new publisher will otherwise stand down rather than allowing two fresh live records for one logical identity. A narrow compare-then-replace race may still allow one publisher to overwrite another, but a publisher that later observes a different fresh `generation_id` for the same canonical `agent_name` must surface a conflict and stop claiming registry ownership rather than normalizing that conflict as healthy steady state.
 
 Rationale:
 - atomic replace avoids partial reads,
-- lease-based freshness makes crash recovery simple,
+- a long soft lease fits the current tmux-backed runtime model where the managed session outlives the short-lived control process that published it,
+- lease-based freshness makes crash recovery simple without introducing a new background owner,
 - rejecting fresh duplicate publishers keeps the registry semantically single-owner per logical name.
 
 Alternatives considered:
 - relying on directory existence for liveness: rejected because stale directories are inevitable after crashes.
 - delete-only cleanup with no lease: rejected because it makes crash recovery brittle.
+- short heartbeat-free leases: rejected because they would cause healthy idle tmux-backed sessions to disappear from discovery too quickly in the current runtime model.
 - silent last-writer-wins duplicate handling: rejected because it can hide live ownership mistakes.
 
-### 6. Provide cleanup tooling for stale `live_agents/` directories
+### 6. Provide cleanup tooling and a minimal operator-facing cleanup entrypoint for stale `live_agents/` directories
 
 The registry should treat `live_agents/` as the set of agents expected to be running now. Because crashes can still leave behind expired directories, the system should provide cleanup tooling that removes stale `live_agents/` entries whose records are missing or lease-expired beyond a grace period.
+
+In v1, that cleanup support should include a minimal operator-facing entrypoint in the existing runtime CLI surface so operators do not need to perform manual filesystem surgery. Broader registry list, inspect, or resolve commands can wait for a later change once the record contract and runtime integration have stabilized.
 
 Rationale:
 - the directory name `live_agents/` should reflect the operator-facing expectation,
@@ -164,13 +208,14 @@ Registry publication will live in the runtime layer, not inside backend-specific
 The main lifecycle integration points will be:
 - session start,
 - session resume,
+- manifest-persisting runtime control actions for an already published session such as prompt submission, interrupt, or raw control input,
 - gateway capability publication,
 - gateway attach,
 - gateway detach,
 - mailbox binding refresh,
 - authoritative stop-session teardown.
 
-That likely means introducing registry helpers alongside the current runtime-owned manifest and gateway helpers, then calling them from `RuntimeSessionController` and the gateway/mailbox lifecycle paths that already own session-level publication side effects.
+That means introducing `src/houmao/agents/realm_controller/registry_models.py` for the strict record contract and `src/houmao/agents/realm_controller/registry_storage.py` for root resolution, path derivation, publish/load/validate helpers, conflict handling, and cleanup support. The runtime should call those helpers from `RuntimeSessionController`, `start_runtime_session()`, `resume_runtime_session()`, and the gateway/mailbox lifecycle paths that already own session-level publication side effects.
 
 Rationale:
 - the runtime already owns manifest persistence, gateway capability publication, and mailbox binding publication,
@@ -203,9 +248,9 @@ Representative default layout:
 ```text
 ~/.houmao/registry/
   live_agents/
-    8f6c1f9d5a4c.../
+    <sha256-hex-agent-name-a>/
       record.json
-    a19b7c4e2190.../
+    <sha256-hex-agent-name-b>/
       record.json
 
 <runtime-root-a>/sessions/cao_rest/cao-rest-1/
@@ -226,7 +271,7 @@ Representative CI layout with `AGENTSYS_GLOBAL_REGISTRY_DIR`:
 ```text
 <ci-temp>/shared-registry/
   live_agents/
-    8f6c1f9d5a4c.../
+    <sha256-hex-agent-name>/
       record.json
 
 <ci-workdir>/tmp/runtime/
@@ -249,7 +294,7 @@ The important shape is:
 ## Risks / Trade-offs
 
 - [Risk] A fixed root at `~/.houmao/registry` is less platform-native than an XDG or `platformdirs` state path. -> Mitigation: keep the fixed root as the explicit user-facing contract for this change, but resolve the home anchor through `platformdirs` so implementation does not hardcode Linux-specific home paths.
-- [Risk] Stale registry files may remain after crashes. -> Mitigation: make freshness lease-based, require readers to validate expiry, and provide cleanup tooling for old `live_agents/` directories.
+- [Risk] Stale registry files may remain after crashes and may stay discoverable until the long soft lease expires. -> Mitigation: use a 24-hour soft lease to fit the current runtime model, refresh on runtime-owned publication events, require readers to validate expiry, and provide cleanup tooling for old `live_agents/` directories.
 - [Risk] Reusing canonical `AGENTSYS-...` identity assumes live uniqueness only for active tmux-backed sessions. -> Mitigation: pair the logical name with `generation_id` and fail publication when a different fresh generation already owns the same agent name.
 - [Risk] Callers may mix prefixed and unprefixed forms and accidentally expect them to resolve differently. -> Mitigation: canonicalize all registry-facing input to the exact `AGENTSYS-...` form before hashing, comparison, publication, or lookup.
 - [Risk] Registry pointers may not be portable across workspaces when `agent_def_dir` or runtime paths differ. -> Mitigation: keep the registry contract honest by publishing pointers only and explicitly treating portability as out of scope for this change.
@@ -259,10 +304,10 @@ The important shape is:
 
 ## Migration Plan
 
-1. Add strict shared-registry models and storage helpers for path derivation from either `AGENTSYS_GLOBAL_REGISTRY_DIR` or the `platformdirs`-resolved user home, plus `live_agents/` path helpers, hashing, atomic record publication, loading, freshness validation, and cleanup.
+1. Add `registry_models.py` and `registry_storage.py` under `src/houmao/agents/realm_controller/` for path derivation from either `AGENTSYS_GLOBAL_REGISTRY_DIR` or the `platformdirs`-resolved user home, full SHA-256 `agent_key` derivation, versioned `record.json` models, 24-hour soft-lease defaults, stable `generation_id` handling, atomic record publication, loading, freshness validation, conflict handling, and cleanup support.
 2. Add runtime-layer publication helpers that build secret-free registry records from existing runtime, gateway, and mailbox state.
-3. Integrate publication and refresh calls into session start/resume, gateway capability publication, gateway attach/detach, mailbox refresh, and stop-session teardown.
-4. Add cleanup tooling that removes stale `live_agents/` directories whose records are expired or missing beyond a grace period.
+3. Integrate publication and refresh calls into session start/resume, manifest-persisting runtime control flows, gateway capability publication, gateway attach/detach, mailbox refresh, and stop-session teardown.
+4. Add cleanup tooling and a minimal operator-facing cleanup entrypoint that remove stale `live_agents/` directories whose records are expired or missing beyond a grace period.
 5. Add discovery helpers that resolve a known shared-registry agent name into a validated record for downstream agent-to-agent or runtime control flows, canonicalizing optional `AGENTSYS-` input first.
 6. Add unit and integration coverage for record publication, optional-prefix canonicalization, refresh, expiry handling, duplicate-name behavior, cleanup behavior, and runtime lifecycle integration.
 7. Document the registry contract, on-disk layout, freshness semantics, cleanup tooling, and its boundary relative to manifest, gateway, and mailbox artifacts.
@@ -274,5 +319,4 @@ Rollback strategy:
 
 ## Open Questions
 
-- Should v1 expose operator-facing CLI commands for registry resolution, inspection, and stale cleanup, or is library/runtime-helper support enough for the first implementation?
 - Should non-tmux runtime sessions publish into the shared registry in v1, or should first implementation scope stay limited to runtime-owned tmux-backed sessions?

@@ -311,6 +311,29 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     assert captured_kwargs["agent_def_dir"] == (tmp_path / ".agentsys" / "agents").resolve()
 
 
+def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.cleanup_stale_live_agent_records",
+        lambda **kwargs: SimpleNamespace(
+            registry_root=(tmp_path / "registry").resolve(),
+            removed_agent_keys=("dead",),
+            preserved_agent_keys=("live",),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_global_registry_root",
+        lambda: (tmp_path / "registry").resolve(),
+    )
+
+    exit_code = cli.main(["cleanup-registry", "--grace-seconds", "0"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["grace_seconds"] == 0
+    assert payload["removed_agent_keys"] == ["dead"]
+    assert payload["preserved_agent_keys"] == ["live"]
+
+
 def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
     monkeypatch,
     tmp_path: Path,
