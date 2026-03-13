@@ -47,6 +47,8 @@ Command reminders:
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
 - `send-keys` is the low-level CAO control-input surface; use `send-prompt` or `mail` for higher-level runtime-owned turns.
 
+For the dedicated mailbox quickstart, contracts, and operational guidance, see [Mailbox Reference](mailbox/index.md).
+
 ## Agent Definition Directory
 
 Runtime commands use two agent-definition-directory resolution models:

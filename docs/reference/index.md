@@ -7,7 +7,7 @@
 ## Reference Pages
 
 - [Brain Launch Runtime](brain_launch_runtime.md)
-- [Filesystem Mailbox](mailbox.md)
+- [Mailbox Reference](mailbox/index.md)
 - [Brain Launch Runtime Send-Keys](brain_launch_runtime_send_keys.md)
 - [Interactive CAO Demo](cao_interactive_demo.md)
 - [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md)

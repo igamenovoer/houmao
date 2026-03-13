@@ -84,33 +84,20 @@ Runtime behavior for mailbox-enabled sessions:
 
 `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration path for the session's full mailbox address, so it may resolve through a symlink-backed `mailboxes/<address>` entry into a private mailbox directory.
 
-Use `mail` against resumed mailbox-enabled sessions:
+For the dedicated mailbox reference subtree, start at [Mailbox Reference](./mailbox/index.md). It now carries the detailed quickstart, contracts, operations, and internals pages for mailbox behavior.
 
-```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime mail check \
-  --agent-identity AGENTSYS-research \
-  --unread-only \
-  --limit 10
+The `mail` command operates on resumed mailbox-enabled sessions and currently supports:
 
-pixi run python -m gig_agents.agents.brain_launch_runtime mail send \
-  --agent-identity AGENTSYS-research \
-  --to AGENTSYS-orchestrator@agents.localhost \
-  --subject "Investigate parser drift" \
-  --body-file body.md \
-  --attach notes.txt
-
-pixi run python -m gig_agents.agents.brain_launch_runtime mail reply \
-  --agent-identity AGENTSYS-research \
-  --message-id msg-20260312T050000Z-parent \
-  --body-content "Reply with next steps"
-```
+- `mail check`
+- `mail send`
+- `mail reply`
 
 Notes:
 
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require explicit body content through `--body-file` or `--body-content`.
 - `mail` currently supports the filesystem mailbox transport only.
-- For the mailbox filesystem layout, env bindings, managed helper scripts, and lifecycle modes, see [Filesystem Mailbox](./mailbox.md).
+- For the mailbox quickstart, contracts, managed helper rules, lifecycle modes, repair expectations, and internals, see [Mailbox Reference](./mailbox/index.md).
 
 ## Local Codex Session (Default: `codex_headless`)
 
