@@ -9,8 +9,9 @@ import socket
 import sqlite3
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Literal, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -27,10 +28,12 @@ from gig_agents.agents.brain_launch_runtime.gateway_models import (
     GatewayExecutionState,
     GatewayHealthResponseV1,
     GatewayHost,
+    GatewayJsonObject,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayRequestKind,
     GatewayStatusV1,
 )
 from gig_agents.agents.brain_launch_runtime.gateway_storage import (
@@ -53,12 +56,43 @@ from gig_agents.agents.brain_launch_runtime.manifest import (
 from gig_agents.cao.rest_client import CaoApiError, CaoRestClient
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
+_GatewayRequestTerminalState = Literal["completed", "failed"]
+
+
+@dataclass(frozen=True)
+class _QueuedGatewayRequestRecord:
+    """Durable queue record promoted into active execution.
+
+    Attributes
+    ----------
+    request_id:
+        Stable request identifier from the durable queue.
+    request_kind:
+        Public request kind being executed.
+    payload_json:
+        Serialized request payload stored in SQLite.
+    managed_agent_instance_epoch:
+        Managed-agent epoch captured when the request was accepted.
+    """
+
+    request_id: str
+    request_kind: GatewayRequestKind
+    payload_json: str
+    managed_agent_instance_epoch: int
 
 
 class CaoGatewayAdapter:
     """Gateway adapter for runtime-owned `cao_rest` sessions."""
 
     def __init__(self, *, attach_contract_path: Path) -> None:
+        """Load CAO-specific gateway attach metadata.
+
+        Parameters
+        ----------
+        attach_contract_path:
+            Path to the strict gateway attach contract for the managed session.
+        """
+
         self.m_attach_contract_path = attach_contract_path.resolve()
         self.m_attach_contract = load_attach_contract(self.m_attach_contract_path)
         metadata = self.m_attach_contract.backend_metadata
@@ -124,6 +158,18 @@ class GatewayServiceRuntime:
     """Mutable runtime for one live gateway process."""
 
     def __init__(self, *, gateway_root: Path, host: GatewayHost, port: int) -> None:
+        """Initialize the gateway runtime state.
+
+        Parameters
+        ----------
+        gateway_root:
+            Gateway root or parent session root used to resolve gateway assets.
+        host:
+            Requested bind host for the live listener.
+        port:
+            Requested or resolved bind port for the live listener.
+        """
+
         self.m_paths = gateway_paths_from_session_root(
             session_root=gateway_root.resolve().parent
             if gateway_root.resolve().name == "gateway"
@@ -147,7 +193,22 @@ class GatewayServiceRuntime:
         host: GatewayHost,
         port: int,
     ) -> "GatewayServiceRuntime":
-        """Create a runtime from a runtime-owned gateway root."""
+        """Create a runtime from a runtime-owned gateway root.
+
+        Parameters
+        ----------
+        gateway_root:
+            Gateway root or session root used to locate gateway assets.
+        host:
+            Requested bind host for the gateway listener.
+        port:
+            Requested bind port for the gateway listener.
+
+        Returns
+        -------
+        GatewayServiceRuntime
+            Initialized service runtime.
+        """
 
         return cls(gateway_root=gateway_root, host=host, port=port)
 
@@ -267,8 +328,14 @@ class GatewayServiceRuntime:
                 continue
             self._execute_request(request_record=request_record)
 
-    def _take_next_request(self) -> dict[str, Any] | None:
-        """Promote the next accepted request into the running state."""
+    def _take_next_request(self) -> _QueuedGatewayRequestRecord | None:
+        """Promote the next accepted request into the running state.
+
+        Returns
+        -------
+        _QueuedGatewayRequestRecord | None
+            Next durable request ready for execution, if admission is open.
+        """
 
         with self.m_lock:
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
@@ -299,20 +366,26 @@ class GatewayServiceRuntime:
                 connection.commit()
 
             self._refresh_status_snapshot(active_execution="running")
-            return {
-                "request_id": request_id,
-                "request_kind": request_kind,
-                "payload_json": payload_json,
-                "managed_agent_instance_epoch": epoch,
-            }
+            return _QueuedGatewayRequestRecord(
+                request_id=str(request_id),
+                request_kind=cast(GatewayRequestKind, request_kind),
+                payload_json=str(payload_json),
+                managed_agent_instance_epoch=int(epoch),
+            )
 
-    def _execute_request(self, *, request_record: dict[str, Any]) -> None:
-        """Execute one running request against the managed CAO terminal."""
+    def _execute_request(self, *, request_record: _QueuedGatewayRequestRecord) -> None:
+        """Execute one running request against the managed CAO terminal.
 
-        request_id = str(request_record["request_id"])
-        request_kind = str(request_record["request_kind"])
-        payload_json = str(request_record["payload_json"])
-        accepted_epoch = int(request_record["managed_agent_instance_epoch"])
+        Parameters
+        ----------
+        request_record:
+            Durable queue record promoted into active execution.
+        """
+
+        request_id = request_record.request_id
+        request_kind = request_record.request_kind
+        payload_json = request_record.payload_json
+        accepted_epoch = request_record.managed_agent_instance_epoch
 
         with self.m_lock:
             self._refresh_status_snapshot(active_execution="running")
@@ -366,9 +439,9 @@ class GatewayServiceRuntime:
         self,
         *,
         request_id: str,
-        state: str,
+        state: _GatewayRequestTerminalState,
         error_detail: str | None,
-        result_json: dict[str, object] | None,
+        result_json: GatewayJsonObject | None,
     ) -> None:
         """Persist one completed or failed request outcome."""
 
@@ -525,20 +598,37 @@ class GatewayServiceRuntime:
 
 
 def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
-    """Create the FastAPI app bound to one gateway runtime."""
+    """Create the FastAPI app bound to one gateway runtime.
+
+    Parameters
+    ----------
+    runtime:
+        Gateway runtime backing the HTTP handlers.
+
+    Returns
+    -------
+    FastAPI
+        Configured FastAPI application.
+    """
 
     app = FastAPI()
 
     @app.get("/health", response_model=GatewayHealthResponseV1)
     def _health() -> GatewayHealthResponseV1:
+        """Serve the lightweight liveness route."""
+
         return runtime.health()
 
     @app.get("/v1/status", response_model=GatewayStatusV1)
     def _status() -> GatewayStatusV1:
+        """Serve the structured gateway status snapshot."""
+
         return runtime.status()
 
     @app.post("/v1/requests", response_model=GatewayAcceptedRequestV1)
     def _create_request(request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
+        """Accept one gateway-managed request."""
+
         return runtime.create_request(request_payload)
 
     return app
@@ -554,6 +644,18 @@ class _GatewayUvicornServer(uvicorn.Server):
         runtime: GatewayServiceRuntime,
         requested_host: GatewayHost,
     ) -> None:
+        """Initialize the Uvicorn wrapper used by the gateway process.
+
+        Parameters
+        ----------
+        config:
+            Uvicorn server configuration.
+        runtime:
+            Gateway runtime started after the listener is bound.
+        requested_host:
+            Requested host passed to the bind operation.
+        """
+
         super().__init__(config)
         self.m_runtime = runtime
         self.m_requested_host: GatewayHost = requested_host
@@ -589,7 +691,18 @@ class _GatewayUvicornServer(uvicorn.Server):
 
 
 def _bound_port_from_server(server: uvicorn.Server) -> int:
-    """Return the bound TCP port after Uvicorn listener startup."""
+    """Return the bound TCP port after Uvicorn listener startup.
+
+    Parameters
+    ----------
+    server:
+        Running Uvicorn server with initialized listener sockets.
+
+    Returns
+    -------
+    int
+        Resolved bound TCP port.
+    """
 
     for listener in getattr(server, "servers", ()):
         sockets = getattr(listener, "sockets", None)
@@ -602,7 +715,18 @@ def _bound_port_from_server(server: uvicorn.Server) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the gateway companion process."""
+    """Run the gateway companion process.
+
+    Parameters
+    ----------
+    argv:
+        Optional command-line arguments overriding `sys.argv[1:]`.
+
+    Returns
+    -------
+    int
+        Process exit code.
+    """
 
     parser = argparse.ArgumentParser(description="Run one runtime-owned agent gateway.")
     parser.add_argument("--gateway-root", required=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TypeVar, cast
 from urllib import error, request
 
 from pydantic import BaseModel, ValidationError
@@ -14,6 +14,8 @@ from gig_agents.agents.brain_launch_runtime.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayHealthResponseV1,
     GatewayHost,
+    GatewayJsonObject,
+    GatewayJsonValue,
     GatewayRequestCreateV1,
     GatewayStatusV1,
 )
@@ -23,7 +25,15 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 @dataclass(frozen=True)
 class GatewayEndpoint:
-    """Resolved live gateway listener endpoint."""
+    """Resolved live gateway listener endpoint.
+
+    Attributes
+    ----------
+    host:
+        Bound listener host published by the runtime.
+    port:
+        Bound TCP port published by the runtime.
+    """
 
     host: GatewayHost
     port: int
@@ -33,6 +43,16 @@ class GatewayClient:
     """HTTP client for a live per-agent gateway instance."""
 
     def __init__(self, *, endpoint: GatewayEndpoint, timeout_seconds: float = 5.0) -> None:
+        """Initialize a gateway HTTP client.
+
+        Parameters
+        ----------
+        endpoint:
+            Live gateway listener endpoint discovered from runtime state.
+        timeout_seconds:
+            Per-request timeout used for HTTP round-trips.
+        """
+
         self.m_endpoint = endpoint
         self.m_timeout_seconds = timeout_seconds
 
@@ -62,8 +82,27 @@ class GatewayClient:
         path: str,
         model: type[_ModelT],
         *,
-        body: dict[str, object] | None = None,
+        body: GatewayJsonObject | None = None,
     ) -> _ModelT:
+        """Send one HTTP request and validate the response model.
+
+        Parameters
+        ----------
+        method:
+            HTTP method to issue.
+        path:
+            Relative gateway route beginning with `/`.
+        model:
+            Pydantic model used to validate the decoded response payload.
+        body:
+            Optional JSON request body.
+
+        Returns
+        -------
+        _ModelT
+            Validated response payload.
+        """
+
         url = self._build_url(path)
         payload: bytes | None = None
         headers: dict[str, str] = {}
@@ -109,7 +148,10 @@ class GatewayClient:
             ) from exc
 
     def _build_url(self, path: str) -> str:
-        return f"http://127.0.0.1:{self.m_endpoint.port}{path}"
+        """Build the concrete local URL for one gateway route."""
+
+        connect_host = "127.0.0.1" if self.m_endpoint.host == "0.0.0.0" else self.m_endpoint.host
+        return f"http://{connect_host}:{self.m_endpoint.port}{path}"
 
     def _decode_response(
         self,
@@ -117,9 +159,26 @@ class GatewayClient:
         method: str,
         url: str,
         response: bytes,
-    ) -> object:
+    ) -> GatewayJsonValue:
+        """Decode one gateway JSON response body.
+
+        Parameters
+        ----------
+        method:
+            HTTP method used for the request.
+        url:
+            Fully resolved request URL.
+        response:
+            Raw response bytes returned by the server.
+
+        Returns
+        -------
+        GatewayJsonValue
+            Parsed JSON payload.
+        """
+
         try:
-            return json.loads(response.decode("utf-8"))
+            return cast(GatewayJsonValue, json.loads(response.decode("utf-8")))
         except json.JSONDecodeError as exc:
             raise GatewayHttpError(
                 method=method,
@@ -128,6 +187,19 @@ class GatewayClient:
             ) from exc
 
     def _decode_error_body(self, payload: bytes) -> str:
+        """Decode one gateway error payload into a readable detail string.
+
+        Parameters
+        ----------
+        payload:
+            Raw error payload returned by the gateway.
+
+        Returns
+        -------
+        str
+            Human-readable error detail extracted from the payload.
+        """
+
         try:
             decoded = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):

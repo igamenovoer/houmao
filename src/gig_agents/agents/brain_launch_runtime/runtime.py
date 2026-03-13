@@ -61,6 +61,7 @@ from .gateway_models import (
     GatewayAttachContractV1,
     GatewayDesiredConfigV1,
     GatewayHost,
+    GatewayJsonObject,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -914,13 +915,27 @@ def _resume_cao_state(
     )
 
 
-def _backend_state_for_session(session: InteractiveSession) -> dict[str, object]:
+def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject:
+    """Build JSON-serializable backend state for one runtime session.
+
+    Parameters
+    ----------
+    session:
+        Concrete runtime session implementation.
+
+    Returns
+    -------
+    GatewayJsonObject
+        Backend-specific state persisted into the manifest and gateway
+        capability artifacts.
+    """
+
     if isinstance(session, CodexAppServerSession):
-        return codex_backend_state_payload(session.state)
+        return cast(GatewayJsonObject, codex_backend_state_payload(session.state))
     if isinstance(session, HeadlessInteractiveSession):
-        return headless_backend_state_payload(session.state)
+        return cast(GatewayJsonObject, headless_backend_state_payload(session.state))
     if isinstance(session, CaoRestSession):
-        return cao_backend_state_payload(session.state)
+        return cast(GatewayJsonObject, cao_backend_state_payload(session.state))
     return {}
 
 
@@ -1200,7 +1215,18 @@ def _tmux_session_name_for_controller(controller: RuntimeSessionController) -> s
 
 
 def _require_gateway_paths_for_controller(controller: RuntimeSessionController) -> GatewayPaths:
-    """Return the runtime-owned gateway paths for a controller."""
+    """Return runtime-owned gateway paths for one controller.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller whose gateway assets should exist.
+
+    Returns
+    -------
+    GatewayPaths
+        Resolved gateway filesystem layout for the controller.
+    """
 
     controller.ensure_gateway_capability()
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
@@ -1218,7 +1244,22 @@ def _attach_gateway_for_controller(
     host_override: str | None,
     port_override: int | None,
 ) -> GatewayControlResult:
-    """Start a live gateway process for one runtime-owned controller."""
+    """Start a live gateway process for one runtime-owned controller.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller whose gateway should be attached.
+    host_override:
+        Optional CLI host override for the attach action.
+    port_override:
+        Optional CLI port override for the attach action.
+
+    Returns
+    -------
+    GatewayControlResult
+        Structured attach outcome for CLI and API callers.
+    """
 
     paths = _require_gateway_paths_for_controller(controller)
     attach_contract = load_attach_contract(paths.attach_path)
@@ -1284,7 +1325,18 @@ def _attach_gateway_for_controller(
 
 
 def _detach_gateway_for_controller(controller: RuntimeSessionController) -> GatewayControlResult:
-    """Detach a live gateway instance while preserving stable attachability metadata."""
+    """Detach a live gateway instance while preserving attachability metadata.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller whose live gateway should be detached.
+
+    Returns
+    -------
+    GatewayControlResult
+        Structured detach outcome for CLI and API callers.
+    """
 
     paths = _require_gateway_paths_for_controller(controller)
     attach_contract = load_attach_contract(paths.attach_path)
@@ -1349,7 +1401,19 @@ def _detach_gateway_for_controller(controller: RuntimeSessionController) -> Gate
 
 
 def _gateway_status_for_controller(controller: RuntimeSessionController) -> GatewayStatusV1:
-    """Return live gateway status when attached, otherwise return the stable state artifact."""
+    """Return gateway status for one runtime controller.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller whose gateway status is being queried.
+
+    Returns
+    -------
+    GatewayStatusV1
+        Live gateway status when attached, otherwise the persisted offline
+        status artifact.
+    """
 
     paths = _require_gateway_paths_for_controller(controller)
     try:
@@ -1363,7 +1427,20 @@ def _submit_gateway_request_for_controller(
     controller: RuntimeSessionController,
     request_payload: GatewayRequestCreateV1,
 ) -> GatewayAcceptedRequestV1:
-    """Submit a gateway-managed request through the validated live gateway client."""
+    """Submit one gateway-managed request through the live gateway client.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller owning the live gateway.
+    request_payload:
+        Validated gateway request payload to submit.
+
+    Returns
+    -------
+    GatewayAcceptedRequestV1
+        Accepted durable queue record returned by the gateway.
+    """
 
     paths = _require_gateway_paths_for_controller(controller)
     client = _validated_gateway_client_for_controller(controller, paths=paths)
@@ -1375,7 +1452,20 @@ def _validated_gateway_client_for_controller(
     *,
     paths: GatewayPaths,
 ) -> GatewayClient:
-    """Validate live gateway bindings structurally and via `GET /health`."""
+    """Validate live gateway bindings and return a connected client.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller used for stale-state cleanup if discovery fails.
+    paths:
+        Gateway filesystem layout for the controller.
+
+    Returns
+    -------
+    GatewayClient
+        Live gateway client validated structurally and via `GET /health`.
+    """
 
     session_name = controller._require_tmux_session_name()
     attach_contract = load_attach_contract(paths.attach_path)
@@ -1462,10 +1552,25 @@ def _resolve_gateway_listener(
     host_override: str | None,
     port_override: int | None,
 ) -> tuple[GatewayHost, int]:
-    """Resolve one gateway host plus one requested gateway port.
+    """Resolve the listener request for one gateway attach action.
 
-    A returned port of `0` delegates automatic port assignment to the gateway
-    server bind step.
+    Parameters
+    ----------
+    paths:
+        Gateway filesystem layout for the controller.
+    attach_contract:
+        Stable attach contract used to source persisted defaults.
+    host_override:
+        Optional CLI host override.
+    port_override:
+        Optional CLI port override.
+
+    Returns
+    -------
+    tuple[GatewayHost, int]
+        Resolved host and requested port. A returned port of `0` delegates
+        automatic port assignment to the gateway bind step.
+
     """
 
     desired_config = _load_optional_desired_config(paths)
@@ -1506,7 +1611,25 @@ def _start_gateway_process(
     host: GatewayHost,
     port: int,
 ) -> int:
-    """Launch the gateway subprocess and wait for health readiness."""
+    """Launch the gateway subprocess and wait for health readiness.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller owning the gateway.
+    paths:
+        Gateway filesystem layout for the controller.
+    host:
+        Requested listener host.
+    port:
+        Requested listener port. A value of `0` delegates port assignment to
+        the gateway bind step.
+
+    Returns
+    -------
+    int
+        Resolved live gateway port published by the child process.
+    """
 
     session_name = controller._require_tmux_session_name()
     log_stream = paths.log_path.open("a", encoding="utf-8")
@@ -1599,7 +1722,26 @@ def _wait_for_gateway_endpoint(
     requested_port: int,
     deadline: float,
 ) -> GatewayEndpoint:
-    """Wait until the child gateway process publishes its bound listener."""
+    """Wait until the child gateway process publishes its bound listener.
+
+    Parameters
+    ----------
+    process:
+        Gateway subprocess started by the runtime.
+    paths:
+        Gateway filesystem layout for the controller.
+    host:
+        Requested listener host.
+    requested_port:
+        Requested listener port, or `0` for system-assigned port selection.
+    deadline:
+        Absolute monotonic deadline for endpoint publication.
+
+    Returns
+    -------
+    GatewayEndpoint
+        Published gateway endpoint for the child process.
+    """
 
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -1640,7 +1782,17 @@ def _clear_stale_gateway_runtime_state(
     paths: GatewayPaths,
     attach_contract: GatewayAttachContractV1,
 ) -> None:
-    """Clear live bindings and restore the offline seeded gateway state."""
+    """Clear live bindings and restore offline seeded gateway state.
+
+    Parameters
+    ----------
+    controller:
+        Runtime controller whose live bindings should be cleared.
+    paths:
+        Gateway filesystem layout for the controller.
+    attach_contract:
+        Stable attach contract used to rebuild offline status.
+    """
 
     session_name = _tmux_session_name_for_controller(controller)
     if session_name is not None:
@@ -1669,7 +1821,18 @@ def _clear_stale_gateway_runtime_state(
 
 
 def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1 | None:
-    """Load desired gateway listener config when present."""
+    """Load desired gateway listener config when present.
+
+    Parameters
+    ----------
+    paths:
+        Gateway filesystem layout to inspect.
+
+    Returns
+    -------
+    GatewayDesiredConfigV1 | None
+        Persisted desired listener configuration, if it exists.
+    """
 
     if not paths.desired_config_path.is_file():
         return None
@@ -1677,7 +1840,22 @@ def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1
 
 
 def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, port: int) -> str:
-    """Return a user-facing startup failure detail for an exited gateway process."""
+    """Return a user-facing startup failure detail for an exited gateway process.
+
+    Parameters
+    ----------
+    log_path:
+        Gateway log path written by the child process.
+    host:
+        Requested listener host.
+    port:
+        Requested listener port.
+
+    Returns
+    -------
+    str
+        Operator-facing failure detail.
+    """
 
     try:
         log_text = log_path.read_text(encoding="utf-8")
@@ -1690,7 +1868,18 @@ def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, 
 
 
 def _live_gateway_listener_from_status(paths: GatewayPaths) -> tuple[GatewayHost, int] | None:
-    """Return the last live gateway listener from the persisted status snapshot."""
+    """Return the last live gateway listener from persisted status.
+
+    Parameters
+    ----------
+    paths:
+        Gateway filesystem layout to inspect.
+
+    Returns
+    -------
+    tuple[GatewayHost, int] | None
+        Last published live listener, if the status snapshot still contains one.
+    """
 
     try:
         status = load_gateway_status(paths.state_path)
@@ -1706,7 +1895,20 @@ def _gateway_process_stopped(
     pid: int,
     listener: tuple[GatewayHost, int] | None,
 ) -> bool:
-    """Return whether a gateway process has stopped serving its listener."""
+    """Return whether a gateway process has stopped serving its listener.
+
+    Parameters
+    ----------
+    pid:
+        Gateway process identifier.
+    listener:
+        Last known live gateway listener, if available.
+
+    Returns
+    -------
+    bool
+        `True` when the process is gone or the listener can be rebound locally.
+    """
 
     if listener is not None:
         return _gateway_listener_available_for_bind(
@@ -1717,7 +1919,20 @@ def _gateway_process_stopped(
 
 
 def _gateway_listener_available_for_bind(*, host: GatewayHost, port: int) -> bool:
-    """Return whether the addressed gateway listener can be rebound locally."""
+    """Return whether the addressed gateway listener can be rebound locally.
+
+    Parameters
+    ----------
+    host:
+        Listener host to probe.
+    port:
+        Listener port to probe.
+
+    Returns
+    -------
+    bool
+        `True` when a local bind succeeds for the requested listener.
+    """
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1729,7 +1944,20 @@ def _gateway_listener_available_for_bind(*, host: GatewayHost, port: int) -> boo
 
 
 def _read_optional_tmux_session_env_var(*, session_name: str, variable_name: str) -> str | None:
-    """Read one tmux env var and return `None` when it is unset or unknown."""
+    """Read one tmux env var and return `None` when it is unset or unknown.
+
+    Parameters
+    ----------
+    session_name:
+        Tmux session name to inspect.
+    variable_name:
+        Environment variable name to read.
+
+    Returns
+    -------
+    str | None
+        Published value when present, otherwise `None`.
+    """
 
     try:
         env_result = show_tmux_environment_shared(

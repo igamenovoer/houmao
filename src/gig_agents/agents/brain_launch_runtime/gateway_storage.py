@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Mapping, Protocol, cast
 
 from pydantic import ValidationError
 
@@ -24,6 +24,9 @@ from gig_agents.agents.brain_launch_runtime.gateway_models import (
     GatewayDesiredConfigV1,
     GatewayHealthResponseV1,
     GatewayHost,
+    GatewayJsonObject,
+    GatewayJsonValue,
+    GatewayProtocolVersion,
     GatewayStatusV1,
     format_gateway_validation_error,
 )
@@ -77,7 +80,7 @@ class GatewayCapabilityPublication:
     session_id: str
     tmux_session_name: str
     working_directory: Path
-    backend_state: dict[str, object]
+    backend_state: GatewayJsonObject
     agent_def_dir: Path | None = None
     blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None
 
@@ -89,7 +92,14 @@ class GatewayLiveBindings:
     host: GatewayHost
     port: int
     state_path: Path
-    protocol_version: str
+    protocol_version: GatewayProtocolVersion
+
+
+class _TmuxEnvSetter(Protocol):
+    """Callable protocol for tmux session environment publishers."""
+
+    def __call__(self, *, session_name: str, env_vars: dict[str, str]) -> None:
+        """Publish environment variables into one tmux session."""
 
 
 def default_gateway_paths(
@@ -184,7 +194,7 @@ def publish_stable_gateway_env(
     session_name: str,
     attach_path: Path,
     gateway_root: Path,
-    set_env: Callable[..., None],
+    set_env: _TmuxEnvSetter,
 ) -> None:
     """Publish stable gateway attachability pointers into tmux session env."""
 
@@ -201,7 +211,7 @@ def publish_live_gateway_env(
     *,
     session_name: str,
     live_bindings: GatewayLiveBindings,
-    set_env: Callable[..., None],
+    set_env: _TmuxEnvSetter,
 ) -> None:
     """Publish live gateway listener bindings into tmux session env."""
 
@@ -454,7 +464,7 @@ def queue_depth_from_sqlite(sqlite_path: Path) -> int:
     return int(row[0])
 
 
-def append_gateway_event(paths: GatewayPaths, payload: dict[str, object]) -> None:
+def append_gateway_event(paths: GatewayPaths, payload: GatewayJsonObject) -> None:
     """Append one JSONL gateway event."""
 
     paths.events_path.parent.mkdir(parents=True, exist_ok=True)
@@ -579,7 +589,22 @@ def _ensure_queue_database(sqlite_path: Path) -> None:
         connection.commit()
 
 
-def _load_json_mapping(path: Path, *, missing_prefix: str) -> dict[str, Any]:
+def _load_json_mapping(path: Path, *, missing_prefix: str) -> GatewayJsonObject:
+    """Load one JSON object from disk.
+
+    Parameters
+    ----------
+    path:
+        File expected to contain a top-level JSON object.
+    missing_prefix:
+        Error-message prefix used when the file is absent.
+
+    Returns
+    -------
+    GatewayJsonObject
+        Parsed JSON object payload.
+    """
+
     if not path.is_file():
         raise SessionManifestError(f"{missing_prefix}: {path}")
     try:
@@ -588,10 +613,12 @@ def _load_json_mapping(path: Path, *, missing_prefix: str) -> dict[str, Any]:
         raise SessionManifestError(f"Invalid JSON in {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise SessionManifestError(f"Expected top-level object in {path}")
-    return payload
+    return cast(GatewayJsonObject, payload)
 
 
-def _write_json(path: Path, payload: dict[str, object]) -> None:
+def _write_json(path: Path, payload: GatewayJsonObject) -> None:
+    """Atomically persist one JSON object to disk."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temp_path.write_text(
@@ -602,6 +629,8 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def _write_text(path: Path, text: str) -> None:
+    """Atomically persist plain text to disk."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temp_path.write_text(text, encoding="utf-8")
@@ -609,11 +638,13 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def _require_backend_state_string(
-    payload: dict[str, object],
+    payload: Mapping[str, GatewayJsonValue],
     *,
     key: str,
     fallback: str | None = None,
 ) -> str:
+    """Read one required string field from backend-state JSON."""
+
     value = payload.get(key, fallback)
     if not isinstance(value, str) or not value.strip():
         raise SessionManifestError(
@@ -623,10 +654,12 @@ def _require_backend_state_string(
 
 
 def _optional_backend_state_string(
-    payload: dict[str, object],
+    payload: Mapping[str, GatewayJsonValue],
     *,
     key: str,
 ) -> str | None:
+    """Read one optional string field from backend-state JSON."""
+
     value = payload.get(key)
     if value is None:
         return None

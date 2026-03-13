@@ -7,7 +7,7 @@ gateway instance.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -32,6 +32,11 @@ GatewayStoredRequestState = Literal[
     "completed",
     "failed",
 ]
+GatewayJsonScalar: TypeAlias = str | int | float | bool | None
+GatewayJsonValue: TypeAlias = (
+    GatewayJsonScalar | list["GatewayJsonValue"] | dict[str, "GatewayJsonValue"]
+)
+GatewayJsonObject: TypeAlias = dict[str, GatewayJsonValue]
 
 GATEWAY_ATTACH_SCHEMA_VERSION = 1
 GATEWAY_PROTOCOL_VERSION: GatewayProtocolVersion = "v1"
@@ -56,6 +61,8 @@ class BlueprintGatewayDefaults(_StrictGatewayModel):
     @field_validator("port")
     @classmethod
     def _validate_port(cls, value: int | None) -> int | None:
+        """Validate the optional blueprint port range."""
+
         if value is None:
             return None
         if value < 1 or value > 65535:
@@ -72,6 +79,8 @@ class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
     @field_validator("session_id")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate the optional persisted headless session identifier."""
+
         if value is None:
             return None
         if not value.strip():
@@ -81,6 +90,8 @@ class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
     @field_validator("tool")
     @classmethod
     def _tool_not_blank(cls, value: str) -> str:
+        """Validate the required headless tool name."""
+
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -104,6 +115,8 @@ class GatewayAttachBackendMetadataCaoV1(_StrictGatewayModel):
     )
     @classmethod
     def _not_blank(cls, value: str) -> str:
+        """Validate that required CAO metadata fields are non-empty."""
+
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -111,6 +124,8 @@ class GatewayAttachBackendMetadataCaoV1(_StrictGatewayModel):
     @field_validator("tmux_window_name")
     @classmethod
     def _optional_tmux_window_name(cls, value: str | None) -> str | None:
+        """Validate the optional tmux window name."""
+
         if value is None:
             return None
         if not value.strip():
@@ -143,6 +158,8 @@ class GatewayAttachContractV1(_StrictGatewayModel):
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate optional attach-contract string fields."""
+
         if value is None:
             return None
         if not value.strip():
@@ -152,6 +169,8 @@ class GatewayAttachContractV1(_StrictGatewayModel):
     @field_validator("desired_port")
     @classmethod
     def _desired_port_range(cls, value: int | None) -> int | None:
+        """Validate the optional desired gateway port."""
+
         if value is None:
             return None
         if value < 1 or value > 65535:
@@ -160,6 +179,8 @@ class GatewayAttachContractV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_schema_and_backend_metadata(self) -> "GatewayAttachContractV1":
+        """Validate schema version and backend-specific metadata shape."""
+
         if self.schema_version != GATEWAY_ATTACH_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_ATTACH_SCHEMA_VERSION}")
         if self.backend == "cao_rest":
@@ -192,6 +213,8 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     @field_validator("desired_port")
     @classmethod
     def _port_range(cls, value: int | None) -> int | None:
+        """Validate the optional desired listener port."""
+
         if value is None:
             return None
         if value < 1 or value > 65535:
@@ -200,6 +223,8 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_schema(self) -> "GatewayDesiredConfigV1":
+        """Validate the desired-config schema version."""
+
         if self.schema_version != GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION}")
         return self
@@ -219,6 +244,8 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
     @field_validator("pid", "port", "managed_agent_instance_epoch")
     @classmethod
     def _positive_int(cls, value: int) -> int:
+        """Validate positive integer run-state counters."""
+
         if value <= 0:
             raise ValueError("must be > 0")
         return value
@@ -226,6 +253,8 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
     @field_validator("managed_agent_instance_id")
     @classmethod
     def _optional_instance_id(cls, value: str | None) -> str | None:
+        """Validate the optional managed-agent instance identifier."""
+
         if value is None:
             return None
         if not value.strip():
@@ -234,6 +263,8 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_schema(self) -> "GatewayCurrentInstanceV1":
+        """Validate the current-instance schema version."""
+
         if self.schema_version != GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION}")
         return self
@@ -254,6 +285,8 @@ class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     @field_validator("prompt")
     @classmethod
     def _prompt_not_blank(cls, value: str) -> str:
+        """Validate that submitted prompts are non-empty."""
+
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -274,6 +307,8 @@ class GatewayRequestCreateV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_payload_shape(self) -> "GatewayRequestCreateV1":
+        """Validate request schema version and payload-kind correspondence."""
+
         if self.schema_version != GATEWAY_REQUEST_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_REQUEST_SCHEMA_VERSION}")
         if self.kind == "submit_prompt" and not isinstance(
@@ -300,6 +335,8 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
     @field_validator("request_id", "accepted_at_utc")
     @classmethod
     def _not_blank(cls, value: str) -> str:
+        """Validate non-empty accepted-request identifiers and timestamps."""
+
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -332,6 +369,8 @@ class GatewayStatusV1(_StrictGatewayModel):
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate optional status string fields."""
+
         if value is None:
             return None
         if not value.strip():
@@ -341,6 +380,8 @@ class GatewayStatusV1(_StrictGatewayModel):
     @field_validator("queue_depth", "managed_agent_instance_epoch")
     @classmethod
     def _non_negative_int(cls, value: int) -> int:
+        """Validate non-negative queue and epoch counters."""
+
         if value < 0:
             raise ValueError("must be >= 0")
         return value
@@ -348,6 +389,8 @@ class GatewayStatusV1(_StrictGatewayModel):
     @field_validator("gateway_port")
     @classmethod
     def _gateway_port_range(cls, value: int | None) -> int | None:
+        """Validate the optional published live gateway port."""
+
         if value is None:
             return None
         if value < 1 or value > 65535:
@@ -356,6 +399,8 @@ class GatewayStatusV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_schema(self) -> "GatewayStatusV1":
+        """Validate schema version and offline-status invariants."""
+
         if self.schema_version != GATEWAY_STATE_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_STATE_SCHEMA_VERSION}")
         if self.gateway_health == "not_attached":
@@ -365,7 +410,20 @@ class GatewayStatusV1(_StrictGatewayModel):
 
 
 def format_gateway_validation_error(prefix: str, exc: ValidationError) -> str:
-    """Return a concise field-path validation error for gateway payloads."""
+    """Format gateway validation errors for operator-facing messages.
+
+    Parameters
+    ----------
+    prefix:
+        Human-readable prefix describing the payload being validated.
+    exc:
+        Pydantic validation error raised for the payload.
+
+    Returns
+    -------
+    str
+        Concise message containing the first few field-level validation errors.
+    """
 
     details: list[str] = []
     for issue in exc.errors(include_url=False):
@@ -378,7 +436,7 @@ def format_gateway_validation_error(prefix: str, exc: ValidationError) -> str:
 
 
 def _format_error_location(location: object) -> str:
-    """Format a pydantic error location tuple as a dotted path."""
+    """Render one pydantic error location as a dotted field path."""
 
     if not isinstance(location, tuple) or not location:
         return "$"
