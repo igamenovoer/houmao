@@ -7,9 +7,9 @@ This page is the checklist for keeping the TUI parsing docs, specs, and runtime 
 When you update the parser stack, review these inputs together:
 
 - active specs in `openspec/specs/`
-- runtime modules under `src/gig_agents/agents/brain_launch_runtime/backends/`
+- runtime modules under `src/gig_agents/agents/realm_controller/backends/`
 - parser fixtures under `tests/fixtures/shadow_parser/`
-- parser/runtime tests under `tests/unit/agents/brain_launch_runtime/`
+- parser/runtime tests under `tests/unit/agents/realm_controller/`
 - this developer doc set under `docs/developer/tui-parsing/`
 - short reference and troubleshooting pages under `docs/reference/`
 

@@ -7,7 +7,7 @@ Proposed
 Integrate the CAO server launcher into the main `gig_agents` CLI as a subcommand so one top-level CLI can manage both shared infrastructure and per-agent runtime actions, while parsing the future master shared-resource TOML in one place.
 
 Today the command surfaces are split:
-- the top-level runtime CLI entrypoint in `src/gig_agents/cli.py` routes to `gig_agents.agents.brain_launch_runtime.cli`,
+- the top-level runtime CLI entrypoint in `src/gig_agents/cli.py` routes to `gig_agents.agents.realm_controller.cli`,
 - the CAO launcher has its own separate top-level entrypoint in `src/gig_agents/cao_cli.py`,
 - CAO launcher config is parsed separately from runtime config.
 

@@ -3,7 +3,7 @@
 ### Requirement: CAO REST client matches the vendored CAO API contract
 The system SHALL implement a CAO REST client whose request parameter names,
 parameter locations, and response shapes match the CAO fork server API and
-server implementation referenced by active `gig-agents` guidance.
+server implementation referenced by active `Houmao` guidance.
 
 For supported loopback CAO base URLs (`http://localhost:9889`,
 `http://127.0.0.1:9889`), the CAO REST client SHALL bypass ambient proxy
@@ -41,7 +41,7 @@ to allow traffic-watching development proxies like mitmproxy).
 ### Requirement: Runtime-generated CAO profiles include required metadata
 When using the CAO backend, the system SHALL render a runtime-generated CAO
 agent profile markdown that conforms to the CAO fork agent profile format
-referenced by active `gig-agents` guidance and can be loaded by CAO without
+referenced by active `Houmao` guidance and can be loaded by CAO without
 validation errors.
 
 #### Scenario: Rendered CAO profile includes required YAML frontmatter fields

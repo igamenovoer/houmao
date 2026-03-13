@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gig_agents.agents.brain_launch_runtime.runtime import resume_runtime_session
-from gig_agents.agents.brain_launch_runtime.backends.claude_code_shadow import (
+from gig_agents.agents.realm_controller.runtime import resume_runtime_session
+from gig_agents.agents.realm_controller.backends.claude_code_shadow import (
     ClaudeCodeExtractionResult,
     ClaudeCodeShadowParseError,
     ClaudeCodeShadowParser,

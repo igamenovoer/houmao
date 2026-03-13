@@ -45,8 +45,8 @@ python -m venv tmp/wheel-smoke
 source tmp/wheel-smoke/bin/activate
 pip install --upgrade pip
 pip install dist/*.whl
-python -c "import gig_agents; import gig_agents.agents.brain_launch_runtime"
-gig-agents-cli --help
+python -c "import gig_agents; import gig_agents.agents.realm_controller"
+houmao-cli --help
 gig-cao-server --help
 ```
 

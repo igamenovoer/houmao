@@ -15,7 +15,7 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 
 ## Key Terms
 
-- `runtime-managed session`: A session started or resumed through `gig_agents.agents.brain_launch_runtime`, with persisted runtime state and repo-owned control behavior.
+- `runtime-managed session`: A session started or resumed through `gig_agents.agents.realm_controller`, with persisted runtime state and repo-owned control behavior.
 - `session root`: The runtime-owned directory at `<runtime_root>/sessions/<backend>/<session-id>/`.
 - `session manifest`: The schema-validated `manifest.json` written under the session root and used for resume or control.
 - `direct control`: Runtime commands such as `send-prompt` or `send-keys` that act against the resumed backend session directly.
@@ -40,14 +40,14 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 
 - [Gateway Reference](../gateway/index.md): The optional sidecar control plane for gateway-capable sessions.
 - [Mailbox Reference](../mailbox/index.md): Filesystem mailbox contracts and runtime-owned mailbox flows.
-- [Brain Launch Runtime](../brain_launch_runtime.md): Broad overview plus backend-specific notes.
-- [Brain Launch Runtime Send-Keys](../brain_launch_runtime_send_keys.md): Detailed raw control-input grammar and examples.
+- [Realm Controller](../realm_controller.md): Broad overview plus backend-specific notes.
+- [Realm Controller Send-Keys](../realm_controller_send_keys.md): Detailed raw control-input grammar and examples.
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/cli.py`](../../../src/gig_agents/agents/brain_launch_runtime/cli.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
-- [`src/gig_agents/agents/brain_launch_runtime/manifest.py`](../../../src/gig_agents/agents/brain_launch_runtime/manifest.py)
-- [`src/gig_agents/agents/brain_launch_runtime/agent_identity.py`](../../../src/gig_agents/agents/brain_launch_runtime/agent_identity.py)
-- [`src/gig_agents/agents/brain_launch_runtime/errors.py`](../../../src/gig_agents/agents/brain_launch_runtime/errors.py)
-- [`tests/unit/agents/brain_launch_runtime/test_gateway_support.py`](../../../tests/unit/agents/brain_launch_runtime/test_gateway_support.py)
+- [`src/gig_agents/agents/realm_controller/cli.py`](../../../src/gig_agents/agents/realm_controller/cli.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`src/gig_agents/agents/realm_controller/manifest.py`](../../../src/gig_agents/agents/realm_controller/manifest.py)
+- [`src/gig_agents/agents/realm_controller/agent_identity.py`](../../../src/gig_agents/agents/realm_controller/agent_identity.py)
+- [`src/gig_agents/agents/realm_controller/errors.py`](../../../src/gig_agents/agents/realm_controller/errors.py)
+- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)

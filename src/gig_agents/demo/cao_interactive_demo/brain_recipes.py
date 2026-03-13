@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from gig_agents.agents.brain_builder import BrainRecipe
-from gig_agents.agents.brain_launch_runtime.loaders import load_brain_recipe_from_path
+from gig_agents.agents.realm_controller.loaders import load_brain_recipe_from_path
 from gig_agents.demo.cao_interactive_demo.models import (
     BRAIN_RECIPES_RELATIVE_DIR,
     DEFAULT_BRAIN_RECIPE_SELECTOR,

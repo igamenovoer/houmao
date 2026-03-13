@@ -2,7 +2,7 @@
 
 ## Purpose
 Document the resolution flow referenced by archived OpenSpec discussions for
-agent identity handling in `gig_agents.agents.brain_launch_runtime`.
+agent identity handling in `gig_agents.agents.realm_controller`.
 
 ## Resolution Flow
 1. Classify input as manifest path vs agent identity token.

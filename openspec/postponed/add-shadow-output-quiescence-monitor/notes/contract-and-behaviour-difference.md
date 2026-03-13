@@ -4,7 +4,7 @@
 
 This note captures the practical behavior difference between:
 
-- the current `shadow_only` implementation in `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py`, and
+- the current `shadow_only` implementation in `src/gig_agents/agents/realm_controller/backends/cao_rest.py`, and
 - the proposed contracts in `contracts/claude-state-contracts.md` and `contracts/turn-monitor-contracts.md`.
 
 Claude Code is used as the main example, but the same runtime difference applies to Codex.

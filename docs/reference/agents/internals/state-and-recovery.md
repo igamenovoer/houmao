@@ -141,8 +141,8 @@ These classes are useful because they show whether the problem is in persisted s
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
-- [`src/gig_agents/agents/brain_launch_runtime/manifest.py`](../../../../src/gig_agents/agents/brain_launch_runtime/manifest.py)
-- [`src/gig_agents/agents/brain_launch_runtime/agent_identity.py`](../../../../src/gig_agents/agents/brain_launch_runtime/agent_identity.py)
-- [`src/gig_agents/agents/brain_launch_runtime/errors.py`](../../../../src/gig_agents/agents/brain_launch_runtime/errors.py)
-- [`tests/unit/agents/brain_launch_runtime/test_gateway_support.py`](../../../../tests/unit/agents/brain_launch_runtime/test_gateway_support.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`src/gig_agents/agents/realm_controller/manifest.py`](../../../../src/gig_agents/agents/realm_controller/manifest.py)
+- [`src/gig_agents/agents/realm_controller/agent_identity.py`](../../../../src/gig_agents/agents/realm_controller/agent_identity.py)
+- [`src/gig_agents/agents/realm_controller/errors.py`](../../../../src/gig_agents/agents/realm_controller/errors.py)
+- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

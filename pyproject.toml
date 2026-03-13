@@ -1,7 +1,7 @@
 [project]
-name = "gig-agents"
+name = "Houmao"
 version = "0.1.0"
-description = "Standalone runtime package for brain launch and CAO launcher workflows"
+description = "Houmao runtime package for realm controller and CAO launcher workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "igamenovoer", email = "igamenovoer@xx.com" }]
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-gig-agents-cli = "gig_agents.cli:main"
+houmao-cli = "gig_agents.cli:main"
 gig-cao-server = "gig_agents.cao_cli:main"
 
 [project.urls]
@@ -90,7 +90,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [tool.pixi.pypi-dependencies]
-gig_agents = { path = ".", editable = true }
+houmao = { path = ".", editable = true }
 build = ">=1.3.0,<2"
 twine = ">=6.2.0,<7"
 types-PyYAML = ">=6.0.12.20250915,<7"

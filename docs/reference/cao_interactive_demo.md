@@ -89,8 +89,8 @@ The canonical package is `gig_agents.demo.cao_interactive_demo`.
 1. Wrapper scripts delegate to `run_demo.sh`.
 2. `run_demo.sh` invokes `pixi run python -m gig_agents.demo.cao_interactive_demo.cli`.
 3. The demo package resolves the selected brain recipe under `tests/fixtures/agents/brains/brain-recipes/` (or the overridden agent-definition directory).
-4. The demo delegates brain construction through `gig_agents.agents.brain_launch_runtime build-brain --recipe <resolved-path>`.
-5. The demo uses `gig_agents.agents.brain_launch_runtime` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
+4. The demo delegates brain construction through `gig_agents.agents.realm_controller build-brain --recipe <resolved-path>`.
+5. The demo uses `gig_agents.agents.realm_controller` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
 6. Build/start still pass the explicit demo-selected agent-definition directory, but prompt/control/stop flows target the persisted agent name and rely on the session's published `AGENTSYS_AGENT_DEF_DIR`.
 
-For the lower-level runtime contract, see [Brain Launch Runtime](./brain_launch_runtime.md).
+For the lower-level runtime contract, see [Realm Controller](./realm_controller.md).

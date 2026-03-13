@@ -27,6 +27,6 @@ This should be corrected now while the system is still under active development 
 ## Impact
 
 - Affected packaging and repo metadata: `pyproject.toml`, `README.md`, docs indexes, contributor instructions, and branding/notice text.
-- Affected runtime code and tests: `src/gig_agents/agents/brain_launch_runtime/**`, direct importers such as `src/gig_agents/cli.py`, and runtime test trees under `tests/unit/agents/` and `tests/integration/agents/`.
+- Affected runtime code and tests: `src/gig_agents/agents/brain_launch_runtime/**`, direct importers such as `src/gig_agents/cli.py`, and runtime test trees under `tests/unit/agents/brain_launch_runtime/` and `tests/integration/agents/brain_launch_runtime/`.
 - Affected docs and helper scripts: runtime reference pages, mailbox/gateway/agent docs that link to runtime paths, demo scripts, migration notes, and parity helpers.
 - Affected repository knowledge and specs: `context/` content excluding `context/logs/`, active OpenSpec specs, and archived OpenSpec text or path references that still describe the old names.

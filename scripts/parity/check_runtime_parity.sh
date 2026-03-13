@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GIG_AGENTS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SOURCE_REPO_ROOT="${SOURCE_REPO_ROOT:-$(cd "$GIG_AGENTS_ROOT/../../.." && pwd)}"
-SOURCE_SCHEMA_DIR="$SOURCE_REPO_ROOT/src/agent_system_dissect/agents/brain_launch_runtime/schemas"
-DEST_SCHEMA_DIR="$GIG_AGENTS_ROOT/src/gig_agents/agents/brain_launch_runtime/schemas"
+SOURCE_SCHEMA_DIR="$SOURCE_REPO_ROOT/src/agent_system_dissect/agents/realm_controller/schemas"
+DEST_SCHEMA_DIR="$GIG_AGENTS_ROOT/src/gig_agents/agents/realm_controller/schemas"
 
 log() {
   echo "[parity] $*"

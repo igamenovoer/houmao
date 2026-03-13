@@ -77,7 +77,7 @@ This design keeps mailbox control inside the same runtime session model as ordin
 
 - [`src/gig_agents/agents/brain_builder.py`](../../../../src/gig_agents/agents/brain_builder.py)
 - [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/agents/brain_launch_runtime/launch_plan.py`](../../../../src/gig_agents/agents/brain_launch_runtime/launch_plan.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
-- [`src/gig_agents/agents/brain_launch_runtime/mail_commands.py`](../../../../src/gig_agents/agents/brain_launch_runtime/mail_commands.py)
-- [`tests/integration/agents/brain_launch_runtime/test_mailbox_runtime_contract.py`](../../../../tests/integration/agents/brain_launch_runtime/test_mailbox_runtime_contract.py)
+- [`src/gig_agents/agents/realm_controller/launch_plan.py`](../../../../src/gig_agents/agents/realm_controller/launch_plan.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../../src/gig_agents/agents/realm_controller/mail_commands.py)
+- [`tests/integration/agents/realm_controller/test_mailbox_runtime_contract.py`](../../../../tests/integration/agents/realm_controller/test_mailbox_runtime_contract.py)

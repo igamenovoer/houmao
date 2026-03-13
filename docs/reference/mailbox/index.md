@@ -49,7 +49,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 ## Source References
 
 - [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/agents/brain_launch_runtime/mail_commands.py`](../../../src/gig_agents/agents/brain_launch_runtime/mail_commands.py)
+- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../src/gig_agents/agents/realm_controller/mail_commands.py)
 - [`src/gig_agents/mailbox/protocol.py`](../../../src/gig_agents/mailbox/protocol.py)
 - [`src/gig_agents/mailbox/filesystem.py`](../../../src/gig_agents/mailbox/filesystem.py)
 - [`src/gig_agents/mailbox/managed.py`](../../../src/gig_agents/mailbox/managed.py)

@@ -151,7 +151,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Working directory passed to `brain_launch_runtime start-session`. "
+            "Working directory passed to `realm_controller start-session`. "
             "Defaults to a provisioned `<launcher-home>/wktree` git worktree."
         ),
     )
@@ -164,7 +164,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--role-name",
         default=DEFAULT_ROLE_NAME,
-        help="Role name passed to `brain_launch_runtime start-session`.",
+        help="Role name passed to `realm_controller start-session`.",
     )
     parser.add_argument(
         "--timeout-seconds",

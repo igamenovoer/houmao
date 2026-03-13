@@ -1,6 +1,6 @@
 # Filesystem Mailbox Rules
 
-This mailbox root is managed by `gig-agents`.
+This mailbox root is managed by `Houmao`.
 
 ## Managed assets
 

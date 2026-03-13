@@ -8,7 +8,7 @@ from .brain_builder import (  # noqa: F401
     load_brain_recipe,
     main,
 )
-from .brain_launch_runtime import (  # noqa: F401
+from .realm_controller import (  # noqa: F401
     BackendExecutionError,
     BrainLaunchRuntimeError,
     LaunchPlan,

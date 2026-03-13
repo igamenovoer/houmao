@@ -28,7 +28,7 @@ Copied runtime scope includes:
   - `scripts/explore/interactive-pipeline-test/**`
 - Runtime docs:
   - `docs/reference/agents_brains.md`
-  - `docs/reference/brain_launch_runtime.md`
+  - `docs/reference/realm_controller.md`
   - `docs/reference/cao_claude_shadow_parsing.md`
   - `docs/reference/cao_server_launcher.md`
   - `docs/reference/cao_shadow_parser_troubleshooting.md`
@@ -100,7 +100,7 @@ Archived changes copied to `openspec/changes/archive/`:
   - excluded development trees (`tests/`, `scripts/`, `docs/`, `openspec/`, `config/`, `examples/`) are absent from artifacts
 - Main workspace integration:
   - editable dependency wiring resolves `gig_agents` import from submodule path
-  - `pixi run gig-agents-cli --help` -> pass
+  - `pixi run houmao-cli --help` -> pass
   - `pixi run gig-cao-server --help` -> pass
 
 ## Residual Mismatches / Follow-Ups
@@ -115,4 +115,4 @@ Archived changes copied to `openspec/changes/archive/`:
 
 This migration is intentionally non-destructive. Source runtime files in
 `agent-system-dissect` are retained during this phase for transition safety and
-parity verification; canonical ownership is moved to `gig-agents`.
+parity verification; canonical ownership is moved to `Houmao`.

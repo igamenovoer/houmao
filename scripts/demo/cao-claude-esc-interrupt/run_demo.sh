@@ -153,7 +153,7 @@ cleanup() {
   set +e
 
   if [[ -n "${SESSION_MANIFEST}" && "$SESSION_STOPPED" -ne 1 ]]; then
-    pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
+    pixi run python -m gig_agents.agents.realm_controller stop-session \
       --agent-def-dir "$AGENT_DEF_DIR" \
       --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1 || true
   fi
@@ -242,7 +242,7 @@ SECOND_PROMPT_PATH="$WORKSPACE_DIR/second_prompt.txt"
 cp "$SCRIPT_DIR/inputs/first_prompt.txt" "$FIRST_PROMPT_PATH"
 cp "$SCRIPT_DIR/inputs/second_prompt.txt" "$SECOND_PROMPT_PATH"
 
-run_cmd build pixi run python -m gig_agents.agents.brain_launch_runtime build-brain \
+run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --tool claude \
@@ -252,7 +252,7 @@ run_cmd build pixi run python -m gig_agents.agents.brain_launch_runtime build-br
 
 MANIFEST_PATH="$(extract_json_field "$WORKSPACE_DIR/build.log" manifest_path)"
 
-run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+run_cmd start pixi run python -m gig_agents.agents.realm_controller start-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --brain-manifest "$MANIFEST_PATH" \
@@ -271,7 +271,7 @@ run_cmd driver pixi run python "$SCRIPT_DIR/scripts/interrupt_driver.py" \
   --second-prompt-file "$SECOND_PROMPT_PATH" \
   --output-json "$DRIVER_REPORT_PATH"
 
-if pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
+if pixi run python -m gig_agents.agents.realm_controller stop-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1; then
   SESSION_STOPPED=1

@@ -22,7 +22,7 @@ directory.
 
 The demo SHALL resolve the requested selector to one canonical recipe file,
 load that recipe through the shared recipe loader for startup metadata, and
-invoke brain construction through the existing `brain_launch_runtime
+invoke brain construction through the existing `realm_controller
 build-brain --recipe <resolved-path>` path.
 
 The selected recipe SHALL define the default agent name for the launch. When
@@ -132,7 +132,7 @@ replaced by `-`.
 
 #### Scenario: Startup replaces a previously active demo session
 - **WHEN** the user runs the interactive startup command while the state artifact already marks another demo session active
-- **THEN** the command first attempts `brain_launch_runtime stop-session` for the recorded `agent_identity`
+- **THEN** the command first attempts `realm_controller stop-session` for the recorded `agent_identity`
 - **AND** the command starts a replacement session
 - **AND** the state artifact is rewritten to the new `agent_identity` and the newly resolved variant metadata
 
@@ -170,7 +170,7 @@ needed to connect the report to the active demo variant.
 - **AND** the verification helper validates the report against the selected variant contract rather than assuming a fixed Claude-only snapshot
 
 ### Requirement: Multi-turn prompt driving against a live session
-The demo workflow SHALL provide a turn-driving command that reads the persisted state artifact and sends a prompt through `brain_launch_runtime send-prompt` to the same active session by name-based `agent_identity`.
+The demo workflow SHALL provide a turn-driving command that reads the persisted state artifact and sends a prompt through `realm_controller send-prompt` to the same active session by name-based `agent_identity`.
 
 Operator interaction between automated turns MAY include manual slash commands or manual model switching inside the live session. Once the visible provider surface has returned to its normal prompt, the demo SHALL continue to treat that session as reusable for subsequent `send-turn` operations.
 
@@ -210,7 +210,7 @@ The demo workflow SHALL provide an explicit stop command that terminates the act
 
 #### Scenario: Stop cleans up active session
 - **WHEN** the user runs the stop command with an active state artifact
-- **THEN** the command calls `brain_launch_runtime stop-session` for the recorded `agent_identity`
+- **THEN** the command calls `realm_controller stop-session` for the recorded `agent_identity`
 - **AND** subsequent turn-driving attempts fail until startup is run again
 
 #### Scenario: Stop is safe when session is already gone
@@ -218,14 +218,14 @@ The demo workflow SHALL provide an explicit stop command that terminates the act
 - **THEN** the command exits gracefully and updates local state to inactive
 
 ### Requirement: Live control-input driving against an active session
-The demo workflow SHALL provide a `send-keys` command that reads the persisted state artifact and sends a raw control-input sequence through `brain_launch_runtime send-keys` to the same active session by name-based `agent_identity`.
+The demo workflow SHALL provide a `send-keys` command that reads the persisted state artifact and sends a raw control-input sequence through `realm_controller send-keys` to the same active session by name-based `agent_identity`.
 
 The operator-facing control-input workflow SHALL require one positional key-stream input, and it SHALL forward the runtime-owned `send-keys` contract without appending implicit submit behavior.
 
 #### Scenario: Control input targets the active persisted session
 - **WHEN** the user runs the control-input command after a successful startup
 - **THEN** the command targets the same `agent_identity` recorded in the active state artifact
-- **AND** it sends the requested sequence through `brain_launch_runtime send-keys`
+- **AND** it sends the requested sequence through `realm_controller send-keys`
 
 #### Scenario: Control input rejects missing or inactive session state
 - **WHEN** the user runs the control-input command before startup or after stop
