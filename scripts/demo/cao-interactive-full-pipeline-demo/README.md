@@ -27,7 +27,7 @@ Important notes:
 - If startup finds a verified local `cao-server` already healthy at `http://127.0.0.1:9889`, it replaces that server automatically for the new run. There is no replacement prompt anymore.
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
-- The demo still passes `AGENT_DEF_DIR` explicitly for brain build and session start, but follow-up prompt/control/stop flows target the persisted runtime name and let `brain_launch_runtime` recover the effective agent-definition root from the live tmux session.
+- The demo still passes `AGENT_DEF_DIR` explicitly for brain build and session start, but follow-up prompt/control/stop flows target the persisted runtime name and let `realm_controller` recover the effective agent-definition root from the live tmux session.
 
 ## Supported Startup Recipes
 

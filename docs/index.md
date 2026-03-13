@@ -1,4 +1,4 @@
-# gig-agents Docs
+# Houmao Docs
 
 This repository is the canonical documentation home for the extracted runtime subsystem.
 
@@ -8,7 +8,7 @@ This repository is the canonical documentation home for the extracted runtime su
 
 ## Reference
 
-- [Runtime CLI and session workflows](reference/brain_launch_runtime.md)
+- [Runtime CLI and session workflows](reference/realm_controller.md)
 - [Mailbox reference](reference/mailbox/index.md)
 - [Interactive CAO demo](reference/cao_interactive_demo.md)
 - [Interactive CAO full-pipeline tutorial pack](../scripts/demo/cao-interactive-full-pipeline-demo/README.md)

@@ -17,7 +17,7 @@ After that, `mail check`, `mail send`, and `mail reply` run against a resumed se
 You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the only implemented transport is `filesystem`.
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+pixi run python -m gig_agents.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
@@ -61,7 +61,7 @@ sequenceDiagram
 Use `mail check` against a resumed mailbox-enabled session.
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime mail check \
+pixi run python -m gig_agents.agents.realm_controller mail check \
   --agent-identity AGENTSYS-research \
   --unread-only \
   --limit 10
@@ -88,7 +88,7 @@ Typical stdout is structured JSON returned by the session through the runtime-ow
 ## Send Mail
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime mail send \
+pixi run python -m gig_agents.agents.realm_controller mail send \
   --agent-identity AGENTSYS-research \
   --to AGENTSYS-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
@@ -107,7 +107,7 @@ Important details:
 ## Reply To Mail
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime mail reply \
+pixi run python -m gig_agents.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
   --message-id msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
@@ -147,8 +147,8 @@ sequenceDiagram
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/cli.py`](../../../src/gig_agents/agents/brain_launch_runtime/cli.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
+- [`src/gig_agents/agents/realm_controller/cli.py`](../../../src/gig_agents/agents/realm_controller/cli.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../src/gig_agents/agents/realm_controller/runtime.py)
 - [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/agents/brain_launch_runtime/mail_commands.py`](../../../src/gig_agents/agents/brain_launch_runtime/mail_commands.py)
-- [`src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
+- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../src/gig_agents/agents/realm_controller/mail_commands.py)
+- [`src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)

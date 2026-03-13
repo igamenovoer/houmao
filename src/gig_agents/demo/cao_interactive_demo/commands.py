@@ -6,7 +6,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gig_agents.agents.brain_launch_runtime.agent_identity import (
+from gig_agents.agents.realm_controller.agent_identity import (
     normalize_agent_identity_name,
 )
 from gig_agents.cao.rest_client import CaoRestClient
@@ -229,7 +229,7 @@ def send_turn(
 
     if result.returncode != 0:
         raise DemoWorkflowError(
-            f"send-turn failed via `brain_launch_runtime send-prompt` (see `{stderr_path}`)"
+            f"send-turn failed via `realm_controller send-prompt` (see `{stderr_path}`)"
         )
     if not response_text.strip():
         raise DemoWorkflowError(EMPTY_RESPONSE_ERROR)
@@ -302,7 +302,7 @@ def send_control_input(
 
     if result.returncode != 0 or control_result.status != "ok":
         raise DemoWorkflowError(
-            f"send-keys failed via `brain_launch_runtime send-keys` (see `{stderr_path}`)"
+            f"send-keys failed via `realm_controller send-keys` (see `{stderr_path}`)"
         )
 
     updated_state = state.model_copy(

@@ -10,7 +10,7 @@ This is needed for interactive provider surfaces that cannot be driven correctly
 
 ## Why
 Current CAO-backed runtime control is prompt-oriented:
-- `brain_launch_runtime send-prompt` exposes only plain prompt text submission.
+- `realm_controller send-prompt` exposes only plain prompt text submission.
 - `CaoRestSession.send_prompt()` submits text through CAO terminal input and then waits for readiness/completion.
 - The runtime docs explicitly describe CAO-backed sessions as using direct terminal input only, with no first-class keypress/control-input API.
 

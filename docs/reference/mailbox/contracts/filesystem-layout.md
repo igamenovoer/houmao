@@ -91,4 +91,4 @@ If you need the exact message schema, pair this page with [Canonical Model](cano
 - [`src/gig_agents/mailbox/filesystem.py`](../../../../src/gig_agents/mailbox/filesystem.py)
 - [`src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
 - [`src/gig_agents/mailbox/assets/rules/README.md`](../../../../src/gig_agents/mailbox/assets/rules/README.md)
-- [`src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md`](../../../../src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md)
+- [`src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md`](../../../../src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md)

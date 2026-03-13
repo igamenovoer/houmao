@@ -1,6 +1,6 @@
 ## Context
 
-`gig-agents` currently mixes three different CAO reference styles in active guidance:
+`Houmao` currently mixes three different CAO reference styles in active guidance:
 
 1. orphan-path references copied from a host workspace layout such as `extern/orphan/cli-agent-orchestrator`,
 2. upstream GitHub URLs under `awslabs/cli-agent-orchestrator`, and
@@ -13,39 +13,39 @@ That drift shows up in:
 - active issue notes under `context/issues/known/`, and
 - OpenSpec specs that still name orphan/upstream CAO sources as the contract reference.
 
-The runtime architecture itself is not changing: `gig-agents` still launches or talks to `cao-server` as an external executable on `PATH`. The problem is the source/install narrative around that external dependency.
+The runtime architecture itself is not changing: `Houmao` still launches or talks to `cao-server` as an external executable on `PATH`. The problem is the source/install narrative around that external dependency.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Establish the CAO fork as the canonical repository source referenced by active `gig-agents` guidance.
+- Establish the CAO fork as the canonical repository source referenced by active `Houmao` guidance.
 - Standardize active CAO install and `uvx --from` guidance on a fork-backed source.
-- Remove orphan-path CAO references from active `gig-agents` operational docs/specs/notes.
+- Remove orphan-path CAO references from active `Houmao` operational docs/specs/notes.
 - Preserve only intentionally required provenance/licensing references to original upstream origin.
 
 **Non-Goals:**
 
 - Changing CAO runtime behavior, API semantics, or process-management logic.
 - Rewriting archived OpenSpec history in this repo.
-- Making `gig-agents` import CAO directly from a local checkout.
+- Making `Houmao` import CAO directly from a local checkout.
 - Solving fork governance/support ownership beyond what must be stated explicitly in active docs.
 
 ## Decisions
 
-### 1. Use fork repository references in active `gig-agents` guidance
+### 1. Use fork repository references in active `Houmao` guidance
 
-Active `gig-agents` docs/specs/notes will reference the CAO fork repository identity (`imsight-forks/cli-agent-orchestrator`) rather than orphan-path references from a containing workspace.
+Active `Houmao` docs/specs/notes will reference the CAO fork repository identity (`imsight-forks/cli-agent-orchestrator`) rather than orphan-path references from a containing workspace.
 
 Rationale:
 
-- `gig-agents` is a standalone repo, so active guidance should not depend on a host workspace layout that may not exist.
+- `Houmao` is a standalone repo, so active guidance should not depend on a host workspace layout that may not exist.
 - Repository URLs are portable across standalone use and submodule use.
 
 Alternative considered:
 
 - Replace orphan-path references with another host-workspace local path.
-- Rejected because it would keep `gig-agents` docs tied to one embedding layout.
+- Rejected because it would keep `Houmao` docs tied to one embedding layout.
 
 ### 2. Keep runtime behavior path-based, but standardize install guidance
 
@@ -54,7 +54,7 @@ The runtime, launcher, and demos will continue to require `cao-server` on `PATH`
 Rationale:
 
 - Current launcher design intentionally treats CAO as an external executable.
-- The ambiguity is about how users obtain that executable, not how `gig-agents` invokes it.
+- The ambiguity is about how users obtain that executable, not how `Houmao` invokes it.
 
 Alternative considered:
 
@@ -84,7 +84,7 @@ Alternative considered:
 
 ## Migration Plan
 
-1. Update active `gig-agents` CAO docs/specs/notes to use fork-oriented repository references and remove orphan-path references.
+1. Update active `Houmao` CAO docs/specs/notes to use fork-oriented repository references and remove orphan-path references.
 2. Update launcher/demo install and troubleshooting guidance to use the selected fork-backed install contract.
 3. Review active issue notes and provenance-facing files to preserve only intentionally explicit upstream-origin wording.
 4. Re-run targeted sweeps for orphan/upstream/package-name install references and confirm only approved exceptions remain.

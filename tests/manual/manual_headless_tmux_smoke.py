@@ -41,7 +41,7 @@ def _run_backend_smoke(
         "run",
         "python",
         "-m",
-        "gig_agents.agents.brain_launch_runtime",
+        "gig_agents.agents.realm_controller",
     ]
 
     start_payload = _run_json_command(

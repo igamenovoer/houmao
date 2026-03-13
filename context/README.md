@@ -1,7 +1,7 @@
 # Context
 
 ## Purpose
-Centralized project knowledge base for AI-assisted development in `gig-agents`.
+Centralized project knowledge base for AI-assisted development in `Houmao`.
 
 ## Structure
 - `design/`: Technical design notes and architecture drafts.

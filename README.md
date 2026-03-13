@@ -1,18 +1,21 @@
-# gig-agents
+# Houmao
+> A framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents.
 
 ## Project Introduction
 
 ### What It Is
 
-`gig-agents` is a framework + CLI toolkit for building and running **teams of loosely-coupled, CLI-based agents**.
+`Houmao` is a framework and CLI toolkit designed to orchestrate **teams of loosely-coupled, CLI-based AI agents**.
 
-In this model, an **agent** is not an in-process object graph. It is a real CLI tool instance (for example `codex`, `claude`, `gemini`) running as a process, with its own state on disk and its own UX.
+> **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework allows you to multiply your capabilities by spinning up numerous autonomous helpers.
+
+Unlike traditional orchestration models where an "agent" is merely an in-process object graph, `Houmao` treats each agent as a first-class citizen. Every agent is a dedicated, real CLI process (such as `codex`, `claude`, or `gemini`) operating with its own isolated disk state, memory, and native user experience.
 
 ### The Core Idea (What We Avoid)
 
 The core idea is to **avoid a hard-coded orchestration model**.
 
-Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style orchestration), `gig-agents` treats a team as a set of **independently runnable CLI agents** and provides lightweight primitives to construct, start, and manage them, while keeping “how the team coordinates” **flexible and context-driven**.
+Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style orchestration), `Houmao` treats a team as a set of **independently runnable CLI agents** and provides lightweight primitives to construct, start, and manage them, while keeping “how the team coordinates” **flexible and context-driven**.
 
 > Note
 > Today, the primary construction paradigm is an **agent definition directory** (brains + roles + optional blueprints).
@@ -21,7 +24,7 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 ### What The Framework Provides
 
 - **Construction**: build agent runtimes from tool specs + skills + roles (and optional blueprints).
-- **Management**: start/resume/prompt/stop agents with `gig-agents-cli` (typically tmux-backed so you can inspect and interact).
+- **Management**: start/resume/prompt/stop agents with `houmao-cli` (typically tmux-backed so you can inspect and interact).
 - **Team communication**: a shared control/communication plane for groups of terminals (currently via CAO, optional).
 
 ### Why This Is Useful (Benefits)
@@ -40,8 +43,8 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 ### How Agents Join Your Workflow
 
-- **Managed launch (recommended):** construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `gig-agents-cli`.
-- **Bring-your-own process:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and still participate in the same “agent team” workflow. First-class adoption/attach of an already-running tmux session is a design goal; today, the management commands assume the session was launched by `gig-agents-cli`.
+- **Managed launch (recommended):** construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-cli`.
+- **Bring-your-own process:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and still participate in the same “agent team” workflow. First-class adoption/attach of an already-running tmux session is a design goal; today, the management commands assume the session was launched by `houmao-cli`.
 
 ## Installation
 
@@ -70,7 +73,7 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `gig-agents` and may include features beyond upstream `main`:
+CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `Houmao` and may include features beyond upstream `main`:
 
 ```bash
 uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
@@ -87,11 +90,11 @@ command -v tmux
 
 ### CLI Entry Points
 
-- `gig-agents-cli`: build/start/prompt/stop lifecycle
+- `houmao-cli`: build/start/prompt/stop lifecycle
 - `gig-cao-server`: local `cao-server` start/status/stop (optional)
 
 ```bash
-gig-agents-cli --help
+houmao-cli --help
 gig-cao-server --help
 ```
 
@@ -262,36 +265,36 @@ role: gpu-kernel-coder
 Build a brain home:
 
 ```bash
-gig-agents-cli build-brain \
+houmao-cli build-brain \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml \
   --runtime-root tmp/agents-runtime
 ```
 
 Output is JSON including `home_path`, `manifest_path`, and `launch_helper_path`.
 
-Manual start option: if you want to run the tool yourself (outside `start-session`), execute the returned `launch_helper_path` inside your own tmux/window. Managed lifecycle commands (`send-prompt`, `stop-session`) require a session started by `gig-agents-cli`.
+Manual start option: if you want to run the tool yourself (outside `start-session`), execute the returned `launch_helper_path` inside your own tmux/window. Managed lifecycle commands (`send-prompt`, `stop-session`) require a session started by `houmao-cli`.
 
 Start a session and send a prompt:
 
 ```bash
-gig-agents-cli start-session \
+houmao-cli start-session \
   --brain-manifest <manifest-path-from-build-output> \
   --role gpu-kernel-coder \
   --agent-identity my-agent
 
-gig-agents-cli send-prompt \
+houmao-cli send-prompt \
   --agent-identity my-agent \
   --prompt "Review the latest commit for security issues"
 
-gig-agents-cli stop-session --agent-identity my-agent
+houmao-cli stop-session --agent-identity my-agent
 ```
 
 ### 4. Blueprint-Driven Preset (Recipe + Role)
 
 ```bash
-gig-agents-cli build-brain --blueprint blueprints/gpu-kernel-coder.yaml
+houmao-cli build-brain --blueprint blueprints/gpu-kernel-coder.yaml
 
-gig-agents-cli start-session \
+houmao-cli start-session \
   --brain-manifest <manifest-path-from-build-output> \
   --blueprint blueprints/gpu-kernel-coder.yaml
 ```
@@ -311,7 +314,7 @@ For a one-off local port override, add `--base-url http://127.0.0.1:9991`.
 Start a session through CAO:
 
 ```bash
-gig-agents-cli start-session \
+houmao-cli start-session \
   --brain-manifest <manifest-path-from-build-output> \
   --role gpu-kernel-coder \
   --backend cao_rest \
@@ -353,7 +356,7 @@ flowchart TB
 
     extcao(["CAO Server<br/>(optional external)"])
     caocli["gig-cao-server"]
-    agentscli["gig-agents-cli<br/>build · start · prompt · stop"]
+    agentscli["houmao-cli<br/>build · start · prompt · stop"]
 
     %% Build inputs
     adapter --> builder
@@ -380,7 +383,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor User
-    participant CLI as gig-agents-cli
+    participant CLI as houmao-cli
     participant Builder as Brain builder
     participant Runtime as Runtime
     participant TMUX as tmux
@@ -426,7 +429,7 @@ pixi run test-runtime
 CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used by the `cao_rest` backend and the local `gig-cao-server` launcher flow.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
-Install CAO from our forked `hz-release` branch and verify required executables are on `PATH`. We recommend the fork because `gig-agents` may depend on CAO features that are not yet present on upstream `main`:
+Install CAO from our forked `hz-release` branch and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
 
 ```bash
 uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release

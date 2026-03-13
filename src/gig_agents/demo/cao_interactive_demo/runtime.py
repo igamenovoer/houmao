@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-from gig_agents.agents.brain_launch_runtime.backends.shadow_parser_stack import (
+from gig_agents.agents.realm_controller.backends.shadow_parser_stack import (
     ShadowParserStack,
 )
 from gig_agents.cao.rest_client import CaoRestClient
@@ -336,9 +336,9 @@ def _looks_like_stale_stop_failure(result: CommandResult) -> bool:
 
 
 def _runtime_cli_command(args: list[str]) -> list[str]:
-    """Build a `brain_launch_runtime` CLI subprocess command."""
+    """Build a `realm_controller` CLI subprocess command."""
 
-    return ["pixi", "run", "python", "-m", "gig_agents.agents.brain_launch_runtime", *args]
+    return ["pixi", "run", "python", "-m", "gig_agents.agents.realm_controller", *args]
 
 
 def _launcher_cli_command(args: list[str]) -> list[str]:

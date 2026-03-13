@@ -12,6 +12,6 @@
 
 ## 3. Verify Scope And Coverage
 
-- [ ] 3.1 Run targeted sweeps for `extern/orphan/cli-agent-orchestrator`, `awslabs/cli-agent-orchestrator`, and `uv tool install cli-agent-orchestrator` across active `gig-agents` guidance
+- [ ] 3.1 Run targeted sweeps for `extern/orphan/cli-agent-orchestrator`, `awslabs/cli-agent-orchestrator`, and `uv tool install cli-agent-orchestrator` across active `Houmao` guidance
 - [ ] 3.2 Confirm any remaining upstream references are explicitly approved provenance/archive/governance exceptions
 - [ ] 3.3 Re-read the final docs/specs/issue notes to confirm the active operator story consistently points at the CAO fork

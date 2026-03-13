@@ -116,7 +116,7 @@ The difference matters:
 Start a tmux-backed session:
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+pixi run python -m gig_agents.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder \
@@ -127,7 +127,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
 Resume by tmux name for a prompt turn:
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
+pixi run python -m gig_agents.agents.realm_controller send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Continue from the prior answer"
 ```
@@ -135,7 +135,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
 Send raw control input:
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime send-keys \
+pixi run python -m gig_agents.agents.realm_controller send-keys \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
@@ -143,7 +143,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime send-keys \
 Submit queued work through a live gateway:
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime gateway-send-prompt \
+pixi run python -m gig_agents.agents.realm_controller gateway-send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Queue this through the gateway"
 ```
@@ -157,8 +157,8 @@ pixi run python -m gig_agents.agents.brain_launch_runtime gateway-send-prompt \
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/cli.py`](../../../../src/gig_agents/agents/brain_launch_runtime/cli.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
-- [`src/gig_agents/agents/brain_launch_runtime/mail_commands.py`](../../../../src/gig_agents/agents/brain_launch_runtime/mail_commands.py)
+- [`src/gig_agents/agents/realm_controller/cli.py`](../../../../src/gig_agents/agents/realm_controller/cli.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../../src/gig_agents/agents/realm_controller/mail_commands.py)
 - [`docs/reference/mailbox/index.md`](../../mailbox/index.md)
-- [`tests/unit/agents/brain_launch_runtime/test_gateway_support.py`](../../../../tests/unit/agents/brain_launch_runtime/test_gateway_support.py)
+- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

@@ -22,6 +22,6 @@ None.
 
 ## Impact
 
-- Affected code: `src/gig_agents/agents/brain_launch_runtime/backends/cao_rest.py` and supporting shadow-mode runtime modules/tests.
+- Affected code: `src/gig_agents/agents/realm_controller/backends/cao_rest.py` and supporting shadow-mode runtime modules/tests.
 - Affected docs: shadow parsing architecture/lifecycle docs and runtime reference guidance for `shadow_only`.
 - Dependency/runtime impact: the existing `reactivex` dependency becomes part of the intended implementation approach for timer-driven transition logic.

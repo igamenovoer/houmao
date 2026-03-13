@@ -320,7 +320,7 @@ def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, 
     """Project packaged runtime-owned mailbox skills into one brain home."""
 
     source_root = (
-        resources.files("gig_agents.agents.brain_launch_runtime.assets")
+        resources.files("gig_agents.agents.realm_controller.assets")
         / "system_skills"
         / "mailbox"
     )

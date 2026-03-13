@@ -1,6 +1,6 @@
 # CLI And Environments
 
-`gig-agents` uses a standalone Pixi manifest in this repository.
+`Houmao` uses a standalone Pixi manifest in this repository.
 
 ## Install
 
@@ -10,7 +10,7 @@ pixi install
 
 ## Primary Commands
 
-- Runtime CLI: `gig-agents-cli`
+- Runtime CLI: `houmao-cli`
 - CAO launcher CLI: `gig-cao-server`
 
 Runtime subcommands:
@@ -25,7 +25,7 @@ Runtime subcommands:
 Module equivalents:
 
 ```bash
-pixi run python -m gig_agents.agents.brain_launch_runtime --help
+pixi run python -m gig_agents.agents.realm_controller --help
 pixi run python -m gig_agents.cao.tools.cao_server_launcher --help
 ```
 

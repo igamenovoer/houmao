@@ -156,8 +156,8 @@ Representative result:
 
 - [`src/gig_agents/agents/mailbox_runtime_models.py`](../../../../src/gig_agents/agents/mailbox_runtime_models.py)
 - [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/agents/brain_launch_runtime/cli.py`](../../../../src/gig_agents/agents/brain_launch_runtime/cli.py)
-- [`src/gig_agents/agents/brain_launch_runtime/mail_commands.py`](../../../../src/gig_agents/agents/brain_launch_runtime/mail_commands.py)
+- [`src/gig_agents/agents/realm_controller/cli.py`](../../../../src/gig_agents/agents/realm_controller/cli.py)
+- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../../src/gig_agents/agents/realm_controller/mail_commands.py)
 - [`src/gig_agents/agents/brain_builder.py`](../../../../src/gig_agents/agents/brain_builder.py)
-- [`src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../../src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
-- [`src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md`](../../../../src/gig_agents/agents/brain_launch_runtime/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md)
+- [`src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../../src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
+- [`src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md`](../../../../src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md)

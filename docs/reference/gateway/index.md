@@ -39,14 +39,14 @@ The gateway is an optional control plane attached to one runtime-managed session
 ## Related References
 
 - [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that the gateway attaches to.
-- [Brain Launch Runtime](../brain_launch_runtime.md): Overview page plus backend-specific notes.
+- [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.
 - [Mailbox Reference](../mailbox/index.md): Separate async message transport and runtime mailbox docs.
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_models.py`](../../../src/gig_agents/agents/brain_launch_runtime/gateway_models.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_storage.py`](../../../src/gig_agents/agents/brain_launch_runtime/gateway_storage.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_service.py`](../../../src/gig_agents/agents/brain_launch_runtime/gateway_service.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_client.py`](../../../src/gig_agents/agents/brain_launch_runtime/gateway_client.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
-- [`tests/unit/agents/brain_launch_runtime/test_gateway_support.py`](../../../tests/unit/agents/brain_launch_runtime/test_gateway_support.py)
+- [`src/gig_agents/agents/realm_controller/gateway_models.py`](../../../src/gig_agents/agents/realm_controller/gateway_models.py)
+- [`src/gig_agents/agents/realm_controller/gateway_storage.py`](../../../src/gig_agents/agents/realm_controller/gateway_storage.py)
+- [`src/gig_agents/agents/realm_controller/gateway_service.py`](../../../src/gig_agents/agents/realm_controller/gateway_service.py)
+- [`src/gig_agents/agents/realm_controller/gateway_client.py`](../../../src/gig_agents/agents/realm_controller/gateway_client.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)

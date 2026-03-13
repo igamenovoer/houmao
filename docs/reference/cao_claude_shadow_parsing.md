@@ -29,7 +29,7 @@ For resumed CAO operations, session addressing is manifest-driven: runtime uses 
 | `backends/shadow_answer_association.py` | Optional caller-side association helpers such as `TailRegexExtractAssociator` |
 | `backends/claude_bootstrap.py` | Non-interactive Claude home bootstrap |
 
-All paths are relative to `src/gig_agents/agents/brain_launch_runtime/`.
+All paths are relative to `src/gig_agents/agents/realm_controller/`.
 
 ## Why Shadow Parsing Exists
 

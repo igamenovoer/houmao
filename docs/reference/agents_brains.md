@@ -127,7 +127,7 @@ Tool notes (current adapters):
     `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, and
     `ANTHROPIC_DEFAULT_*_MODEL` alias pins) in `env/vars.env` or the caller
     environment (see
-    [Brain Launch Runtime](brain_launch_runtime.md#model-selection-claude-code)).
+    [Realm Controller](realm_controller.md#model-selection-claude-code)).
 - `gemini`
   - Home selector: `GEMINI_CLI_HOME=<runtime-home>`
   - OAuth creds file: `files/oauth_creds.json` (projected to
@@ -163,7 +163,7 @@ The helper:
 
 Once you want repo-owned lifecycle control instead of raw helper execution, the next references are:
 
-- [Brain Launch Runtime](brain_launch_runtime.md)
+- [Realm Controller](realm_controller.md)
 - [Runtime-Managed Agents Reference](./agents/index.md)
 - [Agent Gateway Reference](./gateway/index.md)
 
@@ -175,7 +175,7 @@ Today, roles are applied manually (copy/paste as the first prompt) unless the
 tool provides a native system/developer prompt injection mechanism.
 
 For repo-owned session lifecycle workflows (build/start/resume/stop, including
-CAO-backed sessions), use the [Brain Launch Runtime](brain_launch_runtime.md)
+CAO-backed sessions), use the [Realm Controller](realm_controller.md)
 module and CLI.
 
 ## Programmatic Use (Python)

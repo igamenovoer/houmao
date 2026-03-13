@@ -140,7 +140,7 @@ The current live gateway process uses a CAO adapter.
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_service.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_service.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_storage.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_storage.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_models.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_models.py)
-- [`tests/unit/agents/brain_launch_runtime/test_gateway_support.py`](../../../../tests/unit/agents/brain_launch_runtime/test_gateway_support.py)
+- [`src/gig_agents/agents/realm_controller/gateway_service.py`](../../../../src/gig_agents/agents/realm_controller/gateway_service.py)
+- [`src/gig_agents/agents/realm_controller/gateway_storage.py`](../../../../src/gig_agents/agents/realm_controller/gateway_storage.py)
+- [`src/gig_agents/agents/realm_controller/gateway_models.py`](../../../../src/gig_agents/agents/realm_controller/gateway_models.py)
+- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

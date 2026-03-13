@@ -224,7 +224,7 @@ Artifact roles:
 
 ## Source References
 
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_models.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_models.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_storage.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_storage.py)
-- [`src/gig_agents/agents/brain_launch_runtime/gateway_client.py`](../../../../src/gig_agents/agents/brain_launch_runtime/gateway_client.py)
-- [`src/gig_agents/agents/brain_launch_runtime/runtime.py`](../../../../src/gig_agents/agents/brain_launch_runtime/runtime.py)
+- [`src/gig_agents/agents/realm_controller/gateway_models.py`](../../../../src/gig_agents/agents/realm_controller/gateway_models.py)
+- [`src/gig_agents/agents/realm_controller/gateway_storage.py`](../../../../src/gig_agents/agents/realm_controller/gateway_storage.py)
+- [`src/gig_agents/agents/realm_controller/gateway_client.py`](../../../../src/gig_agents/agents/realm_controller/gateway_client.py)
+- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)

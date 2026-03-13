@@ -16,12 +16,12 @@ even when a valid Claude response is visible in `mode=full`. Downstream callers 
 
 This issue is now mitigated in this repository's runtime implementation:
 
-- `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py` now
+- `src/agent_system_dissect/agents/realm_controller/backends/cao_rest.py` now
   uses a Claude-specific shadow path that:
   - does not use CAO `GET /terminals/{id}` `status` for Claude turn gating,
   - fetches only `mode=full` for Claude turns (no `mode=last` / `mode=tail` use),
   - extracts and returns plain assistant text via runtime-owned parsing.
-- `src/agent_system_dissect/agents/brain_launch_runtime/backends/claude_code_shadow.py`
+- `src/agent_system_dissect/agents/realm_controller/backends/claude_code_shadow.py`
   adds versioned presets, bounded-tail shadow status parsing, baseline-aware
   completion gating, and explicit `waiting_user_answer` detection.
 
@@ -42,7 +42,7 @@ Upstream CAO provider behavior may still exhibit the original marker/status drif
   - `extern/orphan/cli-agent-orchestrator/src/cli_agent_orchestrator/clients/tmux.py`
   - `get_history()` uses `capture-pane -e -p` (line ~304)
 - Brain launch runtime fallback behavior:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/backends/cao_rest.py`
+  - `src/agent_system_dissect/agents/realm_controller/backends/cao_rest.py`
   - `_get_terminal_output_with_fallback()` retries `mode=tail` (CAO does not implement it; returns `422`) then `mode=full`
 
 ## Reproduction (Minimal)

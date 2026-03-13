@@ -256,7 +256,7 @@ class FakeRunner:
                     else:
                         returncode, payload = self.m_launcher_stop_responses.pop(0)
                         stdout = json.dumps(payload)
-            elif module == "gig_agents.agents.brain_launch_runtime":
+            elif module == "gig_agents.agents.realm_controller":
                 if subcommand == "build-brain":
                     runtime_root = Path(self._argument_value(command, "--runtime-root"))
                     recipe_path = Path(self._argument_value(command, "--recipe"))

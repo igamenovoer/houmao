@@ -82,7 +82,7 @@ tmux-session-derived default instead. Build/start flows may still pass explicit
 
 #### Scenario: Interactive demo prompt and control flows rely on the runtime tmux-session default
 - **WHEN** a developer runs the interactive demo prompt, control-input, or stop workflow against an already-running session addressed by name
-- **THEN** the underlying `brain_launch_runtime send-prompt`, `send-keys`, or `stop-session` invocation omits explicit `--agent-def-dir`
+- **THEN** the underlying `realm_controller send-prompt`, `send-keys`, or `stop-session` invocation omits explicit `--agent-def-dir`
 - **AND THEN** the workflow relies on the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR` value instead of the caller's cwd-derived agents root
 
 ### Requirement: Tutorial and reference docs SHALL describe the split agent-definition-root resolution model

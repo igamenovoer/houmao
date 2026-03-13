@@ -1,4 +1,4 @@
-"""gig-agents runtime package."""
+"""Houmao runtime package."""
 
 from __future__ import annotations
 

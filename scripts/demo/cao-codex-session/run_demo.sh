@@ -152,7 +152,7 @@ cleanup() {
   set +e
 
   if [[ -n "${SESSION_MANIFEST}" && "$SESSION_STOPPED" -ne 1 ]]; then
-    pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
+    pixi run python -m gig_agents.agents.realm_controller stop-session \
       --agent-def-dir "$AGENT_DEF_DIR" \
       --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1 || true
   fi
@@ -281,7 +281,7 @@ ensure_cao_server
 cp "$SCRIPT_DIR/inputs/prompt.txt" "$WORKSPACE_DIR/prompt.txt"
 PROMPT="$(<"$WORKSPACE_DIR/prompt.txt")"
 
-run_cmd build pixi run python -m gig_agents.agents.brain_launch_runtime build-brain \
+run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --tool codex \
@@ -294,7 +294,7 @@ CODEX_HOME_PATH="$(extract_json_field "$WORKSPACE_DIR/build.log" home_path)"
 mark_workspace_trusted "$CODEX_HOME_PATH" "$WORKSPACE_DIR"
 log "marked workspace trusted for Codex: $WORKSPACE_DIR"
 
-run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+run_cmd start pixi run python -m gig_agents.agents.realm_controller start-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --brain-manifest "$MANIFEST_PATH" \
@@ -306,7 +306,7 @@ run_cmd start pixi run python -m gig_agents.agents.brain_launch_runtime start-se
 
 SESSION_MANIFEST="$(extract_json_field "$WORKSPACE_DIR/start.log" session_manifest)"
 
-run_cmd prompt pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
+run_cmd prompt pixi run python -m gig_agents.agents.realm_controller send-prompt \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" \
   --prompt "$PROMPT"
@@ -316,7 +316,7 @@ if [[ -z "${RESPONSE_TEXT// }" ]]; then
   fail "prompt response was empty"
 fi
 
-if pixi run python -m gig_agents.agents.brain_launch_runtime stop-session \
+if pixi run python -m gig_agents.agents.realm_controller stop-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1; then
   SESSION_STOPPED=1

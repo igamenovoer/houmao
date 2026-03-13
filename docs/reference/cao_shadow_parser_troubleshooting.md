@@ -59,7 +59,7 @@ Quick checks:
 - Success path: `tmux attach -t AGENTSYS-...` lands on the agent terminal, and `tmux list-windows -t AGENTSYS-...` shows only the agent window.
 - Warning path: attach may land on the bootstrap shell window and/or a second window may remain (bootstrap pruning skipped/failed). Shadow parsing is unaffected; this is window selection/pruning hygiene only.
 
-See: [Brain Launch Runtime window-hygiene checklist](./brain_launch_runtime.md#manual-verification-checklist-cao-startup-window-hygiene).
+See: [Realm Controller window-hygiene checklist](./realm_controller.md#manual-verification-checklist-cao-startup-window-hygiene).
 
 ## Unknown vs Stalled
 
@@ -223,7 +223,7 @@ Example:
 
 ```bash
 AGENTSYS_CAO_CODEX_VERSION=0.98.0 \
-pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+pixi run python -m gig_agents.agents.realm_controller start-session \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
@@ -266,12 +266,12 @@ curl -s "http://localhost:9889/terminals/<terminal-id>/output?mode=full" \
    - `tests/fixtures/shadow_parser/codex/<name>.txt`
    - `tests/fixtures/shadow_parser/claude/<name>.txt`
 4. Add or extend unit tests under:
-   - `tests/unit/agents/brain_launch_runtime/test_codex_shadow_parser.py`
-   - `tests/unit/agents/brain_launch_runtime/test_claude_code_shadow_parser.py`
+   - `tests/unit/agents/realm_controller/test_codex_shadow_parser.py`
+   - `tests/unit/agents/realm_controller/test_claude_code_shadow_parser.py`
 5. Run tests:
 
 ```bash
-pixi run python -m pytest tests/unit/agents/brain_launch_runtime/test_codex_shadow_parser.py tests/unit/agents/brain_launch_runtime/test_claude_code_shadow_parser.py
+pixi run python -m pytest tests/unit/agents/realm_controller/test_codex_shadow_parser.py tests/unit/agents/realm_controller/test_claude_code_shadow_parser.py
 ```
 
 6. If needed, temporarily use `--cao-parsing-mode cao_only` while shipping preset updates.

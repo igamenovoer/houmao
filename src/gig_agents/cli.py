@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from gig_agents.agents.brain_launch_runtime.cli import main
+from gig_agents.agents.realm_controller.cli import main
 
 __all__ = ["main"]
