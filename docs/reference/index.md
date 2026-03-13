@@ -8,6 +8,7 @@
 
 - [Realm Controller](realm_controller.md)
 - [Runtime-Managed Agents Reference](agents/index.md)
+- [Shared Registry Reference](registry/index.md)
 - [Agent Gateway Reference](gateway/index.md)
 - [Mailbox Reference](mailbox/index.md)
 - [Realm Controller Send-Keys](realm_controller_send_keys.md)

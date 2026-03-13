@@ -10,6 +10,7 @@
 For the new detailed reference trees, use:
 
 - [Runtime-Managed Agents Reference](./agents/index.md) for session targeting, interaction-path comparison, runtime-owned state, and recovery boundaries.
+- [Shared Registry Reference](./registry/index.md) for cross-runtime-root discovery, record contracts, cleanup behavior, and runtime publication hooks.
 - [Agent Gateway Reference](./gateway/index.md) for gateway attachability, HTTP and status contracts, queue behavior, and lifecycle handling.
 - [Mailbox Reference](./mailbox/index.md) for filesystem mailbox behavior and managed mailbox flows.
 
@@ -47,26 +48,14 @@ Command intent:
 
 ## Shared Agent Registry
 
-Runtime-owned tmux-backed sessions now publish a shared discovery record under one per-user registry root:
+Runtime-owned tmux-backed sessions publish a secret-free shared discovery record under one per-user registry root. That registry is a locator layer for cross-runtime-root recovery, not a replacement source of truth for `manifest.json`, tmux discovery, gateway state, or mailbox state.
 
-- Default root: `~/.houmao/registry/live_agents/<sha256(agent_name)>/record.json`
-- Override for CI or controlled environments: `AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/to/registry`
-- Canonical identity: registry-facing input accepts both `gpu` and `AGENTSYS-gpu`, but the stored `agent_name` is always the canonical `AGENTSYS-...` form.
-- Freshness: records use a 24-hour soft lease in v1, `published_at` and `lease_expires_at` must be timezone-aware timestamps, and the lease is refreshed on runtime-owned manifest persistence, gateway capability or attach changes, mailbox binding refresh, and resume flows.
-- Ownership: one fresh logical agent name maps to one live `generation_id`; duplicate fresh publishers stand down instead of coexisting.
-- Resolution behavior: missing, malformed, schema-invalid, or expired `record.json` files are treated as stale or unusable discovery state rather than as live records.
-- Scope: the registry stores only secret-free pointers such as manifest path, session root, gateway attach path, and mailbox identity. Authoritative runtime state remains under each session root.
+For the dedicated registry subtree, start at [Shared Registry Reference](./registry/index.md).
 
-When name-based control cannot resolve tmux-local discovery state, runtime falls back to the shared registry and validates the published manifest path plus stored `agent_def_dir` before resuming control. In practice this fallback covers missing tmux sessions as well as missing or stale `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_DEF_DIR` pointers, while manifest/session identity mismatches still fail fast.
-
-Use the minimal cleanup entrypoint when stale directories accumulate:
-
-```bash
-pixi run python -m houmao.agents.realm_controller cleanup-registry
-pixi run python -m houmao.agents.realm_controller cleanup-registry --grace-seconds 0
-```
-
-The cleanup command now reports three buckets: removed stale directories, preserved lease-fresh directories, and stale directories whose removal failed so operators can distinguish live entries from filesystem cleanup problems.
+- [Discovery And Cleanup](./registry/operations/discovery-and-cleanup.md): Name-based fallback from tmux-local discovery to the registry, plus `cleanup-registry` behavior and result buckets.
+- [Record And Layout](./registry/contracts/record-and-layout.md): Effective root resolution, hashed on-disk layout, and the strict v1 `record.json` shape.
+- [Resolution And Ownership](./registry/contracts/resolution-and-ownership.md): Canonical naming, `agent_key`, `generation_id`, freshness, conflicts, and stale-versus-hard-invalid outcomes.
+- [Runtime Integration](./registry/internals/runtime-integration.md): Publication hooks, persisted generation behavior, and the warning boundary for non-fatal registry refresh failures.
 
 ## Gateway-Capable Sessions
 
