@@ -5,6 +5,8 @@ This repo uses a **brain-first + role-first** model for running CLI agents:
 - **Brains** are tool-specific runtime homes constructed from reusable components.
 - **Roles** are brain-agnostic system prompts (plus optional supporting files).
 
+For the runtime-managed session model layered on top of these built homes, use [Runtime-Managed Agents Reference](./agents/index.md). For the optional per-session gateway sidecar, use [Agent Gateway Reference](./gateway/index.md).
+
 The canonical on-disk sources live under an **agent definition directory** that
 contains `brains/`, `roles/`, and `blueprints/`. The generated runtime homes
 live under a runtime root (default: `tmp/agents-runtime/`) and are safe to
@@ -158,6 +160,12 @@ The helper:
   executing `codex`.
 - for Claude homes, runs shared Claude bootstrap validation/materialization
   before executing `claude`.
+
+Once you want repo-owned lifecycle control instead of raw helper execution, the next references are:
+
+- [Brain Launch Runtime](brain_launch_runtime.md)
+- [Runtime-Managed Agents Reference](./agents/index.md)
+- [Agent Gateway Reference](./gateway/index.md)
 
 ## Roles
 
