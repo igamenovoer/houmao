@@ -11,7 +11,7 @@ pixi install
 ## Primary Commands
 
 - Runtime CLI: `houmao-cli`
-- CAO launcher CLI: `gig-cao-server`
+- CAO launcher CLI: `houmao-cao-server`
 
 Runtime subcommands:
 
@@ -25,8 +25,8 @@ Runtime subcommands:
 Module equivalents:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller --help
-pixi run python -m gig_agents.cao.tools.cao_server_launcher --help
+pixi run python -m houmao.agents.realm_controller --help
+pixi run python -m houmao.cao.tools.cao_server_launcher --help
 ```
 
 ## Common Runtime Flags

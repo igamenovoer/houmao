@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from gig_agents.agents.realm_controller.boundary_models import (
+from houmao.agents.realm_controller.boundary_models import (
     LaunchPlanPayloadV1,
     SessionManifestPayloadV2,
 )
@@ -35,7 +35,7 @@ def test_packaged_schema_matches_pydantic_model(
 
 
 def _load_packaged_schema(schema_name: str) -> dict[str, Any]:
-    schema_path = resources.files("gig_agents.agents.realm_controller.schemas") / schema_name
+    schema_path = resources.files("houmao.agents.realm_controller.schemas") / schema_name
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 

@@ -43,7 +43,7 @@ sequenceDiagram
 Use `mail check` when you want the session to interpret or summarize mailbox content using the runtime-owned contract.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller mail check \
+pixi run python -m houmao.agents.realm_controller mail check \
   --agent-identity AGENTSYS-research \
   --unread-only \
   --limit 10
@@ -61,7 +61,7 @@ Operational guidance:
 Use `mail send` for session-owned composition.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller mail send \
+pixi run python -m houmao.agents.realm_controller mail send \
   --agent-identity AGENTSYS-research \
   --to AGENTSYS-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
@@ -100,7 +100,7 @@ sequenceDiagram
 Use `mail reply` when you already know the parent `message_id`.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller mail reply \
+pixi run python -m houmao.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
   --message-id msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
@@ -127,9 +127,9 @@ If managed `rules/scripts/` assets are missing, treat that as a bootstrap or ini
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/cli.py`](../../../../src/gig_agents/agents/realm_controller/cli.py)
-- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../../src/gig_agents/agents/realm_controller/mail_commands.py)
-- [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/mailbox/assets/rules/README.md`](../../../../src/gig_agents/mailbox/assets/rules/README.md)
-- [`src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
-- [`src/gig_agents/mailbox/managed.py`](../../../../src/gig_agents/mailbox/managed.py)
+- [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
+- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
+- [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
+- [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)
+- [`src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
+- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)

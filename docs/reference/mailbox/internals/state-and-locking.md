@@ -93,8 +93,8 @@ This would be much harder if read or archive flags were encoded by rewriting mes
 
 ## Source References
 
-- [`src/gig_agents/mailbox/filesystem.py`](../../../../src/gig_agents/mailbox/filesystem.py)
-- [`src/gig_agents/mailbox/managed.py`](../../../../src/gig_agents/mailbox/managed.py)
-- [`src/gig_agents/mailbox/protocol.py`](../../../../src/gig_agents/mailbox/protocol.py)
+- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
+- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
+- [`src/houmao/mailbox/protocol.py`](../../../../src/houmao/mailbox/protocol.py)
 - [`tests/unit/mailbox/test_filesystem.py`](../../../../tests/unit/mailbox/test_filesystem.py)
 - [`tests/unit/mailbox/test_managed.py`](../../../../tests/unit/mailbox/test_managed.py)

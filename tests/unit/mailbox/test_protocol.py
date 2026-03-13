@@ -5,8 +5,8 @@ import re
 
 import pytest
 
-from gig_agents.mailbox.errors import MailboxProtocolError
-from gig_agents.mailbox.protocol import (
+from houmao.mailbox.errors import MailboxProtocolError
+from houmao.mailbox.protocol import (
     MESSAGE_ID_PATTERN,
     MailboxAttachment,
     MailboxMessage,

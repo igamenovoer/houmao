@@ -122,7 +122,7 @@ def _run_launcher_command(
         [
             sys.executable,
             "-m",
-            "gig_agents.cao.tools.cao_server_launcher",
+            "houmao.cao.tools.cao_server_launcher",
             command_name,
             "--config",
             str(config_path),

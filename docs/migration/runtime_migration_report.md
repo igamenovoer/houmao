@@ -5,12 +5,12 @@ Date: 2026-03-05
 ## Scope Summary
 
 This change completed copy-first extraction of the runtime subsystem from
-`agent-system-dissect` into `extern/tracked/gig-agents`.
+`agent-system-dissect` into the tracked Houmao repository.
 
 Copied runtime scope includes:
 
 - Runtime source modules:
-  - `src/agent_system_dissect/agents/brain_launch_runtime/**`
+  - `src/agent_system_dissect/agents/realm_controller/**`
   - `src/agent_system_dissect/agents/brain_builder.py`
   - `src/agent_system_dissect/agents/__init__.py`
   - `src/agent_system_dissect/cao/**`
@@ -99,9 +99,9 @@ Archived changes copied to `openspec/changes/archive/`:
   - required runtime schemas are present in both wheel and sdist
   - excluded development trees (`tests/`, `scripts/`, `docs/`, `openspec/`, `config/`, `examples/`) are absent from artifacts
 - Main workspace integration:
-  - editable dependency wiring resolves `gig_agents` import from submodule path
+  - editable dependency wiring resolves `houmao` import from submodule path
   - `pixi run houmao-cli --help` -> pass
-  - `pixi run gig-cao-server --help` -> pass
+  - `pixi run houmao-cao-server --help` -> pass
 
 ## Residual Mismatches / Follow-Ups
 

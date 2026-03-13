@@ -86,7 +86,7 @@ ensure_cao_server() {
   local launcher_status_output_path="$WORKSPACE_DIR/cao-status.json"
   local launcher_status_error_path="$WORKSPACE_DIR/cao-status.err"
   local status_healthy=0
-  if pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
+  if pixi run python -m houmao.cao.tools.cao_server_launcher status \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_status_output_path" 2>"$launcher_status_error_path"; then
     status_healthy=1
   fi
@@ -107,7 +107,7 @@ ensure_cao_server() {
   local resolved_pid=""
 
   log "starting/attaching CAO server via launcher"
-  if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+  if ! pixi run python -m houmao.cao.tools.cao_server_launcher start \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
     skip "CAO connectivity unavailable (launcher start failed, see $launcher_error_path)"
   fi
@@ -119,9 +119,9 @@ ensure_cao_server() {
   if [[ "$reused_existing_process" -eq 1 && -z "$resolved_pid" ]]; then
     log "ownership mismatch: launcher reused untracked CAO server at ${CAO_BASE_URL}"
     log "retrying via launcher stop/start to restore managed context"
-    pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+    pixi run python -m houmao.cao.tools.cao_server_launcher stop \
       --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_stop_output_path" 2>"$launcher_stop_error_path" || true
-    if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+    if ! pixi run python -m houmao.cao.tools.cao_server_launcher start \
       --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_retry_output_path" 2>"$launcher_retry_error_path"; then
       skip "CAO connectivity unavailable (launcher retry failed after ownership mismatch, see $launcher_retry_error_path)"
     fi
@@ -145,7 +145,7 @@ stop_cao_server_if_started() {
   local launcher_output_path="$WORKSPACE_DIR/cao-stop.json"
   local launcher_error_path="$WORKSPACE_DIR/cao-stop.err"
   log "stopping cao-server via launcher"
-  pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+  pixi run python -m houmao.cao.tools.cao_server_launcher stop \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path" || true
 }
 
@@ -153,7 +153,7 @@ cleanup() {
   set +e
 
   if [[ -n "${SESSION_MANIFEST}" && "$SESSION_STOPPED" -ne 1 ]]; then
-    pixi run python -m gig_agents.agents.realm_controller stop-session \
+    pixi run python -m houmao.agents.realm_controller stop-session \
       --agent-def-dir "$AGENT_DEF_DIR" \
       --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1 || true
   fi
@@ -242,7 +242,7 @@ SECOND_PROMPT_PATH="$WORKSPACE_DIR/second_prompt.txt"
 cp "$SCRIPT_DIR/inputs/first_prompt.txt" "$FIRST_PROMPT_PATH"
 cp "$SCRIPT_DIR/inputs/second_prompt.txt" "$SECOND_PROMPT_PATH"
 
-run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain \
+run_cmd build pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --tool claude \
@@ -252,7 +252,7 @@ run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain 
 
 MANIFEST_PATH="$(extract_json_field "$WORKSPACE_DIR/build.log" manifest_path)"
 
-run_cmd start pixi run python -m gig_agents.agents.realm_controller start-session \
+run_cmd start pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --brain-manifest "$MANIFEST_PATH" \
@@ -271,7 +271,7 @@ run_cmd driver pixi run python "$SCRIPT_DIR/scripts/interrupt_driver.py" \
   --second-prompt-file "$SECOND_PROMPT_PATH" \
   --output-json "$DRIVER_REPORT_PATH"
 
-if pixi run python -m gig_agents.agents.realm_controller stop-session \
+if pixi run python -m houmao.agents.realm_controller stop-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1; then
   SESSION_STOPPED=1

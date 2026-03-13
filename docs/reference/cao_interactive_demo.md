@@ -72,7 +72,7 @@ The per-run workspace keeps the major artifact families separate:
 
 ## Implementation Layout
 
-The canonical package is `gig_agents.demo.cao_interactive_demo`.
+The canonical package is `houmao.demo.cao_interactive_demo`.
 
 | Module | Responsibility |
 | --- | --- |
@@ -87,10 +87,10 @@ The canonical package is `gig_agents.demo.cao_interactive_demo`.
 ## How It Connects To The Runtime
 
 1. Wrapper scripts delegate to `run_demo.sh`.
-2. `run_demo.sh` invokes `pixi run python -m gig_agents.demo.cao_interactive_demo.cli`.
+2. `run_demo.sh` invokes `pixi run python -m houmao.demo.cao_interactive_demo.cli`.
 3. The demo package resolves the selected brain recipe under `tests/fixtures/agents/brains/brain-recipes/` (or the overridden agent-definition directory).
-4. The demo delegates brain construction through `gig_agents.agents.realm_controller build-brain --recipe <resolved-path>`.
-5. The demo uses `gig_agents.agents.realm_controller` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
+4. The demo delegates brain construction through `houmao.agents.realm_controller build-brain --recipe <resolved-path>`.
+5. The demo uses `houmao.agents.realm_controller` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
 6. Build/start still pass the explicit demo-selected agent-definition directory, but prompt/control/stop flows target the persisted agent name and rely on the session's published `AGENTSYS_AGENT_DEF_DIR`.
 
 For the lower-level runtime contract, see [Realm Controller](./realm_controller.md).

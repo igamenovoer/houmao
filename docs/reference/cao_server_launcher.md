@@ -1,6 +1,6 @@
 # CAO Server Launcher
 
-`gig_agents.cao.server_launcher` provides a repo-owned launcher for managing a local `cao-server` process with explicit config, detached standalone startup semantics, and deterministic runtime artifacts.
+`houmao.cao.server_launcher` provides a repo-owned launcher for managing a local `cao-server` process with explicit config, detached standalone startup semantics, and deterministic runtime artifacts.
 
 ## Install requirement
 
@@ -42,15 +42,15 @@ Validation rules:
 ## CLI
 
 ```bash
-pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config config/cao-server-launcher/local.toml
-pixi run python -m gig_agents.cao.tools.cao_server_launcher start --config config/cao-server-launcher/local.toml
-pixi run python -m gig_agents.cao.tools.cao_server_launcher stop --config config/cao-server-launcher/local.toml
+pixi run python -m houmao.cao.tools.cao_server_launcher status --config config/cao-server-launcher/local.toml
+pixi run python -m houmao.cao.tools.cao_server_launcher start --config config/cao-server-launcher/local.toml
+pixi run python -m houmao.cao.tools.cao_server_launcher stop --config config/cao-server-launcher/local.toml
 ```
 
 One-shot CLI overrides apply before validation and do not rewrite the config file:
 
 ```bash
-pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+pixi run python -m houmao.cao.tools.cao_server_launcher start \
   --config config/cao-server-launcher/local.toml \
   --base-url http://127.0.0.1:9991
 ```
@@ -132,12 +132,12 @@ Recommended layout for `/data/...` workflows:
    `mkdir -p /data/$USER/cao-home/repos && cp -a <repo> /data/$USER/cao-home/repos/`.
 2. Point launcher config `home_dir` to `/data/$USER/cao-home`.
 3. Start CAO:
-   `pixi run python -m gig_agents.cao.tools.cao_server_launcher start --config <config>`.
+   `pixi run python -m houmao.cao.tools.cao_server_launcher start --config <config>`.
 4. Start a CAO-backed runtime session with `--workdir` inside that home tree.
 5. Confirm session start succeeds for `/data/...` workdir.
 6. Confirm CAO state exists under
    `/data/$USER/cao-home/.aws/cli-agent-orchestrator/`.
 7. Confirm a later independent status check still succeeds:
-   `pixi run python -m gig_agents.cao.tools.cao_server_launcher status --config <config>`.
+   `pixi run python -m houmao.cao.tools.cao_server_launcher status --config <config>`.
 8. Stop CAO:
-   `pixi run python -m gig_agents.cao.tools.cao_server_launcher stop --config <config>`.
+   `pixi run python -m houmao.cao.tools.cao_server_launcher stop --config <config>`.

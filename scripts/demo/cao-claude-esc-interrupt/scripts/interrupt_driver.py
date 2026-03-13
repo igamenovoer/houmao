@@ -11,14 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gig_agents.agents.realm_controller.runtime import resume_runtime_session
-from gig_agents.agents.realm_controller.backends.claude_code_shadow import (
+from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.backends.claude_code_shadow import (
     ClaudeCodeExtractionResult,
     ClaudeCodeShadowParseError,
     ClaudeCodeShadowParser,
     ClaudeCodeShadowStatus,
 )
-from gig_agents.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.cao.rest_client import CaoApiError, CaoRestClient
 
 
 class ProcessingNotObservedError(RuntimeError):

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from gig_agents.cao.no_proxy import (
+from houmao.cao.no_proxy import (
     LOOPBACK_NO_PROXY_ENTRIES,
     PRESERVE_NO_PROXY_ENV_VAR,
     inject_loopback_no_proxy_env,

@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.errors import SessionManifestError
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
     load_session_manifest,
     write_session_manifest,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )

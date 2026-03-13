@@ -1,4 +1,4 @@
-# Copilot Instructions for gig-agents
+# Copilot Instructions for houmao
 
 ## Build, Test, and Lint
 
@@ -29,7 +29,7 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ## Architecture
 
-`gig-agents` is a framework + CLI for building **teams of CLI-based agents** (codex, claude, gemini) that run as real tmux-backed processes.
+`Houmao` is a framework + CLI for building **teams of CLI-based agents** (codex, claude, gemini) that run as real tmux-backed processes.
 
 ### Two-phase lifecycle
 
@@ -39,7 +39,7 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Backend model
 
-All backends implement a common `InteractiveSession` protocol (`models.py`). Current backends in `src/gig_agents/agents/brain_launch_runtime/backends/`:
+All backends implement a common `InteractiveSession` protocol (`models.py`). Current backends in `src/houmao/agents/realm_controller/backends/`:
 
 - `codex_headless` / `codex_app_server` — OpenAI Codex CLI (headless JSON‑stream or app-server HTTP)
 - `claude_headless` — Anthropic Claude Code CLI
@@ -64,8 +64,8 @@ blueprints/*.yaml                # optional recipe+role bindings
 
 ### CLI entry points
 
-- `gig-agents-cli` → `src/gig_agents/cli.py` → delegates to `agents.brain_launch_runtime.cli`
-- `gig-cao-server` → `src/gig_agents/cao_cli.py` → CAO server lifecycle management
+- `houmao-cli` → `src/houmao/cli.py` → delegates to `agents.realm_controller.cli`
+- `houmao-cao-server` → `src/houmao/cao_cli.py` → CAO server lifecycle management
 
 ### Supporting directories
 

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.shadow_answer_association import (
+from houmao.agents.realm_controller.backends.shadow_answer_association import (
     TailRegexExtractAssociator,
 )
-from gig_agents.agents.realm_controller.backends.shadow_parser_core import (
+from houmao.agents.realm_controller.backends.shadow_parser_core import (
     DialogProjection,
     ProjectionMetadata,
     ShadowParserMetadata,

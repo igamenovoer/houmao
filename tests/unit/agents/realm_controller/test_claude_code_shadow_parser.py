@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.claude_code_shadow import (
+from houmao.agents.realm_controller.backends.claude_code_shadow import (
     ClaudeCodeShadowParser,
 )
-from gig_agents.agents.realm_controller.backends.shadow_parser_core import (
+from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
     ANOMALY_PRESET_OVERRIDE_USED,
     ANOMALY_UNKNOWN_VERSION_FLOOR_USED,

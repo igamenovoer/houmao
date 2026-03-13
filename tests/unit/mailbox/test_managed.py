@@ -8,11 +8,11 @@ import sys
 
 import pytest
 
-from gig_agents.mailbox.filesystem import (
+from houmao.mailbox.filesystem import (
     bootstrap_filesystem_mailbox,
     load_active_mailbox_registration,
 )
-from gig_agents.mailbox.managed import (
+from houmao.mailbox.managed import (
     DeliveryRequest,
     DeregisterMailboxRequest,
     ManagedMailboxOperationError,
@@ -25,10 +25,10 @@ from gig_agents.mailbox.managed import (
     repair_mailbox_index,
     update_mailbox_state,
 )
-from gig_agents.mailbox.protocol import MailboxMessage, MailboxPrincipal, serialize_message_document
+from houmao.mailbox.protocol import MailboxMessage, MailboxPrincipal, serialize_message_document
 
 _REPO_ROOT = Path(__file__).resolve().parents[2].parent
-_MANAGED_SCRIPT_DIR = _REPO_ROOT / "src" / "gig_agents" / "mailbox" / "assets" / "rules" / "scripts"
+_MANAGED_SCRIPT_DIR = _REPO_ROOT / "src" / "houmao" / "mailbox" / "assets" / "rules" / "scripts"
 
 
 def _write_canonical_staged_message(

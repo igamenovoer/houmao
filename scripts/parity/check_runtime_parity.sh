@@ -2,10 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GIG_AGENTS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SOURCE_REPO_ROOT="${SOURCE_REPO_ROOT:-$(cd "$GIG_AGENTS_ROOT/../../.." && pwd)}"
+HOUMAO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SOURCE_REPO_ROOT="${SOURCE_REPO_ROOT:-$(cd "$HOUMAO_ROOT/../../.." && pwd)}"
 SOURCE_SCHEMA_DIR="$SOURCE_REPO_ROOT/src/agent_system_dissect/agents/realm_controller/schemas"
-DEST_SCHEMA_DIR="$GIG_AGENTS_ROOT/src/gig_agents/agents/realm_controller/schemas"
+DEST_SCHEMA_DIR="$HOUMAO_ROOT/src/houmao/agents/realm_controller/schemas"
 
 log() {
   echo "[parity] $*"
@@ -24,7 +24,7 @@ if [[ ! -d "$DEST_SCHEMA_DIR" ]]; then
 fi
 
 log "source repo root: $SOURCE_REPO_ROOT"
-log "destination root: $GIG_AGENTS_ROOT"
+log "destination root: $HOUMAO_ROOT"
 
 log "checking schema parity"
 while IFS= read -r schema; do
@@ -38,7 +38,7 @@ while IFS= read -r schema; do
 done < <(find "$SOURCE_SCHEMA_DIR" -type f -name '*.json' | sort)
 
 log "checking stale import paths"
-if rg -n -- "^(from|import) agent_system_dissect" "$GIG_AGENTS_ROOT/src" "$GIG_AGENTS_ROOT/tests" "$GIG_AGENTS_ROOT/scripts" >/dev/null; then
+if rg -n -- "^(from|import) agent_system_dissect" "$HOUMAO_ROOT/src" "$HOUMAO_ROOT/tests" "$HOUMAO_ROOT/scripts" >/dev/null; then
   fail "found stale agent_system_dissect imports in destination runtime paths"
 fi
 

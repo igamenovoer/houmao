@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from gig_agents.agents.brain_builder import (
+from houmao.agents.brain_builder import (
     BuildError,
     BuildRequest,
     _load_tool_adapter,
     build_brain_home,
     load_brain_recipe,
 )
-from gig_agents.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 
 
 def _write(path: Path, content: str) -> None:

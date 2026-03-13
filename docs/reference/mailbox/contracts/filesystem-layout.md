@@ -88,7 +88,7 @@ If you need the exact message schema, pair this page with [Canonical Model](cano
 
 ## Source References
 
-- [`src/gig_agents/mailbox/filesystem.py`](../../../../src/gig_agents/mailbox/filesystem.py)
-- [`src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/gig_agents/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
-- [`src/gig_agents/mailbox/assets/rules/README.md`](../../../../src/gig_agents/mailbox/assets/rules/README.md)
-- [`src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md`](../../../../src/gig_agents/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md)
+- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
+- [`src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
+- [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/filesystem-layout.md)

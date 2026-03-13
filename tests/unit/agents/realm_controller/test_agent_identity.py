@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from gig_agents.agents.realm_controller.agent_identity import (
+from houmao.agents.realm_controller.agent_identity import (
     is_path_like_agent_identity,
     normalize_agent_identity_name,
 )
-from gig_agents.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import SessionManifestError
 
 
 @pytest.mark.parametrize(

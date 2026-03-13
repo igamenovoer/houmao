@@ -110,7 +110,7 @@ else
 fi
 
 PYTHON_ARGS=(
-  pixi run python -m gig_agents.demo.cao_interactive_demo.cli
+  pixi run python -m houmao.demo.cao_interactive_demo.cli
   --repo-root "$REPO_ROOT"
 )
 

@@ -15,7 +15,7 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 
 ## Key Terms
 
-- `runtime-managed session`: A session started or resumed through `gig_agents.agents.realm_controller`, with persisted runtime state and repo-owned control behavior.
+- `runtime-managed session`: A session started or resumed through `houmao.agents.realm_controller`, with persisted runtime state and repo-owned control behavior.
 - `session root`: The runtime-owned directory at `<runtime_root>/sessions/<backend>/<session-id>/`.
 - `session manifest`: The schema-validated `manifest.json` written under the session root and used for resume or control.
 - `direct control`: Runtime commands such as `send-prompt` or `send-keys` that act against the resumed backend session directly.
@@ -45,9 +45,9 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/cli.py`](../../../src/gig_agents/agents/realm_controller/cli.py)
-- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../src/gig_agents/agents/realm_controller/runtime.py)
-- [`src/gig_agents/agents/realm_controller/manifest.py`](../../../src/gig_agents/agents/realm_controller/manifest.py)
-- [`src/gig_agents/agents/realm_controller/agent_identity.py`](../../../src/gig_agents/agents/realm_controller/agent_identity.py)
-- [`src/gig_agents/agents/realm_controller/errors.py`](../../../src/gig_agents/agents/realm_controller/errors.py)
+- [`src/houmao/agents/realm_controller/cli.py`](../../../src/houmao/agents/realm_controller/cli.py)
+- [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/realm_controller/manifest.py`](../../../src/houmao/agents/realm_controller/manifest.py)
+- [`src/houmao/agents/realm_controller/agent_identity.py`](../../../src/houmao/agents/realm_controller/agent_identity.py)
+- [`src/houmao/agents/realm_controller/errors.py`](../../../src/houmao/agents/realm_controller/errors.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)

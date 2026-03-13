@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.codex_bootstrap import (
+from houmao.agents.realm_controller.backends.codex_bootstrap import (
     ensure_codex_home_bootstrap,
 )
-from gig_agents.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import BackendExecutionError
 
 
 def _read_config(home_path: Path) -> tuple[str, dict[str, object]]:

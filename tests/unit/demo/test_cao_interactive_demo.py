@@ -10,14 +10,14 @@ from types import ModuleType
 
 import pytest
 
-import gig_agents.demo.cao_interactive_demo as interactive_demo
-import gig_agents.demo.cao_interactive_demo.cao_server as demo_cao_server
-import gig_agents.demo.cao_interactive_demo.cli as demo_cli
-import gig_agents.demo.cao_interactive_demo.commands as demo_commands
-import gig_agents.demo.cao_interactive_demo.models as demo_models
-import gig_agents.demo.cao_interactive_demo.rendering as demo_rendering
-import gig_agents.demo.cao_interactive_demo.runtime as demo_runtime
-from gig_agents.demo.cao_interactive_demo import (
+import houmao.demo.cao_interactive_demo as interactive_demo
+import houmao.demo.cao_interactive_demo.cao_server as demo_cao_server
+import houmao.demo.cao_interactive_demo.cli as demo_cli
+import houmao.demo.cao_interactive_demo.commands as demo_commands
+import houmao.demo.cao_interactive_demo.models as demo_models
+import houmao.demo.cao_interactive_demo.rendering as demo_rendering
+import houmao.demo.cao_interactive_demo.runtime as demo_runtime
+from houmao.demo.cao_interactive_demo import (
     FIXED_CAO_BASE_URL,
     CommandResult,
     DemoEnvironment,
@@ -36,7 +36,7 @@ from gig_agents.demo.cao_interactive_demo import (
     stop_demo,
     verify_demo,
 )
-from gig_agents.demo.cao_interactive_demo.runtime import (
+from houmao.demo.cao_interactive_demo.runtime import (
     _run_subprocess_command_with_wait_feedback,
 )
 
@@ -243,7 +243,7 @@ class FakeRunner:
             module = command[4]
             subcommand = command[5]
 
-            if module == "gig_agents.cao.tools.cao_server_launcher":
+            if module == "houmao.cao.tools.cao_server_launcher":
                 if subcommand == "status":
                     returncode, payload = self.m_launcher_status_responses.pop(0)
                     stdout = json.dumps(payload)
@@ -256,7 +256,7 @@ class FakeRunner:
                     else:
                         returncode, payload = self.m_launcher_stop_responses.pop(0)
                         stdout = json.dumps(payload)
-            elif module == "gig_agents.agents.realm_controller":
+            elif module == "houmao.agents.realm_controller":
                 if subcommand == "build-brain":
                     runtime_root = Path(self._argument_value(command, "--runtime-root"))
                     recipe_path = Path(self._argument_value(command, "--recipe"))
@@ -744,7 +744,7 @@ def test_start_demo_replaces_verified_cao_server_automatically(
     )
 
     assert any(
-        call[4] == "gig_agents.cao.tools.cao_server_launcher" and call[5] == "stop"
+        call[4] == "houmao.cao.tools.cao_server_launcher" and call[5] == "stop"
         for call in runner.calls
         if len(call) > 5
     )
@@ -788,7 +788,7 @@ def test_start_demo_verified_cao_replacement_stays_on_launcher_managed_path(
     )
 
     assert any(
-        call[4] == "gig_agents.cao.tools.cao_server_launcher" and call[5] == "stop"
+        call[4] == "houmao.cao.tools.cao_server_launcher" and call[5] == "stop"
         for call in runner.calls
         if len(call) > 5
     )
@@ -868,7 +868,7 @@ def test_start_demo_verified_cao_replacement_retries_later_known_configs_after_i
         call
         for call in runner.calls
         if len(call) > 5
-        and call[4] == "gig_agents.cao.tools.cao_server_launcher"
+        and call[4] == "houmao.cao.tools.cao_server_launcher"
         and call[5] == "stop"
     ]
     assert len(stop_calls) == 2

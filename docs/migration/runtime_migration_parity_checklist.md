@@ -45,9 +45,9 @@ python -m venv tmp/wheel-smoke
 source tmp/wheel-smoke/bin/activate
 pip install --upgrade pip
 pip install dist/*.whl
-python -c "import gig_agents; import gig_agents.agents.realm_controller"
+python -c "import houmao; import houmao.agents.realm_controller"
 houmao-cli --help
-gig-cao-server --help
+houmao-cao-server --help
 ```
 
 ## Optional Manual Headless tmux Smoke

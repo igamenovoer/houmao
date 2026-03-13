@@ -20,7 +20,7 @@ The runtime supports two targeting models.
 Pass a manifest path as `--agent-identity` when you already know the exact session root:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
@@ -36,7 +36,7 @@ Rules:
 Pass a tmux name such as `AGENTSYS-gpu` when you want the runtime to resolve the manifest through the live tmux session:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Summarize the current plan"
 ```
@@ -120,8 +120,8 @@ These docs intentionally describe the implemented behavior, not the full design 
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/cli.py`](../../../../src/gig_agents/agents/realm_controller/cli.py)
-- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
-- [`src/gig_agents/agents/realm_controller/agent_identity.py`](../../../../src/gig_agents/agents/realm_controller/agent_identity.py)
-- [`src/gig_agents/agents/realm_controller/manifest.py`](../../../../src/gig_agents/agents/realm_controller/manifest.py)
+- [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
+- [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/realm_controller/agent_identity.py`](../../../../src/houmao/agents/realm_controller/agent_identity.py)
+- [`src/houmao/agents/realm_controller/manifest.py`](../../../../src/houmao/agents/realm_controller/manifest.py)
 - [`docs/reference/realm_controller_send_keys.md`](../../realm_controller_send_keys.md)

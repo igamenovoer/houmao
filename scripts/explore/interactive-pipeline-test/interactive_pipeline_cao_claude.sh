@@ -194,7 +194,7 @@ BUILD_JSON="$RUNTIME_ROOT/build.json"
 START_JSON="$RUNTIME_ROOT/start.json"
 
 log "Building Claude brain (hard-coded defaults) ..."
-pixi run python -m gig_agents.agents.realm_controller build-brain \
+pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --tool "$DEFAULT_TOOL" \
@@ -208,7 +208,7 @@ BRAIN_MANIFEST="$(extract_json_field "$BUILD_JSON" manifest_path)" || {
 }
 
 log "Starting CAO-backed session ..."
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --brain-manifest "$BRAIN_MANIFEST" \
@@ -243,5 +243,5 @@ echo
 echo "  3) After each turn, inspect tmux and only then send the next prompt."
 echo
 echo "  4) Stop session only when explicitly done:"
-echo "     pixi run python -m gig_agents.agents.realm_controller stop-session \\"
+echo "     pixi run python -m houmao.agents.realm_controller stop-session \\"
 echo "       --agent-def-dir $AGENT_DEF_DIR --agent-identity $RESOLVED_AGENT_IDENTITY"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gig_agents.agents.realm_controller.backends.headless_runner import (
+from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessCliRunner,
 )
 

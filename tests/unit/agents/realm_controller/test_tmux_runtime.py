@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.tmux_runtime import (
+from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     create_tmux_session,
     has_tmux_session,

@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.tmux_runtime import (
+from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxControlInputError,
     TmuxControlInputSegment,
     parse_tmux_control_input,
     send_tmux_control_input,
 )
-from gig_agents.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from gig_agents.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.runtime import RuntimeSessionController
 
 
 def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
@@ -91,7 +91,7 @@ def test_send_tmux_control_input_uses_literal_mode_without_auto_enter(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
         _fake_run_tmux,
     )
 

@@ -234,7 +234,7 @@ PY
   }
 
   log "starting cao-server via launcher (log: $server_log_path)"
-  if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+  if ! pixi run python -m houmao.cao.tools.cao_server_launcher start \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
     fail "cao-server launcher start failed (see $launcher_error_path)"
   fi
@@ -247,7 +247,7 @@ PY
     killed_count="$(terminate_local_cao_server_on_base_url || echo "0")"
     log "terminated ${killed_count} existing local cao-server process(es) on ${CAO_BASE_URL}"
 
-    if ! pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+    if ! pixi run python -m houmao.cao.tools.cao_server_launcher start \
       --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path"; then
       fail "cao-server launcher restart failed (see $launcher_error_path)"
     fi
@@ -271,7 +271,7 @@ stop_cao_server_if_started() {
   local launcher_output_path="$WORKSPACE_DIR/cao-stop.json"
   local launcher_error_path="$WORKSPACE_DIR/cao-stop.err"
   log "stopping cao-server via launcher"
-  pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+  pixi run python -m houmao.cao.tools.cao_server_launcher stop \
     --config "$CAO_LAUNCHER_CONFIG_PATH" >"$launcher_output_path" 2>"$launcher_error_path" || true
 }
 
@@ -279,7 +279,7 @@ cleanup() {
   set +e
 
   if [[ -n "${SESSION_MANIFEST}" && "$SESSION_STOPPED" -ne 1 ]]; then
-    pixi run python -m gig_agents.agents.realm_controller stop-session \
+    pixi run python -m houmao.agents.realm_controller stop-session \
       --agent-def-dir "$AGENT_DEF_DIR" \
       --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1 || true
   fi
@@ -378,7 +378,7 @@ ensure_cao_server
 cp "$SCRIPT_DIR/inputs/prompt.txt" "$WORKSPACE_DIR/prompt.txt"
 PROMPT="$(<"$WORKSPACE_DIR/prompt.txt")"
 
-run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain \
+run_cmd build pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --tool claude \
@@ -388,7 +388,7 @@ run_cmd build pixi run python -m gig_agents.agents.realm_controller build-brain 
 
 MANIFEST_PATH="$(extract_json_field "$WORKSPACE_DIR/build.log" manifest_path)"
 
-run_cmd start pixi run python -m gig_agents.agents.realm_controller start-session \
+run_cmd start pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --runtime-root "$RUNTIME_ROOT" \
   --brain-manifest "$MANIFEST_PATH" \
@@ -400,7 +400,7 @@ run_cmd start pixi run python -m gig_agents.agents.realm_controller start-sessio
 
 SESSION_MANIFEST="$(extract_json_field "$WORKSPACE_DIR/start.log" session_manifest)"
 
-run_cmd prompt pixi run python -m gig_agents.agents.realm_controller send-prompt \
+run_cmd prompt pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" \
   --prompt "$PROMPT"
@@ -410,7 +410,7 @@ if [[ -z "${RESPONSE_TEXT// }" ]]; then
   fail "prompt response was empty"
 fi
 
-if pixi run python -m gig_agents.agents.realm_controller stop-session \
+if pixi run python -m houmao.agents.realm_controller stop-session \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$SESSION_MANIFEST" >"$WORKSPACE_DIR/stop.log" 2>&1; then
   SESSION_STOPPED=1

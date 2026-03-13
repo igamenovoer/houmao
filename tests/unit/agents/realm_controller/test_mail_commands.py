@@ -6,23 +6,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from gig_agents.agents.realm_controller import cli
-from gig_agents.agents.realm_controller.errors import (
+from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     MailboxResultParseError,
 )
-from gig_agents.agents.realm_controller.mail_commands import (
+from houmao.agents.realm_controller.mail_commands import (
     parse_mail_result,
     prepare_mail_prompt,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
     SessionEvent,
 )
-from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
-from gig_agents.agents.mailbox_runtime_support import mailbox_env_bindings
-from gig_agents.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
 
 def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> LaunchPlan:
@@ -142,7 +142,7 @@ def test_mail_check_cli_prints_structured_result(
             ]
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -150,7 +150,7 @@ def test_mail_check_cli_prints_structured_result(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -214,7 +214,7 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
             ]
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -222,7 +222,7 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -266,7 +266,7 @@ def test_mail_send_cli_rejects_short_recipient_names(
             raise AssertionError(f"send_prompt should not run for invalid CLI input: {prompt}")
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -274,7 +274,7 @@ def test_mail_send_cli_rejects_short_recipient_names(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -314,7 +314,7 @@ def test_mail_command_errors_for_missing_bootstrap_assets(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -322,7 +322,7 @@ def test_mail_command_errors_for_missing_bootstrap_assets(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -355,7 +355,7 @@ def test_mail_command_errors_for_busy_session(
             raise BackendExecutionError("session busy")
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -363,7 +363,7 @@ def test_mail_command_errors_for_busy_session(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -396,7 +396,7 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
             return [SessionEvent(kind="assistant", message="no sentinels here", turn_index=1)]
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -404,7 +404,7 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 

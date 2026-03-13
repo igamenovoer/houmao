@@ -19,9 +19,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from gig_agents.agents.realm_controller import cli
-from gig_agents.agents.realm_controller.backends.cao_rest import CaoSessionState
-from gig_agents.agents.realm_controller.gateway_storage import (
+from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.backends.cao_rest import CaoSessionState
+from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
@@ -30,7 +30,7 @@ from gig_agents.agents.realm_controller.gateway_storage import (
     load_gateway_status,
     read_pid_file,
 )
-from gig_agents.agents.realm_controller.models import SessionControlResult, SessionEvent
+from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
 
 
 def _write(path: Path, text: str) -> None:
@@ -484,19 +484,19 @@ def _install_gateway_runtime_fakes(
 
     _FakeCaoRestSession.m_registry = registry
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.CaoRestSession",
+        "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         tmux_env.set_env,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
         tmux_env.unset_env,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.show_tmux_environment_shared",
+        "houmao.agents.realm_controller.runtime.show_tmux_environment_shared",
         tmux_env.show_env,
     )
 

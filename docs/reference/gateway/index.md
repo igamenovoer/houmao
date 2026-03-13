@@ -44,9 +44,9 @@ The gateway is an optional control plane attached to one runtime-managed session
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/gateway_models.py`](../../../src/gig_agents/agents/realm_controller/gateway_models.py)
-- [`src/gig_agents/agents/realm_controller/gateway_storage.py`](../../../src/gig_agents/agents/realm_controller/gateway_storage.py)
-- [`src/gig_agents/agents/realm_controller/gateway_service.py`](../../../src/gig_agents/agents/realm_controller/gateway_service.py)
-- [`src/gig_agents/agents/realm_controller/gateway_client.py`](../../../src/gig_agents/agents/realm_controller/gateway_client.py)
-- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../src/gig_agents/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/realm_controller/gateway_models.py`](../../../src/houmao/agents/realm_controller/gateway_models.py)
+- [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../src/houmao/agents/realm_controller/gateway_storage.py)
+- [`src/houmao/agents/realm_controller/gateway_service.py`](../../../src/houmao/agents/realm_controller/gateway_service.py)
+- [`src/houmao/agents/realm_controller/gateway_client.py`](../../../src/houmao/agents/realm_controller/gateway_client.py)
+- [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)

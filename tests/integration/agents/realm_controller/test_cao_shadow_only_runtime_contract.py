@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.cao_rest import CaoRestSession
-from gig_agents.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from gig_agents.cao.models import (
+from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.cao.models import (
     CaoHealthResponse,
     CaoSuccessResponse,
     CaoTerminal,
@@ -101,27 +101,27 @@ def test_shadow_only_runtime_returns_projection_payload_and_waits_for_real_chang
             return CaoSuccessResponse(success=True)
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
         _FakeClient,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
+        "houmao.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
         lambda: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._create_tmux_session",
+        "houmao.agents.realm_controller.backends.cao_rest._create_tmux_session",
         lambda **_: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._set_tmux_session_environment",
+        "houmao.agents.realm_controller.backends.cao_rest._set_tmux_session_environment",
         lambda **_: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
         lambda: set(),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
+        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
         lambda **_: None,
     )
 

@@ -7,21 +7,21 @@ from typing import Any
 
 import pytest
 
-from gig_agents.agents.realm_controller.errors import SessionManifestError
-from gig_agents.agents.realm_controller.launch_plan import (
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
 )
-from gig_agents.agents.realm_controller.loaders import (
+from houmao.agents.realm_controller.loaders import (
     load_brain_manifest,
     load_role_package,
 )
-from gig_agents.agents.realm_controller.models import BackendKind
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
 )
-from gig_agents.agents.realm_controller.runtime import (
+from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
 )
 
@@ -188,7 +188,7 @@ def test_resume_cao_uses_manifest_api_base_url(
             )()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.CaoRestSession",
+        "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
     )
 
@@ -301,7 +301,7 @@ def test_resume_cao_accepts_older_manifest_without_tmux_window_name(
             )()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.CaoRestSession",
+        "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
     )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.cao.server_launcher import (
+from houmao.cao.server_launcher import (
     CaoServerOwnership,
     CaoServerLauncherConfigOverrides,
     CaoServerLauncherError,
@@ -192,15 +192,15 @@ def test_stop_refuses_to_kill_when_identity_verification_fails(
     kill_calls: list[tuple[int, int]] = []
 
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._is_process_running",
+        "houmao.cao.server_launcher._is_process_running",
         lambda pid: True,
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._read_process_cmdline",
+        "houmao.cao.server_launcher._read_process_cmdline",
         lambda pid: "python unrelated_service.py",
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher.os.kill",
+        "houmao.cao.server_launcher.os.kill",
         lambda pid, signum: kill_calls.append((pid, int(signum))),
     )
 
@@ -275,17 +275,17 @@ def test_start_records_detached_ownership_metadata(
         def poll() -> int | None:
             return None
 
-    monkeypatch.setattr("gig_agents.cao.server_launcher.status_cao_server", fake_status)
+    monkeypatch.setattr("houmao.cao.server_launcher.status_cao_server", fake_status)
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._require_executable_on_path",
+        "houmao.cao.server_launcher._require_executable_on_path",
         lambda *args, **kwargs: "/tmp/fake-bin/cao-server",
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._launch_cao_server_detached",
+        "houmao.cao.server_launcher._launch_cao_server_detached",
         lambda **kwargs: captured_launch_env.update(kwargs["launch_env"]) or FakeProcess(),
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._process_group_id_for_pid",
+        "houmao.cao.server_launcher._process_group_id_for_pid",
         lambda pid: pid,
     )
 
@@ -295,7 +295,7 @@ def test_start_records_detached_ownership_metadata(
     assert result.started_new_process is True
     assert result.reused_existing_process is False
     assert result.ownership is not None
-    assert ownership.managed_by == "gig_agents.cao.server_launcher"
+    assert ownership.managed_by == "houmao.cao.server_launcher"
     assert ownership.launch_mode == "detached"
     assert ownership.base_url == config.base_url
     assert ownership.pid == 4242
@@ -314,7 +314,7 @@ def test_stop_refuses_to_kill_when_ownership_metadata_disagrees_with_pidfile(
     write_cao_server_ownership(
         artifacts.ownership_file,
         CaoServerOwnership(
-            managed_by="gig_agents.cao.server_launcher",
+            managed_by="houmao.cao.server_launcher",
             launch_mode="detached",
             base_url=config.base_url,
             runtime_root=config.runtime_root,
@@ -331,13 +331,13 @@ def test_stop_refuses_to_kill_when_ownership_metadata_disagrees_with_pidfile(
 
     kill_calls: list[tuple[int, int]] = []
 
-    monkeypatch.setattr("gig_agents.cao.server_launcher._is_process_running", lambda pid: True)
+    monkeypatch.setattr("houmao.cao.server_launcher._is_process_running", lambda pid: True)
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._read_process_cmdline",
+        "houmao.cao.server_launcher._read_process_cmdline",
         lambda pid: "python /usr/bin/cao-server",
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher.os.kill",
+        "houmao.cao.server_launcher.os.kill",
         lambda pid, signum: kill_calls.append((pid, int(signum))),
     )
 
@@ -425,7 +425,7 @@ def test_status_cao_server_preserve_mode_leaves_no_proxy_untouched(
 def test_launcher_preflight_reports_missing_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("gig_agents.cao.server_launcher.shutil.which", lambda _: None)
+    monkeypatch.setattr("houmao.cao.server_launcher.shutil.which", lambda _: None)
     with pytest.raises(CaoServerLauncherError, match="command -v cao-server"):
         _require_executable_on_path(
             "cao-server",
@@ -437,7 +437,7 @@ def test_launcher_preflight_accepts_present_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher.shutil.which",
+        "houmao.cao.server_launcher.shutil.which",
         lambda _: "/usr/bin/cao-server",
     )
     assert (
@@ -485,32 +485,32 @@ def test_start_surfaces_explicit_error_when_spawned_server_ignores_cao_port(
 
     monotonic_values = iter([0.0, 0.0, 0.1])
 
-    monkeypatch.setattr("gig_agents.cao.server_launcher.status_cao_server", fake_status)
+    monkeypatch.setattr("houmao.cao.server_launcher.status_cao_server", fake_status)
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._require_executable_on_path",
+        "houmao.cao.server_launcher._require_executable_on_path",
         lambda *args, **kwargs: "/tmp/fake-bin/cao-server",
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._launch_cao_server_detached",
+        "houmao.cao.server_launcher._launch_cao_server_detached",
         lambda **kwargs: FakeProcess(),
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._process_group_id_for_pid",
+        "houmao.cao.server_launcher._process_group_id_for_pid",
         lambda pid: pid,
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._process_listens_on_loopback_port",
+        "houmao.cao.server_launcher._process_listens_on_loopback_port",
         lambda pid, port: port == 9889,
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher._terminate_process_tree",
+        "houmao.cao.server_launcher._terminate_process_tree",
         lambda pid, process_group_id=None: None,
     )
     monkeypatch.setattr(
-        "gig_agents.cao.server_launcher.time.monotonic",
+        "houmao.cao.server_launcher.time.monotonic",
         lambda: next(monotonic_values),
     )
-    monkeypatch.setattr("gig_agents.cao.server_launcher.time.sleep", lambda _: None)
+    monkeypatch.setattr("houmao.cao.server_launcher.time.sleep", lambda _: None)
 
     with pytest.raises(CaoServerLauncherError, match=r"ignore `CAO_PORT`"):
         start_cao_server(config)

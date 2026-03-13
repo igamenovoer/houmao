@@ -8,8 +8,8 @@ This is an audit of the current handling, not an implementation plan.
 ## Sources Reviewed
 - `openspec/specs/cao-claude-code-output-extraction/spec.md`
 - `docs/reference/cao_claude_shadow_parsing.md`
-- `src/gig_agents/agents/realm_controller/backends/claude_code_shadow.py`
-- `src/gig_agents/agents/realm_controller/backends/shadow_parser_core.py`
+- `src/houmao/agents/realm_controller/backends/claude_code_shadow.py`
+- `src/houmao/agents/realm_controller/backends/shadow_parser_core.py`
 - `tests/unit/agents/realm_controller/test_claude_code_shadow_parser.py`
 - `tests/fixtures/shadow_parser/claude/*`
 

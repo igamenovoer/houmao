@@ -6,9 +6,9 @@ import sqlite3
 
 import pytest
 
-from gig_agents.mailbox.errors import MailboxBootstrapError
-from gig_agents.mailbox.filesystem import bootstrap_filesystem_mailbox, read_protocol_version
-from gig_agents.mailbox.protocol import MAILBOX_PROTOCOL_VERSION, MailboxPrincipal
+from houmao.mailbox.errors import MailboxBootstrapError
+from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox, read_protocol_version
+from houmao.mailbox.protocol import MAILBOX_PROTOCOL_VERSION, MailboxPrincipal
 
 
 def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_directories(

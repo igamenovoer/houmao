@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
-from gig_agents.agents.realm_controller.launch_plan import (
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
     build_launch_plan,
@@ -14,8 +14,8 @@ from gig_agents.agents.realm_controller.launch_plan import (
     plan_role_injection,
     resolve_cao_parsing_mode,
 )
-from gig_agents.agents.realm_controller.errors import LaunchPlanError
-from gig_agents.agents.realm_controller.loaders import (
+from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.loaders import (
     load_role_package,
     parse_allowlisted_env,
 )

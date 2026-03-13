@@ -10,7 +10,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from gig_agents.demo.cao_interactive_demo import (
+from houmao.demo.cao_interactive_demo import (
     FIXED_CAO_BASE_URL,
     TEST_LOOPBACK_PORT_LISTENING_ENV,
 )
@@ -171,7 +171,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 loopback_state_path = Path(override.removeprefix("file:"))
                 loopback_state_path.write_text(value, encoding="utf-8")
 
-            if module == "gig_agents.demo.cao_interactive_demo.cli":
+            if module == "houmao.demo.cao_interactive_demo.cli":
                 proc = subprocess.run(
                     [sys.executable, "-m", module, *args[4:]],
                     env=os.environ.copy(),
@@ -186,7 +186,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 for item in os.environ.get("FAKE_CAO_STOP_PLAN", "success").split(",")
                 if item.strip()
             ]
-            if module == "gig_agents.cao.tools.cao_server_launcher":
+            if module == "houmao.cao.tools.cao_server_launcher":
                 subcommand = args[4]
                 if subcommand == "status":
                     if status_mode == "verified":
@@ -280,7 +280,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     save_state()
                     raise SystemExit(0)
 
-            if module == "gig_agents.agents.realm_controller":
+            if module == "houmao.agents.realm_controller":
                 subcommand = args[4]
                 if subcommand == "build-brain":
                     runtime_root = Path(arg_value("--runtime-root"))
@@ -503,7 +503,7 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     start_session_call = next(
         entry
         for entry in command_log
-        if entry["module"] == "gig_agents.agents.realm_controller"
+        if entry["module"] == "houmao.agents.realm_controller"
         and entry["args"][4] == "start-session"
     )
     args = start_session_call["args"]
@@ -516,7 +516,7 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     send_prompt_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "gig_agents.agents.realm_controller"
+        if entry["module"] == "houmao.agents.realm_controller"
         and entry["args"][4] == "send-prompt"
     ]
     assert len(send_prompt_calls) == 2
@@ -525,7 +525,7 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     stop_session_call = next(
         entry
         for entry in command_log
-        if entry["module"] == "gig_agents.agents.realm_controller"
+        if entry["module"] == "houmao.agents.realm_controller"
         and entry["args"][4] == "stop-session"
     )
     assert "--agent-def-dir" not in stop_session_call["args"]
@@ -683,7 +683,7 @@ def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify
     send_keys_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "gig_agents.agents.realm_controller"
+        if entry["module"] == "houmao.agents.realm_controller"
         and entry["args"][4] == "send-keys"
     ]
     assert len(send_keys_calls) == 2
@@ -744,7 +744,7 @@ def test_demo_wrapper_verified_cao_replacement_cleans_prior_artifacts_without_pr
 
     command_log = _command_log(Path(env["FAKE_PIXI_COMMAND_LOG"]))
     assert any(
-        entry["module"] == "gig_agents.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
+        entry["module"] == "houmao.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
         for entry in command_log
     )
 
@@ -773,7 +773,7 @@ def test_demo_wrapper_verified_cao_replacement_retries_older_known_config_after_
     stop_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "gig_agents.cao.tools.cao_server_launcher"
+        if entry["module"] == "houmao.cao.tools.cao_server_launcher"
         and entry["args"][4] == "stop"
     ]
 

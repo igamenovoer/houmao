@@ -4,29 +4,29 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from gig_agents.agents.brain_builder import BuildRequest, build_brain_home
-from gig_agents.agents.realm_controller import cli
-from gig_agents.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
-from gig_agents.agents.realm_controller.loaders import load_brain_manifest, load_role_package
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
+from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
     SessionEvent,
 )
-from gig_agents.agents.realm_controller.runtime import (
+from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from gig_agents.agents.mailbox_runtime_models import (
+from houmao.agents.mailbox_runtime_models import (
     MailboxDeclarativeConfig,
     MailboxResolvedConfig,
 )
-from gig_agents.agents.mailbox_runtime_support import mailbox_env_bindings
-from gig_agents.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
 
 def _write(path: Path, content: str) -> None:
@@ -142,7 +142,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             self.launch_plan = launch_plan
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime._create_backend_session",
+        "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeStartBackend(),
     )
 
@@ -204,7 +204,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         return object()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime._create_backend_session",
+        "houmao.agents.realm_controller.runtime._create_backend_session",
         _fake_resume_backend,
     )
 
@@ -259,7 +259,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             ]
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -267,7 +267,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
