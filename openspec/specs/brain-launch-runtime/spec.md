@@ -118,10 +118,10 @@ The system SHALL optionally support launching and driving sessions via CAO
 using CAO's REST API, without requiring the core runtime to depend on CAO
 internals.
 
-For supported loopback CAO base URLs (`http://localhost:9889`,
-`http://127.0.0.1:9889`), runtime-owned CAO HTTP communication SHALL bypass
-ambient proxy environment variables by default by ensuring loopback entries
-exist in `NO_PROXY`/`no_proxy`.
+For supported loopback CAO base URLs (`http://localhost:<port>`,
+`http://127.0.0.1:<port>` with explicit ports), runtime-owned CAO HTTP
+communication SHALL bypass ambient proxy environment variables by default by
+ensuring loopback entries exist in `NO_PROXY`/`no_proxy`.
 
 When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
 or `no_proxy` and will respect caller-provided values (for example, to enable
@@ -133,8 +133,8 @@ traffic-watching development proxies).
 - **AND THEN** the system persists the CAO API base URL and terminal identity in the session manifest
 - **AND THEN** subsequent prompt and stop operations target the CAO terminal using only the persisted session manifest fields (no CAO base URL override)
 
-#### Scenario: Loopback CAO runtime communication bypasses caller proxy env
-- **WHEN** a developer starts or resumes a CAO-backed session using a supported loopback CAO base URL
+#### Scenario: Loopback CAO runtime communication bypasses caller proxy env on a non-default port
+- **WHEN** a developer starts or resumes a CAO-backed session using loopback CAO base URL `http://127.0.0.1:9991`
 - **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
 - **THEN** runtime-owned CAO HTTP communication bypasses those proxy endpoints by default
 - **AND THEN** loopback CAO connectivity depends on local CAO availability rather than external proxy availability
@@ -143,6 +143,169 @@ traffic-watching development proxies).
 - **WHEN** a developer starts or resumes a CAO-backed session using a supported loopback CAO base URL
 - **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
 - **THEN** runtime-owned CAO HTTP communication uses caller-provided proxy and `NO_PROXY` settings
+
+### Requirement: Mailbox enablement is resolved before session start and persisted for resume
+The runtime SHALL enable filesystem mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
+
+The runtime SHALL resolve one effective mailbox configuration before building the launch plan, SHALL persist that resolved mailbox configuration in the session manifest, and SHALL restore it when resuming the session.
+
+#### Scenario: Recipe configuration enables mailbox support
+- **WHEN** a developer starts an agent session whose resolved recipe enables filesystem mailbox support
+- **THEN** the runtime resolves that mailbox configuration before building the launch plan
+- **AND THEN** the resolved session uses that mailbox transport and principal binding for subsequent mailbox-aware runtime work
+
+#### Scenario: Start session CLI overrides mailbox transport or root
+- **WHEN** a developer starts an agent session with explicit mailbox CLI overrides such as transport or filesystem root
+- **THEN** the runtime applies those overrides to the effective mailbox configuration for that session
+- **AND THEN** the resulting session manifest records the overridden mailbox transport and bindings rather than forcing resume to re-derive them from recipe defaults
+
+#### Scenario: Resume restores persisted mailbox bindings
+- **WHEN** a developer resumes a previously started mailbox-enabled session
+- **THEN** the runtime restores the mailbox transport, principal binding, and transport-specific mailbox bindings from the persisted session manifest
+- **AND THEN** runtime mailbox commands for that resumed session preserve the same sender principal and mailbox root unless an explicit refresh changes them later
+
+### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
+When filesystem mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the filesystem mailbox binding env contract before mailbox-related work is expected from the agent.
+
+#### Scenario: Start session projects mailbox system skills with filesystem bindings
+- **WHEN** a developer starts an agent session with filesystem mailbox support enabled
+- **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
+- **AND THEN** the runtime starts the session with the filesystem mailbox binding env vars needed by those mailbox system skills
+- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to the effective mailbox content root for that session
+
+#### Scenario: Start session defaults filesystem mailbox root from runtime root
+- **WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
+- **THEN** the runtime derives the effective filesystem mailbox content root from the configured runtime root
+- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived default path
+
+### Requirement: Runtime sessions support filesystem mailbox binding refresh
+The runtime SHALL support an explicit control path that refreshes filesystem mailbox binding env vars for an active session without requiring regeneration of the mailbox system skill templates.
+
+#### Scenario: Refresh mailbox bindings for an active session
+- **WHEN** a developer or orchestrator requests filesystem mailbox-binding refresh for an active session
+- **THEN** the runtime updates the filesystem mailbox binding env vars for that session
+- **AND THEN** the runtime updates the persisted session manifest to match the refreshed mailbox binding state
+- **AND THEN** subsequent runtime-controlled work in that session uses the refreshed filesystem mailbox bindings
+
+### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
+The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
+
+That `mail` command surface SHALL support at minimum the operations `check`, `send`, and `reply`, and SHALL target an existing live session through the same agent-identity or session-manifest resolution model used by other runtime session-control commands.
+
+#### Scenario: Mail check targets a resumed mailbox-enabled session
+- **WHEN** a developer invokes the runtime `mail check` command against a resumed mailbox-enabled session
+- **THEN** the runtime resolves that target session through the normal runtime session-identity resolution path
+- **AND THEN** the runtime asks that live agent session to perform one mailbox-check operation for its bound mailbox principal
+
+#### Scenario: Mail send targets a resumed mailbox-enabled session
+- **WHEN** a developer invokes the runtime `mail send` command against a resumed mailbox-enabled session with recipients and message content
+- **THEN** the runtime asks that live agent session to compose and deliver one new mailbox message through its configured mailbox transport
+- **AND THEN** the resulting mailbox operation preserves the sender principal bound to that session rather than allowing the operator to spoof an arbitrary sender principal
+
+#### Scenario: Mail reply preserves existing thread ancestry
+- **WHEN** a developer invokes the runtime `mail reply` command against a resumed mailbox-enabled session for an existing message
+- **THEN** the runtime asks that live agent session to reply through the mailbox protocol rather than starting an unrelated new root message
+- **AND THEN** the reply preserves the existing `thread_id`, `in_reply_to`, and `references` semantics for that thread
+
+### Requirement: Runtime mail commands use skill-directed prompts with appended mailbox metadata and validate a sentinel-delimited result contract
+The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
+
+That mailbox prompt SHALL explicitly tell the agent which projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+
+The `mail` command handler SHALL validate exactly one structured mailbox result payload returned between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` sentinels in the agent output and SHALL surface that result to the operator in a parseable form.
+
+#### Scenario: Mail command uses skill-directed prompt with appended mailbox metadata
+- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session
+- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
+- **AND THEN** that prompt explicitly names the projected mailbox system skill the agent should use
+- **AND THEN** that prompt tells the agent to inspect the shared mailbox `rules/` directory before interacting with shared mailbox state
+- **AND THEN** that prompt tells the agent to use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`
+- **AND THEN** that prompt appends structured mailbox metadata for the mailbox operation and result contract
+
+#### Scenario: Mail command returns structured mailbox result
+- **WHEN** a mailbox-enabled agent completes a runtime `mail` request
+- **THEN** the agent returns one structured mailbox result payload describing the mailbox operation outcome between the required sentinels
+- **AND THEN** the runtime validates and prints that result in a parseable form for the operator
+
+#### Scenario: Mail command fails on malformed sentinel payload
+- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON, or returns more than one sentinel-delimited mailbox result payload
+- **THEN** the runtime returns an explicit mailbox-result parsing error for that `mail` command
+- **AND THEN** the runtime does not send an automatic retry prompt in v1
+
+#### Scenario: Mail command fails fast when session cannot accept a new turn
+- **WHEN** a developer invokes a runtime `mail` command for a session that is already busy or otherwise cannot safely accept a new prompt turn
+- **THEN** the runtime returns an explicit mailbox-command error
+- **AND THEN** the runtime does not silently queue hidden mailbox work for later execution
+
+### Requirement: Runtime mail send and reply commands require full recipient addresses and explicit body inputs
+The runtime `mail` command surface SHALL treat `send` and `reply` as explicit mailbox operations rather than prompt-composition helpers.
+
+For `mail send`, the runtime SHALL require recipients in full mailbox-address form for all `--to` and `--cc` inputs.
+
+For `mail send` and `mail reply`, the runtime SHALL require explicit body input through `--body-file` or `--body-content`.
+
+The runtime SHALL reject `--instruction` for `mail send` and `mail reply`.
+
+#### Scenario: Mail send accepts full mailbox address plus explicit inline body
+- **WHEN** a developer invokes `mail send` for a resumed mailbox-enabled session with `--to AGENTSYS-bob@agents.localhost` and `--body-content`
+- **THEN** the runtime accepts the request as a mailbox operation
+- **AND THEN** the resulting mailbox request preserves the sender identity already bound to that session
+
+#### Scenario: Mail send rejects ambiguous short recipient names
+- **WHEN** a developer invokes `mail send` with `--to bob`
+- **THEN** the runtime fails fast with an explicit validation error
+- **AND THEN** the error explains that a full mailbox address is required
+
+#### Scenario: Mail send or reply rejects missing explicit body input
+- **WHEN** a developer invokes `mail send` or `mail reply` without `--body-file` and without `--body-content`
+- **THEN** the runtime fails fast before prompting the live agent session
+- **AND THEN** the error explains that explicit mail body content is required
+
+#### Scenario: Mail send or reply rejects instruction-style composition
+- **WHEN** a developer invokes `mail send` or `mail reply` with `--instruction`
+- **THEN** the runtime rejects that request explicitly
+- **AND THEN** the operator is directed to use `--body-file` or `--body-content` instead
+
+### Requirement: Runtime mailbox prompt payloads carry explicit content and address data without instruction fields
+When the runtime translates `mail send` or `mail reply` into a runtime-owned mailbox prompt for a live session, the structured mailbox request payload SHALL carry explicit address and body data rather than an instruction asking the agent to improvise the final message.
+
+For `mail send`, the structured request payload SHALL include full mailbox addresses for recipients and explicit Markdown body content.
+
+For `mail reply`, the structured request payload SHALL include the target `message_id` plus explicit Markdown body content.
+
+The structured request payload for `send` and `reply` SHALL NOT include an `instruction` field.
+
+#### Scenario: Mail send payload carries explicit recipient addresses and body content
+- **WHEN** the runtime prepares a `mail send` prompt request for a mailbox-enabled session
+- **THEN** the structured mailbox request payload contains explicit full-form recipient addresses and explicit body content
+- **AND THEN** that payload does not include an `instruction` field for content generation
+
+#### Scenario: Mail reply payload carries explicit reply body and target message id
+- **WHEN** the runtime prepares a `mail reply` prompt request for a mailbox-enabled session
+- **THEN** the structured mailbox request payload contains the target `message_id` and explicit body content for the reply
+- **AND THEN** that payload does not depend on free-form instruction text to determine the reply content
+
+### Requirement: Runtime filesystem mailbox env bindings follow the active mailbox registration path
+When the runtime starts or refreshes a mailbox-enabled filesystem session, it SHALL derive mailbox filesystem bindings from the active mailbox registration rather than by reconstructing a mailbox path from `principal_id`.
+
+At minimum, `AGENTSYS_MAILBOX_FS_INBOX_DIR` SHALL point at the inbox path for the active mailbox registration for the session's bound mailbox address.
+
+If runtime bootstrap or refresh can detect that the target mailbox root still uses the unsupported principal-keyed layout from the earlier implementation, it SHALL fail explicitly and direct the operator to delete and re-bootstrap that mailbox root.
+
+#### Scenario: Start session publishes address-based inbox binding
+- **WHEN** the runtime starts a mailbox-enabled session whose active registration is `AGENTSYS-research@agents.localhost`
+- **THEN** `AGENTSYS_MAILBOX_FS_INBOX_DIR` points at the inbox path for that active registration
+- **AND THEN** the runtime does not derive that path by concatenating `mailboxes/<principal_id>/inbox`
+
+#### Scenario: Refresh mailbox bindings follows the current active registration path
+- **WHEN** the runtime refreshes mailbox bindings for an active mailbox-enabled session after resolving the active registration
+- **THEN** `AGENTSYS_MAILBOX_FS_INBOX_DIR` is updated from the active mailbox registration path for that address
+- **AND THEN** subsequent runtime-controlled mailbox work uses the refreshed path
+
+#### Scenario: Unsupported stale mailbox root fails binding refresh explicitly
+- **WHEN** the runtime attempts to bootstrap or refresh mailbox bindings against a stale principal-keyed mailbox root from the earlier implementation
+- **THEN** the runtime fails explicitly
+- **AND THEN** the error tells the operator to delete and re-bootstrap the mailbox root rather than silently deriving incorrect bindings
 
 ### Requirement: Runtime-generated CAO agent profiles from roles
 When using CAO, the system SHALL generate CAO agent profiles at runtime from repo role packages rather than requiring committed/static CAO profile files.

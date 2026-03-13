@@ -11,6 +11,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+
 def _source_repo_root() -> Path:
     """Return the tracked repo root for subprocess PYTHONPATH wiring."""
 

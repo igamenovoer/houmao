@@ -6,10 +6,10 @@ The system SHALL implement a CAO REST client whose request parameter names,
 parameter locations, and response shapes match the vendored CAO server API
 (`extern/orphan/cli-agent-orchestrator/docs/api.md` and server implementation).
 
-For supported loopback CAO base URLs (`http://localhost:9889`,
-`http://127.0.0.1:9889`), the CAO REST client SHALL bypass ambient proxy
-environment variables by default by ensuring loopback entries exist in
-`NO_PROXY`/`no_proxy`.
+For supported loopback CAO base URLs (`http://localhost:<port>`,
+`http://127.0.0.1:<port>` with explicit ports), the CAO REST client SHALL
+bypass ambient proxy environment variables by default by ensuring loopback
+entries exist in `NO_PROXY`/`no_proxy`.
 
 When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the CAO REST client SHALL NOT modify
 `NO_PROXY` or `no_proxy` and will respect caller-provided values (for example,
@@ -28,10 +28,10 @@ to allow traffic-watching development proxies like mitmproxy).
 - **WHEN** the runtime requests `GET /terminals/{TERM_ID}/output?mode=last`
 - **THEN** the CAO REST client returns the response `output` string as the terminal output text
 
-#### Scenario: Loopback CAO requests bypass ambient proxy env
-- **WHEN** the CAO REST client is configured with a supported loopback base URL
+#### Scenario: Loopback CAO requests bypass ambient proxy env on a non-default port
+- **WHEN** the CAO REST client is configured with loopback base URL `http://127.0.0.1:9991`
 - **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
-- **THEN** client requests to loopback CAO endpoints bypass those proxy endpoints by default
+- **THEN** client requests to that loopback CAO endpoint bypass those proxy endpoints by default
 
 #### Scenario: Preserve mode respects caller `NO_PROXY` behavior
 - **WHEN** the CAO REST client is configured with a supported loopback base URL
@@ -51,9 +51,10 @@ When using the CAO backend, the system SHALL apply allowlisted credential
 environment variables by configuring a unique tmux session environment before
 spawning the CAO terminal into that session.
 
-For supported loopback CAO base URLs, the tmux session environment SHALL
-preserve proxy variables (for agent egress) and SHALL include loopback entries
-in `NO_PROXY`/`no_proxy` by default (merge+append semantics).
+For supported loopback CAO base URLs (`http://localhost:<port>`,
+`http://127.0.0.1:<port>` with explicit ports), the tmux session environment
+SHALL preserve proxy variables (for agent egress) and SHALL include loopback
+entries in `NO_PROXY`/`no_proxy` by default (merge+append semantics).
 
 When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the system SHALL NOT modify `NO_PROXY`
 or `no_proxy` and will respect caller-provided values.
@@ -64,8 +65,8 @@ or `no_proxy` and will respect caller-provided values.
 - **AND THEN** the runtime sets the home selector env var and allowlisted credential env vars in that tmux session environment
 - **AND THEN** the runtime creates the CAO terminal in that tmux session via `POST /sessions/{session_name}/terminals`
 
-#### Scenario: Loopback tmux env preserves proxy vars and injects loopback `NO_PROXY` by default
-- **WHEN** the runtime launches a CAO-backed session against a supported loopback CAO base URL
+#### Scenario: Loopback tmux env preserves proxy vars and injects loopback `NO_PROXY` by default on a non-default port
+- **WHEN** the runtime launches a CAO-backed session against loopback base URL `http://localhost:9991`
 - **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` (including lowercase variants)
 - **THEN** the created tmux session environment preserves those proxy variables for agent egress
 - **AND THEN** the created tmux session environment includes `NO_PROXY` and `no_proxy` entries covering `localhost`, `127.0.0.1`, and `::1` by default
@@ -137,4 +138,3 @@ Each demo SHALL follow the tutorial-pack guidance in `magic-context/instructions
 - **AND WHEN** the demo cannot reach a required service (for example CAO server connection failure, network error, or provider timeout)
 - **THEN** the demo reports SKIP with an actionable reason
 - **AND THEN** the demo exits successfully without marking the overall demo suite as failed
-

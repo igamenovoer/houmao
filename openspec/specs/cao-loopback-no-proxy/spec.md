@@ -5,9 +5,9 @@ TBD - created by archiving change cao-loopback-no-proxy-default. Update Purpose 
 ## Requirements
 ### Requirement: Launcher loopback health probes bypass ambient proxy by default
 The launcher SHALL, for supported loopback CAO base URLs
-(`http://localhost:9889`, `http://127.0.0.1:9889`), bypass ambient proxy
-environment variables by default for launcher-owned health probes by ensuring
-loopback entries exist in `NO_PROXY`/`no_proxy`.
+(`http://localhost:<port>`, `http://127.0.0.1:<port>` with explicit ports),
+bypass ambient proxy environment variables by default for launcher-owned health
+probes by ensuring loopback entries exist in `NO_PROXY`/`no_proxy`.
 
 When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the launcher SHALL NOT modify
 `NO_PROXY` or `no_proxy` and will respect the caller-provided values (for
@@ -20,10 +20,10 @@ example, to enable traffic-watching development proxies).
 - **AND THEN** the probe result is not routed through those proxy endpoints
 
 #### Scenario: `start` startup polling probes loopback directly even when caller proxy vars are set
-- **WHEN** a developer runs launcher `start` for a supported loopback CAO base URL
+- **WHEN** a developer runs launcher `start` for loopback CAO base URL `http://127.0.0.1:9991`
 - **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
 - **THEN** launcher startup polling probes connect directly to loopback CAO
-- **AND THEN** startup success/failure reflects loopback server health rather than proxy reachability
+- **AND THEN** startup success or failure reflects loopback server health at that requested port rather than proxy reachability
 
 #### Scenario: Preserve mode respects caller `NO_PROXY` for traffic-watching proxies
 - **WHEN** a developer runs launcher `status` or `start` for a supported loopback CAO base URL
@@ -40,8 +40,7 @@ entries in `NO_PROXY`/`no_proxy` (merge+append semantics). When
 `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the launcher SHALL NOT modify `NO_PROXY` or
 `no_proxy` in the spawned process environment.
 
-#### Scenario: Spawned CAO process has proxy vars cleared and loopback NO_PROXY entries
-- **WHEN** launcher starts `cao-server` with `proxy_policy=clear`
+#### Scenario: Spawned CAO process has proxy vars cleared and loopback NO_PROXY entries on a non-default port
+- **WHEN** launcher starts `cao-server` for loopback base URL `http://localhost:9991` with `proxy_policy=clear`
 - **THEN** spawned process environment does not include `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` (including lowercase variants)
 - **AND THEN** spawned process environment includes `NO_PROXY` and `no_proxy` entries covering `localhost`, `127.0.0.1`, and `::1` unless `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
-

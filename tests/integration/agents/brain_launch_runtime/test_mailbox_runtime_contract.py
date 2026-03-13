@@ -158,7 +158,9 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     mailbox = controller.launch_plan.mailbox
     assert mailbox is not None
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
-    assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research/archive").is_dir()
+    assert (
+        mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/archive"
+    ).is_dir()
 
     refreshed = controller.refresh_mailbox_bindings(
         filesystem_root=runtime_root / "refreshed-mail",
@@ -276,7 +278,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "--agent-identity",
             "AGENTSYS-research",
             "--to",
-            "AGENTSYS-orchestrator",
+            "AGENTSYS-orchestrator@agents.localhost",
             "--subject",
             "Investigate parser drift",
             "--body-file",
@@ -293,7 +295,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "AGENTSYS-research",
             "--message-id",
             "msg-20260312T050000Z-parent",
-            "--instruction",
+            "--body-content",
             "Reply with next steps",
         ]
     )
@@ -303,6 +305,8 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
     assert "# Hello" in prompts[0]
     assert str(attachment.resolve()) in prompts[0]
     assert '"message_id": "msg-20260312T050000Z-parent"' in prompts[1]
+    assert '"body_content": "Reply with next steps"' in prompts[1]
+    assert '"instruction"' not in prompts[1]
 
     output = capsys.readouterr().out
     assert '"operation": "send"' in output

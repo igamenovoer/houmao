@@ -4,7 +4,7 @@
 
 - composing `{brain manifest, role}` into a backend launch plan,
 - starting interactive sessions (local or CAO),
-- sending prompts or raw control input across resumed sessions,
+- sending prompts, raw control input, or runtime-owned mailbox operations across resumed sessions,
 - persisting schema-validated session manifests.
 
 ## CLI Entry Point
@@ -20,26 +20,77 @@ Supported commands:
 - `build-brain`
 - `start-session`
 - `send-prompt`
+- `gateway-send-prompt`
 - `send-keys`
+- `attach-gateway`
+- `detach-gateway`
+- `gateway-status`
+- `gateway-interrupt`
+- `mail`
 - `stop-session`
 
 Command intent:
 
 - Use `send-prompt` for normal prompt turns that should wait for readiness/completion and advance turn state.
+- Use `gateway-send-prompt` and `gateway-interrupt` only after a live gateway is already attached; they do not auto-attach a gateway implicitly.
 - Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
+- Use `mail` for runtime-owned mailbox operations (`check`, `send`, `reply`) against resumed mailbox-enabled sessions.
 - For the detailed `send-keys` contract, grammar, and examples, see [Brain Launch Runtime Send-Keys](./brain_launch_runtime_send_keys.md).
+
+## Gateway-Capable Sessions
+
+New runtime-owned tmux-backed sessions now publish gateway capability by default even when no live gateway process is attached yet.
+
+- Runtime-owned session state now lives under `<runtime_root>/sessions/<backend>/<session-id>/`.
+- The session manifest lives at `<session-root>/manifest.json`.
+- Gateway-owned durable state lives under `<session-root>/gateway/`.
+- The tmux session environment publishes stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
+- When a live gateway is attached, tmux also publishes `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`.
+- `state.json` is seeded under the gateway root before the first live attach and returns to the offline or not-attached state on graceful detach.
+- Blueprint `gateway.host` and `gateway.port` act only as listener defaults for attach actions; they do not start a live gateway by themselves, and unknown gateway keys are rejected during blueprint load.
+- If no gateway port override or default is supplied, attach requests a system-assigned port during gateway startup and then persists the actual bound port for later re-attach or restart.
+
+Launch-time auto-attach is optional:
+
+```bash
+pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+  --agent-def-dir tests/fixtures/agents \
+  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --role gpu-kernel-coder \
+  --backend cao_rest \
+  --gateway-auto-attach
+```
+
+Later attach and detach stay explicit lifecycle actions:
+
+```bash
+pixi run python -m gig_agents.agents.brain_launch_runtime attach-gateway \
+  --agent-identity AGENTSYS-gpu
+
+pixi run python -m gig_agents.agents.brain_launch_runtime gateway-status \
+  --agent-identity AGENTSYS-gpu
+
+pixi run python -m gig_agents.agents.brain_launch_runtime gateway-send-prompt \
+  --agent-identity AGENTSYS-gpu \
+  --prompt "Queue this through the gateway"
+
+pixi run python -m gig_agents.agents.brain_launch_runtime detach-gateway \
+  --agent-identity AGENTSYS-gpu
+```
+
+`gateway-send-prompt` and `gateway-interrupt` require a live attached gateway and fail explicitly when the session is only gateway-capable. Legacy direct-control commands such as `send-prompt` still work for sessions that have no live gateway attached.
 
 ## Agent Definition Directory Resolution
 
 Runtime command surfaces now use two resolution models.
 
-Build/start and manifest-path control (`--agent-identity /abs/session.json`) still resolve the agent definition directory with this ambient precedence:
+Build/start and manifest-path control (`--agent-identity /abs/.../manifest.json`) still resolve the agent definition directory with this ambient precedence:
 
 1. CLI `--agent-def-dir`
 2. env `AGENTSYS_AGENT_DEF_DIR`
 3. default `<pwd>/.agentsys/agents`
 
-Name-based tmux-backed control (`send-prompt`, `send-keys`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
+Name-based tmux-backed control (`send-prompt`, `send-keys`, `mail`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
 
 1. explicit CLI `--agent-def-dir` override, otherwise
 2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`
@@ -55,6 +106,47 @@ pixi run python -m gig_agents.agents.brain_launch_runtime build-brain \
   --agent-def-dir tests/fixtures/agents \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
+
+## Mailbox-Enabled Sessions
+
+Mailbox support can come from declarative brain config or from `start-session` overrides. The implemented v1 transport is `filesystem`.
+
+```bash
+pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
+  --agent-def-dir tests/fixtures/agents \
+  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --role gpu-kernel-coder \
+  --backend claude_headless \
+  --mailbox-transport filesystem \
+  --mailbox-root tmp/shared-mail \
+  --mailbox-principal-id AGENTSYS-research \
+  --mailbox-address AGENTSYS-research@agents.localhost
+```
+
+Runtime behavior for mailbox-enabled sessions:
+
+- bootstrap or validate the filesystem mailbox root before the session begins,
+- safely register the active mailbox for the session address,
+- project the runtime-owned skill `.system/mailbox/email-via-filesystem`,
+- expose `AGENTSYS_MAILBOX_*` and `AGENTSYS_MAILBOX_FS_*` bindings to the launched session,
+- persist the resolved mailbox binding in the session manifest so resume uses the same mailbox configuration.
+
+`AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration path for the session's full mailbox address, so it may resolve through a symlink-backed `mailboxes/<address>` entry into a private mailbox directory.
+
+For the dedicated mailbox reference subtree, start at [Mailbox Reference](./mailbox/index.md). It now carries the detailed quickstart, contracts, operations, and internals pages for mailbox behavior.
+
+The `mail` command operates on resumed mailbox-enabled sessions and currently supports:
+
+- `mail check`
+- `mail send`
+- `mail reply`
+
+Notes:
+
+- `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
+- `mail send` and `mail reply` require explicit body content through `--body-file` or `--body-content`.
+- `mail` currently supports the filesystem mailbox transport only.
+- For the mailbox quickstart, contracts, managed helper rules, lifecycle modes, repair expectations, and internals, see [Mailbox Reference](./mailbox/index.md).
 
 ## Local Codex Session (Default: `codex_headless`)
 
@@ -122,7 +214,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>.json \
+  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Summarize the current plan"
 ```
 
@@ -193,8 +285,10 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
-  --cao-base-url http://localhost:9889
+  --cao-base-url http://localhost:<port>
 ```
+
+Use the same loopback port configured for the CAO launcher. `9889` is the default example port, but any supported launcher-managed loopback port is allowed.
 
 ## Gemini Headless Resume (tmux-backed `gemini -p --resume`)
 
@@ -207,7 +301,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/gemini_headless/<session-id>.json \
+  --agent-identity tmp/agents-runtime/sessions/gemini_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
 
@@ -245,7 +339,7 @@ pixi run python -m gig_agents.agents.brain_launch_runtime start-session \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu \
-  --cao-base-url http://localhost:9889
+  --cao-base-url http://localhost:<port>
 
 pixi run python -m gig_agents.agents.brain_launch_runtime send-prompt \
   --agent-identity AGENTSYS-gpu \
@@ -271,12 +365,15 @@ launcher-managed loopback port when needed.
 
 Behavior:
 
-- For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
-- For resumed CAO operations (`send-prompt`, `send-keys`, `stop-session`), runtime addresses
+- For name-based tmux-backed resumed operations (`send-prompt`, `send-keys`, `mail`, `stop-session` with an agent name), runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH` and the effective agent-definition root from explicit `--agent-def-dir` or the addressed session's `AGENTSYS_AGENT_DEF_DIR`.
+- For resumed CAO operations (`send-prompt`, `send-keys`, `mail`, `stop-session`), runtime addresses
   the session strictly from the persisted manifest (`cao.api_base_url`,
   `cao.terminal_id`) after resolving `--agent-identity`; there is no resume-time
   `--cao-base-url` override.
+- For gateway-aware CAO operations (`attach-gateway`, `detach-gateway`, `gateway-status`, `gateway-send-prompt`, `gateway-interrupt`), runtime validates the stable attach pointers plus the live gateway bindings and then uses `GET /health` as the authoritative liveness check before trusting a live gateway instance.
+- `gateway-status` reads the live `GET /v1/status` contract when a live gateway is attached and otherwise falls back to the seeded `state.json` snapshot under `AGENTSYS_GATEWAY_ROOT`.
 - `send-prompt` remains the high-level prompt-turn path. It waits for readiness/completion, uses the configured parsing mode, and advances persisted turn state.
+- `gateway-send-prompt` and `gateway-interrupt` route through `POST /v1/requests` and return accepted queue records instead of waiting for turn completion.
 - `send-keys` is CAO-only in the first release. It resolves the tmux target from persisted CAO session state, reuses `cao.tmux_window_name` when available, falls back to live `GET /terminals/{id}` metadata when older manifests do not yet persist the window name, and returns one JSON control result immediately after delivery.
 - `send-keys --sequence` accepts mixed literal text plus exact tmux special-key tokens in the form `<[key-name]>`. Recognition is case-sensitive, whitespace inside the token disables recognition and leaves the substring literal, and `--escape-special-keys` sends the full string literally.
 - Guaranteed exact key names for `send-keys`: `Enter`, `Escape`, `Up`, `Down`, `Left`, `Right`, `Tab`, `BSpace`, `C-c`, `C-d`, and `C-z`.
@@ -333,7 +430,7 @@ when they are missing from `PATH`.
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
   `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
 - To discover active agent identities, run `tmux ls` and use returned
-  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `stop-session`.
+  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `mail` / `stop-session`.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:
@@ -444,7 +541,15 @@ egress and injects loopback entries into `NO_PROXY`/`no_proxy` by default.
 
 Session manifests are written under:
 
-- `tmp/agents-runtime/sessions/<backend>/<session-id>.json`
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/manifest.json`
+
+Gateway-capable runtime-owned tmux sessions also write:
+
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/attach.json`
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/state.json`
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/desired-config.json`
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/queue.sqlite`
+- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/events.jsonl`
 
 Manifests are validated against in-package JSON Schemas before write and on load/resume.
 

@@ -143,6 +143,20 @@ def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, st
         )
 
 
+def unset_tmux_session_environment(*, session_name: str, variable_names: list[str]) -> None:
+    """Unset multiple tmux session environment variables."""
+
+    for variable_name in variable_names:
+        result = run_tmux(["set-environment", "-t", session_name, "-u", variable_name])
+        if result.returncode == 0:
+            continue
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to unset tmux environment variable `{variable_name}` in session "
+            f"`{session_name}`: {detail or 'unknown tmux error'}"
+        )
+
+
 def show_tmux_environment(
     *, session_name: str, variable_name: str
 ) -> subprocess.CompletedProcess[str]:

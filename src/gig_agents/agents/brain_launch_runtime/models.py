@@ -165,6 +165,23 @@ class SessionControlResult:
 
 
 @dataclass(frozen=True)
+class GatewayControlResult:
+    """Outcome for gateway lifecycle and explicit gateway-managed control actions."""
+
+    status: Literal["ok", "error"]
+    action: Literal[
+        "gateway_attach",
+        "gateway_detach",
+        "gateway_prompt",
+        "gateway_interrupt",
+    ]
+    detail: str
+    gateway_root: str | None = None
+    gateway_host: str | None = None
+    gateway_port: int | None = None
+
+
+@dataclass(frozen=True)
 class SessionResult:
     """Result summary for one prompt turn."""
 

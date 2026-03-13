@@ -108,7 +108,7 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     assert (mailbox.filesystem_root / "protocol-version.txt").is_file()
     assert (mailbox.filesystem_root / "index.sqlite").is_file()
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
-    assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research/inbox").is_dir()
+    assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/inbox").is_dir()
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["principal_id"] == "AGENTSYS-research"

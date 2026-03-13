@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+
 from gig_agents.agents.brain_builder import BrainRecipe, load_brain_recipe
+from gig_agents.agents.brain_launch_runtime.gateway_models import BlueprintGatewayDefaults
 
 from .errors import LaunchPlanError, SessionManifestError
 
@@ -29,6 +32,7 @@ class BlueprintBinding:
     name: str
     brain_recipe_path: Path
     role: str
+    gateway: BlueprintGatewayDefaults | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,29 @@ class RolePackage:
     role_name: str
     system_prompt: str
     path: Path
+
+
+class _StrictBlueprintModel(BaseModel):
+    """Strict base model for blueprint parsing."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _BlueprintPayloadV1(_StrictBlueprintModel):
+    """Strict schema for blueprint bindings."""
+
+    schema_version: int
+    name: str
+    role: str
+    brain_recipe: str
+    gateway: BlueprintGatewayDefaults | None = None
+
+    @field_validator("name", "role", "brain_recipe")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
 
 
 def _load_mapping_file(path: Path) -> dict[str, Any]:
@@ -97,22 +124,28 @@ def load_blueprint(path: Path) -> BlueprintBinding:
     """
 
     payload = _load_mapping_file(path)
-    schema_version = payload.get("schema_version")
-    if schema_version != 1:
+    try:
+        parsed = _BlueprintPayloadV1.model_validate(payload)
+    except ValidationError as exc:
+        details: list[str] = []
+        for issue in exc.errors(include_url=False):
+            location = ".".join(str(part) for part in issue.get("loc", ())) or "$"
+            details.append(f"{location}: {issue.get('msg', 'validation failed')}")
+            if len(details) >= 3:
+                break
+        joined = "; ".join(details) if details else "validation failed"
+        raise LaunchPlanError(f"{path}: blueprint validation failed: {joined}") from exc
+
+    if parsed.schema_version != 1:
         raise LaunchPlanError(f"{path}: only schema_version=1 is supported")
 
-    name = payload.get("name")
-    role = payload.get("role")
-    brain_recipe = payload.get("brain_recipe")
-    if not isinstance(name, str) or not name.strip():
-        raise LaunchPlanError(f"{path}: missing string `name`")
-    if not isinstance(role, str) or not role.strip():
-        raise LaunchPlanError(f"{path}: missing string `role`")
-    if not isinstance(brain_recipe, str) or not brain_recipe.strip():
-        raise LaunchPlanError(f"{path}: missing string `brain_recipe`")
-
-    recipe_path = (path.parent / brain_recipe).resolve()
-    return BlueprintBinding(name=name, brain_recipe_path=recipe_path, role=role)
+    recipe_path = (path.parent / parsed.brain_recipe).resolve()
+    return BlueprintBinding(
+        name=parsed.name,
+        brain_recipe_path=recipe_path,
+        role=parsed.role,
+        gateway=parsed.gateway,
+    )
 
 
 def load_brain_recipe_from_path(path: Path) -> BrainRecipe:

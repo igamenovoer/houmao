@@ -233,7 +233,7 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
             "--agent-identity",
             "AGENTSYS-research",
             "--to",
-            "AGENTSYS-orchestrator",
+            "AGENTSYS-orchestrator@agents.localhost",
             "--subject",
             "Investigate parser drift",
             "--body-file",
@@ -247,6 +247,54 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
     assert "# Hello" in captured_prompt["prompt"]
     assert str(attachment.resolve()) in captured_prompt["prompt"]
     assert '"subject": "Investigate parser drift"' in captured_prompt["prompt"]
+    assert '"body_content": "# Hello\\n"' in captured_prompt["prompt"]
+    assert '"instruction"' not in captured_prompt["prompt"]
+
+
+def test_mail_send_cli_rejects_short_recipient_names(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+
+    class _FakeController:
+        def __init__(self) -> None:
+            self.launch_plan = launch_plan
+
+        def send_prompt(self, prompt: str) -> list[SessionEvent]:
+            raise AssertionError(f"send_prompt should not run for invalid CLI input: {prompt}")
+
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gig_agents.agents.brain_launch_runtime.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "mail",
+            "send",
+            "--agent-identity",
+            "AGENTSYS-research",
+            "--to",
+            "bob",
+            "--subject",
+            "Investigate parser drift",
+            "--body-content",
+            "Hello",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "full mailbox addresses" in capsys.readouterr().err
 
 
 def test_mail_command_errors_for_missing_bootstrap_assets(

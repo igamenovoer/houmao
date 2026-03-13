@@ -22,6 +22,11 @@ MAILBOX_PROTOCOL_VERSION = 1
 MESSAGE_ID_PATTERN = re.compile(r"^msg-\d{8}T\d{6}Z-[0-9a-f]{32}$")
 _RFC3339_UTC_SUFFIX = "Z"
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_MAILBOX_ADDRESS_RE = re.compile(
+    r"^(?P<local>[A-Za-z0-9][A-Za-z0-9._+-]*)@"
+    r"(?P<domain>[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)$"
+)
+_FORBIDDEN_PATH_SEGMENT_CHARS = frozenset('/\\\x00:*?"<>|')
 
 
 class _StrictMailboxModel(BaseModel):
@@ -60,11 +65,7 @@ class MailboxPrincipal(_StrictMailboxModel):
     @field_validator("address")
     @classmethod
     def _validate_address(cls, value: str) -> str:
-        if "@" not in value or value.startswith("@") or value.endswith("@"):
-            raise ValueError("must be an email-like address")
-        if any(character.isspace() for character in value):
-            raise ValueError("must not contain whitespace")
-        return value
+        return validate_mailbox_address(value)
 
 
 class MailboxAttachment(_StrictMailboxModel):
@@ -227,6 +228,46 @@ def generate_message_id(now: datetime | None = None) -> str:
 
     timestamp = normalize_utc_datetime(now or datetime.now(UTC))
     return f"msg-{timestamp.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex}"
+
+
+def validate_mailbox_address(value: str) -> str:
+    """Validate and normalize one mailbox address string."""
+
+    normalized = value.strip()
+    if not normalized:
+        raise MailboxProtocolError("mailbox addresses must not be empty")
+    if any(character.isspace() for character in normalized):
+        raise MailboxProtocolError("mailbox addresses must not contain whitespace")
+
+    match = _MAILBOX_ADDRESS_RE.fullmatch(normalized)
+    if match is None:
+        raise MailboxProtocolError(
+            "mailbox addresses must be full-form email-like values such as "
+            "`AGENTSYS-research@agents.localhost`"
+        )
+
+    local_part = match.group("local")
+    domain_part = match.group("domain")
+    if ".." in local_part or ".." in domain_part:
+        raise MailboxProtocolError("mailbox addresses must not contain empty dot segments")
+    if domain_part.startswith("-") or domain_part.endswith("-"):
+        raise MailboxProtocolError("mailbox address domains must not start or end with `-`")
+    return normalized
+
+
+def mailbox_address_path_segment(address: str) -> str:
+    """Validate a mailbox address for literal filesystem-segment usage."""
+
+    normalized = validate_mailbox_address(address)
+    if normalized in {".", ".."}:
+        raise MailboxProtocolError("mailbox addresses must not be `.` or `..`")
+    if any(character in _FORBIDDEN_PATH_SEGMENT_CHARS for character in normalized):
+        raise MailboxProtocolError(
+            "mailbox addresses must be safe literal filesystem path segments"
+        )
+    if any(ord(character) < 32 for character in normalized):
+        raise MailboxProtocolError("mailbox addresses must not contain control characters")
+    return normalized
 
 
 def validate_message_id(value: str) -> str:

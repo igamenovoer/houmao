@@ -7,6 +7,13 @@ interactive session controllers.
 from .errors import (
     BackendExecutionError,
     BrainLaunchRuntimeError,
+    GatewayAttachError,
+    GatewayDiscoveryError,
+    GatewayError,
+    GatewayHttpError,
+    GatewayNoLiveInstanceError,
+    GatewayProtocolError,
+    GatewayUnsupportedBackendError,
     LaunchPlanError,
     SchemaValidationError,
     SessionManifestError,
@@ -27,6 +34,7 @@ from .loaders import (
 )
 from .manifest import load_session_manifest
 from .models import (
+    GatewayControlResult,
     InteractiveSession,
     LaunchPlan,
     RoleInjectionPlan,
@@ -44,6 +52,14 @@ __all__ = [
     "BackendExecutionError",
     "BlueprintBinding",
     "BrainLaunchRuntimeError",
+    "GatewayAttachError",
+    "GatewayControlResult",
+    "GatewayDiscoveryError",
+    "GatewayError",
+    "GatewayHttpError",
+    "GatewayNoLiveInstanceError",
+    "GatewayProtocolError",
+    "GatewayUnsupportedBackendError",
     "InteractiveSession",
     "LaunchPlan",
     "LaunchPlanError",

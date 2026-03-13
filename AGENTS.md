@@ -21,6 +21,13 @@ Use Pixi as the default workflow:
 - `pixi run build-dist` builds wheel + sdist to `dist/`.
 - `pixi run check-dist` validates package metadata with Twine.
 
+## Development Status
+This system is under active and unstable development. When designing new features or refactoring existing behavior, prioritize clarity and forward progress over backward compatibility.
+
+Breaking changes are allowed. Do not spend effort preserving legacy interfaces, call patterns, or stored data formats unless the user explicitly asks for compatibility or migration support.
+
+If a design or refactoring change breaks functionality in this repository, identify the breakage clearly and propose a direct fix in the updated design or implementation plan. Prefer repairing the repository around the new design over adding backward-compatibility shims.
+
 ## Coding Style & Naming Conventions
 Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `gig_agents_cli`-style semantics in scripts and commands).
 

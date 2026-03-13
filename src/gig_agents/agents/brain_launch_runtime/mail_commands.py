@@ -105,6 +105,8 @@ def ensure_mailbox_command_ready(launch_plan: LaunchPlan) -> MailboxResolvedConf
         paths.rules_dir / "README.md",
         paths.rules_scripts_dir / "requirements.txt",
         paths.rules_scripts_dir / "deliver_message.py",
+        paths.rules_scripts_dir / "register_mailbox.py",
+        paths.rules_scripts_dir / "deregister_mailbox.py",
         paths.rules_scripts_dir / "insert_standard_headers.py",
         paths.rules_scripts_dir / "update_mailbox_state.py",
         paths.rules_scripts_dir / "repair_index.py",

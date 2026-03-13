@@ -10,6 +10,7 @@ import re
 from typing import Any, cast
 
 from gig_agents.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from gig_agents.mailbox.filesystem import resolve_active_mailbox_inbox_dir
 
 from .mailbox_runtime_models import (
     MailboxDeclarativeConfig,
@@ -269,7 +270,7 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
         )
 
     mailbox_root = config.filesystem_root.resolve()
-    inbox_dir = mailbox_root / "mailboxes" / config.principal_id / "inbox"
+    inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
     return {
         "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
         "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
