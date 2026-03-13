@@ -401,7 +401,7 @@ The system SHALL schema-validate all runtime-generated structured manifest/confi
 - **THEN** the runtime rejects the operation with an explicit schema-validation error instead of proceeding with undefined behavior
 
 ### Requirement: JSON Schema assets live in `src/` runtime package
-The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/gig_agents/.../schemas/`.
+The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/houmao/.../schemas/`.
 
 #### Scenario: Session manifest schema is versioned and discoverable
 - **WHEN** developers inspect the runtime package source
@@ -868,22 +868,12 @@ If a caller invokes the control-input command for a different backend, the runti
 - **THEN** the runtime rejects the request with an explicit unsupported-backend error
 - **AND THEN** it does not attempt to translate the request into `send-prompt` or another fallback path
 
-
 ### Requirement: CAO session startup fixes "shell-first attach" and prunes the bootstrap window when safe
-For CAO-backed session startup (`backend=cao_rest`), when the runtime pre-creates
-one bootstrap tmux window for env setup and CAO subsequently creates the real
-agent terminal window, the runtime SHALL (best-effort) make the CAO terminal
-window the session's current tmux window and SHALL prune the bootstrap window
-when it can be safely identified as distinct from the CAO terminal window.
+For CAO-backed session startup (`backend=cao_rest`), when the runtime pre-creates one bootstrap tmux window for env setup and CAO subsequently creates the real agent terminal window, the runtime SHALL best-effort make the CAO terminal window the session's current tmux window and SHALL prune the bootstrap window when it can be safely identified as distinct from the CAO terminal window.
 
-The runtime SHALL record the bootstrap tmux `window_id` immediately after
-session creation and SHALL use `window_id` targeting (not index assumptions) for
-window selection and pruning.
+The runtime SHALL record the bootstrap tmux `window_id` immediately after session creation and SHALL use `window_id` targeting, rather than index assumptions, for window selection and pruning.
 
-The runtime SHALL resolve the CAO terminal window id from `terminal.name` using
-bounded retry (to tolerate transient tmux visibility races). If the CAO window
-cannot be resolved within the bound, startup still succeeds and the runtime
-emits a warning diagnostic.
+The runtime SHALL resolve the CAO terminal window id from `terminal.name` using bounded retry to tolerate transient tmux visibility races. If the CAO window cannot be resolved within the bound, startup SHALL still succeed and the runtime SHALL emit a warning diagnostic.
 
 The runtime SHOULD use the `create_terminal(...)` response `terminal.name` as
 the CAO tmux window name (no extra `GET /terminals/{id}` is required solely to
@@ -1277,3 +1267,19 @@ Supporting files such as `state.json` or run-state metadata MAY be used to impro
 - **WHEN** an operator or tool asks the runtime for gateway status on a session with a live gateway instance attached
 - **THEN** the runtime reads validated gateway state for that session
 - **AND THEN** the status read does not require the runtime to consume the gateway's terminal-mutation slot
+
+### Requirement: Runtime-managed session control uses the `realm_controller` module surface
+The repo-owned runtime SHALL expose its direct module entrypoint, canonical source-path references, and canonical runtime documentation under the `gig_agents.agents.realm_controller` / `realm_controller` name rather than `brain_launch_runtime`.
+
+This rename SHALL preserve the existing runtime subcommands and their current session-control behavior.
+
+#### Scenario: Module-form runtime invocation uses `realm_controller`
+- **WHEN** a developer invokes the runtime through its documented module form
+- **THEN** the canonical module path is `gig_agents.agents.realm_controller`
+- **AND THEN** the runtime continues to expose the existing subcommands `build-brain`, `start-session`, `send-prompt`, `send-keys`, `mail`, and `stop-session`
+
+#### Scenario: Canonical runtime docs and source mappings use `realm_controller`
+- **WHEN** a reader navigates active runtime docs or repo-owned source mappings for the runtime
+- **THEN** those docs and mappings use `realm_controller` as the canonical runtime name
+- **AND THEN** active guidance does not present `brain_launch_runtime` as the preferred runtime surface
+

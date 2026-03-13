@@ -41,7 +41,7 @@ The runner SHALL avoid modifying tracked files outside explicit snapshot mode.
 
 ### Requirement: Demo runner SHALL execute launcher `status`, `start`, and `stop` with structured outputs
 The tutorial pack runner SHALL invoke
-`python -m gig_agents.cao.tools.cao_server_launcher` for `status`,
+`python -m houmao.cao.tools.cao_server_launcher` for `status`,
 `start`, and `stop`, and SHALL capture JSON outputs into the demo workspace for
 verification/report generation.
 
@@ -86,3 +86,4 @@ The demo README SHALL document:
 - **WHEN** a new developer follows the README in order
 - **THEN** they can run the demo, locate outputs, and perform verification
   against `expected_report/` without hidden setup steps or black-box script assumptions
+

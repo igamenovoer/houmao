@@ -22,8 +22,8 @@ directory.
 
 The demo SHALL resolve the requested selector to one canonical recipe file,
 load that recipe through the shared recipe loader for startup metadata, and
-invoke brain construction through the existing `realm_controller
-build-brain --recipe <resolved-path>` path.
+invoke brain construction through the existing `realm_controller build-brain
+--recipe <resolved-path>` path.
 
 The selected recipe SHALL define the default agent name for the launch. When
 the operator omits `--agent-name`, startup SHALL use that recipe-defined
@@ -253,3 +253,4 @@ The demo workflow SHALL persist control-input artifacts separately from prompt-t
 - **WHEN** the user runs one or more control-input actions between prompt turns and later runs `verify`
 - **THEN** the generated verification report is derived only from recorded prompt-turn artifacts
 - **AND** it does not require or count control-input artifacts as turns
+

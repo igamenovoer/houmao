@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Define validation and schema-packaging expectations for runtime-persisted artifacts and their public interface boundaries.
+## Requirements
 ### Requirement: Persisted runtime artifacts are Pydantic-validated on write
 The system SHALL validate runtime-persisted artifacts (at minimum session manifests and launch-plan payloads) using Pydantic models before writing them to disk.
 
@@ -25,7 +26,7 @@ The system SHALL ship versioned JSON Schema files for persisted runtime artifact
 
 #### Scenario: Schemas are discoverable in the runtime package
 - **WHEN** a developer inspects the runtime package source
-- **THEN** they can find versioned schema files under `gig_agents/agents/realm_controller/schemas/` (for example `session_manifest.v1.schema.json`)
+- **THEN** they can find versioned schema files under `houmao/agents/realm_controller/schemas/` (for example `session_manifest.v1.schema.json`)
 
 ### Requirement: Public runtime interfaces remain dataclass-first
 The system SHALL keep the runtime’s public execution-time interfaces dataclass-first (for example events and control results), and SHALL NOT require callers to construct Pydantic models to use the runtime.
@@ -34,3 +35,4 @@ The system SHALL keep the runtime’s public execution-time interfaces dataclass
 - **WHEN** a developer runs the `send-prompt` CLI command
 - **THEN** the CLI prints JSON events derived from runtime dataclass outputs
 - **AND THEN** the user does not need to import or construct Pydantic models to use the CLI/API
+
