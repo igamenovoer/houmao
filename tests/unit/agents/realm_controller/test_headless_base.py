@@ -5,26 +5,26 @@ import subprocess
 
 import pytest
 
-from gig_agents.agents.realm_controller.agent_identity import (
+from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from gig_agents.agents.realm_controller.backends.gemini_headless import (
+from houmao.agents.realm_controller.backends.gemini_headless import (
     GeminiHeadlessSession,
 )
-from gig_agents.agents.realm_controller.backends.claude_headless import (
+from houmao.agents.realm_controller.backends.claude_headless import (
     ClaudeHeadlessSession,
 )
-from gig_agents.agents.realm_controller.backends.headless_base import (
+from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessSessionState,
 )
-from gig_agents.agents.realm_controller.backends.headless_runner import (
+from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessRunResult,
 )
-from gig_agents.agents.realm_controller.errors import (
+from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
@@ -118,7 +118,7 @@ def test_claude_headless_runs_shared_bootstrap(
         captured["env"] = env
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.ensure_claude_home_bootstrap",
+        "houmao.agents.realm_controller.backends.headless_base.ensure_claude_home_bootstrap",
         _fake_bootstrap,
     )
 
@@ -167,7 +167,7 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     captured_tmux_env: dict[str, object] = {}
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base."
+        "houmao.agents.realm_controller.backends.headless_base."
         "set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: captured_tmux_env.update(
             {"session_name": session_name, "env_vars": dict(env_vars)}
@@ -296,7 +296,7 @@ def test_headless_preflight_fails_when_tool_executable_missing(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.shutil.which",
+        "houmao.agents.realm_controller.backends.headless_base.shutil.which",
         lambda name: None if name == "gemini" else "/usr/bin/tmux",
     )
 
@@ -315,11 +315,11 @@ def test_headless_preflight_fails_when_tool_executable_missing(
 @pytest.fixture(autouse=True)
 def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
+        "houmao.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
         lambda: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
+        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
         lambda *, session_name: subprocess.CompletedProcess(
             args=["tmux", "has-session", "-t", session_name],
             returncode=0,
@@ -328,6 +328,6 @@ def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: None,
     )

@@ -28,7 +28,7 @@ Shared dependency manifest:
 
 - `rules/scripts/requirements.txt`
 - Current third-party requirements: `pydantic>=2.12` and `PyYAML>=6.0`
-- The invoking environment must also have the `gig_agents` package available
+- The invoking environment must also have the `houmao` package available
 
 ## Stable CLI Shape
 
@@ -204,12 +204,12 @@ This script is materialized as part of the managed asset set, but the current bu
 
 ## Source References
 
-- [`src/gig_agents/mailbox/managed.py`](../../../../src/gig_agents/mailbox/managed.py)
-- [`src/gig_agents/mailbox/assets/rules/README.md`](../../../../src/gig_agents/mailbox/assets/rules/README.md)
-- [`src/gig_agents/mailbox/assets/rules/scripts/requirements.txt`](../../../../src/gig_agents/mailbox/assets/rules/scripts/requirements.txt)
-- [`src/gig_agents/mailbox/assets/rules/scripts/register_mailbox.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/register_mailbox.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/deregister_mailbox.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/deregister_mailbox.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/deliver_message.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/deliver_message.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/update_mailbox_state.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/update_mailbox_state.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/repair_index.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/repair_index.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/insert_standard_headers.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/insert_standard_headers.py)
+- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
+- [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)
+- [`src/houmao/mailbox/assets/rules/scripts/requirements.txt`](../../../../src/houmao/mailbox/assets/rules/scripts/requirements.txt)
+- [`src/houmao/mailbox/assets/rules/scripts/register_mailbox.py`](../../../../src/houmao/mailbox/assets/rules/scripts/register_mailbox.py)
+- [`src/houmao/mailbox/assets/rules/scripts/deregister_mailbox.py`](../../../../src/houmao/mailbox/assets/rules/scripts/deregister_mailbox.py)
+- [`src/houmao/mailbox/assets/rules/scripts/deliver_message.py`](../../../../src/houmao/mailbox/assets/rules/scripts/deliver_message.py)
+- [`src/houmao/mailbox/assets/rules/scripts/update_mailbox_state.py`](../../../../src/houmao/mailbox/assets/rules/scripts/update_mailbox_state.py)
+- [`src/houmao/mailbox/assets/rules/scripts/repair_index.py`](../../../../src/houmao/mailbox/assets/rules/scripts/repair_index.py)
+- [`src/houmao/mailbox/assets/rules/scripts/insert_standard_headers.py`](../../../../src/houmao/mailbox/assets/rules/scripts/insert_standard_headers.py)

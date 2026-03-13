@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.cao_rest import (
+from houmao.agents.realm_controller.backends.cao_rest import (
     CaoRestSession,
     CaoSessionState,
 )
-from gig_agents.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from gig_agents.cao.models import CaoTerminal
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.cao.models import CaoTerminal
 
 
 def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
@@ -78,11 +78,11 @@ def test_cao_control_input_uses_persisted_tmux_window_without_live_lookup(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
         _FakeClient,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._list_tmux_windows",
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_windows",
         lambda *, session_name: [
             SimpleNamespace(
                 window_id="@2",
@@ -92,7 +92,7 @@ def test_cao_control_input_uses_persisted_tmux_window_without_live_lookup(
         ],
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
         _fake_run_tmux,
     )
 
@@ -175,15 +175,15 @@ def test_cao_control_input_falls_back_to_live_terminal_metadata(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
         _FakeClient,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._list_tmux_windows",
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_windows",
         _fake_list_tmux_windows,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
         _fake_run_tmux,
     )
 
@@ -224,11 +224,11 @@ def test_cao_control_input_returns_explicit_error_when_target_is_unresolved(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
         _FakeClient,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.cao_rest._list_tmux_windows",
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_windows",
         lambda *, session_name: [
             SimpleNamespace(
                 window_id="@1",

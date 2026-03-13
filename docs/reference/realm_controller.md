@@ -1,6 +1,6 @@
 # Realm Controller
 
-`gig_agents.agents.realm_controller` provides a repo-owned runtime for:
+`houmao.agents.realm_controller` provides a repo-owned runtime for:
 
 - composing `{brain manifest, role}` into a backend launch plan,
 - starting interactive sessions (local or CAO),
@@ -18,7 +18,7 @@ For the new detailed reference trees, use:
 Use the module CLI:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller --help
+pixi run python -m houmao.agents.realm_controller --help
 ```
 
 Supported commands:
@@ -61,7 +61,7 @@ Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contra
 Launch-time auto-attach is optional:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder \
@@ -72,17 +72,17 @@ pixi run python -m gig_agents.agents.realm_controller start-session \
 Later attach and detach stay explicit lifecycle actions:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller attach-gateway \
+pixi run python -m houmao.agents.realm_controller attach-gateway \
   --agent-identity AGENTSYS-gpu
 
-pixi run python -m gig_agents.agents.realm_controller gateway-status \
+pixi run python -m houmao.agents.realm_controller gateway-status \
   --agent-identity AGENTSYS-gpu
 
-pixi run python -m gig_agents.agents.realm_controller gateway-send-prompt \
+pixi run python -m houmao.agents.realm_controller gateway-send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Queue this through the gateway"
 
-pixi run python -m gig_agents.agents.realm_controller detach-gateway \
+pixi run python -m houmao.agents.realm_controller detach-gateway \
   --agent-identity AGENTSYS-gpu
 ```
 
@@ -112,7 +112,7 @@ The resolved directory must contain `brains/`, `roles/`, and optionally `bluepri
 ## Build a Brain
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller build-brain \
+pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir tests/fixtures/agents \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
@@ -122,7 +122,7 @@ pixi run python -m gig_agents.agents.realm_controller build-brain \
 Mailbox support can come from declarative brain config or from `start-session` overrides. The implemented v1 transport is `filesystem`.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
@@ -163,7 +163,7 @@ Notes:
 Start a session from an existing brain manifest:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder
@@ -185,7 +185,7 @@ Notes:
 deprecation window:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend codex_app_server
@@ -216,13 +216,13 @@ Bootstrap is idempotent and preserves unrelated config settings.
 ## Claude Headless Resume (tmux-backed `claude -p --resume`)
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
   --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Summarize the current plan"
@@ -285,13 +285,13 @@ Examples:
 
 ```bash
 ANTHROPIC_MODEL=opus ANTHROPIC_SMALL_FAST_MODEL=claude-3-5-haiku-latest \
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 ANTHROPIC_MODEL=opus CLAUDE_CODE_SUBAGENT_MODEL=sonnet \
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
@@ -303,13 +303,13 @@ Use the same loopback port configured for the CAO launcher. `9889` is the defaul
 ## Gemini Headless Resume (tmux-backed `gemini -p --resume`)
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/gemini/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend gemini_headless
 
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
   --agent-identity tmp/agents-runtime/sessions/gemini_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
@@ -326,7 +326,7 @@ For tmux-backed headless sessions (`codex_headless`, `claude_headless`,
 - Explicit cleanup path removes the tmux session:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller stop-session \
+pixi run python -m houmao.agents.realm_controller stop-session \
   --agent-identity AGENTSYS-gpu \
   --force-cleanup
 ```
@@ -338,12 +338,12 @@ For the docs-side overview of the interactive CAO wrapper flow, see [Interactive
 Start CAO explicitly before `start-session`:
 
 ```bash
-pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+pixi run python -m houmao.cao.tools.cao_server_launcher start \
   --config config/cao-server-launcher/local.toml
 ```
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller start-session \
+pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
   --role gpu-kernel-coder \
@@ -351,22 +351,22 @@ pixi run python -m gig_agents.agents.realm_controller start-session \
   --agent-identity gpu \
   --cao-base-url http://localhost:<port>
 
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity AGENTSYS-gpu \
   --prompt "Continue from the prior answer"
 
-pixi run python -m gig_agents.agents.realm_controller send-keys \
+pixi run python -m houmao.agents.realm_controller send-keys \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 
-pixi run python -m gig_agents.agents.realm_controller stop-session \
+pixi run python -m houmao.agents.realm_controller stop-session \
   --agent-identity AGENTSYS-gpu
 ```
 
 Then stop CAO explicitly:
 
 ```bash
-pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+pixi run python -m houmao.cao.tools.cao_server_launcher stop \
   --config config/cao-server-launcher/local.toml
 ```
 

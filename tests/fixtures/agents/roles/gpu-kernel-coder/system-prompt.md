@@ -35,7 +35,7 @@ In `flashinfer-dev`, assume these are available:
 - CUDA 12.9 toolchain/runtime (`nvcc`, `cuda-cudart`, `cuda-libraries-dev`)
 - C++ build tools (`cmake`, `ninja`, `pkg-config`, `clang-tools`)
 - Nsight Compute (`ncu`) for profiling workflows
-- Python integration stack (`torch` with `cu129`, editable `flashinfer-python`, editable `flashinfer-bench`, `hydra-core`, editable `gig_agents`)
+- Python integration stack (`torch` with `cu129`, editable `flashinfer-python`, editable `flashinfer-bench`, `hydra-core`, editable `houmao`)
 
 ## Hard Rules
 

@@ -9,17 +9,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from gig_agents.agents.realm_controller.errors import GatewayHttpError, LaunchPlanError
-from gig_agents.agents.realm_controller.gateway_models import (
+from houmao.agents.realm_controller.errors import GatewayHttpError, LaunchPlanError
+from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
-from gig_agents.agents.realm_controller.gateway_service import (
+from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
 )
-from gig_agents.agents.realm_controller.gateway_storage import (
+from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
@@ -29,20 +29,20 @@ from gig_agents.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
     write_gateway_current_instance,
 )
-from gig_agents.agents.realm_controller.loaders import load_blueprint
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.realm_controller.loaders import load_blueprint
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
     default_manifest_path,
     write_session_manifest,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
     SessionControlResult,
 )
-from gig_agents.agents.realm_controller.runtime import RuntimeSessionController
-from gig_agents.cao.models import CaoSuccessResponse, CaoTerminal
+from houmao.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 
 
 def _write(path: Path, text: str) -> None:
@@ -249,7 +249,7 @@ def test_attach_gateway_returns_explicit_unsupported_backend_error(
     )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
 
@@ -279,11 +279,11 @@ def test_gateway_status_invalidates_stale_live_bindings(
 
     captured_unset: dict[str, object] = {}
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
         lambda *, session_name, variable_names: captured_unset.update(
             {"session_name": session_name, "variable_names": tuple(variable_names)}
         ),
@@ -315,7 +315,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.show_tmux_environment_shared",
+        "houmao.agents.realm_controller.runtime.show_tmux_environment_shared",
         _fake_show_tmux_environment,
     )
 
@@ -331,7 +331,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime.GatewayClient",
+        "houmao.agents.realm_controller.runtime.GatewayClient",
         _FailingGatewayClient,
     )
 
@@ -423,7 +423,7 @@ def test_gateway_service_accepts_requests_and_separates_health(
     gateway_root = _seed_cao_gateway_root(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.gateway_service.CaoRestClient",
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
 
@@ -465,7 +465,7 @@ def test_gateway_service_restart_recovers_accepted_requests(
     gateway_root = _seed_cao_gateway_root(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.gateway_service.CaoRestClient",
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -516,7 +516,7 @@ def test_gateway_service_blocks_replay_when_instance_changes(
     gateway_root = _seed_cao_gateway_root(tmp_path, terminal_id="term-new")
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.gateway_service.CaoRestClient",
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
     runtime = GatewayServiceRuntime.from_gateway_root(

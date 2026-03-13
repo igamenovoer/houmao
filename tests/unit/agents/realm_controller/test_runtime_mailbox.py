@@ -4,20 +4,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-from gig_agents.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
-from gig_agents.agents.realm_controller.loaders import load_brain_manifest, load_role_package
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
+from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
 )
-from gig_agents.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from gig_agents.agents.realm_controller.runtime import (
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     resume_runtime_session,
     start_runtime_session,
 )
-from gig_agents.agents.mailbox_runtime_models import MailboxResolvedConfig
-from gig_agents.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 
 
 def _write(path: Path, text: str) -> None:
@@ -89,7 +89,7 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime._create_backend_session",
+        "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: object(),
     )
 
@@ -133,7 +133,7 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
     override_root = tmp_path / "override-mail"
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime._create_backend_session",
+        "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: object(),
     )
 
@@ -203,7 +203,7 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
         return object()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.runtime._create_backend_session",
+        "houmao.agents.realm_controller.runtime._create_backend_session",
         _fake_create_backend_session,
     )
 

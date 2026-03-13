@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`gig-agents` is a framework + CLI toolkit for building and running teams of loosely-coupled, CLI-based agents (codex, claude, gemini) as real tmux-backed processes — not in-process object graphs.
+`Houmao` is a framework + CLI toolkit for building and running teams of loosely-coupled, CLI-based agents (codex, claude, gemini) as real tmux-backed processes — not in-process object graphs.
 
 ## Development Commands
 
@@ -37,12 +37,12 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Source Layout
 
-- `src/gig_agents/agents/brain_builder.py` — Build phase: `BuildRequest` → `BuildResult` (home + manifest)
-- `src/gig_agents/agents/brain_launch_runtime/` — Run phase: `LaunchPlan`, `RuntimeSessionController`, backends
-- `src/gig_agents/agents/brain_launch_runtime/backends/` — Per-tool/backend implementations
-- `src/gig_agents/cao/` — CAO REST client, server launcher, no-proxy helpers
-- `src/gig_agents/cli.py` — `gig-agents-cli` entrypoint (delegates to `brain_launch_runtime.cli`)
-- `src/gig_agents/cao_cli.py` — `gig-cao-server` entrypoint
+- `src/houmao/agents/brain_builder.py` — Build phase: `BuildRequest` → `BuildResult` (home + manifest)
+- `src/houmao/agents/realm_controller/` — Run phase: `LaunchPlan`, `RuntimeSessionController`, backends
+- `src/houmao/agents/realm_controller/backends/` — Per-tool/backend implementations
+- `src/houmao/cao/` — CAO REST client, server launcher, no-proxy helpers
+- `src/houmao/cli.py` — `houmao-cli` entrypoint (delegates to `realm_controller.cli`)
+- `src/houmao/cao_cli.py` — `houmao-cao-server` entrypoint
 
 ### Backend Model
 

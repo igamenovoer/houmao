@@ -8,7 +8,7 @@ This tutorial pack demonstrates a real CAO-backed Claude Code session: build a b
 - `tmux` is installed and available on `PATH`.
 - `cao-server` is installed and available on `PATH`.
   Recommended install: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
-  - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `gig_agents.cao.tools.cao_server_launcher` and stops it on exit.
+  - By default, the demo auto-starts a local CAO server at `http://localhost:9889` via `houmao.cao.tools.cao_server_launcher` and stops it on exit.
   - If `CAO_BASE_URL` is another supported loopback URL such as `http://127.0.0.1:9991`, the demo auto-starts or reuses that selected local port through the launcher.
   - If an untracked local `cao-server` is already healthy on the selected loopback port, the demo restarts it to ensure runtime/profile-store alignment.
   - If you set `CAO_BASE_URL` to a non-loopback URL, the demo expects that server to already be running.

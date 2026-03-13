@@ -35,14 +35,14 @@ of mutating tracked files.
 
 ```bash
 # 1) Probe current health; exit code is 0 (healthy) or 2 (unhealthy).
-pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
+pixi run python -m houmao.cao.tools.cao_server_launcher status \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
   >"$WORKSPACE_DIR/status_before_start.json" \
   2>"$WORKSPACE_DIR/status_before_start.err"
 
 # 2) Start CAO server as a detached standalone service (or reuse an already healthy one).
-pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
+pixi run python -m houmao.cao.tools.cao_server_launcher start \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
   --poll-interval-seconds "$POLL_INTERVAL_SECONDS" \
@@ -50,14 +50,14 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher start \
   2>"$WORKSPACE_DIR/start.err"
 
 # 3) Confirm health from a later separate command after start has exited.
-pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
+pixi run python -m houmao.cao.tools.cao_server_launcher status \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
   >"$WORKSPACE_DIR/status_after_start.json" \
   2>"$WORKSPACE_DIR/status_after_start.err"
 
 # 4) Stop pidfile-managed process for this runtime root.
-pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
+pixi run python -m houmao.cao.tools.cao_server_launcher stop \
   --config "$CONFIG_PATH" \
   --grace-period-seconds "$GRACE_PERIOD_SECONDS" \
   --poll-interval-seconds "$POLL_INTERVAL_SECONDS" \
@@ -65,7 +65,7 @@ pixi run python -m gig_agents.cao.tools.cao_server_launcher stop \
   2>"$WORKSPACE_DIR/stop.err"
 
 # 5) Probe health again after stop; may be 0 or 2 depending local state.
-pixi run python -m gig_agents.cao.tools.cao_server_launcher status \
+pixi run python -m houmao.cao.tools.cao_server_launcher status \
   --config "$CONFIG_PATH" \
   --status-timeout-seconds "$STATUS_TIMEOUT_SECONDS" \
   >"$WORKSPACE_DIR/status_after_stop.json" \

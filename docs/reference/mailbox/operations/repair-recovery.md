@@ -39,7 +39,7 @@ The managed `repair_index.py` wrapper defaults to `cleanup_staging=true` and `qu
 Representative invocation:
 
 ```bash
-pixi run python src/gig_agents/mailbox/assets/rules/scripts/repair_index.py \
+pixi run python src/houmao/mailbox/assets/rules/scripts/repair_index.py \
   --mailbox-root /abs/path/mailbox
 ```
 
@@ -85,7 +85,7 @@ For most operational use, the default quarantine mode is the safer first pass be
 
 ## Source References
 
-- [`src/gig_agents/mailbox/managed.py`](../../../../src/gig_agents/mailbox/managed.py)
-- [`src/gig_agents/mailbox/filesystem.py`](../../../../src/gig_agents/mailbox/filesystem.py)
-- [`src/gig_agents/mailbox/assets/rules/scripts/repair_index.py`](../../../../src/gig_agents/mailbox/assets/rules/scripts/repair_index.py)
+- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
+- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
+- [`src/houmao/mailbox/assets/rules/scripts/repair_index.py`](../../../../src/houmao/mailbox/assets/rules/scripts/repair_index.py)
 - [`tests/unit/mailbox/test_managed.py`](../../../../tests/unit/mailbox/test_managed.py)

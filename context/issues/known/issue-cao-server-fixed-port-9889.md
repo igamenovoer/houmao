@@ -36,7 +36,7 @@ to `cli_agent_orchestrator.api.main:main` via `pyproject.toml`).
 
 ## Current Repo Behavior
 
-- `gig_agents.cao.tools.cao_server_launcher` accepts loopback URLs with explicit
+- `houmao.cao.tools.cao_server_launcher` accepts loopback URLs with explicit
   ports and passes the selected port to `cao-server` through `CAO_PORT`.
 - Launcher runtime artifacts remain partitioned under
   `runtime_root/cao-server/<host>-<port>/`.

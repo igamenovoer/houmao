@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core runtime code lives in `src/gig_agents/` (CLI entrypoints, launch/runtime logic, and CAO integration). Tests are under `tests/` and split by intent:
+Core runtime code lives in `src/houmao/` (CLI entrypoints, launch/runtime logic, and CAO integration). Tests are under `tests/` and split by intent:
 - `tests/unit/` for fast hermetic tests
 - `tests/integration/` for multi-component or external dependency tests
 - `tests/manual/` for non-CI manual scripts
@@ -29,13 +29,13 @@ Breaking changes are allowed. Do not spend effort preserving legacy interfaces, 
 If a design or refactoring change breaks functionality in this repository, identify the breakage clearly and propose a direct fix in the updated design or implementation plan. Prefer repairing the repository around the new design over adding backward-compatibility shims.
 
 ## Coding Style & Naming Conventions
-Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `gig_agents_cli`-style semantics in scripts and commands).
+Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `houmao_cli`-style semantics in scripts and commands).
 
 For Markdown documentation, do not hard-wrap lines purely for width; keep paragraphs as natural long lines and only add line breaks for semantic structure (headings, lists, tables, quotes, or code blocks).
 For UML-style diagrams in Markdown, prefer Mermaid fenced code blocks that render inline; avoid plain-text ASCII art and PlantUML unless the user explicitly requests a different format.
 
 ### Python Style (magic-context)
-Follow [`magic-context/instructions/python-coding-guide.md`](/data/ssd1/huangzhe/code/agent-system-dissect/extern/tracked/gig-agents/magic-context/instructions/python-coding-guide.md) for Python implementation details:
+Follow [`magic-context/instructions/python-coding-guide.md`](magic-context/instructions/python-coding-guide.md) for Python implementation details:
 - Run Python entrypoints, scripts, and tooling via `pixi run` rather than the system `python` executable.
 - Prefer absolute imports; group imports as standard library, third-party, then local modules.
 - Use NumPy-style docstrings for modules, classes, and functions; private helpers (`_name`) still require a brief docstring.

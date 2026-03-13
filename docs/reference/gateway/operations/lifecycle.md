@@ -56,7 +56,7 @@ Current behavior:
 Use `attach-gateway` when the session is already running and only needs the sidecar now.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller attach-gateway \
+pixi run python -m houmao.agents.realm_controller attach-gateway \
   --agent-identity AGENTSYS-gpu
 ```
 
@@ -113,7 +113,7 @@ sequenceDiagram
 Detach keeps the session gateway-capable while removing the live sidecar.
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller detach-gateway \
+pixi run python -m houmao.agents.realm_controller detach-gateway \
   --agent-identity AGENTSYS-gpu
 ```
 
@@ -150,7 +150,7 @@ Current behavior boundary:
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
-- [`src/gig_agents/agents/realm_controller/gateway_storage.py`](../../../../src/gig_agents/agents/realm_controller/gateway_storage.py)
-- [`src/gig_agents/agents/realm_controller/gateway_client.py`](../../../../src/gig_agents/agents/realm_controller/gateway_client.py)
+- [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../../src/houmao/agents/realm_controller/gateway_storage.py)
+- [`src/houmao/agents/realm_controller/gateway_client.py`](../../../../src/houmao/agents/realm_controller/gateway_client.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

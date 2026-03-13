@@ -1,6 +1,6 @@
 # Approved CLI And Tool Names
 
-This repo is using a narrow rename, not the broader lore-driven command vocabulary explored earlier.
+This repo is using a focused rename, not the broader lore-driven command vocabulary explored earlier.
 
 ## Canonical Names
 
@@ -8,9 +8,9 @@ This repo is using a narrow rename, not the broader lore-driven command vocabula
 | --- | --- | --- |
 | Project / distribution | `Houmao` | Repository-facing brand. |
 | Primary runtime CLI | `houmao-cli` | Top-level executable only. |
-| Runtime module | `gig_agents.agents.realm_controller` | Canonical module path for `python -m`. |
-| CAO launcher CLI | `gig-cao-server` | Explicit non-goal: unchanged. |
-| Python import root | `gig_agents` | Explicit non-goal: unchanged. |
+| Runtime module | `houmao.agents.realm_controller` | Canonical module path for `python -m`. |
+| CAO launcher CLI | `houmao-cao-server` | Canonical launcher executable. |
+| Python import root | `houmao` | Canonical import/package root. |
 
 ## Commands That Stay Unchanged
 

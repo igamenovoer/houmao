@@ -141,8 +141,8 @@ These classes are useful because they show whether the problem is in persisted s
 
 ## Source References
 
-- [`src/gig_agents/agents/realm_controller/runtime.py`](../../../../src/gig_agents/agents/realm_controller/runtime.py)
-- [`src/gig_agents/agents/realm_controller/manifest.py`](../../../../src/gig_agents/agents/realm_controller/manifest.py)
-- [`src/gig_agents/agents/realm_controller/agent_identity.py`](../../../../src/gig_agents/agents/realm_controller/agent_identity.py)
-- [`src/gig_agents/agents/realm_controller/errors.py`](../../../../src/gig_agents/agents/realm_controller/errors.py)
+- [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/realm_controller/manifest.py`](../../../../src/houmao/agents/realm_controller/manifest.py)
+- [`src/houmao/agents/realm_controller/agent_identity.py`](../../../../src/houmao/agents/realm_controller/agent_identity.py)
+- [`src/houmao/agents/realm_controller/errors.py`](../../../../src/houmao/agents/realm_controller/errors.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

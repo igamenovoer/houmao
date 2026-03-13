@@ -9,24 +9,24 @@ from typing import Any
 
 import pytest
 
-from gig_agents.agents.realm_controller.agent_identity import (
+from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from gig_agents.agents.realm_controller.errors import SessionManifestError
-from gig_agents.agents.realm_controller.launch_plan import (
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
 )
-from gig_agents.agents.realm_controller.loaders import (
+from houmao.agents.realm_controller.loaders import (
     load_brain_manifest,
     load_role_package,
 )
-from gig_agents.agents.realm_controller.manifest import (
+from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
 )
-from gig_agents.agents.realm_controller.runtime import (
+from houmao.agents.realm_controller.runtime import (
     resolve_agent_identity,
 )
 

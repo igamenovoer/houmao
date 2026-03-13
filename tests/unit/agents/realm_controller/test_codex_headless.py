@@ -5,16 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.codex_headless import (
+from houmao.agents.realm_controller.backends.codex_headless import (
     CodexHeadlessSession,
 )
-from gig_agents.agents.realm_controller.backends.headless_base import (
+from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessSessionState,
 )
-from gig_agents.agents.realm_controller.backends.headless_runner import (
+from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessRunResult,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
@@ -43,11 +43,11 @@ def _sample_codex_launch_plan(tmp_path: Path) -> LaunchPlan:
 @pytest.fixture(autouse=True)
 def _stub_tmux_and_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
+        "houmao.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
         lambda: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
+        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
         lambda *, session_name: subprocess.CompletedProcess(
             args=["tmux", "has-session", "-t", session_name],
             returncode=0,
@@ -56,11 +56,11 @@ def _stub_tmux_and_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: None,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.headless_base.ensure_codex_home_bootstrap",
+        "houmao.agents.realm_controller.backends.headless_base.ensure_codex_home_bootstrap",
         lambda *, home_path, env, working_directory: None,
     )
 

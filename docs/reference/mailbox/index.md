@@ -48,8 +48,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 ## Source References
 
-- [`src/gig_agents/agents/mailbox_runtime_support.py`](../../../src/gig_agents/agents/mailbox_runtime_support.py)
-- [`src/gig_agents/agents/realm_controller/mail_commands.py`](../../../src/gig_agents/agents/realm_controller/mail_commands.py)
-- [`src/gig_agents/mailbox/protocol.py`](../../../src/gig_agents/mailbox/protocol.py)
-- [`src/gig_agents/mailbox/filesystem.py`](../../../src/gig_agents/mailbox/filesystem.py)
-- [`src/gig_agents/mailbox/managed.py`](../../../src/gig_agents/mailbox/managed.py)
+- [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
+- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
+- [`src/houmao/mailbox/protocol.py`](../../../src/houmao/mailbox/protocol.py)
+- [`src/houmao/mailbox/filesystem.py`](../../../src/houmao/mailbox/filesystem.py)
+- [`src/houmao/mailbox/managed.py`](../../../src/houmao/mailbox/managed.py)

@@ -12,9 +12,9 @@ The goal is to replace ad-hoc read/poll loops with composable observables and ma
 Current TUI/event handling paths rely on fixed timing values spread across backend loops. This makes behavior harder to reason about and harder to tune per environment (local dev, CI, slower remote hosts, etc.).
 
 Examples in current implementation include:
-- fixed short read windows in Codex app-server event loops (`0.25s`) and interrupt timeout (`3.0s`) in `src/gig_agents/agents/realm_controller/backends/codex_app_server.py`
-- default CAO polling/time budget values (`poll_interval_seconds=0.4`, `timeout_seconds=120.0`) in `src/gig_agents/agents/realm_controller/backends/cao_rest.py`
-- headless tmux completion polling defaults in `src/gig_agents/agents/realm_controller/backends/headless_runner.py`
+- fixed short read windows in Codex app-server event loops (`0.25s`) and interrupt timeout (`3.0s`) in `src/houmao/agents/realm_controller/backends/codex_app_server.py`
+- default CAO polling/time budget values (`poll_interval_seconds=0.4`, `timeout_seconds=120.0`) in `src/houmao/agents/realm_controller/backends/cao_rest.py`
+- headless tmux completion polling defaults in `src/houmao/agents/realm_controller/backends/headless_runner.py`
 
 ## Requested Scope
 1. Add an internal RxPY-based event pipeline abstraction for TUI/event streams (stdio JSON-RPC messages, CAO terminal output polling, and related completion/status signals).

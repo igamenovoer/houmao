@@ -17,7 +17,7 @@ CONFIG_TEMPLATE_PATH="$WORKSPACE_DIR/launcher_config.template.toml"
 CONFIG_PATH="$WORKSPACE_DIR/cao-server-launcher.toml"
 EXPECTED_REPORT="$SCRIPT_DIR/expected_report/report.json"
 VERIFY_SCRIPT="$SCRIPT_DIR/scripts/verify_report.py"
-LAUNCHER_MODULE="gig_agents.cao.tools.cao_server_launcher"
+LAUNCHER_MODULE="houmao.cao.tools.cao_server_launcher"
 SNAPSHOT=0
 START_COMPLETED=0
 STOP_COMPLETED=0
@@ -395,7 +395,7 @@ artifact_checks = {
     "ownership_file_exists_after_start": ownership_file.exists(),
     "ownership_metadata_matches": (
         isinstance(ownership_payload, dict)
-        and ownership_payload.get("managed_by") == "gig_agents.cao.server_launcher"
+        and ownership_payload.get("managed_by") == "houmao.cao.server_launcher"
         and ownership_payload.get("launch_mode") == "detached"
         and ownership_payload.get("base_url") == base_url
         and ownership_payload.get("runtime_root") == str(runtime_root)
@@ -407,7 +407,7 @@ artifact_checks = {
             started_new_process
             and ownership_file.exists()
             and isinstance(ownership_payload, dict)
-            and ownership_payload.get("managed_by") == "gig_agents.cao.server_launcher"
+            and ownership_payload.get("managed_by") == "houmao.cao.server_launcher"
             and ownership_payload.get("launch_mode") == "detached"
         )
         or (

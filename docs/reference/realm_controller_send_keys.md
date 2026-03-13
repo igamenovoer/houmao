@@ -41,7 +41,7 @@ Example result:
 ## CLI Contract
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller send-keys \
+pixi run python -m houmao.agents.realm_controller send-keys \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
@@ -76,7 +76,7 @@ hello<[Left]><[Left]>!
 Literal examples:
 
 ```bash
-pixi run python -m gig_agents.agents.realm_controller send-keys \
+pixi run python -m houmao.agents.realm_controller send-keys \
   --agent-identity AGENTSYS-gpu \
   --sequence '/model<[Enter]>' \
   --escape-special-keys

@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from gig_agents.agents.realm_controller import cli
-from gig_agents.agents.realm_controller.models import SessionControlResult
+from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.models import SessionControlResult
 
 
 def test_start_session_outputs_canonical_agent_identity_for_cao(
@@ -29,7 +29,7 @@ def test_start_session_outputs_canonical_agent_identity_for_cao(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -74,7 +74,7 @@ def test_start_session_forwards_cao_parsing_mode_override(monkeypatch, tmp_path:
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -113,7 +113,7 @@ def test_start_session_forwards_mailbox_overrides(monkeypatch, tmp_path: Path) -
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -160,7 +160,7 @@ def test_stop_session_forwards_force_cleanup(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -168,7 +168,7 @@ def test_stop_session_forwards_force_cleanup(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -209,7 +209,7 @@ def test_start_session_prefers_cli_agent_def_dir_over_env(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -252,7 +252,7 @@ def test_start_session_uses_env_agent_def_dir_when_cli_flag_missing(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -293,7 +293,7 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.start_runtime_session",
+        "houmao.agents.realm_controller.cli.start_runtime_session",
         _fake_start_runtime_session,
     )
 
@@ -326,7 +326,7 @@ def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
             return []
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=tmux_agent_def_dir.resolve(),
@@ -334,7 +334,7 @@ def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
     )
 
@@ -375,11 +375,11 @@ def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         _fake_resolve_agent_identity,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
     )
 
@@ -428,11 +428,11 @@ def test_stop_session_name_based_forwards_explicit_agent_def_dir_override(
         )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         _fake_resolve_agent_identity,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: captured_resume_kwargs.update(kwargs) or _FakeController(),
     )
 
@@ -476,7 +476,7 @@ def test_send_keys_forwards_sequence_and_escape_mode(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -484,7 +484,7 @@ def test_send_keys_forwards_sequence_and_escape_mode(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 
@@ -526,7 +526,7 @@ def test_send_keys_returns_error_exit_code_on_control_input_failure(
             )
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resolve_agent_identity",
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
         lambda **kwargs: SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
             agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
@@ -534,7 +534,7 @@ def test_send_keys_returns_error_exit_code_on_control_input_failure(
         ),
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.cli.resume_runtime_session",
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
         lambda **kwargs: _FakeController(),
     )
 

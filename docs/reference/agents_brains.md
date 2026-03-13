@@ -183,7 +183,7 @@ module and CLI.
 ```python
 from pathlib import Path
 
-from gig_agents.agents import BuildRequest, build_brain_home
+from houmao.agents import BuildRequest, build_brain_home
 
 result = build_brain_home(
     BuildRequest(

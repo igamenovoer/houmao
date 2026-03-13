@@ -6,21 +6,22 @@ The repository-facing project and distribution name is `Houmao`.
 
 ## Scope
 
-This rename covers branding, packaging metadata, contributor-facing docs, and active guidance.
-It does not rename the Python import root `gig_agents`, the CAO launcher `gig-cao-server`, or the existing runtime subcommands.
+This rename covers branding, packaging metadata, contributor-facing docs, active guidance, the Python import root, and the CAO launcher CLI.
+It does not rename the existing runtime subcommands.
 
 ## Rationale
 
-- `Houmao` gives the project one public identity instead of leaving `gig-agents` as the lingering package/distribution brand.
+- `Houmao` gives the project one public identity instead of leaving historical names in user-facing surfaces.
 - The repo can accept breaking changes, so a clean rename is preferable to compatibility aliases.
-- Keeping `gig_agents` as the import root keeps the packaging change narrow and avoids an unnecessary downstream migration.
+- Renaming the import root and launcher CLI removes the last user-visible split between package, module, and command names.
 
 ## Canonical Reader Guidance
 
 - Project / distribution name: `Houmao`
 - Primary runtime CLI: `houmao-cli`
-- Python import root: `gig_agents`
-- Runtime module path: `gig_agents.agents.realm_controller`
+- CAO launcher CLI: `houmao-cao-server`
+- Python import root: `houmao`
+- Runtime module path: `houmao.agents.realm_controller`
 
 ## Explicit Non-Goals
 

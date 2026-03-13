@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.claude_bootstrap import (
+from houmao.agents.realm_controller.backends.claude_bootstrap import (
     ensure_claude_home_bootstrap,
 )
-from gig_agents.agents.realm_controller.errors import (
+from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
 )
 

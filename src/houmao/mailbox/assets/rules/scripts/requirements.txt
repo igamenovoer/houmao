@@ -1,0 +1,4 @@
+# Third-party Python dependencies used by the managed mailbox scripts.
+# The invoking environment must also have the `houmao` package available.
+pydantic>=2.12
+PyYAML>=6.0

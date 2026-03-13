@@ -111,6 +111,6 @@ Practical rule: if you are changing recipient-visible status, you should be touc
 
 ## Source References
 
-- [`src/gig_agents/mailbox/protocol.py`](../../../../src/gig_agents/mailbox/protocol.py)
-- [`src/gig_agents/mailbox/filesystem.py`](../../../../src/gig_agents/mailbox/filesystem.py)
-- [`src/gig_agents/mailbox/managed.py`](../../../../src/gig_agents/mailbox/managed.py)
+- [`src/houmao/mailbox/protocol.py`](../../../../src/houmao/mailbox/protocol.py)
+- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
+- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)

@@ -268,10 +268,10 @@ Scripts:
 
 Implementation files:
 
-- `src/gig_agents/demo/cao_interactive_demo/brain_recipes.py`
-- `src/gig_agents/demo/cao_interactive_demo/models.py`
-- `src/gig_agents/demo/cao_interactive_demo/cli.py`
-- `src/gig_agents/demo/cao_interactive_demo/commands.py`
-- `src/gig_agents/demo/cao_interactive_demo/runtime.py`
-- `src/gig_agents/demo/cao_interactive_demo/rendering.py`
-- `src/gig_agents/demo/cao_interactive_demo/cao_server.py`
+- `src/houmao/demo/cao_interactive_demo/brain_recipes.py`
+- `src/houmao/demo/cao_interactive_demo/models.py`
+- `src/houmao/demo/cao_interactive_demo/cli.py`
+- `src/houmao/demo/cao_interactive_demo/commands.py`
+- `src/houmao/demo/cao_interactive_demo/runtime.py`
+- `src/houmao/demo/cao_interactive_demo/rendering.py`
+- `src/houmao/demo/cao_interactive_demo/cao_server.py`

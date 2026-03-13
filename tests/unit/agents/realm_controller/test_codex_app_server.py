@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.codex_app_server import (
+from houmao.agents.realm_controller.backends.codex_app_server import (
     CodexAppServerSession,
 )
-from gig_agents.agents.realm_controller.models import (
+from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
@@ -70,11 +70,11 @@ def test_codex_app_server_runs_shared_codex_bootstrap(
         return _FakeProcess()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.codex_app_server.ensure_codex_home_bootstrap",
+        "houmao.agents.realm_controller.backends.codex_app_server.ensure_codex_home_bootstrap",
         _fake_bootstrap,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.codex_app_server.subprocess.Popen",
+        "houmao.agents.realm_controller.backends.codex_app_server.subprocess.Popen",
         _fake_popen,
     )
 
@@ -128,11 +128,11 @@ def test_codex_app_server_preserve_mode_leaves_no_proxy_untouched(
         return _FakeProcess()
 
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.codex_app_server.ensure_codex_home_bootstrap",
+        "houmao.agents.realm_controller.backends.codex_app_server.ensure_codex_home_bootstrap",
         _fake_bootstrap,
     )
     monkeypatch.setattr(
-        "gig_agents.agents.realm_controller.backends.codex_app_server.subprocess.Popen",
+        "houmao.agents.realm_controller.backends.codex_app_server.subprocess.Popen",
         _fake_popen,
     )
 

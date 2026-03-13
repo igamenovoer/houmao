@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from gig_agents.agents.brain_builder import BuildError, main
+from houmao.agents.brain_builder import BuildError, main
 
 
 if __name__ == "__main__":

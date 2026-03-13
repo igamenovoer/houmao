@@ -73,7 +73,7 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is only needed if you want to use the `cao_rest` backend or the `gig-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `Houmao` and may include features beyond upstream `main`:
+CAO is only needed if you want to use the `cao_rest` backend or the `houmao-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `Houmao` and may include features beyond upstream `main`:
 
 ```bash
 uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
@@ -91,11 +91,11 @@ command -v tmux
 ### CLI Entry Points
 
 - `houmao-cli`: build/start/prompt/stop lifecycle
-- `gig-cao-server`: local `cao-server` start/status/stop (optional)
+- `houmao-cao-server`: local `cao-server` start/status/stop (optional)
 
 ```bash
 houmao-cli --help
-gig-cao-server --help
+houmao-cao-server --help
 ```
 
 ### 1. Create / Choose An Agent Definition Directory
@@ -304,9 +304,9 @@ houmao-cli start-session \
 Start a local CAO server:
 
 ```bash
-gig-cao-server start  --config config/cao-server-launcher/local.toml
-gig-cao-server status --config config/cao-server-launcher/local.toml
-gig-cao-server stop   --config config/cao-server-launcher/local.toml
+houmao-cao-server start  --config config/cao-server-launcher/local.toml
+houmao-cao-server status --config config/cao-server-launcher/local.toml
+houmao-cao-server stop   --config config/cao-server-launcher/local.toml
 ```
 
 For a one-off local port override, add `--base-url http://127.0.0.1:9991`.
@@ -355,7 +355,7 @@ flowchart TB
     end
 
     extcao(["CAO Server<br/>(optional external)"])
-    caocli["gig-cao-server"]
+    caocli["houmao-cao-server"]
     agentscli["houmao-cli<br/>build · start · prompt · stop"]
 
     %% Build inputs
@@ -426,7 +426,7 @@ pixi run test-runtime
 
 ### CAO
 
-CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used by the `cao_rest` backend and the local `gig-cao-server` launcher flow.
+CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used by the `cao_rest` backend and the local `houmao-cao-server` launcher flow.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
 Install CAO from our forked `hz-release` branch and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:

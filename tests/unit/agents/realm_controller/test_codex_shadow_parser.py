@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from gig_agents.agents.realm_controller.backends.codex_shadow import (
+from houmao.agents.realm_controller.backends.codex_shadow import (
     CodexShadowParser,
 )
-from gig_agents.agents.realm_controller.backends.shadow_parser_core import (
+from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
     ANOMALY_UNKNOWN_VERSION_FLOOR_USED,
 )

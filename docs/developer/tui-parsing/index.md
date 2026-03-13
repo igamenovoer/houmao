@@ -28,7 +28,7 @@ The TUI parsing stack turns CAO `mode=full` tmux snapshots into stable runtime a
 This doc set summarizes the active runtime contract from these sources:
 
 - active specs in `openspec/specs/`
-- runtime modules under `src/gig_agents/agents/realm_controller/backends/`
+- runtime modules under `src/houmao/agents/realm_controller/backends/`
 - the archived originating design and contract notes in `openspec/changes/archive/2026-03-09-decouple-shadow-state-from-answer-association/`
 
 The most important implementation files are:
@@ -39,7 +39,7 @@ The most important implementation files are:
 - `backends/codex_shadow.py`
 - `backends/shadow_answer_association.py`
 
-All of those paths are relative to `src/gig_agents/agents/realm_controller/`.
+All of those paths are relative to `src/houmao/agents/realm_controller/`.
 
 ## Relationship To Reference Docs
 

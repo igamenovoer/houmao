@@ -109,7 +109,7 @@ if ! command -v pixi >/dev/null 2>&1; then
   exit 2
 fi
 
-pixi run python -m gig_agents.agents.realm_controller send-prompt \
+pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir "$AGENT_DEF_DIR" \
   --agent-identity "$AGENT_IDENTITY" \
   --prompt "$PROMPT"

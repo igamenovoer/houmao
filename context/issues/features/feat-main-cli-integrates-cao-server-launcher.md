@@ -4,11 +4,11 @@
 Proposed
 
 ## Summary
-Integrate the CAO server launcher into the main `gig_agents` CLI as a subcommand so one top-level CLI can manage both shared infrastructure and per-agent runtime actions, while parsing the future master shared-resource TOML in one place.
+Integrate the CAO server launcher into the main `houmao` CLI as a subcommand so one top-level CLI can manage both shared infrastructure and per-agent runtime actions, while parsing the future master shared-resource TOML in one place.
 
 Today the command surfaces are split:
-- the top-level runtime CLI entrypoint in `src/gig_agents/cli.py` routes to `gig_agents.agents.realm_controller.cli`,
-- the CAO launcher has its own separate top-level entrypoint in `src/gig_agents/cao_cli.py`,
+- the top-level runtime CLI entrypoint in `src/houmao/cli.py` routes to `houmao.agents.realm_controller.cli`,
+- the CAO launcher has its own separate top-level entrypoint in `src/houmao/cao_cli.py`,
 - CAO launcher config is parsed separately from runtime config.
 
 That separation works, but it makes the tool feel like several adjacent CLIs rather than one coherent operator-facing interface, especially if we introduce a master shared-resource TOML for things like named CAO services and shared mailbox definitions.
@@ -31,9 +31,9 @@ As shared resources grow beyond CAO, this fragmentation will get worse unless th
 
 ## Requested Scope
 1. Add CAO launcher operations to the main CLI as a subcommand tree, for example a shape like:
-   - `gig_agents cao status`
-   - `gig_agents cao start`
-   - `gig_agents cao stop`
+   - `houmao cao status`
+   - `houmao cao start`
+   - `houmao cao stop`
 2. Make the main CLI the preferred place to load and interpret the future master shared-resource TOML.
 3. Ensure runtime subcommands and CAO subcommands use one consistent config-loading and precedence model.
 4. Allow runtime commands to reference named CAO services from the shared config without forcing the user to restate `--cao-base-url`.
