@@ -53,6 +53,7 @@ The selected mode SHALL be persisted in session runtime state so resumed operati
 
 `cao_only` SHALL remain the generic CAO-native mode for CAO-backed sessions.
 `shadow_only` SHALL be used only for tools that have a runtime-owned shadow parser family.
+The runtime SHALL define one explicit shadow-parser-support capability contract for this purpose, and that contract SHALL be shared by parsing-mode validation and backend parser-stack selection rather than inferred indirectly from unrelated defaults.
 
 Default mapping SHALL be:
 - `tool=claude` -> `shadow_only`

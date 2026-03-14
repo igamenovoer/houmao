@@ -117,24 +117,25 @@ Opt-out switch:
 Implications:
 
 - CAO state is written under `HOME/.aws/cli-agent-orchestrator/`.
-- CAO `working_directory` must be inside this `HOME` tree.
+- `home_dir` is the launcher-managed state/profile-store anchor for the CAO process.
+- Repos and later session workdirs may live elsewhere; the repo-owned launcher/runtime contract does not require them to be nested under `home_dir`.
 - Repos may be read-only, but `HOME` itself must stay writable.
 
 Recommended layout for `/data/...` workflows:
 
-- `HOME`: `/data/<user>/cao-home`
-- repos: `/data/<user>/cao-home/repos/<project>`
+- CAO `HOME`: `/data/<user>/cao-home`
+- repos/workdirs: any convenient path, for example `/data/<user>/repos/<project>`
 - state: `/data/<user>/cao-home/.aws/cli-agent-orchestrator/`
 
 ## Manual `/data/...` verification recipe
 
-1. Create a writable CAO home:
-   `mkdir -p /data/$USER/cao-home/repos && cp -a <repo> /data/$USER/cao-home/repos/`.
+1. Create a writable CAO home and a repo/workdir location:
+   `mkdir -p /data/$USER/cao-home /data/$USER/repos && cp -a <repo> /data/$USER/repos/`.
 2. Point launcher config `home_dir` to `/data/$USER/cao-home`.
 3. Start CAO:
    `pixi run python -m houmao.cao.tools.cao_server_launcher start --config <config>`.
-4. Start a CAO-backed runtime session with `--workdir` inside that home tree.
-5. Confirm session start succeeds for `/data/...` workdir.
+4. Start a CAO-backed runtime session with the repo workdir you want to use. The repo-owned launcher/runtime contract does not require that path to be nested under `home_dir`.
+5. If your installed `cao-server` build still rejects outside-home workdirs, upgrade to the supported fork or temporarily use a nested workdir as a compatibility workaround.
 6. Confirm CAO state exists under
    `/data/$USER/cao-home/.aws/cli-agent-orchestrator/`.
 7. Confirm a later independent status check still succeeds:

@@ -81,7 +81,7 @@ runtime:
 
 ## Known Failure Patterns
 
-### 1) CAO rejects workdir outside home
+### 1) Installed CAO build still rejects workdir outside home
 
 Symptom:
 
@@ -91,15 +91,14 @@ Working directory not allowed ... outside home directory /home/<user>
 
 Cause:
 
-- CAO tmux working-directory validation only permits paths under the user home tree.
-- Repo-local paths like `/data/.../tmp/...` are rejected.
+- Current Houmao launcher/runtime code no longer imposes a repo-owned rule that CAO workdirs must live under `home_dir` or the user home tree.
+- This symptom usually means the installed `cao-server` build is older than the supported upstream sync and is still enforcing the historical home-tree validation internally.
 
 Fix:
 
-- Use `--workdir "$HOME/tmp/<subdir>"` (or any home-subdirectory path).
-- Demo scripts now default to:
-  - `DEMO_WORKSPACE_PARENT="${HOME}/tmp"`
-  - `DEMO_WORKSPACE_SUBDIR="agent-system-dissect"`
+- Upgrade `cao-server` from the supported fork/version taught in the launcher docs.
+- Treat launcher `home_dir` as the CAO state/profile-store anchor, not as a required parent directory for repo worktrees.
+- As a temporary compatibility workaround, use a workdir under `home_dir` or keep the demo's default `<launcher-home>/wktree` worktree layout.
 
 ### 2) Codex trust prompt blocks readiness
 

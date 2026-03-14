@@ -19,12 +19,14 @@ from houmao.agents.realm_controller.registry_models import (
 from houmao.agents.realm_controller.registry_storage import (
     AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
     DEFAULT_REGISTRY_LEASE_TTL,
+    LIVE_AGENT_REGISTRY_SCHEMA,
     cleanup_stale_live_agent_records,
     new_registry_generation_id,
     publish_live_agent_record,
     resolve_global_registry_root,
     resolve_live_agent_record,
 )
+from houmao.agents.realm_controller.schema_validation import load_schema
 
 
 def _sample_record(
@@ -48,6 +50,15 @@ def _sample_record(
         ),
         terminal=RegistryTerminalV1(session_name=agent_name),
     )
+
+
+class _SchemaInvalidDumpRecord(LiveAgentRegistryRecordV1):
+    """Test-only model that emits a schema-invalid payload on dump."""
+
+    def model_dump(self, *args: object, **kwargs: object) -> dict[str, object]:
+        payload = super().model_dump(*args, **kwargs)
+        payload["runtime"] = {}
+        return payload
 
 
 def test_default_registry_root_uses_platformdirs_home_anchor(
@@ -133,6 +144,28 @@ def test_registry_rejects_naive_timestamps() -> None:
         )
 
 
+def test_registry_schema_is_packaged_and_covers_optional_gateway_and_mailbox_groups() -> None:
+    schema = load_schema(LIVE_AGENT_REGISTRY_SCHEMA)
+
+    gateway = schema["properties"]["gateway"]
+    mailbox = schema["properties"]["mailbox"]
+
+    assert gateway["type"] == ["object", "null"]
+    assert gateway["required"] == ["gateway_root", "attach_path"]
+    assert gateway["properties"]["host"]["type"] == ["string", "null"]
+    assert gateway["properties"]["protocol_version"]["type"] == ["string", "null"]
+
+    assert mailbox["type"] == ["object", "null"]
+    assert mailbox["required"] == [
+        "transport",
+        "principal_id",
+        "address",
+        "filesystem_root",
+        "bindings_version",
+    ]
+    assert mailbox["properties"]["transport"]["const"] == "filesystem"
+
+
 def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -201,6 +234,40 @@ def test_publish_cleans_up_temp_file_when_atomic_replace_fails(
 
     live_agents_dir = tmp_path / "registry" / "live_agents"
     assert list(live_agents_dir.rglob("*.tmp")) == []
+
+
+def test_publish_rejects_schema_invalid_initial_write_before_creating_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    invalid_record = _SchemaInvalidDumpRecord(**_sample_record().model_dump())
+
+    with pytest.raises(SessionManifestError, match="schema validation failed before publish"):
+        publish_live_agent_record(invalid_record)
+
+    assert list(registry_root.rglob("record.json")) == []
+    assert list(registry_root.rglob("*.tmp")) == []
+
+
+def test_publish_rejects_schema_invalid_refresh_before_replacing_existing_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    publish_live_agent_record(_sample_record())
+
+    record_path = registry_root / "live_agents" / derive_agent_key("AGENTSYS-gpu") / "record.json"
+    original_text = record_path.read_text(encoding="utf-8")
+    invalid_refresh = _SchemaInvalidDumpRecord(**_sample_record().model_dump())
+
+    with pytest.raises(SessionManifestError, match="schema validation failed before publish"):
+        publish_live_agent_record(invalid_refresh)
+
+    assert record_path.read_text(encoding="utf-8") == original_text
+    assert list(record_path.parent.glob("*.tmp")) == []
 
 
 def test_cleanup_reports_failed_removals_and_continues(

@@ -25,7 +25,7 @@ from ..agent_identity import (
     normalize_agent_identity_name,
 )
 from ..errors import BackendExecutionError
-from ..launch_plan import configured_cao_shadow_policy
+from ..launch_plan import configured_cao_shadow_policy, tool_supports_cao_shadow_parser
 from ..loaders import parse_env_file
 from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEvent
 from .claude_bootstrap import ensure_claude_home_bootstrap
@@ -612,11 +612,16 @@ class CaoRestSession:
         self._provider = _provider_for_tool(launch_plan.tool)
         self._parsing_mode = self._require_supported_parsing_mode(parsing_mode)
         self._shadow_stall_policy = _resolve_shadow_stall_policy(launch_plan)
-        self._shadow_parser_stack = (
-            ShadowParserStack(tool=launch_plan.tool)
-            if launch_plan.tool in {"claude", "codex"}
-            else None
-        )
+        if tool_supports_cao_shadow_parser(launch_plan.tool):
+            self._shadow_parser_stack = ShadowParserStack(tool=launch_plan.tool)
+        else:
+            self._shadow_parser_stack = None
+            if self._parsing_mode == "shadow_only":
+                raise BackendExecutionError(
+                    "Unsupported CAO parsing mode "
+                    f"{self._parsing_mode!r} for tool {launch_plan.tool!r}; "
+                    "no runtime shadow parser is available."
+                )
         self._turn_engines: dict[CaoParsingMode, _TurnEngine] = {
             "cao_only": CaoOnlyTurnEngine(self),
             "shadow_only": ShadowOnlyTurnEngine(self),

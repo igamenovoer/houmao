@@ -47,7 +47,10 @@ The runtime session root itself can live anywhere else on disk. The registry sto
 
 ## Record Shape
 
-Today the strict persisted contract is enforced by Pydantic models in `registry_models.py`.
+The strict persisted contract is now shipped in two complementary forms:
+
+- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json` for the structural disk contract, and
+- strict Pydantic models in `registry_models.py` for typed construction, load validation, and semantic invariants.
 
 Representative record with optional gateway and mailbox metadata present:
 
@@ -153,10 +156,12 @@ That boundary is the main reason the registry can stay small and safe to inspect
 - `published_at` and `lease_expires_at` must be timezone-aware ISO-8601 timestamps.
 - `agent_name` must already be in canonical `AGENTSYS-...` form inside the stored record.
 - `agent_key` must equal `sha256(canonical agent_name).hexdigest()`.
-- The standalone packaged JSON Schema proposed by the follow-up change is not yet present under `src/houmao/agents/realm_controller/schemas/`; the shipped strict boundary today is the Pydantic model.
+- Runtime-managed publish and refresh flows validate serialized payloads against the packaged schema before atomically replacing `record.json`.
+- Cross-field invariants such as canonical-name enforcement, `agent_key` derivation, lease ordering, and complete live gateway field grouping remain model-enforced rather than schema-only.
 
 ## Source References
 
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
+- [`src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

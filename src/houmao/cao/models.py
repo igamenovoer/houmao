@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
@@ -16,15 +16,6 @@ class _CaoModel(BaseModel):
     """Base model for CAO payload parsing."""
 
     model_config = ConfigDict(extra="ignore")
-
-
-class CaoProvider(str, Enum):
-    """Provider enum exposed by CAO."""
-
-    Q_CLI = "q_cli"
-    KIRO_CLI = "kiro_cli"
-    CLAUDE_CODE = "claude_code"
-    CODEX = "codex"
 
 
 class CaoTerminalStatus(str, Enum):
@@ -77,11 +68,21 @@ class CaoTerminal(_CaoModel):
 
     id: str
     name: str
-    provider: CaoProvider
+    provider: str
     session_name: str
     agent_profile: str | None = None
     status: CaoTerminalStatus | None = None
     last_active: datetime | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def _validate_provider(cls, value: str) -> str:
+        """Require a non-empty provider identifier."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
 
 
 class CaoTerminalOutputResponse(_CaoModel):

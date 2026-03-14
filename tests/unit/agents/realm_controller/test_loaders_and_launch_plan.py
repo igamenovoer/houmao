@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.launch_plan import (
     configured_cao_shadow_policy,
     plan_role_injection,
     resolve_cao_parsing_mode,
+    tool_supports_cao_shadow_parser,
 )
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.loaders import (
@@ -392,6 +393,38 @@ def test_resolve_cao_parsing_mode_rejects_unknown_value() -> None:
             requested_mode="hybrid",
             configured_mode=None,
         )
+
+
+def test_resolve_cao_parsing_mode_accepts_explicit_cao_only_without_shadow_parser_support() -> None:
+    assert (
+        resolve_cao_parsing_mode(
+            tool="gemini",
+            requested_mode="cao_only",
+            configured_mode=None,
+        )
+        == "cao_only"
+    )
+
+
+def test_resolve_cao_parsing_mode_rejects_shadow_only_without_shadow_parser_support() -> None:
+    with pytest.raises(LaunchPlanError, match="no runtime shadow parser is available"):
+        resolve_cao_parsing_mode(
+            tool="gemini",
+            requested_mode="shadow_only",
+            configured_mode=None,
+        )
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        ("claude", True),
+        ("codex", True),
+        ("gemini", False),
+    ],
+)
+def test_tool_supports_cao_shadow_parser(tool: str, expected: bool) -> None:
+    assert tool_supports_cao_shadow_parser(tool) is expected
 
 
 def test_build_launch_plan_records_configured_cao_parsing_mode(tmp_path: Path) -> None:

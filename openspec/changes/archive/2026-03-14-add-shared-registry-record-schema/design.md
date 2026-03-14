@@ -1,11 +1,12 @@
 ## Context
 
-`add-central-agent-registry` introduced a persisted shared-registry `record.json` contract under `~/.houmao/registry/live_agents/<agent-key>/record.json`. The implementation already defines that payload with strict Pydantic models in `registry_models.py` and validates records during load, but it does not ship a standalone packaged JSON Schema for the registry record the way the runtime already does for `launch_plan` and `session_manifest`.
+`add-central-agent-registry` introduced a persisted shared-registry `record.json` contract under `~/.houmao/registry/live_agents/<agent-key>/record.json`. The implementation now defines that payload with strict nested Pydantic models in `registry_models.py`, the registry reference docs describe the fuller v1 shape including optional `gateway` and `mailbox` groups, and runtime code validates records during load. But the repo still does not ship a standalone packaged JSON Schema for the registry record the way the runtime already does for `launch_plan` and `session_manifest`.
 
 This repo also already has two useful pieces of infrastructure for persisted-artifact boundaries:
 
 - packaged schema files under `src/houmao/agents/realm_controller/schemas/`
 - lightweight runtime schema validation helpers in `schema_validation.py`
+- packaged-schema alignment tests in `tests/unit/agents/realm_controller/test_schema_consistency.py`
 
 The requested follow-up is to make the shared-registry record participate in that same boundary contract: there should be one standalone schema file for the persisted JSON document, and runtime-managed create/update flows should validate against it before writing.
 
@@ -13,8 +14,9 @@ The requested follow-up is to make the shared-registry record participate in tha
 
 **Goals:**
 - Add one packaged standalone JSON Schema file for shared-registry `record.json` v1.
+- Cover the current documented v1 registry payload shape, including optional `gateway` and `mailbox` groups when present.
 - Validate runtime-managed registry-record creation and rewrite paths against that packaged schema before the atomic write step.
-- Keep the schema contract aligned with `LiveAgentRegistryRecordV1` so the packaged file and typed model do not drift silently.
+- Keep the validator-enforceable structural schema contract aligned with `LiveAgentRegistryRecordV1` so the packaged file and typed model do not drift silently.
 - Reuse existing runtime schema-validation infrastructure rather than introducing a new dependency or schema subsystem.
 
 **Non-Goals:**
@@ -42,13 +44,20 @@ Alternatives considered:
 - `registry_record.v1.schema.json`: rejected because it is less specific once more registry-owned files exist later.
 - no standalone schema file: rejected because it preserves the current gap the change is meant to close.
 
-### 2. Keep `LiveAgentRegistryRecordV1` as the typed construction/load boundary and use the packaged schema as the shipped disk contract
+### 2. Keep `LiveAgentRegistryRecordV1` as the typed and semantic boundary, and use the packaged schema as the shipped structural disk contract
 
 Runtime code will continue to construct and parse registry records through `LiveAgentRegistryRecordV1`. The standalone JSON Schema will be the packaged external contract for the persisted file, and tests will explicitly keep the schema aligned with the model.
 
+Because the current lightweight runtime validator is intentionally narrower than a full JSON Schema engine, some semantic invariants will remain model-owned rather than schema-owned. Examples include:
+
+- `lease_expires_at` being later than `published_at`,
+- `terminal.session_name` matching canonical `agent_name`,
+- `agent_key` matching the canonical-name hash,
+- `gateway.host`, `gateway.port`, `gateway.state_path`, and `gateway.protocol_version` appearing together as one complete live-binding group.
+
 Rationale:
 - the model already captures strict typing, normalization, and cross-field validation ergonomically,
-- the packaged schema serves a different purpose: a stable inspectable contract for persisted JSON,
+- the packaged schema serves a different purpose: a stable inspectable structural contract for persisted JSON,
 - keeping both surfaces is consistent with the repo's existing persisted-artifact boundary approach.
 
 Alternatives considered:
@@ -72,14 +81,16 @@ Alternatives considered:
 - validate only when reading records: rejected because the request is specifically about creation/modification-time enforcement.
 - validate only in tests: rejected because that would not enforce the contract in production runtime behavior.
 
-### 4. Keep the packaged registry schema within the subset the existing runtime validator can enforce
+### 4. Keep the packaged registry schema within the subset the existing runtime validator can enforce, and align it using the existing packaged-schema test pattern
 
 The repo's `schema_validation.py` helper is intentionally lightweight. The packaged registry schema should therefore stay within that supported subset for write-time validation, even if that means authoring a flatter schema document instead of relying on more complex `$ref`-heavy or `anyOf`-heavy generated output.
+
+Schema-consistency coverage should reuse the existing `test_schema_consistency.py` style: compare the packaged schema against the generated Pydantic schema for structural compatibility, while leaving the model-only invariants above to the existing registry-model and registry-storage tests.
 
 Rationale:
 - it avoids introducing a new dependency for this focused follow-up,
 - it keeps runtime write-time validation deterministic and easy to reason about,
-- it lets the change reuse existing packaging and validation helpers rather than expanding them first.
+- it lets the change reuse existing packaging, validation, and schema-alignment helpers rather than expanding them first.
 
 Alternatives considered:
 - adding a full JSON Schema engine dependency: rejected unless the current helper proves insufficient for the needed registry schema shape.
@@ -87,9 +98,10 @@ Alternatives considered:
 
 ## Risks / Trade-offs
 
-- **Dual sources of truth (model + schema)** → Mitigate with schema-consistency tests that compare the packaged file against `LiveAgentRegistryRecordV1`.
+- **Dual sources of truth (model + schema)** → Mitigate with schema-consistency tests that compare the packaged file against `LiveAgentRegistryRecordV1` structurally and with existing model tests that continue to cover semantic invariants.
 - **A flatter packaged schema may duplicate nested structure textually** → Mitigate by keeping the schema narrow and versioned, and by adding explicit tests around required/optional registry fields.
 - **Schema enforcement can reject publication that Pydantic alone would have accepted** → Mitigate by failing before atomic replace, surfacing the validation error clearly, and treating this as intentional enforcement of the packaged disk contract.
+- **Reference docs can drift from the packaged schema again** → Mitigate by updating the concrete registry reference pages in the same change and keeping them tied to the packaged schema file rather than to prose-only examples.
 
 ## Migration Plan
 

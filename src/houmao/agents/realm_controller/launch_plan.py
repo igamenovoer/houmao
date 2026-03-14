@@ -27,6 +27,7 @@ _CAO_PARSING_MODE_DEFAULT_BY_TOOL: Final[dict[str, CaoParsingMode]] = {
     "claude": "shadow_only",
     "codex": "shadow_only",
 }
+_CAO_SHADOW_PARSER_SUPPORTED_TOOLS: Final[frozenset[str]] = frozenset({"claude", "codex"})
 _CAO_PARSING_MODE_VALUES: Final[set[str]] = {"cao_only", "shadow_only"}
 _CAO_PARSING_MODE_METADATA_KEY: Final[str] = "cao_parsing_mode_config"
 _CAO_SHADOW_POLICY_METADATA_KEY: Final[str] = "cao_shadow_policy_config"
@@ -249,6 +250,12 @@ def configured_cao_parsing_mode(launch_plan: LaunchPlan) -> str | None:
     return stripped or None
 
 
+def tool_supports_cao_shadow_parser(tool: str) -> bool:
+    """Return whether the runtime owns a CAO shadow parser for the tool."""
+
+    return tool in _CAO_SHADOW_PARSER_SUPPORTED_TOOLS
+
+
 def configured_cao_shadow_policy(
     launch_plan: LaunchPlan,
 ) -> dict[str, float | bool] | None:
@@ -281,6 +288,11 @@ def resolve_cao_parsing_mode(
             continue
         value = candidate.strip()
         if value in _CAO_PARSING_MODE_VALUES:
+            if value == "shadow_only" and not tool_supports_cao_shadow_parser(tool):
+                raise LaunchPlanError(
+                    "Unsupported CAO parsing mode "
+                    f"{candidate!r} for tool {tool!r}; no runtime shadow parser is available."
+                )
             return cast(CaoParsingMode, value)
         raise LaunchPlanError(
             "Unsupported CAO parsing mode "
@@ -292,6 +304,11 @@ def resolve_cao_parsing_mode(
         raise LaunchPlanError(
             "CAO parsing mode could not be resolved for tool "
             f"{tool!r}; provide an explicit mode in config or request."
+        )
+    if default == "shadow_only" and not tool_supports_cao_shadow_parser(tool):
+        raise LaunchPlanError(
+            "Internal CAO parsing-mode default misconfiguration for tool "
+            f"{tool!r}; `shadow_only` requires a runtime shadow parser."
         )
     return default
 

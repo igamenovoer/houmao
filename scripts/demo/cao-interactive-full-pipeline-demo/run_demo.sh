@@ -57,7 +57,7 @@ Environment defaults:
       $CURRENT_RUN_ROOT_FILE
   AGENT_DEF_DIR=$DEFAULT_AGENT_DEF_DIR
   CAO_LAUNCHER_HOME_DIR=<workspace-root>
-  DEMO_WORKDIR=<launcher-home>/wktree
+  DEMO_WORKDIR=<launcher-home>/wktree    # demo-isolation default, not a CAO requirement
   DEMO_ROLE_NAME=$DEFAULT_ROLE_NAME
 
 Flags:

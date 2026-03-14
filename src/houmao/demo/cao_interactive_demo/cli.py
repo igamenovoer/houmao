@@ -152,7 +152,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Working directory passed to `realm_controller start-session`. "
-            "Defaults to a provisioned `<launcher-home>/wktree` git worktree."
+            "Defaults to a provisioned `<launcher-home>/wktree` git worktree for demo isolation."
         ),
     )
     parser.add_argument(

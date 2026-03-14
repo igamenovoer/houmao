@@ -23,7 +23,7 @@ Important notes:
 
 - The workflow is intentionally pinned to `http://127.0.0.1:9889`; `CAO_BASE_URL` overrides are ignored for this demo pack.
 - The wrapper scripts delegate to `run_demo.sh`, which keeps the repo-root-derived workspace, launcher home, worktree, and other shell defaults aligned with the underlying Python workflow engine.
-- By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir.
+- By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir. That nested layout is a demo-owned isolation default, not a repo-owned CAO requirement.
 - If startup finds a verified local `cao-server` already healthy at `http://127.0.0.1:9889`, it replaces that server automatically for the new run. There is no replacement prompt anymore.
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
@@ -240,7 +240,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
 | Current-run marker | `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt` | Follow-up wrapper commands resolve the active/latest run root from here when `DEMO_WORKSPACE_ROOT` is omitted. |
 | Agent definitions | `tests/fixtures/agents` | Default agent-definition root. Override with `AGENT_DEF_DIR=/path`. |
 | Launcher home | `<workspace-root>` | Default launcher home used for CAO profile-store alignment. Override with `CAO_LAUNCHER_HOME_DIR=/path`. |
-| Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session. Override with `DEMO_WORKDIR=/abs/path`. |
+| Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session for demo isolation. Override with `DEMO_WORKDIR=/abs/path`. |
 | Role name | `gpu-kernel-coder` | Default role passed through `run_demo.sh`. Override with `DEMO_ROLE_NAME=<name>`. |
 | Verify snapshots | `expected_report/<variant-id>.json` | Variant-specific maintainer snapshot files. |
 

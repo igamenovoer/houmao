@@ -1,0 +1,205 @@
+{
+  "$id": "live_agent_registry_record.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Persisted shared-registry `record.json` payload.",
+  "properties": {
+    "agent_key": {
+      "title": "Agent Key",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "gateway": {
+      "additionalProperties": false,
+      "properties": {
+        "attach_path": {
+          "title": "Attach Path",
+          "type": "string"
+        },
+        "gateway_root": {
+          "title": "Gateway Root",
+          "type": "string"
+        },
+        "host": {
+          "title": "Host",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "title": "Port",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "protocol_version": {
+          "title": "Protocol Version",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state_path": {
+          "title": "State Path",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "gateway_root",
+        "attach_path"
+      ],
+      "title": "Gateway",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "codex_headless",
+            "codex_app_server",
+            "claude_headless",
+            "gemini_headless",
+            "cao_rest"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "tool"
+      ],
+      "title": "Identity",
+      "type": "object"
+    },
+    "lease_expires_at": {
+      "title": "Lease Expires At",
+      "type": "string"
+    },
+    "mailbox": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "filesystem_root": {
+          "title": "Filesystem Root",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "principal_id",
+        "address",
+        "filesystem_root",
+        "bindings_version"
+      ],
+      "title": "Mailbox",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_def_dir": {
+          "title": "Agent Def Dir",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "session_root": {
+          "title": "Session Root",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "manifest_path"
+      ],
+      "title": "Runtime",
+      "type": "object"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "terminal": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "tmux",
+          "title": "Kind",
+          "type": "string"
+        },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_name"
+      ],
+      "title": "Terminal",
+      "type": "object"
+    }
+  },
+  "required": [
+    "agent_name",
+    "agent_key",
+    "generation_id",
+    "published_at",
+    "lease_expires_at",
+    "identity",
+    "runtime",
+    "terminal"
+  ],
+  "title": "LiveAgentRegistryRecordV1",
+  "type": "object"
+}

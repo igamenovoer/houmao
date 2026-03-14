@@ -9,6 +9,7 @@ from urllib import error
 
 import pytest
 
+from houmao.agents.realm_controller.backends import cao_rest as cao_rest_backend
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -35,7 +36,6 @@ from houmao.agents.realm_controller.backends.shadow_parser_core import (
 )
 from houmao.cao.models import (
     CaoHealthResponse,
-    CaoProvider,
     CaoSuccessResponse,
     CaoTerminal,
     CaoTerminalOutputResponse,
@@ -264,7 +264,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     fetched = client.get_terminal("a1b2c3d4")
 
     assert health == CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
-    assert terminal.provider == CaoProvider.CODEX
+    assert terminal.provider == "codex"
     assert sent == CaoSuccessResponse(success=True)
     assert output == CaoTerminalOutputResponse(output="hello", mode="last")
     assert fetched.status == CaoTerminalStatus.IDLE
@@ -317,6 +317,69 @@ def test_cao_rest_client_injects_loopback_no_proxy_by_default(
     assert captured["no_proxy"] == captured["NO_PROXY"]
     assert os.environ.get("NO_PROXY") == "corp.internal"
     assert os.environ.get("no_proxy") is None
+
+
+def test_cao_rest_client_parses_unknown_provider_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        del timeout
+        if req.full_url.endswith("/terminals/term-1"):
+            return _FakeResponse(
+                status=200,
+                payload={
+                    "id": "term-1",
+                    "name": "developer-1",
+                    "provider": "kimi_cli",
+                    "session_name": "s1",
+                    "agent_profile": "role_profile",
+                    "status": "idle",
+                },
+            )
+        raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+    terminal = client.get_terminal("term-1")
+
+    assert terminal.provider == "kimi_cli"
+    assert terminal.status == CaoTerminalStatus.IDLE
+
+
+def test_parsed_unknown_provider_does_not_enable_runtime_launch_support(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        del timeout
+        if req.full_url.endswith("/terminals/term-1"):
+            return _FakeResponse(
+                status=200,
+                payload={
+                    "id": "term-1",
+                    "name": "developer-1",
+                    "provider": "kimi_cli",
+                    "session_name": "s1",
+                    "agent_profile": "role_profile",
+                    "status": "idle",
+                },
+            )
+        raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+    terminal = client.get_terminal("term-1")
+
+    assert terminal.provider == "kimi_cli"
+
+    with pytest.raises(BackendExecutionError, match="Unsupported CAO provider mapping"):
+        CaoRestSession(
+            launch_plan=_sample_launch_plan(tmp_path, tool="kimi"),
+            api_base_url="http://localhost:9889",
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            parsing_mode="cao_only",
+        )
 
 
 def test_cao_rest_client_preserve_mode_leaves_no_proxy_untouched(
@@ -447,6 +510,22 @@ def test_cao_backend_rejects_unsupported_tool(tmp_path: Path) -> None:
             role_name="gpu-kernel-coder",
             role_prompt="role prompt",
             parsing_mode="cao_only",
+        )
+
+
+def test_cao_backend_rejects_shadow_only_without_runtime_shadow_parser_support(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setitem(cao_rest_backend._CAO_PROVIDER_BY_TOOL, "gemini", "gemini_cli")
+
+    with pytest.raises(BackendExecutionError, match="no runtime shadow parser is available"):
+        CaoRestSession(
+            launch_plan=_sample_launch_plan(tmp_path, tool="gemini"),
+            api_base_url="http://localhost:9889",
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            parsing_mode="shadow_only",
         )
 
 

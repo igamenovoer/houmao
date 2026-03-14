@@ -10,6 +10,8 @@ The terminal `provider` field SHALL be treated as a non-empty provider
 identifier string returned by CAO rather than a repo-owned closed enum. New
 upstream provider identifiers SHALL parse successfully without requiring a
 local model update before unrelated fields can be consumed.
+The `CaoProvider` enum type SHALL NOT remain the Pydantic response-model field
+type or public typed response contract for terminal `provider`.
 
 #### Scenario: Terminal status is a validated enum
 - **WHEN** the runtime fetches `GET /terminals/{TERM_ID}`

@@ -14,17 +14,19 @@ from typing import Mapping
 import platformdirs
 from pydantic import ValidationError
 
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import SchemaValidationError, SessionManifestError
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV1,
     canonicalize_registry_agent_name,
     derive_agent_key,
     format_registry_validation_error,
 )
+from houmao.agents.realm_controller.schema_validation import validate_payload
 
 AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR = "AGENTSYS_GLOBAL_REGISTRY_DIR"
 DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
+LIVE_AGENT_REGISTRY_SCHEMA = "live_agent_registry_record.v1.schema.json"
 
 
 @dataclass(frozen=True)
@@ -141,9 +143,18 @@ def publish_live_agent_record(
         now=current_time,
     )
 
+    payload = record.model_dump(mode="json")
+    try:
+        validate_payload(payload, LIVE_AGENT_REGISTRY_SCHEMA)
+    except SchemaValidationError as exc:
+        raise SessionManifestError(
+            "Shared registry record schema validation failed before publish for "
+            f"`{record.agent_name}`: {exc}"
+        ) from exc
+
     path = record_path_for_agent_name(record.agent_name, env=env)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomically(path, record.model_dump(mode="json"))
+    _write_json_atomically(path, payload)
 
     observed = load_live_agent_record(record.agent_name, env=env)
     if observed is None:
