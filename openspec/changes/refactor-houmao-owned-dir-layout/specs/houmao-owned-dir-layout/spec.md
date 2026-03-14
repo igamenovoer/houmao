@@ -11,7 +11,17 @@ The default per-user Houmao roots SHALL be:
 For each started session, the default per-agent job dir SHALL be derived under the selected working directory as:
 - `<working-directory>/.houmao/jobs/<session-id>/`
 
-Subsystem-specific explicit overrides that already exist MAY continue to relocate the effective registry root, runtime root, launcher home, or mailbox root. When no such override is supplied, the system SHALL use the defaults above.
+The system SHALL support env-var overrides for those default locations using:
+- `AGENTSYS_GLOBAL_REGISTRY_DIR` for the effective registry root
+- `AGENTSYS_GLOBAL_RUNTIME_DIR` for the effective runtime root
+- `AGENTSYS_GLOBAL_MAILBOX_DIR` for the effective Houmao mailbox root
+- `AGENTSYS_LOCAL_JOBS_DIR` for the directory under which per-session job dirs are derived as `<local-jobs-dir>/<session-id>/`
+
+Subsystem-specific explicit CLI or config overrides that already exist MAY continue to relocate the effective registry root, runtime root, launcher home, or mailbox root.
+
+When both an explicit CLI/config override and an env-var override exist for the same effective location, the explicit override SHALL win.
+When no explicit override exists but a supported env-var override is set, the env-var override SHALL win.
+When neither explicit override nor env-var override is supplied, the system SHALL use the defaults above.
 
 #### Scenario: Default Houmao roots resolve under the user home
 - **WHEN** a developer starts new Houmao-managed runtime or mailbox work without explicit root overrides
@@ -20,6 +30,17 @@ Subsystem-specific explicit overrides that already exist MAY continue to relocat
 #### Scenario: Job dir is derived from working directory and session id
 - **WHEN** the runtime starts a session with working directory `/repo/app` and generated session id `session-20260314-120000Z-abcd1234`
 - **THEN** the default per-agent job dir for that session is `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
+
+#### Scenario: Env-var override relocates the runtime root
+- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **AND WHEN** no explicit runtime-root override is supplied
+- **THEN** the effective Houmao runtime root is `/tmp/houmao-runtime`
+
+#### Scenario: Local-jobs-dir env-var override relocates per-session job dirs
+- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a session whose generated session id is `session-20260314-120000Z-abcd1234`
+- **AND WHEN** no more specific explicit job-dir override exists
+- **THEN** the effective job dir for that session is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
 
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
 The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.

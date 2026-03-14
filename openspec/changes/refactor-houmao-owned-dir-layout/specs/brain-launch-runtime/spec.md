@@ -3,6 +3,8 @@
 ### Requirement: Runtime defaults new build and session state to the Houmao runtime root
 When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
 
+When no explicit runtime-root override is supplied and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
+
 At minimum, this default SHALL apply to:
 - generated brain homes under `~/.houmao/runtime/homes/<home-id>/`,
 - generated manifests under `~/.houmao/runtime/manifests/<home-id>.yaml`,
@@ -30,6 +32,11 @@ Whenever runtime-owned directory naming needs one path component that stands for
 #### Scenario: Start-session defaults durable session state to the Houmao runtime root
 - **WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
 - **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `~/.houmao/runtime`
+
+#### Scenario: Runtime-root env-var override redirects durable runtime state
+- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **AND WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
+- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `/tmp/houmao-runtime`
 
 ### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
 For runtime-owned sessions, the runtime SHALL keep canonical agent name as the strong human-facing live identity used for tmux session naming and normal operator lookup.
@@ -60,6 +67,9 @@ When runtime-controlled start, resume, or publication logic encounters an existi
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
 For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.
 
+When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path, the runtime SHALL derive the effective per-agent job dir as:
+- `<AGENTSYS_LOCAL_JOBS_DIR>/<session-id>/`
+
 The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `AGENTSYS_JOB_DIR`.
 
 The per-agent job dir SHALL be intended for session-local logs, temporary outputs, and destructive scratch work, and SHALL NOT replace the durable runtime-owned session root under the effective runtime root.
@@ -77,12 +87,20 @@ Resume and later runtime-controlled work for the same persisted session SHALL co
 - **THEN** resumed runtime-controlled work continues to use that same per-agent job dir
 - **AND THEN** the runtime does not allocate a different destructive-scratch directory for that same logical session
 
+#### Scenario: Local-jobs-dir env-var override relocates the effective job dir
+- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a runtime-owned session whose generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the runtime creates `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
 ## MODIFIED Requirements
 
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
 When filesystem mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the filesystem mailbox binding env contract before mailbox-related work is expected from the agent.
 
 When no explicit filesystem mailbox content root override is supplied, the runtime SHALL derive the effective filesystem mailbox content root from the independent Houmao mailbox root rather than from the effective runtime root.
+
+When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before publishing `AGENTSYS_MAILBOX_FS_ROOT`.
 
 #### Scenario: Start session projects mailbox system skills with filesystem bindings
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
@@ -94,3 +112,9 @@ When no explicit filesystem mailbox content root override is supplied, the runti
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from the Houmao mailbox root default
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived default path
+
+#### Scenario: Mailbox-root env-var override redirects the effective mailbox root
+- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
+- **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
+- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived path

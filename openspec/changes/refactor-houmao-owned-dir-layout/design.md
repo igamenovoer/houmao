@@ -25,6 +25,7 @@ This change is therefore a filesystem-ownership refactor. It needs one cross-cut
 - Keep the registry secret-free and pointer-oriented instead of turning it into mutable CAO or runtime storage.
 - Move default runtime-owned session roots and launcher-managed CAO artifacts into the Houmao runtime root.
 - Introduce a standardized per-agent job dir with explicit “safe for destructive session-local edits” semantics.
+- Provide env-var overrides for Houmao-owned directory locations so CI and dynamic environments can relocate defaults without editing checked-in config files.
 - Keep explicit overrides functional so CI, tests, and advanced operators can still relocate roots when needed.
 - Preserve compatibility for already-created manifests and runtime roots by continuing to honor explicit existing paths during resume/control.
 
@@ -46,11 +47,18 @@ This change is therefore a filesystem-ownership refactor. It needs one cross-cut
 - `~/.houmao/mailbox`: default shared mailbox content root
 - `<working-directory>/.houmao/jobs/<session-id>/`: per-agent job dir
 
+The effective locations for those defaults may also be relocated through env-var overrides:
+- registry root: existing `AGENTSYS_GLOBAL_REGISTRY_DIR`
+- runtime root: `AGENTSYS_GLOBAL_RUNTIME_DIR`
+- mailbox root: `AGENTSYS_GLOBAL_MAILBOX_DIR`
+- local jobs dir: `AGENTSYS_LOCAL_JOBS_DIR`, which relocates per-session job dirs to `<local-jobs-dir>/<session-id>/`
+
 Rationale:
 - The current system already implicitly distinguishes these responsibilities, but only by convention.
 - Separating them makes ownership easier to document and enforce.
 - It gives operators a predictable “what can I delete?” model.
 - It gives agents a clear destructive scratch area inside the project workspace without relocating the durable runtime session record into the project tree.
+- Env-var relocation keeps those defaults practical in CI, tests, ephemeral sandboxes, and dynamic launch environments where the normal home- or workspace-derived paths are not appropriate.
 
 Alternatives considered:
 - *Keep the current repo-local `tmp/agents-runtime` default model* — rejected because it keeps durable runtime state tied to whatever repo or cwd the operator happened to use.
@@ -136,6 +144,7 @@ Important boundary notes:
 - `runtime/cao_servers/.../home/.aws/cli-agent-orchestrator/` is CAO `HOME`, so it contains both Houmao-seeded files such as installed agent profiles and CAO-created runtime state such as terminal logs.
 - `runtime/homes/` and `runtime/manifests/` stay intentionally flat in this design; agent grouping should come from persisted metadata, canonical agent name, and authoritative `agent_id` rather than from bucket names in the directory hierarchy.
 - If a Houmao-owned subtree later introduces a directory keyed by one agent rather than by session or service instance, that directory name should use `agent_id`, not canonical agent name.
+- Explicit CLI/config overrides still take precedence over env-var overrides; env-var overrides take precedence over the built-in default locations.
 - `<working-directory>/.houmao/jobs/<session-id>/` is the per-agent destructive scratch area for that session, not the durable runtime session root.
 
 ### 2. Keep the registry as a locator layer, not as mutable runtime or CAO state
@@ -256,17 +265,18 @@ Alternatives considered:
 - [Risk] Creating `.houmao/` under working directories may be unwelcome in some repos. -> Mitigation: keep the per-agent job dir narrowly scoped under `.houmao/jobs/<session-id>/`, document its purpose, and avoid moving durable runtime state there.
 - [Risk] Job dirs may accumulate after many sessions. -> Mitigation: document cleanup expectations now and keep open the option for a later pruning or retention policy.
 - [Risk] Launcher default CAO home under the runtime root changes filesystem expectations for operators who currently rely on ambient HOME. -> Mitigation: preserve explicit `home_dir` override support and keep the home-vs-workdir separation explicit.
-- [Risk] Mailbox default relocation could surprise environments that relied on implicit runtime-root-derived mailbox placement. -> Mitigation: preserve explicit mailbox-root overrides and call out the default change as breaking.
+- [Risk] Mailbox default relocation could surprise environments that relied on implicit runtime-root-derived mailbox placement. -> Mitigation: preserve explicit mailbox-root overrides, add an env-var override for CI/dynamic runs, and call out the default change as breaking.
 - [Risk] Explicitly reusing one `agent_id` across unrelated agents can merge or corrupt writable association state. -> Mitigation: derive the default `agent_id` from canonical agent name, persist both name and id in metadata, and warn when one `agent_id` is seen with a different canonical name.
+- [Risk] Multiple override channels can create precedence confusion. -> Mitigation: document one precedence order consistently: explicit CLI/config override first, env-var override second, built-in default last.
 
 ## Migration Plan
 
-1. Add shared path-resolution helpers for the effective Houmao roots and the derived job dir.
+1. Add shared path-resolution helpers for the effective Houmao roots and the derived job dir, including env-var override support and one documented precedence order.
 2. Change runtime build/start defaults to use the Houmao runtime root, derive or accept authoritative `agent_id`, and create the job dir for new sessions.
 3. Update launcher artifact paths and launcher-default CAO `HOME` derivation to use the new per-server runtime subtree.
 4. Change registry publication and runtime-owned metadata association to key durable writable state by `agent_id` while preserving canonical agent name as the strong live-facing identity.
-5. Change mailbox default root resolution to the independent Houmao mailbox root while preserving explicit overrides.
-6. Update docs, reference pages, and examples so registry, runtime, mailbox, job-dir, and name-vs-`agent_id` boundaries are described consistently.
+5. Change mailbox default root resolution to the independent Houmao mailbox root while preserving explicit overrides and env-var relocation.
+6. Update docs, reference pages, and examples so registry, runtime, mailbox, job-dir, env-var override, and name-vs-`agent_id` boundaries are described consistently.
 7. Keep resume/control path compatibility for already-created manifests and explicit old paths.
 
 Rollback strategy:

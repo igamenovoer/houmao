@@ -9,11 +9,12 @@ Recent CAO workdir changes removed one of the main reasons Houmao had to keep CA
 - **BREAKING** Flatten default Houmao-managed build-state paths so generated homes and manifests no longer rely on tool- or family-based directory bucketing.
 - Introduce a two-layer agent association model for Houmao-owned state: canonical agent name remains the strong human-facing live identity, while each agent also carries an authoritative `agent_id` used for globally unique association; by default, `agent_id` is derived as `md5(canonical agent name)`.
 - Require Houmao-owned directories that are named after one agent to use `agent_id` rather than canonical agent name as the writable directory key.
+- Add env-var override support for Houmao-owned directory locations so CI and dynamic environments can relocate registry, runtime, mailbox, and job-dir defaults without rewriting configs.
 - Keep the shared registry under `~/.houmao/registry/` as a small discovery-oriented locator layer rather than using it as the mutable CAO home or runtime state root.
 - Define a runtime-managed per-agent job dir under each agent working directory at `<working-directory>/.houmao/jobs/<session-id>/` for logs, outputs, temporary files, and other session-local destructive work.
 - **BREAKING** Change the default filesystem mailbox root from a runtime-root-derived path to an independent Houmao mailbox root while preserving explicit mailbox-root overrides.
 - Preserve the agent working directory itself as the CLI startup project context and generally agent-editable area, while keeping mailbox storage as an independent shared writable subsystem.
-- Update the runtime, launcher, registry, and mailbox contracts so directory defaults, publication pointers, and cleanup boundaries all reflect the same ownership model.
+- Update the runtime, launcher, registry, and mailbox contracts so directory defaults, env-var override precedence, publication pointers, and cleanup boundaries all reflect the same ownership model.
 
 ## Capabilities
 
