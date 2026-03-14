@@ -1,10 +1,8 @@
 # registry-reference-docs Specification
 
 ## Purpose
-Define the structure, coverage, and quality bar for shared live-agent registry reference documentation in the repository.
-
+TBD - created by archiving change add-shared-registry-reference-docs. Update Purpose after archive.
 ## Requirements
-
 ### Requirement: Shared-registry reference documentation is organized under a dedicated subtree
 The repository SHALL publish the shared live-agent registry reference documentation under `docs/reference/registry/` with an `index.md` entrypoint instead of concentrating the full registry reference inside broader runtime pages.
 
@@ -159,3 +157,4 @@ At minimum, the documentation SHALL define or explain recurring terms such as sh
 - **WHEN** a new user or developer encounters shared-registry terminology in the reference subtree
 - **THEN** the page or subtree entrypoint explains that terminology in accessible language
 - **AND THEN** the documentation does not rely on unexplained registry jargon as the only way to understand registry behavior
+

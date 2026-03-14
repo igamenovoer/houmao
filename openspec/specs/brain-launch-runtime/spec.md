@@ -742,12 +742,14 @@ For tmux-backed session-control commands that accept `--agent-identity` (`send-p
 When `--agent-identity` is name-based and `--agent-def-dir` is omitted, the
 system SHALL:
 - resolve the addressed tmux session by canonical agent identity,
-- recover the session manifest path from `AGENTSYS_MANIFEST_PATH`,
-- recover the agent-definition root from `AGENTSYS_AGENT_DEF_DIR`, and
-- use that recovered absolute agents root for resume/control operations.
+- prefer the tmux-published `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values when they are present and valid,
+- fall back to fresh shared-registry discovery metadata when tmux-local discovery pointers are missing, blank, or stale, and
+- use the recovered absolute agents root for resume or control operations.
+
+The shared-registry fallback SHALL apply only to discovery-pointer unavailability. Hard validation mismatches such as a manifest whose persisted tmux session identity does not match the addressed agent name SHALL still fail fast.
 
 When `--agent-def-dir` is provided explicitly, the system SHALL use the
-explicit CLI value instead of the tmux-published fallback.
+explicit CLI value instead of the tmux-published or registry-published fallback.
 
 Manifest-path control flows are unchanged by this requirement.
 
@@ -774,12 +776,25 @@ Manifest-path control flows are unchanged by this requirement.
 - **AND WHEN** tmux session `AGENTSYS-chris` publishes a different `AGENTSYS_AGENT_DEF_DIR`
 - **THEN** the runtime uses `/abs/custom/agents` as the effective agent-definition root
 
-#### Scenario: Name-based fallback fails on missing tmux agent-def-dir pointer
+#### Scenario: Registry fallback covers missing tmux manifest pointer
 - **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
 - **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is missing or blank in that tmux session environment
-- **THEN** the runtime rejects the operation with an explicit resolution error
-- **AND THEN** it does not silently fall back to cwd-derived agent-definition defaults
+- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that tmux session environment
+- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
+- **THEN** the runtime resolves the session through the shared-registry record instead of failing immediately on the tmux-local pointer problem
+
+#### Scenario: Registry fallback covers missing tmux agent-def-dir pointer
+- **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
+- **AND WHEN** tmux session `AGENTSYS-chris` exists
+- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is missing, blank, or stale in that tmux session environment
+- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
+- **THEN** the runtime resolves the effective agent-definition root through the shared-registry record instead of failing immediately on the tmux-local pointer problem
+
+#### Scenario: Identity mismatch still fails fast instead of falling back
+- **WHEN** a developer runs a tmux-backed name-based control command for `AGENTSYS-chris`
+- **AND WHEN** a candidate tmux-local or shared-registry manifest resolves to persisted tmux session identity other than `AGENTSYS-chris`
+- **THEN** the runtime rejects the operation with an explicit mismatch error
+- **AND THEN** it does not silently recover by targeting a different live session
 
 #### Scenario: Manifest-path control does not depend on tmux fallback
 - **WHEN** a developer runs `stop-session --agent-identity /abs/runtime/sessions/cao_rest/session.json`
@@ -1282,4 +1297,117 @@ This rename SHALL preserve the existing runtime subcommands and their current se
 - **WHEN** a reader navigates active runtime docs or repo-owned source mappings for the runtime
 - **THEN** those docs and mappings use `realm_controller` as the canonical runtime name
 - **AND THEN** active guidance does not present `brain_launch_runtime` as the preferred runtime surface
+
+### Requirement: Runtime-owned tmux-backed sessions publish shared-registry discovery records
+When the runtime starts or resumes control of a runtime-owned tmux-backed session, it SHALL publish or refresh a shared-registry record for that live session under the effective shared-registry root's `live_agents/` directory.
+
+By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
+
+When `AGENTSYS_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
+
+For runtime-owned tmux-backed sessions in v1, the published shared-registry agent name SHALL default to the canonical `AGENTSYS-...` agent identity used for the tmux session.
+
+When runtime publication code receives an agent name in namespace-free form, it SHALL canonicalize that name to the exact `AGENTSYS-...` form before publishing the shared-registry record.
+
+For a given live runtime-owned tmux-backed session, the runtime SHALL persist and reuse the same shared-registry `generation_id` across later refreshes and resume-driven republishes of that same session.
+
+That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
+
+The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
+
+#### Scenario: Session start publishes a shared-registry record alongside tmux pointers
+- **WHEN** the runtime starts a runtime-owned tmux-backed session with canonical identity `AGENTSYS-gpu`
+- **THEN** the runtime publishes the normal tmux session environment discovery pointers for that session
+- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/` keyed by `AGENTSYS-gpu`
+
+#### Scenario: Runtime publication canonicalizes namespace-free agent input
+- **WHEN** runtime publication logic receives agent input `gpu` for a tmux-backed session
+- **THEN** it canonicalizes that input to `AGENTSYS-gpu` before deriving the shared-registry key
+- **AND THEN** the published record stores canonical agent name `AGENTSYS-gpu`
+
+#### Scenario: CI override redirects runtime publication
+- **WHEN** the runtime starts a runtime-owned tmux-backed session
+- **AND WHEN** `AGENTSYS_GLOBAL_REGISTRY_DIR` is set for that process
+- **THEN** the runtime publishes the shared-registry record for that session under the override path
+- **AND THEN** the runtime does not publish that record under the default home-relative root for that process
+
+#### Scenario: Resume refreshes the shared-registry record from persisted session state
+- **WHEN** the runtime resumes control of a runtime-owned tmux-backed session whose manifest and gateway metadata can be determined
+- **THEN** the runtime refreshes that session's shared-registry record
+- **AND THEN** later discovery flows can locate the same live session without depending on a shared runtime-root layout
+
+#### Scenario: Resume reuses the same shared-registry generation for the same live session
+- **WHEN** the runtime resumes control of a runtime-owned tmux-backed session that already published a shared-registry record generation
+- **THEN** the resumed publication reuses that same `generation_id`
+- **AND THEN** resume does not create a replacement generation for the same still-live session
+
+### Requirement: Runtime refreshes shared-registry records when runtime-owned publication state changes
+When the runtime materializes or refreshes stable gateway capability for a session, attaches or detaches a live gateway, refreshes mailbox bindings, or persists updated runtime-owned session state after prompt or control actions, it SHALL refresh the corresponding shared-registry record for that same logical session.
+
+When no live gateway is attached, the shared-registry record SHALL continue to publish stable gateway pointers when they exist, but SHALL omit live gateway connect metadata.
+
+When mailbox bindings are available, the shared-registry record SHALL reflect the active mailbox principal id and full mailbox address for that session.
+
+These refreshes SHALL keep the same `generation_id` for the same live session rather than manufacturing a replacement generation on each publication event.
+
+#### Scenario: Live gateway attach adds connect metadata to the shared-registry record
+- **WHEN** the runtime attaches a live gateway to a gateway-capable runtime-owned session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record publishes the exact live gateway connect metadata for the running listener
+
+#### Scenario: Gateway detach preserves stable pointers but removes live connect metadata
+- **WHEN** the runtime detaches a live gateway from a gateway-capable runtime-owned session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record keeps stable gateway pointers such as the attach-contract path when available
+- **AND THEN** the record no longer advertises live gateway connect metadata
+
+#### Scenario: Mailbox binding refresh updates mailbox identity in the shared-registry record
+- **WHEN** the runtime refreshes mailbox bindings for a mailbox-enabled session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record reflects the active mailbox principal id and full mailbox address for the refreshed binding
+
+#### Scenario: Prompt or control action refreshes the shared-registry lease for the same live session
+- **WHEN** the runtime sends a prompt or persists updated state after another runtime-owned control action for a tmux-backed session that already published a shared-registry record
+- **THEN** the runtime refreshes that session's shared-registry record
+- **AND THEN** the refreshed record keeps the same `generation_id` while extending the lease for that still-live session
+
+### Requirement: Runtime-owned teardown clears shared-registry discoverability for stopped sessions
+When the runtime completes authoritative `stop-session` teardown for a runtime-owned tmux-backed session that has a shared-registry record, the runtime SHALL remove that record or rewrite it so that shared-registry readers treat it as expired.
+
+Unexpected failure MAY leave stale `live_agents/` directories behind, but runtime-owned graceful teardown SHALL clear discoverability for the stopped session.
+
+#### Scenario: Stop-session clears shared-registry discoverability
+- **WHEN** an operator stops a runtime-owned tmux-backed session that previously published a shared-registry record
+- **THEN** the runtime removes the record or expires it as part of teardown
+- **AND THEN** later shared-registry readers do not treat that stopped session as live
+
+### Requirement: Registry refresh failures do not overturn already-successful runtime control actions
+When a tmux-backed runtime action has already completed its primary control work successfully and later manifest persistence attempts to refresh shared-registry discovery metadata, the system SHALL preserve the successful primary action result even if the registry refresh fails.
+
+This applies at minimum to prompt delivery, interrupt, raw control input, mailbox-binding refresh, and other manifest-persisting runtime control flows that reuse the same live session.
+
+The system SHALL still surface the registry refresh problem through an explicit warning, diagnostic, or equivalent operator-visible reporting path.
+
+#### Scenario: Successful prompt delivery remains successful when registry refresh fails
+- **WHEN** a tmux-backed runtime session successfully processes a prompt submission
+- **AND WHEN** manifest persistence later encounters a shared-registry refresh failure
+- **THEN** the prompt operation still reports success for the completed primary action
+- **AND THEN** the registry failure is surfaced separately as a warning or diagnostic rather than replacing the prompt result
+
+#### Scenario: Successful mailbox binding refresh remains successful when registry refresh fails
+- **WHEN** a tmux-backed mailbox-enabled runtime session successfully refreshes its mailbox bindings
+- **AND WHEN** the follow-on shared-registry refresh fails
+- **THEN** the mailbox-binding refresh still reports success for the completed primary action
+- **AND THEN** the registry refresh problem is surfaced separately from the mailbox result
+
+### Requirement: Stop-session success is preserved when shared-registry cleanup fails after termination
+When authoritative `stop-session` teardown has already terminated the addressed runtime-owned tmux-backed session successfully, a later shared-registry cleanup failure SHALL NOT change that stop result into a failed stop outcome.
+
+The runtime SHALL still surface the registry cleanup failure separately so operators know cleanup did not finish cleanly.
+
+#### Scenario: Registry cleanup failure does not negate a successful stop
+- **WHEN** the runtime successfully terminates a runtime-owned tmux-backed session through `stop-session`
+- **AND WHEN** later shared-registry record removal fails because of a filesystem or permission problem
+- **THEN** the stop operation still reports the successful termination result
+- **AND THEN** the registry cleanup problem is surfaced separately for operator follow-up
 
