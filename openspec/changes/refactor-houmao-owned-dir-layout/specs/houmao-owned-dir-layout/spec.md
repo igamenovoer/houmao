@@ -21,6 +21,47 @@ Subsystem-specific explicit overrides that already exist MAY continue to relocat
 - **WHEN** the runtime starts a session with working directory `/repo/app` and generated session id `session-20260314-120000Z-abcd1234`
 - **THEN** the default per-agent job dir for that session is `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
 
+### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
+The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.
+
+When association is needed, the system SHALL rely on persisted metadata and strong identity surfaces such as canonical agent name, authoritative `agent_id`, persisted session metadata, or registry publication rather than on bucket names in the directory hierarchy.
+
+This requirement does not forbid future metadata indexes or sidecar metadata files, but this change SHALL NOT require them.
+
+Whenever a Houmao-owned directory name is intended to stand for one agent rather than one session or service instance, the system SHALL use authoritative `agent_id` as that directory name instead of canonical agent name.
+
+#### Scenario: Generated Houmao-owned paths stay flat without tool-family buckets
+- **WHEN** the system creates Houmao-owned build or runtime paths for one agent
+- **THEN** those paths do not need an intermediate tool-family or agent-family bucket solely to establish association
+- **AND THEN** association can instead be recovered from persisted metadata and existing identity surfaces
+
+#### Scenario: Agent-keyed directory names use agent id rather than canonical agent name
+- **WHEN** the system needs a Houmao-owned directory whose name stands for one agent
+- **THEN** that directory name uses the agent's authoritative `agent_id`
+- **AND THEN** the canonical agent name remains persisted in metadata rather than used as the writable directory key
+
+### Requirement: Canonical agent name is the strong live identity and `agent_id` is the authoritative global identity
+The system SHALL treat canonical agent name as the strong human-facing live identity for normal operator use. Reusing the same canonical agent name is expected to refer to the same agent most of the time.
+
+The system SHALL also assign each agent an authoritative `agent_id` that is globally unique by contract.
+
+When no explicit `agent_id` is supplied, the default `agent_id` SHALL be the full lowercase `md5(canonical agent name).hexdigest()`.
+
+When system-owned writable association needs one stable key, the system SHALL treat `agent_id` as authoritative even if a user intentionally or accidentally pairs that same `agent_id` with a different canonical agent name.
+
+When the system encounters a different canonical agent name already associated with the same `agent_id`, it SHALL emit a warning before continuing with that authoritative `agent_id`.
+
+#### Scenario: Same canonical agent name derives the same default agent id
+- **WHEN** canonical agent name `AGENTSYS-chris` is used without an explicit `agent_id`
+- **THEN** the system derives the default authoritative id as the full lowercase `md5("AGENTSYS-chris").hexdigest()`
+- **AND THEN** later reuse of that same canonical agent name derives the same default `agent_id`
+
+#### Scenario: Different canonical names sharing one explicit agent id trigger a warning
+- **WHEN** the system already has writable association metadata for `agent_id=abc123` with canonical agent name `AGENTSYS-chris`
+- **AND WHEN** a later start or publication explicitly reuses `agent_id=abc123` with canonical agent name `AGENTSYS-alex`
+- **THEN** the system emits a warning that different canonical names are sharing one authoritative `agent_id`
+- **AND THEN** it still treats `agent_id=abc123` as the authoritative association key for system-owned writable state
+
 ### Requirement: Houmao-owned zones keep discovery, durable state, shared mailbox state, and destructive scratch separate
 The system SHALL preserve distinct mutability and ownership boundaries across the Houmao-owned zones.
 

@@ -4,19 +4,58 @@
 When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
 
 At minimum, this default SHALL apply to:
-- generated brain homes and manifests for build flows,
+- generated brain homes under `~/.houmao/runtime/homes/<home-id>/`,
+- generated manifests under `~/.houmao/runtime/manifests/<home-id>.yaml`,
 - runtime-owned session roots for started sessions,
 - other durable runtime-owned session artifacts that are derived from the effective runtime root.
 
 Explicit runtime-root overrides SHALL continue to take precedence over the default.
 
+The default build-state layout SHALL NOT require tool- or family-based directory bucketing in order to associate a generated home or manifest with an agent.
+
+When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name and authoritative `agent_id` metadata rather than on bucket names in the directory hierarchy.
+
+Whenever runtime-owned directory naming needs one path component that stands for one agent rather than one session, backend, or service instance, the runtime SHALL use authoritative `agent_id` for that directory name instead of canonical agent name.
+
 #### Scenario: Build flow defaults generated homes and manifests to the Houmao runtime root
 - **WHEN** a developer runs a build flow without an explicit runtime-root override
 - **THEN** the generated brain home and manifest are written under `~/.houmao/runtime`
 
+#### Scenario: Build flow does not require tool-family buckets in the default layout
+- **WHEN** a developer runs a build flow without an explicit runtime-root override
+- **THEN** the generated home path is rooted under `~/.houmao/runtime/homes/<home-id>/`
+- **AND THEN** the generated manifest path is rooted under `~/.houmao/runtime/manifests/<home-id>.yaml`
+- **AND THEN** those default paths do not require an intermediate tool- or family-grouping bucket
+
 #### Scenario: Start-session defaults durable session state to the Houmao runtime root
 - **WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
 - **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `~/.houmao/runtime`
+
+### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
+For runtime-owned sessions, the runtime SHALL keep canonical agent name as the strong human-facing live identity used for tmux session naming and normal operator lookup.
+
+The runtime SHALL also materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session.
+
+When the caller does not provide an explicit `agent_id`, the runtime SHALL derive the default `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+
+When runtime-controlled start, resume, or publication logic encounters an existing association for the same `agent_id` but a different canonical agent name, the runtime SHALL emit a warning and continue treating that `agent_id` as authoritative for system-owned writable association.
+
+#### Scenario: Start-session derives a default agent id from the canonical agent name
+- **WHEN** a developer starts a runtime-owned session with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the caller does not provide an explicit `agent_id`
+- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's authoritative `agent_id`
+- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the derived `agent_id`
+
+#### Scenario: Agent-keyed runtime-owned directories use agent id rather than canonical agent name
+- **WHEN** runtime-owned directory derivation needs one path component that stands for one agent
+- **THEN** the runtime uses that agent's authoritative `agent_id` for the directory name
+- **AND THEN** canonical agent name remains an operator-facing metadata field rather than the writable directory key
+
+#### Scenario: Explicit agent id reused with a different canonical name triggers a warning
+- **WHEN** runtime-owned metadata or shared-registry publication already associates `agent_id=abc123` with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** a later runtime-controlled start or publication explicitly uses `agent_id=abc123` with canonical agent name `AGENTSYS-editor`
+- **THEN** the runtime emits a warning about the different-name same-id association
+- **AND THEN** the runtime still treats `agent_id=abc123` as the authoritative writable-state identity
 
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
 For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.

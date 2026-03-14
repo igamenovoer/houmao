@@ -1,13 +1,13 @@
 ## 1. Shared Path Model
 
 - [ ] 1.1 Add shared Houmao root-resolution helpers for the effective registry, runtime, and mailbox defaults, with tests covering default home-relative resolution and existing absolute-path override behavior.
-- [ ] 1.2 Update runtime-facing CLI and build/start entrypoints, including `src/houmao/agents/realm_controller/cli.py` and `src/houmao/agents/brain_builder.py`, so new Houmao-managed state defaults to `~/.houmao/runtime` instead of repo-local `tmp/agents-runtime`.
+- [ ] 1.2 Update runtime-facing CLI and build/start entrypoints, including `src/houmao/agents/realm_controller/cli.py` and `src/houmao/agents/brain_builder.py`, so new Houmao-managed state defaults to `~/.houmao/runtime`, generated homes or manifests use the flat default layout, directory hierarchy no longer depends on tool- or family-grouping buckets, default `agent_id` derivation follows `md5(canonical agent name)` when no explicit id override is supplied, and any Houmao-owned directory keyed by one agent uses `agent_id` rather than canonical agent name.
 - [ ] 1.3 Implement per-agent job-dir derivation at `<working-directory>/.houmao/jobs/<session-id>/` plus the `AGENTSYS_JOB_DIR` session binding in runtime start/resume paths, with focused coverage for tmux-backed and non-CAO session startup.
 
 ## 2. Runtime And Registry Layout
 
-- [ ] 2.1 Update runtime session-root consumers such as `src/houmao/agents/realm_controller/runtime.py`, `src/houmao/agents/realm_controller/manifest.py`, and `src/houmao/agents/realm_controller/gateway_storage.py` so the durable runtime-owned session layout remains rooted under the effective Houmao runtime root while the per-agent job dir stays separate.
-- [ ] 2.2 Keep the shared registry pointer-oriented by updating `src/houmao/agents/realm_controller/registry_storage.py`, related docs, and registry tests so registry publication continues to store discovery metadata only and does not absorb launcher, mailbox, or task-local scratch state.
+- [ ] 2.1 Update runtime session-root consumers such as `src/houmao/agents/realm_controller/runtime.py`, `src/houmao/agents/realm_controller/manifest.py`, and `src/houmao/agents/realm_controller/gateway_storage.py` so the durable runtime-owned session layout remains rooted under the effective Houmao runtime root while the per-agent job dir stays separate, persisted runtime metadata carries canonical agent name plus authoritative `agent_id`, and any agent-keyed Houmao-owned directory naming uses `agent_id`.
+- [ ] 2.2 Keep the shared registry pointer-oriented by updating `src/houmao/agents/realm_controller/registry_storage.py`, related docs, and registry tests so registry publication continues to store discovery metadata only, keys live-agent directories by `agent_id`, warns when one `agent_id` is reused with a different canonical name, and does not absorb launcher, mailbox, or task-local scratch state.
 
 ## 3. CAO Launcher Layout
 
@@ -21,5 +21,5 @@
 
 ## 5. Documentation And Verification
 
-- [ ] 5.1 Update runtime, registry, and agent-state reference docs to describe the four-zone ownership model, including the new default Houmao runtime root and the per-agent job dir under each working directory.
+- [ ] 5.1 Update runtime, registry, and agent-state reference docs to describe the four-zone ownership model, including the new default Houmao runtime root, the per-agent job dir under each working directory, and the strong-name plus authoritative-`agent_id` association model.
 - [ ] 5.2 Run focused runtime, launcher, registry, and mailbox test suites plus `openspec validate --strict --json --type change refactor-houmao-owned-dir-layout`.
