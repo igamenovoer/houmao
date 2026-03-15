@@ -29,7 +29,7 @@ This change is therefore a filesystem-ownership refactor. It needs one cross-cut
 - Provide env-var overrides for Houmao-owned directory locations so CI and dynamic environments can relocate defaults without editing checked-in config files.
 - Keep explicit overrides functional so CI, tests, and advanced operators can still relocate roots when needed.
 - Stop relying on canonical agent name as the tmux session name or unique live lookup key; the true canonical name for a live session must be recoverable from persisted manifest metadata or the shared registry.
-- Preserve compatibility for already-created manifests and runtime roots by continuing to honor explicit existing paths during resume/control.
+- Preserve compatibility for already-created manifests and runtime roots by continuing to honor explicit existing paths during resume/control, while not preserving compatibility for legacy registry directories keyed by the retired `agent_key`.
 
 **Non-Goals:**
 - Auto-migrating old runtime roots, old mailbox roots, or previously built brain homes into the new defaults.
@@ -53,7 +53,7 @@ The effective locations for those defaults may also be relocated through env-var
 - registry root: existing `AGENTSYS_GLOBAL_REGISTRY_DIR`
 - runtime root: `AGENTSYS_GLOBAL_RUNTIME_DIR`
 - mailbox root: `AGENTSYS_GLOBAL_MAILBOX_DIR`
-- local jobs dir: `AGENTSYS_LOCAL_JOBS_DIR`, which relocates per-session job dirs to `<local-jobs-dir>/<session-id>/`
+- local jobs dir: `AGENTSYS_LOCAL_JOBS_DIR`, a per-launch or per-agent override that relocates that session's job dir to `<local-jobs-dir>/<session-id>/`
 
 Rationale:
 - The current system already implicitly distinguishes these responsibilities, but only by convention.
@@ -175,6 +175,7 @@ Alternatives considered:
 - launcher-default CAO `HOME` under `.../home/`
 
 Explicit runtime-root and `home_dir` overrides remain supported.
+The old `runtime_root/cao-server/<host>-<port>/` layout is legacy state after cutover and is not part of a compatibility shim for launcher stop/status behavior.
 
 Rationale:
 - A single durable Houmao runtime root makes runtime and launcher state easier to inspect and clean up.
@@ -184,6 +185,7 @@ Rationale:
 
 Alternatives considered:
 - *Keep launcher artifacts under `runtime_root/cao-server/<host>-<port>/` forever* — rejected because the singular path name and flat layout make it awkward to colocate both launcher artifacts and default CAO home state cleanly.
+- *Carry old-path compatibility checks for `runtime_root/cao-server/<host>-<port>/` into launcher stop/status behavior* — rejected because this repository is treating the launcher path rename as explicit breaking behavior rather than an addressed-path compatibility surface.
 - *Require explicit launcher `home_dir` forever* — rejected because the new ownership model should have a usable system-owned default.
 - *Keep generated homes and manifests grouped by tool or family* — rejected because agent grouping is a higher-level identity concern that should be discoverable from metadata rather than frozen into directory buckets.
 
@@ -236,6 +238,13 @@ This directory is intended for:
 
 It is not the durable runtime session root and does not replace `manifest.json`, gateway state, or registry publication.
 
+When `AGENTSYS_LOCAL_JOBS_DIR` is supplied for a launch, treat it as a per-launch or per-agent override for that session's job-dir root rather than as a required machine-global location.
+
+In this change:
+- `stop-session` does not auto-clean the job dir,
+- the runtime does not auto-generate `.gitignore` files under workspace-local `.houmao/`,
+- docs should recommend ignoring `.houmao/` or `.houmao/jobs/` when the default workspace-local job-dir layout is used.
+
 Rationale:
 - The agent working directory should remain the main project context, but not every temporary or destructive artifact belongs at the project top level.
 - A dedicated job dir gives agents a sanctioned place for “safe to trash” state.
@@ -258,23 +267,26 @@ Alternatives considered:
 - *Keep defaulting mailbox under the runtime root* — rejected because it makes mailbox look like per-runtime or per-project scratch state even though it is logically shared state.
 - *Place mailbox under the working directory* — rejected because mailbox is intentionally shared across agents and not scoped to one project workspace.
 
-### 7. Treat this as a default-path migration, not as an in-place data migration
+### 7. Treat runtime and mailbox roots as addressed-path compatibility, but not legacy registry or launcher-artifact directories
 
-**Choice:** New starts/builds use the new defaults, but old manifests, explicit runtime-root overrides, explicit mailbox roots, and explicit launcher `home_dir` values continue to work as addressed paths.
+**Choice:** New starts/builds use the new defaults, but old manifests, explicit runtime-root overrides, explicit mailbox roots, and explicit launcher `home_dir` values continue to work as addressed paths. Legacy shared-registry directories keyed by retired `agent_key` and legacy launcher artifact directories under `runtime_root/cao-server/<host>-<port>/` are not part of that compatibility contract.
 
 Rationale:
 - Existing manifests already persist absolute paths and can continue to resume from those locations.
 - This keeps the change operationally simpler and avoids risky on-disk rewrites.
 - Operators can move old roots manually if they want a clean filesystem, but correctness does not depend on it.
+- Old `agent_key`-keyed registry directories are discovery garbage after the `agent_id` cutover and can be removed manually; the new code does not need to read or migrate them.
+- Old launcher artifact directories under `runtime_root/cao-server/<host>-<port>/` are likewise legacy on-disk state after cutover and do not need fallback stop/status reads.
 
 Alternatives considered:
 - *Auto-migrate old runtime roots into `~/.houmao/runtime`* — rejected because it adds cross-filesystem copy/move risk and complicates rollback.
 - *Refuse to resume old manifests until migrated* — rejected because it would turn a layout cleanup into a hard backward-compatibility break.
+- *Add dual-lookup or migration handling for old `agent_key`-keyed registry directories* — rejected because this repository does not want backward-compatibility complexity for retired registry keys in the middle of a larger identity refactor.
 
 ## Risks / Trade-offs
 
 - [Risk] Default path changes will surprise existing scripts and docs that assume `tmp/agents-runtime`. -> Mitigation: keep explicit `--runtime-root` overrides, document the new defaults clearly, and preserve resume for old manifests.
-- [Risk] Creating `.houmao/` under working directories may be unwelcome in some repos. -> Mitigation: keep the per-agent job dir narrowly scoped under `.houmao/jobs/<session-id>/`, document its purpose, and avoid moving durable runtime state there.
+- [Risk] Creating `.houmao/` under working directories may be unwelcome in some repos. -> Mitigation: keep the per-agent job dir narrowly scoped under `.houmao/jobs/<session-id>/`, document its purpose, recommend ignoring `.houmao/` or `.houmao/jobs/`, and avoid moving durable runtime state there.
 - [Risk] Job dirs may accumulate after many sessions. -> Mitigation: document cleanup expectations now and keep open the option for a later pruning or retention policy.
 - [Risk] Launcher default CAO home under the runtime root changes filesystem expectations for operators who currently rely on ambient HOME. -> Mitigation: preserve explicit `home_dir` override support and keep the home-vs-workdir separation explicit.
 - [Risk] Mailbox default relocation could surprise environments that relied on implicit runtime-root-derived mailbox placement. -> Mitigation: preserve explicit mailbox-root overrides, add an env-var override for CI/dynamic runs, and call out the default change as breaking.
@@ -286,9 +298,9 @@ Alternatives considered:
 ## Migration Plan
 
 1. Add shared path-resolution helpers for the effective Houmao roots and the derived job dir, including env-var override support and one documented precedence order.
-2. Replace registry-specific `agent_key` with authoritative `agent_id` in runtime-owned metadata and shared-registry publication, and define how initial `agent_id` bootstrap vs persisted-identity reuse works.
-3. Change runtime build/start defaults to use the Houmao runtime root, persist canonical agent name plus authoritative `agent_id`, choose and persist tmux session names as unique live-session handles, and create the job dir for new sessions.
-4. Update registry publication and lookup so direct liveness resolution by `agent_id` is primary while convenience lookup by canonical name comes from registry or manifest metadata and can surface ambiguity.
+2. Replace registry-specific `agent_key` with authoritative `agent_id` in runtime-owned metadata and shared-registry publication, define how initial `agent_id` bootstrap vs persisted-identity reuse works, and make it explicit that legacy `agent_key`-keyed registry directories are not migrated or read after cutover.
+3. Change runtime build/start defaults to use the Houmao runtime root, persist canonical agent name plus authoritative `agent_id`, bump the session-manifest contract so canonical agent name plus `agent_id` plus actual tmux session name are first-class fields, choose and persist tmux session names as unique live-session handles, and create the job dir for new sessions.
+4. Update registry publication and lookup so direct liveness resolution by `agent_id` is primary while convenience lookup by canonical name comes from registry or manifest metadata and can surface ambiguity, without introducing dual-lookup compatibility for legacy registry keys.
 5. Update launcher artifact paths and launcher-default CAO `HOME` derivation to use the new per-server runtime subtree.
 6. Change mailbox default root resolution to the independent Houmao mailbox root while preserving explicit overrides and env-var relocation.
 7. Update docs, reference pages, and examples so registry, runtime, mailbox, tmux session-handle, job-dir, env-var override, and name-vs-`agent_id` boundaries are described consistently.
@@ -301,5 +313,5 @@ Rollback strategy:
 
 ## Open Questions
 
-- Should graceful `stop-session` eventually offer an optional cleanup mode for `<working-directory>/.houmao/jobs/<session-id>/`, or should cleanup remain entirely manual in this change?
+- Should future work add an optional cleanup mode for `<working-directory>/.houmao/jobs/<session-id>/` now that this change explicitly keeps cleanup manual?
 - Should future work add a registry-owned CAO server discovery namespace that publishes pointer-style server records without storing mutable CAO home or launcher state there?

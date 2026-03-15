@@ -9,11 +9,15 @@ Recent CAO workdir changes removed one of the main reasons Houmao had to keep CA
 - **BREAKING** Flatten default Houmao-managed build-state paths so generated homes and manifests no longer rely on tool- or family-based directory bucketing.
 - **BREAKING** Replace registry-scoped `agent_key` with cross-module `agent_id` as the authoritative system-owned agent identity; canonical agent name remains the strong human-facing label, while `agent_id` becomes the stable per-agent association key that answers whether a specific agent identity is currently up.
 - When no explicit or previously persisted `agent_id` exists, bootstrap the initial `agent_id` as `md5(canonical agent name)` and then persist or reuse that `agent_id` for later builds, starts, resumes, publication, and rename-like workflows.
+- **BREAKING** Old `agent_key`-keyed registry directories are not migrated or read after the `agent_id` cutover; they become legacy on-disk state that users may remove manually.
 - Require Houmao-owned directories that are named after one agent to use `agent_id` rather than canonical agent name as the writable directory key.
 - **BREAKING** Decouple tmux session naming from canonical agent name: tmux session names become unique live-session handles, and canonical agent name must be recovered from persisted manifest metadata or shared-registry publication rather than inferred from the tmux session name itself.
+- **BREAKING** Persist session identity as first-class manifest metadata: canonical agent name, authoritative `agent_id`, and the actual tmux session name become durable runtime contract fields rather than inferred or backend-state-only details.
 - Add env-var override support for Houmao-owned directory locations so CI and dynamic environments can relocate registry, runtime, mailbox, and job-dir defaults without rewriting configs.
 - Keep the shared registry under `~/.houmao/registry/` as a small discovery-oriented locator layer rather than using it as the mutable CAO home or runtime state root.
 - Define a runtime-managed per-agent job dir under each agent working directory at `<working-directory>/.houmao/jobs/<session-id>/` for logs, outputs, temporary files, and other session-local destructive work.
+- Keep `AGENTSYS_LOCAL_JOBS_DIR` as a per-launch or per-agent relocation surface for that session's job dir rather than as a required machine-global configuration.
+- **BREAKING** Change launcher-managed CAO artifact paths from `runtime_root/cao-server/<host>-<port>/...` to `runtime_root/cao_servers/<host>-<port>/{launcher,home}/...`, with no old-path compatibility shim.
 - **BREAKING** Change the default filesystem mailbox root from a runtime-root-derived path to an independent Houmao mailbox root while preserving explicit mailbox-root overrides.
 - Preserve the agent working directory itself as the CLI startup project context and generally agent-editable area, while keeping mailbox storage as an independent shared writable subsystem.
 - Update the runtime, launcher, registry, and mailbox contracts so directory defaults, env-var override precedence, publication pointers, and cleanup boundaries all reflect the same ownership model.
@@ -26,9 +30,9 @@ Recent CAO workdir changes removed one of the main reasons Houmao had to keep CA
 
 ### Modified Capabilities
 
-- `brain-launch-runtime`: Changes the default runtime-owned session-state layout, introduces the per-agent job-dir contract, requires runtime-owned metadata to carry canonical agent name plus authoritative `agent_id`, and treats tmux session names as persisted live-session handles rather than authoritative agent names.
-- `agent-discovery-registry`: Clarifies that the registry stays pointer-oriented and discovery-only rather than becoming the mutable home for runtime or CAO server state, replaces registry-specific `agent_key` with authoritative `agent_id`, keys published live-agent directories by `agent_id`, and makes direct liveness resolution by `agent_id` primary.
-- `cao-server-launcher`: Moves launcher-owned CAO artifacts and CAO home defaults into the Houmao runtime root while preserving the existing workdir-vs-home separation.
+- `brain-launch-runtime`: Changes the default runtime-owned session-state layout, introduces the per-agent job-dir contract, requires runtime-owned metadata to carry canonical agent name plus authoritative `agent_id` plus the actual tmux session name as first-class manifest fields, and treats tmux session names as persisted live-session handles rather than authoritative agent names.
+- `agent-discovery-registry`: Clarifies that the registry stays pointer-oriented and discovery-only rather than becoming the mutable home for runtime or CAO server state, replaces registry-specific `agent_key` with authoritative `agent_id`, keys published live-agent directories by `agent_id`, makes direct liveness resolution by `agent_id` primary, and does not preserve compatibility for old `agent_key`-keyed directories.
+- `cao-server-launcher`: Moves launcher-owned CAO artifacts and CAO home defaults into the Houmao runtime root, adopts the `cao_servers/<host>-<port>/{launcher,home}/` layout, treats the old `cao-server/<host>-<port>/` layout as legacy state, and preserves the existing workdir-vs-home separation.
 - `agent-mailbox-fs-transport`: Clarifies that the filesystem mailbox root remains an independent shared writable area instead of being implicitly grouped under runtime-owned or workspace-owned state.
 
 ## Impact

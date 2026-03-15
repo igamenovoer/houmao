@@ -43,6 +43,8 @@ For runtime-owned sessions, the runtime SHALL persist canonical agent name as a 
 
 The runtime SHALL materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session, and that `agent_id` SHALL replace registry-specific `agent_key` for cross-module identity association.
 
+The session-manifest schema for this change SHALL bump to the next version and SHALL expose canonical agent name and authoritative `agent_id` as first-class top-level manifest fields rather than burying them inside `backend_state`.
+
 When the caller does not provide an explicit `agent_id`, the runtime SHALL first reuse a previously persisted `agent_id` for the same built or resumed agent when one exists in manifest metadata, build metadata, or equivalent runtime-owned metadata.
 
 Only when no explicit `agent_id` and no previously persisted `agent_id` exist SHALL the runtime bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
@@ -91,6 +93,8 @@ Persisted runtime metadata for a tmux-backed session SHALL record at minimum:
 - authoritative `agent_id`,
 - the actual tmux session name used for that live session.
 
+The session-manifest schema for this change SHALL also expose that actual tmux session name as a first-class top-level manifest field rather than only as backend-specific state.
+
 When runtime-controlled logic needs to recover the true canonical agent name or authoritative `agent_id` for a tmux-backed live session, it SHALL read persisted manifest metadata or shared-registry publication rather than inferring that identity from the tmux session name alone.
 
 #### Scenario: Tmux-backed start persists the actual tmux session name separately from canonical agent name
@@ -107,7 +111,7 @@ When runtime-controlled logic needs to recover the true canonical agent name or 
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
 For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.
 
-When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path, the runtime SHALL derive the effective per-agent job dir as:
+When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as:
 - `<AGENTSYS_LOCAL_JOBS_DIR>/<session-id>/`
 
 The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `AGENTSYS_JOB_DIR`.
@@ -115,6 +119,8 @@ The runtime SHALL create that directory before the session needs runtime-managed
 The per-agent job dir SHALL be intended for session-local logs, temporary outputs, and destructive scratch work, and SHALL NOT replace the durable runtime-owned session root under the effective runtime root.
 
 Resume and later runtime-controlled work for the same persisted session SHALL continue to use the same derived per-agent job dir rather than allocating a replacement directory for that same session id.
+
+For this change, runtime-controlled stop behavior SHALL NOT automatically remove the job dir.
 
 #### Scenario: Start-session creates the job dir and publishes its binding
 - **WHEN** a developer starts a runtime-owned session with working directory `/repo/app`
@@ -132,6 +138,12 @@ Resume and later runtime-controlled work for the same persisted session SHALL co
 - **AND WHEN** the runtime starts a runtime-owned session whose generated session id is `session-20260314-120000Z-abcd1234`
 - **THEN** the runtime creates `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
 - **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
+#### Scenario: Stop-session does not auto-clean the job dir in this version
+- **WHEN** a runtime-owned session has created a job dir for one session id
+- **AND WHEN** a developer later stops that session through runtime-controlled stop behavior
+- **THEN** the runtime leaves the job dir in place in this version
+- **AND THEN** later cleanup of that scratch directory remains manual
 
 ## MODIFIED Requirements
 

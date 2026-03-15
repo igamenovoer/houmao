@@ -45,12 +45,20 @@ The launcher SHALL partition artifacts by base URL host/port under a launcher-sp
 
 The launcher SHOULD additionally write a structured diagnostics file (for example `launcher_result.json`) in the same launcher-specific directory to simplify debugging.
 
+Legacy launcher artifact directories under `runtime_root/cao-server/<host>-<port>/` are not part of a compatibility contract for this change and MAY be removed manually after cutover.
+
 #### Scenario: Start writes pid, log, and ownership artifacts in the launcher subtree
 - **WHEN** the launcher starts a local `cao-server` process at base URL `http://localhost:9889`
 - **THEN** it writes `runtime_root/cao_servers/localhost-9889/launcher/cao-server.pid`
 - **AND THEN** it writes `runtime_root/cao_servers/localhost-9889/launcher/cao-server.log`
 - **AND THEN** it writes a structured ownership artifact in `runtime_root/cao_servers/localhost-9889/launcher/`
 - **AND THEN** the launcher reports the pid and artifact paths in its result payload
+
+#### Scenario: Legacy cao-server artifact path is not used as a fallback
+- **WHEN** a launcher runtime root still contains legacy artifacts under `runtime_root/cao-server/localhost-9889/`
+- **AND WHEN** launcher logic resolves artifact paths after this change
+- **THEN** it uses `runtime_root/cao_servers/localhost-9889/launcher/` and sibling `home/` as the authoritative layout
+- **AND THEN** it does not require fallback reads from the old `cao-server/` path
 
 ### Requirement: Launcher stop SHALL persist structured diagnostics from a fresh runtime root
 The launcher SHALL ensure the parent directory for `launcher_result.json` exists before writing structured `stop` results under `runtime_root/cao_servers/<host>-<port>/launcher/`.

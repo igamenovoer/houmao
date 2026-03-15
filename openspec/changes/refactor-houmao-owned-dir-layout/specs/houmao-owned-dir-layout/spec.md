@@ -15,7 +15,7 @@ The system SHALL support env-var overrides for those default locations using:
 - `AGENTSYS_GLOBAL_REGISTRY_DIR` for the effective registry root
 - `AGENTSYS_GLOBAL_RUNTIME_DIR` for the effective runtime root
 - `AGENTSYS_GLOBAL_MAILBOX_DIR` for the effective Houmao mailbox root
-- `AGENTSYS_LOCAL_JOBS_DIR` for the directory under which per-session job dirs are derived as `<local-jobs-dir>/<session-id>/`
+- `AGENTSYS_LOCAL_JOBS_DIR` as a per-launch or per-agent override for the directory under which that session's job dir is derived as `<local-jobs-dir>/<session-id>/`
 
 Subsystem-specific explicit CLI or config overrides that already exist MAY continue to relocate the effective registry root, runtime root, launcher home, or mailbox root.
 
@@ -121,3 +121,15 @@ Mailbox state MUST remain independently relocatable and MUST NOT be implicitly n
 - **WHEN** a started session writes session-local scratch files while also using mailbox support and runtime-managed manifest persistence
 - **THEN** scratch files and temporary outputs live under that session's per-agent job dir
 - **AND THEN** mailbox content and durable runtime session state remain in their own independent zones
+
+### Requirement: Workspace-local scratch behavior is manual-cleanup and documentation-guided in this change
+For this change, the system SHALL treat workspace-local job dirs as manually managed scratch space rather than auto-cleaned runtime state.
+
+The system SHALL NOT require auto-generated `.gitignore` files under workspace-local `.houmao/` directories as part of this change.
+
+Reference docs for this change SHALL recommend ignoring `.houmao/` or `.houmao/jobs/` when the default workspace-local job-dir layout is used.
+
+#### Scenario: Stop-session leaves the job dir in place
+- **WHEN** a developer stops a session that used a workspace-local job dir under `.houmao/jobs/`
+- **THEN** the runtime leaves that job dir in place in this version
+- **AND THEN** any cleanup of that scratch directory remains a manual operator action

@@ -23,6 +23,8 @@ The registry root SHALL remain a discovery-oriented locator layer. Mutable runti
 
 The runtime directory associated with a published agent MAY live anywhere on the filesystem and SHALL NOT be required to live under `~/.houmao/registry`.
 
+Legacy registry directories keyed by the retired `agent_key` are not part of a compatibility contract for this change and MAY be removed manually by the user after cutover.
+
 #### Scenario: Published agent uses a runtime directory outside the registry root
 - **WHEN** a runtime-managed agent publishes shared-registry state for agent name `AGENTSYS-gpu`
 - **AND WHEN** the authoritative `agent_id` for that publication is `deadbeef`
@@ -66,7 +68,7 @@ The runtime directory associated with a published agent MAY live anywhere on the
 ### Requirement: Shared-registry records persist authoritative agent identity rather than registry-specific agent keys
 Each shared-registry `record.json` SHALL persist both the canonical agent name and the authoritative `agent_id`.
 
-The registry record schema for this change SHALL replace the registry-specific `agent_key` field with authoritative `agent_id`.
+The registry record schema for this change SHALL bump to the next version and SHALL replace the registry-specific `agent_key` field with authoritative `agent_id`.
 
 The registry record SHALL continue to include the live terminal session metadata needed to locate the running session, but that terminal session name SHALL NOT be treated as the canonical agent name by contract.
 
@@ -80,6 +82,12 @@ The registry record SHALL continue to include the live terminal session metadata
 - **AND WHEN** that same record persists canonical agent name `AGENTSYS-gpu`
 - **THEN** consumers treat `AGENTSYS-gpu` and the record's `agent_id` as the authoritative agent identity metadata
 - **AND THEN** they do not assume `houmao-session-abc123` itself is the canonical agent name
+
+#### Scenario: Legacy agent-key directories are ignored after cutover
+- **WHEN** a registry root still contains an old `live_agents/<agent-key>/` directory from before the `agent_id` cutover
+- **AND WHEN** the runtime or registry reader is operating under the new `agent_id`-based contract
+- **THEN** that old directory is not part of a required lookup or migration path
+- **AND THEN** users may remove that legacy directory manually
 
 ### Requirement: Shared registry resolves live agents primarily by authoritative agent id
 The system SHALL support direct resolution of a published live agent by authoritative `agent_id`.
