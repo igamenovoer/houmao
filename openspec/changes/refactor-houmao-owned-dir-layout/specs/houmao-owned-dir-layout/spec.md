@@ -45,7 +45,7 @@ When neither explicit override nor env-var override is supplied, the system SHAL
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
 The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.
 
-When association is needed, the system SHALL rely on persisted metadata and strong identity surfaces such as canonical agent name, authoritative `agent_id`, persisted session metadata, or registry publication rather than on bucket names in the directory hierarchy.
+When association is needed, the system SHALL rely on persisted metadata and explicit identity surfaces such as canonical agent name, authoritative `agent_id`, persisted session metadata, or registry publication rather than on bucket names in the directory hierarchy.
 
 This requirement does not forbid future metadata indexes or sidecar metadata files, but this change SHALL NOT require them.
 
@@ -61,27 +61,43 @@ Whenever a Houmao-owned directory name is intended to stand for one agent rather
 - **THEN** that directory name uses the agent's authoritative `agent_id`
 - **AND THEN** the canonical agent name remains persisted in metadata rather than used as the writable directory key
 
-### Requirement: Canonical agent name is the strong live identity and `agent_id` is the authoritative global identity
-The system SHALL treat canonical agent name as the strong human-facing live identity for normal operator use. Reusing the same canonical agent name is expected to refer to the same agent most of the time.
+### Requirement: Canonical agent name is a strong human-facing label and `agent_id` is the authoritative global identity
+The system SHALL treat canonical agent name as a strong human-facing label for normal operator use. Reusing the same canonical agent name is expected to refer to the same agent most of the time, but the system SHALL NOT require canonical agent name to be globally unique by contract.
 
-The system SHALL also assign each agent an authoritative `agent_id` that is globally unique by contract.
+The system SHALL assign each agent an authoritative `agent_id` that is globally unique by contract, and that `agent_id` SHALL replace registry-specific `agent_key` as the system-owned stable identity surface.
 
-When no explicit `agent_id` is supplied, the default `agent_id` SHALL be the full lowercase `md5(canonical agent name).hexdigest()`.
+When no explicit `agent_id` is supplied and no previously persisted `agent_id` exists for the same built or resumed agent, the system SHALL bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+
+When a previously persisted `agent_id` already exists for that same built or resumed agent, the system SHALL reuse that persisted `agent_id` rather than recomputing it from the current canonical agent name.
 
 When system-owned writable association needs one stable key, the system SHALL treat `agent_id` as authoritative even if a user intentionally or accidentally pairs that same `agent_id` with a different canonical agent name.
 
 When the system encounters a different canonical agent name already associated with the same `agent_id`, it SHALL emit a warning before continuing with that authoritative `agent_id`.
 
-#### Scenario: Same canonical agent name derives the same default agent id
-- **WHEN** canonical agent name `AGENTSYS-chris` is used without an explicit `agent_id`
-- **THEN** the system derives the default authoritative id as the full lowercase `md5("AGENTSYS-chris").hexdigest()`
-- **AND THEN** later reuse of that same canonical agent name derives the same default `agent_id`
+When different live or persisted agents share the same canonical agent name but use different authoritative `agent_id` values, the system SHALL treat canonical-name lookup as potentially ambiguous rather than silently treating those agents as identical.
+
+#### Scenario: Initial agent id bootstraps from canonical agent name
+- **WHEN** canonical agent name `AGENTSYS-chris` is used for a new agent without an explicit or previously persisted `agent_id`
+- **THEN** the system bootstraps the initial authoritative id as the full lowercase `md5("AGENTSYS-chris").hexdigest()`
+- **AND THEN** that bootstrapped `agent_id` becomes the persisted authoritative identity for that agent
+
+#### Scenario: Persisted agent id wins over later name-derived recomputation
+- **WHEN** the system already has persisted metadata for one agent with canonical agent name `AGENTSYS-chris` and `agent_id=abc123`
+- **AND WHEN** a later build, start, or resume flow for that same agent reaches the point where it could derive a default id from the current canonical name
+- **THEN** the system reuses persisted `agent_id=abc123`
+- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical name
 
 #### Scenario: Different canonical names sharing one explicit agent id trigger a warning
 - **WHEN** the system already has writable association metadata for `agent_id=abc123` with canonical agent name `AGENTSYS-chris`
 - **AND WHEN** a later start or publication explicitly reuses `agent_id=abc123` with canonical agent name `AGENTSYS-alex`
 - **THEN** the system emits a warning that different canonical names are sharing one authoritative `agent_id`
 - **AND THEN** it still treats `agent_id=abc123` as the authoritative association key for system-owned writable state
+
+#### Scenario: Same canonical agent name with different agent ids is ambiguous rather than silently merged
+- **WHEN** two different agents both use canonical agent name `AGENTSYS-chris`
+- **AND WHEN** those agents persist different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
+- **THEN** the system does not silently merge their system-owned association state
+- **AND THEN** name-based lookup for `AGENTSYS-chris` may require disambiguation by `agent_id` or another persisted metadata surface
 
 ### Requirement: Houmao-owned zones keep discovery, durable state, shared mailbox state, and destructive scratch separate
 The system SHALL preserve distinct mutability and ownership boundaries across the Houmao-owned zones.

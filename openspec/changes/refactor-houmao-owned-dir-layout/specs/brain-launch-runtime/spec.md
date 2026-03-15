@@ -15,7 +15,7 @@ Explicit runtime-root overrides SHALL continue to take precedence over the defau
 
 The default build-state layout SHALL NOT require tool- or family-based directory bucketing in order to associate a generated home or manifest with an agent.
 
-When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name and authoritative `agent_id` metadata rather than on bucket names in the directory hierarchy.
+When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name, authoritative `agent_id`, persisted terminal metadata, and other explicit runtime metadata rather than on bucket names in the directory hierarchy.
 
 Whenever runtime-owned directory naming needs one path component that stands for one agent rather than one session, backend, or service instance, the runtime SHALL use authoritative `agent_id` for that directory name instead of canonical agent name.
 
@@ -39,19 +39,30 @@ Whenever runtime-owned directory naming needs one path component that stands for
 - **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `/tmp/houmao-runtime`
 
 ### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
-For runtime-owned sessions, the runtime SHALL keep canonical agent name as the strong human-facing live identity used for tmux session naming and normal operator lookup.
+For runtime-owned sessions, the runtime SHALL persist canonical agent name as a strong human-facing metadata field for normal operator use, but it SHALL NOT treat canonical agent name as the authoritative writable-state key.
 
-The runtime SHALL also materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session.
+The runtime SHALL materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session, and that `agent_id` SHALL replace registry-specific `agent_key` for cross-module identity association.
 
-When the caller does not provide an explicit `agent_id`, the runtime SHALL derive the default `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+When the caller does not provide an explicit `agent_id`, the runtime SHALL first reuse a previously persisted `agent_id` for the same built or resumed agent when one exists in manifest metadata, build metadata, or equivalent runtime-owned metadata.
+
+Only when no explicit `agent_id` and no previously persisted `agent_id` exist SHALL the runtime bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
 
 When runtime-controlled start, resume, or publication logic encounters an existing association for the same `agent_id` but a different canonical agent name, the runtime SHALL emit a warning and continue treating that `agent_id` as authoritative for system-owned writable association.
 
-#### Scenario: Start-session derives a default agent id from the canonical agent name
+When runtime-controlled lookup encounters more than one live or persisted association for the same canonical agent name but different authoritative `agent_id` values, the runtime SHALL surface ambiguity rather than silently treating those associations as one agent.
+
+#### Scenario: Start-session bootstraps a default agent id from the canonical agent name when no persisted id exists
 - **WHEN** a developer starts a runtime-owned session with canonical agent name `AGENTSYS-gpu`
 - **AND WHEN** the caller does not provide an explicit `agent_id`
-- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's authoritative `agent_id`
-- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the derived `agent_id`
+- **AND WHEN** no previously persisted `agent_id` exists for that same built or resumed agent
+- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's initial authoritative `agent_id`
+- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the bootstrapped `agent_id`
+
+#### Scenario: Start-session reuses a previously persisted agent id
+- **WHEN** a developer starts or resumes a runtime-owned session for an agent whose existing persisted metadata already carries `agent_id=abc123`
+- **AND WHEN** the caller does not provide an explicit replacement `agent_id`
+- **THEN** the runtime reuses `agent_id=abc123`
+- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical agent name
 
 #### Scenario: Agent-keyed runtime-owned directories use agent id rather than canonical agent name
 - **WHEN** runtime-owned directory derivation needs one path component that stands for one agent
@@ -63,6 +74,35 @@ When runtime-controlled start, resume, or publication logic encounters an existi
 - **AND WHEN** a later runtime-controlled start or publication explicitly uses `agent_id=abc123` with canonical agent name `AGENTSYS-editor`
 - **THEN** the runtime emits a warning about the different-name same-id association
 - **AND THEN** the runtime still treats `agent_id=abc123` as the authoritative writable-state identity
+
+#### Scenario: Same canonical name with different agent ids is reported as ambiguous
+- **WHEN** runtime-controlled lookup sees more than one live or persisted session metadata surface for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** those metadata surfaces carry different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
+- **THEN** the runtime reports that canonical-name lookup is ambiguous
+- **AND THEN** it requires disambiguation by `agent_id`, manifest path, or another explicit metadata surface
+
+### Requirement: Tmux session names are unique live-session handles rather than authoritative agent names
+For tmux-backed runtime sessions, the runtime SHALL treat the tmux session name as a unique handle for one live session rather than as the source of truth for canonical agent name or authoritative `agent_id`.
+
+The runtime SHALL choose and persist the tmux session name explicitly for each started tmux-backed session rather than relying on tmux collision auto-renaming as an identity mechanism.
+
+Persisted runtime metadata for a tmux-backed session SHALL record at minimum:
+- canonical agent name,
+- authoritative `agent_id`,
+- the actual tmux session name used for that live session.
+
+When runtime-controlled logic needs to recover the true canonical agent name or authoritative `agent_id` for a tmux-backed live session, it SHALL read persisted manifest metadata or shared-registry publication rather than inferring that identity from the tmux session name alone.
+
+#### Scenario: Tmux-backed start persists the actual tmux session name separately from canonical agent name
+- **WHEN** the runtime starts a tmux-backed session for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the runtime chooses live tmux session name `houmao-session-abc123`
+- **THEN** persisted runtime metadata records canonical agent name `AGENTSYS-gpu`
+- **AND THEN** that same metadata also records tmux session name `houmao-session-abc123` as a distinct live-session handle
+
+#### Scenario: Runtime learns true agent identity from manifest or registry rather than from tmux session name
+- **WHEN** runtime-controlled logic needs to inspect tmux-backed live session `houmao-session-abc123`
+- **THEN** it reads persisted manifest metadata or shared-registry publication to recover canonical agent name and authoritative `agent_id`
+- **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
 
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
 For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.

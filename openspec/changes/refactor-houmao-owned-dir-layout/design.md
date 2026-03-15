@@ -20,13 +20,15 @@ This change is therefore a filesystem-ownership refactor. It needs one cross-cut
   - `~/.houmao/runtime` for durable Houmao-owned runtime and launcher state,
   - `~/.houmao/mailbox` for the default shared mailbox root,
   - `<working-directory>/.houmao/jobs/<session-id>/` for agent-facing per-session scratch state.
-- Keep directory hierarchy mechanics separate from agent grouping semantics, so agent association is discoverable from canonical agent name, authoritative `agent_id`, and existing discovery surfaces rather than from tool- or family-bucket paths.
+- Keep directory hierarchy mechanics separate from agent grouping semantics, so agent association is discoverable from canonical agent name, authoritative `agent_id`, session metadata, and existing discovery surfaces rather than from tool- or family-bucket paths.
 - Whenever a Houmao-owned directory is named after one agent, use authoritative `agent_id` as the directory name rather than canonical agent name.
+- Replace registry-specific `agent_key` with cross-module `agent_id` as the authoritative agent identity.
 - Keep the registry secret-free and pointer-oriented instead of turning it into mutable CAO or runtime storage.
 - Move default runtime-owned session roots and launcher-managed CAO artifacts into the Houmao runtime root.
 - Introduce a standardized per-agent job dir with explicit “safe for destructive session-local edits” semantics.
 - Provide env-var overrides for Houmao-owned directory locations so CI and dynamic environments can relocate defaults without editing checked-in config files.
 - Keep explicit overrides functional so CI, tests, and advanced operators can still relocate roots when needed.
+- Stop relying on canonical agent name as the tmux session name or unique live lookup key; the true canonical name for a live session must be recoverable from persisted manifest metadata or the shared registry.
 - Preserve compatibility for already-created manifests and runtime roots by continuing to honor explicit existing paths during resume/control.
 
 **Non-Goals:**
@@ -72,7 +74,7 @@ Representative target layout, intentionally detailed down to Houmao-managed file
   registry/
     live_agents/
       <agent-id>/
-        record.json                       # Houmao shared-registry discovery record for one authoritative agent id
+        record.json                       # Houmao shared-registry discovery record for one authoritative agent id, canonical name, and live tmux handle
 
   runtime/
     homes/
@@ -87,7 +89,7 @@ Representative target layout, intentionally detailed down to Houmao-managed file
     sessions/
       <runtime-backend>/
         <session-id>/
-          manifest.json                   # Houmao durable session record with canonical agent name and agent_id
+          manifest.json                   # Houmao durable session record with canonical agent name, authoritative agent_id, and actual tmux session name
           gateway/
             attach.json                   # Houmao stable gateway attach contract
             state.json                    # Houmao last-known gateway state
@@ -142,8 +144,9 @@ Important boundary notes:
 - `registry/` is only for discovery metadata and pointers.
 - `runtime/` is Houmao-owned durable control state.
 - `runtime/cao_servers/.../home/.aws/cli-agent-orchestrator/` is CAO `HOME`, so it contains both Houmao-seeded files such as installed agent profiles and CAO-created runtime state such as terminal logs.
-- `runtime/homes/` and `runtime/manifests/` stay intentionally flat in this design; agent grouping should come from persisted metadata, canonical agent name, and authoritative `agent_id` rather than from bucket names in the directory hierarchy.
+- `runtime/homes/` and `runtime/manifests/` stay intentionally flat in this design; agent grouping should come from persisted metadata, canonical agent name, authoritative `agent_id`, and other explicit identity metadata rather than from bucket names in the directory hierarchy.
 - If a Houmao-owned subtree later introduces a directory keyed by one agent rather than by session or service instance, that directory name should use `agent_id`, not canonical agent name.
+- tmux session names are live-session handles rather than authoritative agent names. To learn the true canonical agent name or authoritative `agent_id` for a live session, inspect persisted manifest metadata or shared-registry publication rather than parsing the tmux session name.
 - Explicit CLI/config overrides still take precedence over env-var overrides; env-var overrides take precedence over the built-in default locations.
 - `<working-directory>/.houmao/jobs/<session-id>/` is the per-agent destructive scratch area for that session, not the durable runtime session root.
 
@@ -184,31 +187,40 @@ Alternatives considered:
 - *Require explicit launcher `home_dir` forever* — rejected because the new ownership model should have a usable system-owned default.
 - *Keep generated homes and manifests grouped by tool or family* — rejected because agent grouping is a higher-level identity concern that should be discoverable from metadata rather than frozen into directory buckets.
 
-### 4. Treat canonical agent name as the strong live identity and `agent_id` as the authoritative global identity
+### 4. Treat canonical agent name as a strong human-facing label, `agent_id` as the authoritative global identity, and tmux session name as a live-session handle
 
 **Choice:** Keep the directory layout mechanically simple while adopting a two-layer identity model for association:
 
-- canonical agent name remains the strong human-facing live identity used by tmux-backed sessions, operator lookup, and most day-to-day references,
-- each agent also carries an authoritative `agent_id` that is globally unique by contract and becomes the stable association key when a system-owned directory or record needs one,
-- by default, `agent_id` is the full lowercase `md5(canonical agent name).hexdigest()`, so reusing the same canonical name normally refers to the same agent,
-- if an operator deliberately reuses one `agent_id` for different canonical names, the system warns but still treats that `agent_id` as the authoritative identity, and any resulting writable-state conflicts are user fault.
+- canonical agent name remains the strong human-facing label used for normal operator references, but it is no longer assumed to be globally unique,
+- `agent_id` replaces registry-specific `agent_key` and becomes the authoritative globally unique per-agent identity for system-owned association and liveness publication,
+- when no explicit `agent_id` is supplied and no previously persisted `agent_id` exists for the same built or resumed agent, the runtime bootstraps the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`,
+- once an `agent_id` has been persisted in build metadata, manifest metadata, or other runtime-owned agent metadata, later build, start, resume, or rename-like flows reuse that `agent_id` instead of recomputing it from the current canonical name,
+- if an operator deliberately reuses one `agent_id` for different canonical names, the system warns but still treats that `agent_id` as the authoritative identity, and any resulting writable-state conflicts are user fault,
+- if different agents happen to share the same canonical name, that name becomes an ambiguous lookup handle and `agent_id` remains the authoritative disambiguator,
+- tmux session names are unique live-session handles and must not be treated as authoritative canonical agent names or as the source of truth for `agent_id`.
 
 This means:
 - the directory hierarchy does not need a `tool/`, `family/`, or per-agent bucket just to explain who an agent is,
-- same-name lookup remains the normal live-session path because tmux session names are already forced to be unique across the active system,
 - system-owned writable association can rely on `agent_id` without pretending that rare human-style name conflicts never happen,
+- the shared registry can answer “is agent `<agent_id>` currently up?” directly from one live record keyed by `agent_id`,
+- name-based live lookup becomes a convenience path layered on top of registry or manifest metadata and may need to surface ambiguity when more than one live agent shares the same canonical name,
+- tmux session names can stay unique without forcing canonical agent name itself to be unique,
+- the true canonical agent name for a running tmux-backed session is recovered from persisted manifest metadata or shared-registry publication rather than inferred from the tmux session name,
 - whenever a Houmao-owned directory name must stand for one agent, `agent_id` is the directory-safe key and canonical agent name stays in metadata,
 - future non-single-tool agents do not have to fit a tool-family directory taxonomy to participate in the same Houmao-owned layout.
 
 Rationale:
-- Operators need a strong, memorable name and generally expect the same name to refer to the same agent, much like a person's name in normal use.
-- Rare name conflicts still happen, so the system also needs an authoritative globally unique identifier for durable writable association.
-- Defaulting `agent_id` from canonical agent name preserves the expected "same name, same agent" behavior without forcing users to mint IDs manually.
+- Operators need a strong, memorable name and generally expect the same name to refer to the same agent, much like a person's name in normal use, but the system should not pretend rare same-name conflicts are impossible.
+- The system therefore needs an authoritative globally unique identifier for durable writable association and liveness checks.
+- Bootstrapping the first `agent_id` from canonical agent name preserves the expected “same name, same agent” behavior for new agents without forcing users to mint IDs manually, while still allowing the persisted `agent_id` to survive later rename-like changes.
+- Decoupling tmux session names from canonical agent names prevents accidental tmux auto-renaming from silently changing the operator-visible identity contract.
 - Using metadata fields instead of directory buckets keeps the layout more future-proof than a taxonomy based on today's tool shapes.
 
 Alternatives considered:
 - *Use canonical agent name only and have no separate agent id* — rejected because it handles rare name conflicts and intentional rename cases poorly once writable state must be keyed globally.
-- *Make `agent_id` the only meaningful identity and treat names as disposable labels* — rejected because operators still need a strong human-facing live identity for tmux-backed lookup and normal collaboration.
+- *Make `agent_id` the only meaningful identity and treat names as disposable labels* — rejected because operators still need a strong human-facing label for normal collaboration and lookup.
+- *Keep recomputing `agent_id` from canonical agent name on every start* — rejected because that would make rename-like workflows silently create a different identity even when the operator intends to keep referring to the same agent.
+- *Continue using canonical agent name as the tmux session name* — rejected because same-name conflicts are now allowed in principle and tmux collision renaming would make the session handle diverge from the intended agent identity anyway.
 - *Make per-agent top-level directories the primary layout key* — rejected because the runtime still has multiple artifact classes with different lifecycles, and not all of them need to be physically nested under one per-agent root to remain associated.
 - *Use tool family as the top-level grouping key* — rejected because it leaks an implementation property into the identity model.
 
@@ -266,18 +278,21 @@ Alternatives considered:
 - [Risk] Job dirs may accumulate after many sessions. -> Mitigation: document cleanup expectations now and keep open the option for a later pruning or retention policy.
 - [Risk] Launcher default CAO home under the runtime root changes filesystem expectations for operators who currently rely on ambient HOME. -> Mitigation: preserve explicit `home_dir` override support and keep the home-vs-workdir separation explicit.
 - [Risk] Mailbox default relocation could surprise environments that relied on implicit runtime-root-derived mailbox placement. -> Mitigation: preserve explicit mailbox-root overrides, add an env-var override for CI/dynamic runs, and call out the default change as breaking.
-- [Risk] Explicitly reusing one `agent_id` across unrelated agents can merge or corrupt writable association state. -> Mitigation: derive the default `agent_id` from canonical agent name, persist both name and id in metadata, and warn when one `agent_id` is seen with a different canonical name.
+- [Risk] Explicitly reusing one `agent_id` across unrelated agents can merge or corrupt writable association state. -> Mitigation: bootstrap the default `agent_id` from canonical agent name, persist both name and id in metadata, and warn when one `agent_id` is seen with a different canonical name.
+- [Risk] Name-based lookup can become ambiguous when different agents share the same canonical name. -> Mitigation: make direct liveness lookup by `agent_id` primary, persist both `agent_id` and canonical agent name in manifest and registry metadata, and surface ambiguity instead of silently guessing.
+- [Risk] Relying on tmux auto-renaming could desynchronize live-session handles from persisted metadata. -> Mitigation: choose and persist tmux session names explicitly as unique live-session handles and recover true agent identity from manifest or registry metadata rather than from the session name itself.
 - [Risk] Multiple override channels can create precedence confusion. -> Mitigation: document one precedence order consistently: explicit CLI/config override first, env-var override second, built-in default last.
 
 ## Migration Plan
 
 1. Add shared path-resolution helpers for the effective Houmao roots and the derived job dir, including env-var override support and one documented precedence order.
-2. Change runtime build/start defaults to use the Houmao runtime root, derive or accept authoritative `agent_id`, and create the job dir for new sessions.
-3. Update launcher artifact paths and launcher-default CAO `HOME` derivation to use the new per-server runtime subtree.
-4. Change registry publication and runtime-owned metadata association to key durable writable state by `agent_id` while preserving canonical agent name as the strong live-facing identity.
-5. Change mailbox default root resolution to the independent Houmao mailbox root while preserving explicit overrides and env-var relocation.
-6. Update docs, reference pages, and examples so registry, runtime, mailbox, job-dir, env-var override, and name-vs-`agent_id` boundaries are described consistently.
-7. Keep resume/control path compatibility for already-created manifests and explicit old paths.
+2. Replace registry-specific `agent_key` with authoritative `agent_id` in runtime-owned metadata and shared-registry publication, and define how initial `agent_id` bootstrap vs persisted-identity reuse works.
+3. Change runtime build/start defaults to use the Houmao runtime root, persist canonical agent name plus authoritative `agent_id`, choose and persist tmux session names as unique live-session handles, and create the job dir for new sessions.
+4. Update registry publication and lookup so direct liveness resolution by `agent_id` is primary while convenience lookup by canonical name comes from registry or manifest metadata and can surface ambiguity.
+5. Update launcher artifact paths and launcher-default CAO `HOME` derivation to use the new per-server runtime subtree.
+6. Change mailbox default root resolution to the independent Houmao mailbox root while preserving explicit overrides and env-var relocation.
+7. Update docs, reference pages, and examples so registry, runtime, mailbox, tmux session-handle, job-dir, env-var override, and name-vs-`agent_id` boundaries are described consistently.
+8. Keep resume/control path compatibility for already-created manifests and explicit old paths.
 
 Rollback strategy:
 - Restore the previous default roots in runtime, launcher, and mailbox resolution code.
