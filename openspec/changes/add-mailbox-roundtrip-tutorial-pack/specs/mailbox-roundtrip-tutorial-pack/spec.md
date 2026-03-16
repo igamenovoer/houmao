@@ -26,6 +26,15 @@ The tutorial-pack `run_demo.sh` SHALL:
 - copy tracked demo inputs into the temporary workspace before runtime commands execute, and
 - support `--snapshot-report` mode for expected-report refresh.
 
+The tracked demo parameters SHALL define the default tutorial pair, including:
+
+- a Claude Code blueprint,
+- a Codex blueprint,
+- the CAO-backed backend choice,
+- agent identities,
+- mailbox principal/address pairs, and
+- message body file references.
+
 The runner SHALL avoid modifying tracked files outside explicit snapshot mode.
 
 #### Scenario: Runner prepares an isolated workspace from tracked inputs
@@ -33,15 +42,20 @@ The runner SHALL avoid modifying tracked files outside explicit snapshot mode.
 - **THEN** the runner creates an isolated workspace and copies the tracked tutorial inputs into it before the mailbox workflow starts
 
 ### Requirement: Tutorial-pack runner SHALL start two mailbox-enabled sessions on one shared mailbox root
-The tutorial-pack runner SHALL build and start two runtime sessions that both use mailbox support against the same filesystem mailbox root while keeping distinct agent identities, mailbox principal ids, and mailbox addresses.
+The tutorial-pack runner SHALL build and start two CAO-backed runtime sessions that both use mailbox support against the same filesystem mailbox root while keeping distinct agent identities, mailbox principal ids, and mailbox addresses.
+
+The runner SHALL use blueprint-driven build and start flow for the tutorial pair, with credential selection owned by the blueprint-bound recipes and mailbox enablement expressed through `start-session --mailbox-*` overrides rather than tutorial-specific mailbox recipe files.
 
 The runner SHALL capture the structured `start-session` output for both agents, including the redacted mailbox binding payload returned by the runtime.
+
+The runner SHALL keep demo-specific persistent state minimal and SHALL rely on the runtime's name-addressed tmux/manifest recovery path for follow-up `mail` and `stop-session` targeting whenever that native mechanism is sufficient.
 
 #### Scenario: Two tutorial agents join the same mailbox root
 - **WHEN** a developer runs the tutorial pack with prerequisites satisfied
 - **THEN** the pack starts two mailbox-enabled sessions that resolve to one shared mailbox root
 - **AND THEN** each session receives its own mailbox principal id and mailbox address
 - **AND THEN** the run artifacts include the structured startup payloads for both sessions
+- **AND THEN** the sessions were started through the tracked blueprints with mailbox flags supplied on `start-session`
 
 ### Requirement: Tutorial-pack runner SHALL exercise the external-control mailbox roundtrip through runtime `mail` commands
 The tutorial-pack runner SHALL demonstrate the mailbox roundtrip through the supported runtime-owned external-control surfaces rather than through direct managed-script invocation.
@@ -54,16 +68,28 @@ At minimum, one successful run SHALL perform:
 - `mail check` for the original sender, and
 - `stop-session` for both tutorial agents.
 
-The reply step SHALL use the parent `message_id` returned by the earlier `mail send` result.
+The reply step SHALL validate and use the parent `message_id` returned by the earlier `mail send` result. If `mail send` does not yield a usable non-empty `message_id`, the runner SHALL fail clearly instead of guessing a reply parent from `mail check`.
 
 #### Scenario: Successful run completes a mailbox roundtrip
 - **WHEN** a developer runs the tutorial pack with prerequisites satisfied
 - **THEN** the run executes `mail send`, recipient `mail check`, `mail reply`, sender `mail check`, and session-stop steps in order
 - **AND THEN** the `mail reply` step uses the `message_id` returned by the earlier `mail send` result as its parent identifier
 - **AND THEN** the run artifacts and final report include the structured outputs from the roundtrip steps
+- **AND THEN** each `mail` or `stop-session` step targets the correct agent identity without requiring a richer tutorial-owned session-state file
 
 ### Requirement: Expected report updates SHALL be sanitized and reproducible
-Before writing or comparing expected reports, the tutorial tooling SHALL sanitize non-deterministic values such as absolute paths, timestamps, runtime-specific ids, session-manifest locations, and mailbox message identifiers.
+Before writing or comparing expected reports, the tutorial tooling SHALL sanitize non-deterministic values such as:
+
+- `message_id`
+- `thread_id`
+- `request_id`
+- `bindings_version`
+- absolute paths
+- runtime roots
+- session-manifest locations
+- timestamps
+
+The sanitization rules SHALL also cover any equivalent runtime-generated identifiers introduced into the structured report during implementation.
 
 Snapshot refresh mode SHALL update the tracked expected report using sanitized content only.
 
@@ -84,6 +110,8 @@ The tutorial README SHALL document:
 - verification instructions against `expected_report/report.json`,
 - snapshot refresh workflow, and
 - an appendix with key parameters plus input/output file inventory.
+
+The README SHALL make the CAO-backed prerequisite and the default Claude Code plus Codex blueprint pair explicit.
 
 The README SHALL present `run_demo.sh` as a convenience wrapper rather than as the only documented way to understand the workflow.
 

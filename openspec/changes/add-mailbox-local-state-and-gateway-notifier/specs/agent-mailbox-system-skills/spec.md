@@ -35,11 +35,11 @@ Filesystem-specific mailbox binding env vars SHALL use the `AGENTSYS_MAILBOX_FS_
 
 For filesystem mailbox sessions, those runtime-managed bindings SHALL include at minimum:
 
-- the shared mailbox root,
-- the shared mailbox-root SQLite path,
-- the resolved mailbox inbox directory,
-- the resolved mailbox directory,
-- the mailbox-local SQLite path.
+- `AGENTSYS_MAILBOX_FS_ROOT` for the shared mailbox root,
+- `AGENTSYS_MAILBOX_FS_SQLITE_PATH` for the shared mailbox-root catalog SQLite path,
+- `AGENTSYS_MAILBOX_FS_INBOX_DIR` for the resolved mailbox inbox directory,
+- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` for the resolved mailbox directory,
+- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` for the mailbox-local SQLite path.
 
 Reserved future mail-system-compatible mailbox binding env vars SHALL use the `AGENTSYS_MAILBOX_EMAIL_` prefix when a true-email adapter is added in a follow-up change.
 
@@ -59,3 +59,11 @@ Reserved future mail-system-compatible mailbox binding env vars SHALL use the `A
 - **WHEN** the system documents mailbox bindings for a future true-email-compatible adapter
 - **THEN** those future mail-system-compatible binding env vars use the `AGENTSYS_MAILBOX_EMAIL_` prefix
 - **AND THEN** they remain distinct from the implemented filesystem mailbox binding env vars
+
+### Requirement: Filesystem mailbox system skills direct sensitive operations to shared scripts
+The system SHALL require the projected filesystem mailbox system skill to direct agents to use shared helper scripts from `rules/scripts/` for mailbox operations that touch shared-root SQLite, mailbox-local SQLite, or `locks/`.
+
+#### Scenario: Filesystem mailbox skill points sensitive work to rules/scripts
+- **WHEN** an agent uses the projected filesystem mailbox system skill for a mailbox operation that touches shared-root `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`
+- **THEN** that skill instructs the agent to use the corresponding shared helper script from `rules/scripts/`
+- **AND THEN** the agent is not instructed to improvise raw SQLite or lock-file manipulation for that sensitive portion of the work

@@ -14,6 +14,7 @@ For the new detailed reference trees, use:
 - [Shared Registry Reference](./registry/index.md) for cross-runtime-root discovery, record contracts, cleanup behavior, and runtime publication hooks.
 - [Agent Gateway Reference](./gateway/index.md) for gateway attachability, HTTP and status contracts, queue behavior, and lifecycle handling.
 - [Mailbox Reference](./mailbox/index.md) for filesystem mailbox behavior and managed mailbox flows.
+- [Mailbox Roundtrip Tutorial Pack](../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md) for the explicit two-agent CAO-backed walkthrough that ties `build-brain`, `start-session`, `mail send/check/reply`, and `stop-session` together.
 
 ## CLI Entry Point
 

@@ -1,0 +1,161 @@
+{
+  "agent_def_dir": "<AGENT_DEF_DIR>",
+  "artifacts": {
+    "mail_reply": "<ARTIFACT_PATH:mail_reply>",
+    "mail_send": "<ARTIFACT_PATH:mail_send>",
+    "receiver_build": "<ARTIFACT_PATH:receiver_build>",
+    "receiver_check": "<ARTIFACT_PATH:receiver_check>",
+    "receiver_start": "<ARTIFACT_PATH:receiver_start>",
+    "receiver_stop": "<ARTIFACT_PATH:receiver_stop>",
+    "sender_build": "<ARTIFACT_PATH:sender_build>",
+    "sender_check": "<ARTIFACT_PATH:sender_check>",
+    "sender_start": "<ARTIFACT_PATH:sender_start>",
+    "sender_stop": "<ARTIFACT_PATH:sender_stop>"
+  },
+  "checks": {
+    "receiver_build_manifest_present": true,
+    "receiver_start_mailbox_enabled": true,
+    "receiver_stop_ok": true,
+    "reply_parent_matches_send_message_id": true,
+    "send_message_id_present": true,
+    "sender_build_manifest_present": true,
+    "sender_start_mailbox_enabled": true,
+    "sender_stop_ok": true,
+    "shared_mailbox_root": true
+  },
+  "demo": "mailbox-roundtrip-tutorial-pack",
+  "demo_output_dir": "<DEMO_OUTPUT_DIR>",
+  "flow": [
+    "sender_build",
+    "receiver_build",
+    "sender_start",
+    "receiver_start",
+    "mail_send",
+    "receiver_check",
+    "mail_reply",
+    "sender_check",
+    "sender_stop",
+    "receiver_stop"
+  ],
+  "generated_at_utc": "<TIMESTAMP>",
+  "mailbox_root": "<MAILBOX_ROOT>",
+  "parameters": {
+    "agent_def_dir": "<AGENT_DEF_DIR>",
+    "backend": "cao_rest",
+    "cao_base_url": "http://localhost:9889",
+    "demo_id": "mailbox-roundtrip-tutorial-pack",
+    "message": {
+      "initial_body_file": "inputs/initial_message.md",
+      "reply_body_file": "inputs/reply_message.md",
+      "subject": "Mailbox tutorial roundtrip"
+    },
+    "receiver": {
+      "agent_identity": "AGENTSYS-mailbox-receiver",
+      "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
+      "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost",
+      "mailbox_principal_id": "AGENTSYS-mailbox-receiver"
+    },
+    "schema_version": 1,
+    "sender": {
+      "agent_identity": "AGENTSYS-mailbox-sender",
+      "blueprint": "blueprints/gpu-kernel-coder-claude.yaml",
+      "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost",
+      "mailbox_principal_id": "AGENTSYS-mailbox-sender"
+    },
+    "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox"
+  },
+  "project_workdir": "<PROJECT_WORKDIR>",
+  "reply_parent_message_id": "<MESSAGE_ID>",
+  "runtime_root": "<RUNTIME_ROOT>",
+  "steps": {
+    "mail_reply": {
+      "message_id": "<MESSAGE_ID>",
+      "ok": true,
+      "operation": "reply",
+      "principal_id": "AGENTSYS-mailbox-receiver",
+      "request_id": "<REQUEST_ID>",
+      "thread_id": "<THREAD_ID>",
+      "transport": "filesystem"
+    },
+    "mail_send": {
+      "message_id": "<MESSAGE_ID>",
+      "ok": true,
+      "operation": "send",
+      "principal_id": "AGENTSYS-mailbox-sender",
+      "request_id": "<REQUEST_ID>",
+      "subject": "Mailbox tutorial roundtrip",
+      "thread_id": "<THREAD_ID>",
+      "transport": "filesystem"
+    },
+    "receiver_build": {
+      "home_id": "<BRAIN_HOME_ID>",
+      "home_path": "<BRAIN_HOME_PATH>",
+      "launch_helper_path": "<LAUNCH_HELPER_PATH>",
+      "manifest_path": "<BRAIN_MANIFEST_PATH>"
+    },
+    "receiver_check": {
+      "ok": true,
+      "operation": "check",
+      "principal_id": "AGENTSYS-mailbox-receiver",
+      "request_id": "<REQUEST_ID>",
+      "transport": "filesystem",
+      "unread_count": 1
+    },
+    "receiver_start": {
+      "agent_identity": "AGENTSYS-mailbox-receiver",
+      "agent_name": "AGENTSYS-mailbox-receiver",
+      "backend": "cao_rest",
+      "job_dir": "<JOB_DIR>",
+      "mailbox": {
+        "address": "AGENTSYS-mailbox-receiver@agents.localhost",
+        "bindings_version": "<BINDINGS_VERSION>",
+        "filesystem_root": "<MAILBOX_FILESYSTEM_ROOT>",
+        "principal_id": "AGENTSYS-mailbox-receiver",
+        "transport": "filesystem"
+      },
+      "session_manifest": "<SESSION_MANIFEST_PATH>",
+      "tmux_session_name": "AGENTSYS-mailbox-receiver",
+      "tool": "codex"
+    },
+    "receiver_stop": {
+      "action": "terminate",
+      "detail": "stopped",
+      "status": "ok"
+    },
+    "sender_build": {
+      "home_id": "<BRAIN_HOME_ID>",
+      "home_path": "<BRAIN_HOME_PATH>",
+      "launch_helper_path": "<LAUNCH_HELPER_PATH>",
+      "manifest_path": "<BRAIN_MANIFEST_PATH>"
+    },
+    "sender_check": {
+      "ok": true,
+      "operation": "check",
+      "principal_id": "AGENTSYS-mailbox-sender",
+      "request_id": "<REQUEST_ID>",
+      "transport": "filesystem",
+      "unread_count": 1
+    },
+    "sender_start": {
+      "agent_identity": "AGENTSYS-mailbox-sender",
+      "agent_name": "AGENTSYS-mailbox-sender",
+      "backend": "cao_rest",
+      "job_dir": "<JOB_DIR>",
+      "mailbox": {
+        "address": "AGENTSYS-mailbox-sender@agents.localhost",
+        "bindings_version": "<BINDINGS_VERSION>",
+        "filesystem_root": "<MAILBOX_FILESYSTEM_ROOT>",
+        "principal_id": "AGENTSYS-mailbox-sender",
+        "transport": "filesystem"
+      },
+      "session_manifest": "<SESSION_MANIFEST_PATH>",
+      "tmux_session_name": "AGENTSYS-mailbox-sender",
+      "tool": "claude"
+    },
+    "sender_stop": {
+      "action": "terminate",
+      "detail": "stopped",
+      "status": "ok"
+    }
+  }
+}

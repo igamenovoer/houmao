@@ -205,11 +205,25 @@ Mailbox-enabled sessions will continue to receive shared-root bindings such as t
 - the resolved mailbox directory,
 - the local mailbox SQLite path.
 
+To stay aligned with the current runtime binding surface, the change will preserve:
+
+- `AGENTSYS_MAILBOX_FS_ROOT` as the shared mailbox root binding,
+- `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared-root catalog SQLite binding,
+- `AGENTSYS_MAILBOX_FS_INBOX_DIR` as the resolved inbox binding.
+
+The change will add explicit local-mailbox bindings:
+
+- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` for the resolved mailbox directory,
+- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` for the mailbox-local `mailbox.sqlite` path.
+
 This lets agents and future tooling use stable runtime-managed bindings instead of reconstructing local mailbox paths from the inbox path heuristically.
+
+The projected mailbox skill and shared mailbox helper scripts remain the mutation boundary for any step that touches shared-root `index.sqlite`, mailbox-local `mailbox.sqlite`, or mailbox locks. Moving recipient-local state into local SQLite does not authorize agents to start hand-writing raw local SQLite mutations directly.
 
 Alternatives considered:
 
 - Infer local mailbox state from `AGENTSYS_MAILBOX_FS_INBOX_DIR`. Rejected because explicit runtime bindings are clearer and more robust when the mailbox structure evolves.
+- Reinterpret `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the mailbox-local database. Rejected because current code and skill materials already use that name for the shared-root `index.sqlite`, and overloading it would create avoidable ambiguity.
 
 ## Risks / Trade-offs
 

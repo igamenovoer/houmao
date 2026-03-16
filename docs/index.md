@@ -10,6 +10,7 @@ This repository is the canonical documentation home for the extracted runtime su
 
 - [Runtime CLI and session workflows](reference/realm_controller.md)
 - [Mailbox reference](reference/mailbox/index.md)
+- [Mailbox roundtrip tutorial pack](../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md)
 - [Interactive CAO demo](reference/cao_interactive_demo.md)
 - [Interactive CAO full-pipeline tutorial pack](../scripts/demo/cao-interactive-full-pipeline-demo/README.md)
 - [Brain builder and component library layout](reference/agents_brains.md)

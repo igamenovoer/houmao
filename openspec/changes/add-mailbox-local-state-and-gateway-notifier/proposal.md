@@ -8,7 +8,7 @@ The current filesystem mailbox design stores mutable mailbox-view state in the s
 - Strengthen the gateway running-log contract so `gateway.log` becomes an operator-facing disk log that can be tailed to watch notifier polling, busy retries, queue actions, and lifecycle behavior.
 - Add per-mailbox SQLite state under each resolved mailbox directory so read or unread and related mailbox-view flags are stored per agent rather than in the shared mailbox-root SQLite index.
 - **BREAKING** Redefine the shared mailbox-root SQLite index as shared catalog state only; recipient-local mutable state such as read, starred, archived, deleted, and unread thread summaries moves to per-mailbox SQLite.
-- Update mailbox runtime bindings and system-skill guidance so agents can resolve their local mailbox state path and mark messages read after processing without depending on gateway presence.
+- Update mailbox runtime bindings and system-skill guidance so `AGENTSYS_MAILBOX_FS_SQLITE_PATH` remains the shared-root catalog binding, new explicit local-mailbox bindings are added, and agents mark messages read after processing without depending on gateway presence.
 - Update mailbox managed scripts and repair flows so delivery, state mutation, and recovery keep shared catalog state and per-mailbox state consistent without introducing aggregate recipient-status mirrors.
 
 ## Capabilities

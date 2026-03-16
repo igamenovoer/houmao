@@ -13,8 +13,8 @@
 
 ## 3. Publish the new mailbox runtime and skill contract
 
-- [ ] 3.1 Extend runtime mailbox bindings to publish the resolved mailbox directory and mailbox-local SQLite path in addition to the existing shared-root mailbox bindings.
-- [ ] 3.2 Update projected filesystem mailbox skill assets and references so agents use the explicit local mailbox bindings and only mark messages read after successful processing.
+- [ ] 3.1 Extend runtime mailbox bindings so `AGENTSYS_MAILBOX_FS_SQLITE_PATH` stays the shared-root `index.sqlite` binding while new `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` and `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` bindings publish the resolved mailbox directory and mailbox-local SQLite path.
+- [ ] 3.2 Update projected filesystem mailbox skill assets and references so agents use the explicit local mailbox bindings, rely on shared helper scripts for steps that touch shared-root SQLite, mailbox-local SQLite, or locks, and only mark messages read after successful processing.
 - [ ] 3.3 Update runtime mailbox start, resume, and refresh flows so the new mailbox-local bindings remain stable across persisted manifests and binding refreshes.
 
 ## 4. Add the gateway mail notifier capability

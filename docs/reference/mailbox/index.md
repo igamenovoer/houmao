@@ -27,6 +27,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 ### Start here
 
 - [Quickstart](quickstart.md): Enable mailbox support and run `mail check`, `mail send`, and `mail reply`.
+- [Mailbox Roundtrip Tutorial Pack](../../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md): Run the full two-agent CAO-backed roundtrip and verify the sanitized report contract.
 
 ### Contracts
 
