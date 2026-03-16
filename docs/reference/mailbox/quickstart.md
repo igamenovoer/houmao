@@ -16,10 +16,12 @@ After that, `mail check`, `mail send`, and `mail reply` run against a resumed se
 
 You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the only implemented transport is `filesystem`.
 
+Implicit filesystem mailbox state now defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one launch.
+
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport filesystem \
@@ -41,6 +43,8 @@ The `start-session` result includes a redacted mailbox payload in the session ma
   }
 }
 ```
+
+Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is a scratch area rather than the shared mailbox root and is a good candidate for ignore rules in local repos.
 
 ```mermaid
 sequenceDiagram

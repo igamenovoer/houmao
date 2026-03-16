@@ -20,6 +20,7 @@ derive_auto_agent_name_base
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -29,6 +30,7 @@ AGENT_NAMESPACE_PREFIX = "AGENTSYS-"
 AGENT_RESERVED_TOKEN = "AGENTSYS"
 AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
+AGENT_ID_HEXDIGEST_LENGTH = 32
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
@@ -36,6 +38,7 @@ _INEXACT_AGENTSYS_RE = re.compile(r"agentsys", re.IGNORECASE)
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
+_AGENT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 @dataclass(frozen=True)
@@ -146,6 +149,19 @@ def derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:
     if not short[0].isalnum():
         return f"a{short}"
     return short
+
+
+def derive_agent_id_from_name(value: str) -> str:
+    """Derive the authoritative default agent id from a canonical agent name."""
+
+    canonical_name = normalize_agent_identity_name(value).canonical_name
+    return hashlib.md5(canonical_name.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def is_agent_id(value: str) -> bool:
+    """Return whether the provided value looks like an authoritative agent id."""
+
+    return bool(_AGENT_ID_RE.fullmatch(value.strip()))
 
 
 def _validate_agent_name_portion(name_portion: str) -> None:

@@ -7,7 +7,7 @@ This page explains the static contract around the shared registry: where it live
 The registry layout is deliberately small.
 
 - one per-user root,
-- one hashed directory per logical live agent,
+- one directory per authoritative live `agent_id`,
 - one authoritative `record.json` file per directory.
 
 That keeps cross-process coordination simple and avoids central hot files such as `index.json` or SQLite.
@@ -32,14 +32,14 @@ Representative layout:
 ```text
 ~/.houmao/registry/
   live_agents/
-    <agent-key>/
+    <agent-id>/
       record.json
 ```
 
 Rules:
 
-- `live_agents/` holds the set of directories that are candidates for currently live logical agent names,
-- `<agent-key>` is the full lowercase `sha256(canonical agent_name).hexdigest()`,
+- `live_agents/` holds the set of directories that are candidates for currently live logical agent ids,
+- `<agent-id>` is the authoritative runtime-wide agent identifier,
 - the only durable file the runtime expects inside that directory is `record.json`,
 - temporary files may appear briefly during atomic writes but are cleaned on replace failure.
 
@@ -49,16 +49,16 @@ The runtime session root itself can live anywhere else on disk. The registry sto
 
 The strict persisted contract is now shipped in two complementary forms:
 
-- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json` for the structural disk contract, and
+- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v2.schema.json` for the structural disk contract, and
 - strict Pydantic models in `registry_models.py` for typed construction, load validation, and semantic invariants.
 
 Representative record with optional gateway and mailbox metadata present:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "agent_name": "AGENTSYS-gpu",
-  "agent_key": "<sha256-hex-of-AGENTSYS-gpu>",
+  "agent_id": "270b8738f2f97092e572b73d19e6f923",
   "generation_id": "98cc9a0d-d1fd-4c56-b49c-871274e28f98",
   "published_at": "2026-03-13T12:00:00+00:00",
   "lease_expires_at": "2026-03-14T12:00:00+00:00",
@@ -117,7 +117,7 @@ Representative record with optional gateway and mailbox metadata present:
 Current v1 scope:
 
 - `kind` is `tmux`,
-- `terminal.session_name` must equal the canonical `agent_name`.
+- `terminal.session_name` is the actual tmux session handle and does not need to equal the canonical `agent_name`.
 
 ### Gateway
 
@@ -155,13 +155,14 @@ That boundary is the main reason the registry can stay small and safe to inspect
 
 - `published_at` and `lease_expires_at` must be timezone-aware ISO-8601 timestamps.
 - `agent_name` must already be in canonical `AGENTSYS-...` form inside the stored record.
-- `agent_key` must equal `sha256(canonical agent_name).hexdigest()`.
+- `agent_id` must be a non-empty path-safe identifier and is the on-disk directory key.
 - Runtime-managed publish and refresh flows validate serialized payloads against the packaged schema before atomically replacing `record.json`.
-- Cross-field invariants such as canonical-name enforcement, `agent_key` derivation, lease ordering, and complete live gateway field grouping remain model-enforced rather than schema-only.
+- Cross-field invariants such as canonical-name enforcement, lease ordering, and complete live gateway field grouping remain model-enforced rather than schema-only.
+- Older `agent_key`-keyed registry directories are not part of a compatibility path in this change and remain manual cleanup.
 
 ## Source References
 
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
-- [`src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v1.schema.json)
+- [`src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v2.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v2.schema.json)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

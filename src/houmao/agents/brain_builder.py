@@ -12,12 +12,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     project_runtime_mailbox_system_skills,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.realm_controller.agent_identity import (
+    derive_agent_id_from_name,
+    normalize_agent_identity_name,
+)
 
 _AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 _DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
@@ -66,12 +71,14 @@ class BrainRecipe:
 @dataclass(frozen=True)
 class BuildRequest:
     agent_def_dir: Path
-    runtime_root: Path
     tool: str
     skills: list[str]
     config_profile: str
     credential_profile: str
+    runtime_root: Path | None = None
     mailbox: MailboxDeclarativeConfig | None = None
+    agent_name: str | None = None
+    agent_id: str | None = None
     home_id: str | None = None
     reuse_home: bool = False
 
@@ -435,7 +442,7 @@ def _build_launch_helper(
 
 def build_brain_home(request: BuildRequest) -> BuildResult:
     agent_def_dir = request.agent_def_dir.resolve()
-    runtime_root = request.runtime_root.resolve()
+    runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
 
     adapter_path = agent_def_dir / "brains" / "tool-adapters" / f"{request.tool}.yaml"
     if not adapter_path.is_file():
@@ -468,8 +475,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     if "/" in home_id or "\\" in home_id:
         raise BuildError(f"home_id must not contain path separators: {home_id!r}")
 
-    homes_dir = runtime_root / "homes" / request.tool
-    manifests_dir = runtime_root / "manifests" / request.tool
+    homes_dir = runtime_root / "homes"
+    manifests_dir = runtime_root / "manifests"
     home_path = homes_dir / home_id
 
     if home_path.exists() and not request.reuse_home:
@@ -577,6 +584,21 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     }
     if request.mailbox is not None:
         manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
+    if request.agent_name is not None or request.agent_id is not None:
+        canonical_agent_name = (
+            normalize_agent_identity_name(request.agent_name).canonical_name
+            if request.agent_name is not None
+            else None
+        )
+        manifest["identity"] = {
+            "canonical_agent_name": canonical_agent_name,
+            "agent_id": request.agent_id
+            or (
+                derive_agent_id_from_name(canonical_agent_name)
+                if canonical_agent_name is not None
+                else None
+            ),
+        }
 
     manifest_path = manifests_dir / f"{home_id}.yaml"
     _write_mapping_file(manifest_path, manifest)
@@ -606,7 +628,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--runtime-root",
-        default="tmp/agents-runtime",
+        default=None,
         help="Runtime root for generated homes/manifests",
     )
     parser.add_argument("--tool", help="Tool name (codex/claude/gemini)")
@@ -639,7 +661,7 @@ def main(argv: list[str] | None = None) -> int:
     namespace = _parse_args(argv or sys.argv[1:])
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(namespace.agent_def_dir, cwd=cwd)
-    runtime_root = _normalize_path(namespace.runtime_root, base=cwd)
+    runtime_root = _normalize_path(namespace.runtime_root, base=cwd) if namespace.runtime_root else None
 
     recipe: BrainRecipe | None = None
     if namespace.recipe:
@@ -678,6 +700,7 @@ def main(argv: list[str] | None = None) -> int:
         config_profile=config_profile_raw,
         credential_profile=credential_profile_raw,
         mailbox=recipe.mailbox if recipe else None,
+        agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
     )

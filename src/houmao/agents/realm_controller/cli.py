@@ -105,7 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
-    build.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
+    build.add_argument("--runtime-root", default=None, help="Runtime root")
     build.add_argument("--recipe", help="Path to brain recipe")
     build.add_argument("--blueprint", help="Path to blueprint")
     build.add_argument("--tool", help="Tool name")
@@ -121,7 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
-    start.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
+    start.add_argument("--runtime-root", default=None, help="Runtime root")
     start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
     start.add_argument("--role", help="Role name")
     start.add_argument("--blueprint", help="Optional blueprint to source role from")
@@ -147,6 +147,10 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--agent-identity",
         help="Optional tmux-backed agent name",
+    )
+    start.add_argument(
+        "--agent-id",
+        help="Optional authoritative agent id override for tmux-backed sessions.",
     )
     start.add_argument(
         "--mailbox-transport",
@@ -367,7 +371,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _cmd_build_brain(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
-    runtime_root = _resolve_path(args.runtime_root, base=cwd)
+    runtime_root = _optional_path(args.runtime_root, base=cwd)
 
     recipe = None
     if args.recipe:
@@ -402,6 +406,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             config_profile=str(config_profile),
             credential_profile=str(credential_profile),
             mailbox=recipe.mailbox if recipe else None,
+            agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
         )
@@ -436,12 +441,13 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         agent_def_dir=agent_def_dir,
         brain_manifest_path=_resolve_path(args.brain_manifest, base=cwd),
         role_name=role_name,
-        runtime_root=_resolve_path(args.runtime_root, base=cwd),
+        runtime_root=_optional_path(args.runtime_root, base=cwd),
         backend=backend,
         working_directory=_resolve_path(args.workdir, base=cwd),
         api_base_url=args.cao_base_url,
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),
         agent_identity=args.agent_identity,
+        agent_id=args.agent_id,
         cao_parsing_mode=args.cao_parsing_mode,
         mailbox_transport=args.mailbox_transport,
         mailbox_root=_optional_path(args.mailbox_root, base=cwd),
@@ -463,10 +469,22 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         "backend": controller.launch_plan.backend,
         "tool": controller.launch_plan.tool,
     }
-    if controller.agent_identity is not None:
-        payload["agent_identity"] = controller.agent_identity
-    if controller.parsing_mode is not None:
-        payload["parsing_mode"] = controller.parsing_mode
+    agent_identity = getattr(controller, "agent_identity", None)
+    if agent_identity is not None:
+        payload["agent_identity"] = agent_identity
+        payload["agent_name"] = agent_identity
+    agent_id = getattr(controller, "agent_id", None)
+    if agent_id is not None:
+        payload["agent_id"] = agent_id
+    tmux_session_name = getattr(controller, "tmux_session_name", None)
+    if tmux_session_name is not None:
+        payload["tmux_session_name"] = tmux_session_name
+    job_dir = getattr(controller, "job_dir", None)
+    if job_dir is not None:
+        payload["job_dir"] = str(job_dir)
+    parsing_mode = getattr(controller, "parsing_mode", None)
+    if parsing_mode is not None:
+        payload["parsing_mode"] = parsing_mode
     gateway_root = getattr(controller, "gateway_root", None)
     if gateway_root is not None:
         payload["gateway_root"] = str(gateway_root)
@@ -663,15 +681,24 @@ def _cmd_cleanup_registry(args: argparse.Namespace) -> int:
     result = cleanup_stale_live_agent_records(
         grace_period=timedelta(seconds=grace_seconds),
     )
+    removed_agent_ids = tuple(
+        getattr(result, "removed_agent_ids", getattr(result, "removed_agent_keys", ()))
+    )
+    preserved_agent_ids = tuple(
+        getattr(result, "preserved_agent_ids", getattr(result, "preserved_agent_keys", ()))
+    )
+    failed_agent_ids = tuple(
+        getattr(result, "failed_agent_ids", getattr(result, "failed_agent_keys", ()))
+    )
     payload = {
         "registry_root": str(result.registry_root),
         "grace_seconds": grace_seconds,
-        "removed_agent_keys": list(result.removed_agent_keys),
-        "preserved_agent_keys": list(result.preserved_agent_keys),
-        "failed_agent_keys": list(result.failed_agent_keys),
-        "removed_count": len(result.removed_agent_keys),
-        "preserved_count": len(result.preserved_agent_keys),
-        "failed_count": len(result.failed_agent_keys),
+        "removed_agent_ids": list(removed_agent_ids),
+        "preserved_agent_ids": list(preserved_agent_ids),
+        "failed_agent_ids": list(failed_agent_ids),
+        "removed_count": len(removed_agent_ids),
+        "preserved_count": len(preserved_agent_ids),
+        "failed_count": len(failed_agent_ids),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

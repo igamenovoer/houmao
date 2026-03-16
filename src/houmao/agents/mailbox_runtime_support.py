@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 from typing import Any, cast
 
+from houmao.owned_paths import resolve_mailbox_root
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_inbox_dir
 
@@ -189,12 +190,13 @@ def resolve_effective_mailbox_config(
     if address is None:
         address = f"{principal_id}@agents.localhost"
 
-    filesystem_root = filesystem_root_override or _resolve_declared_mailbox_root(
+    declared_root = _resolve_declared_mailbox_root(
         declared_root=(declared_config.filesystem_root if declared_config is not None else None),
         runtime_root=runtime_root,
     )
-    if filesystem_root is None:
-        filesystem_root = runtime_root.resolve() / "mailbox"
+    filesystem_root = resolve_mailbox_root(
+        explicit_root=filesystem_root_override or declared_root,
+    )
     assert principal_id is not None
     assert address is not None
 

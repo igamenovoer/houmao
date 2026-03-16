@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from typing import Literal
 
@@ -13,7 +12,7 @@ from houmao.agents.realm_controller.agent_identity import normalize_agent_identi
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
 
-REGISTRY_SCHEMA_VERSION = 1
+REGISTRY_SCHEMA_VERSION = 2
 TERMINAL_KIND_TMUX: Literal["tmux"] = "tmux"
 
 
@@ -140,12 +139,12 @@ class RegistryMailboxV1(_StrictRegistryModel):
         return value
 
 
-class LiveAgentRegistryRecordV1(_StrictRegistryModel):
-    """Shared-registry `record.json` contract for one live published agent."""
+class LiveAgentRegistryRecordV2(_StrictRegistryModel):
+    """Shared-registry ``record.json`` contract for one live published agent."""
 
     schema_version: int = Field(default=REGISTRY_SCHEMA_VERSION)
     agent_name: str
-    agent_key: str
+    agent_id: str
     generation_id: str
     published_at: str
     lease_expires_at: str
@@ -157,7 +156,7 @@ class LiveAgentRegistryRecordV1(_StrictRegistryModel):
 
     @field_validator(
         "agent_name",
-        "agent_key",
+        "agent_id",
         "generation_id",
         "published_at",
         "lease_expires_at",
@@ -170,9 +169,19 @@ class LiveAgentRegistryRecordV1(_StrictRegistryModel):
             raise ValueError("must not be empty")
         return value
 
+    @field_validator("agent_id")
+    @classmethod
+    def _agent_id_safe_for_paths(cls, value: str) -> str:
+        """Validate that ``agent_id`` is safe for filesystem keying."""
+
+        stripped = value.strip()
+        if "/" in stripped or "\\" in stripped:
+            raise ValueError("agent_id must not contain path separators")
+        return stripped
+
     @model_validator(mode="after")
-    def _validate_schema_and_identity(self) -> "LiveAgentRegistryRecordV1":
-        """Validate schema version, canonical name, key, and lease ordering."""
+    def _validate_schema_and_identity(self) -> "LiveAgentRegistryRecordV2":
+        """Validate schema version, canonical name, and lease ordering."""
 
         if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {REGISTRY_SCHEMA_VERSION}")
@@ -181,10 +190,6 @@ class LiveAgentRegistryRecordV1(_StrictRegistryModel):
         if normalized.canonical_name != self.agent_name:
             raise ValueError("agent_name must use canonical `AGENTSYS-...` form")
 
-        expected_key = derive_agent_key(self.agent_name)
-        if self.agent_key != expected_key:
-            raise ValueError("agent_key must equal sha256(canonical agent_name).hexdigest()")
-
         published_at = _parse_iso8601_timestamp(self.published_at, field_name="published_at")
         lease_expires_at = _parse_iso8601_timestamp(
             self.lease_expires_at,
@@ -192,23 +197,13 @@ class LiveAgentRegistryRecordV1(_StrictRegistryModel):
         )
         if lease_expires_at <= published_at:
             raise ValueError("lease_expires_at must be later than published_at")
-
-        if self.terminal.session_name != self.agent_name:
-            raise ValueError("terminal.session_name must equal canonical agent_name")
         return self
 
 
 def canonicalize_registry_agent_name(value: str) -> str:
-    """Canonicalize registry-facing agent input to `AGENTSYS-...` form."""
+    """Canonicalize registry-facing agent input to ``AGENTSYS-...`` form."""
 
     return normalize_agent_identity_name(value).canonical_name
-
-
-def derive_agent_key(agent_name: str) -> str:
-    """Derive the full SHA-256 key for a canonical agent name."""
-
-    canonical_name = canonicalize_registry_agent_name(agent_name)
-    return hashlib.sha256(canonical_name.encode("utf-8")).hexdigest()
 
 
 def format_registry_validation_error(prefix: str, exc: ValidationError) -> str:

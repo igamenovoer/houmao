@@ -53,8 +53,8 @@ Runtime-owned tmux-backed sessions publish a secret-free shared discovery record
 For the dedicated registry subtree, start at [Shared Registry Reference](./registry/index.md).
 
 - [Discovery And Cleanup](./registry/operations/discovery-and-cleanup.md): Name-based fallback from tmux-local discovery to the registry, plus `cleanup-registry` behavior and result buckets.
-- [Record And Layout](./registry/contracts/record-and-layout.md): Effective root resolution, hashed on-disk layout, and the strict v1 `record.json` shape.
-- [Resolution And Ownership](./registry/contracts/resolution-and-ownership.md): Canonical naming, `agent_key`, `generation_id`, freshness, conflicts, and stale-versus-hard-invalid outcomes.
+- [Record And Layout](./registry/contracts/record-and-layout.md): Effective root resolution, `agent_id`-keyed on-disk layout, and the strict v2 `record.json` shape.
+- [Resolution And Ownership](./registry/contracts/resolution-and-ownership.md): Canonical naming, authoritative `agent_id`, `generation_id`, freshness, conflicts, and stale-versus-hard-invalid outcomes.
 - [Runtime Integration](./registry/internals/runtime-integration.md): Publication hooks, persisted generation behavior, and the warning boundary for non-fatal registry refresh failures.
 
 ## Gateway-Capable Sessions
@@ -77,7 +77,7 @@ Launch-time auto-attach is optional:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --gateway-auto-attach
@@ -139,7 +139,7 @@ Mailbox support can come from declarative brain config or from `start-session` o
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport filesystem \
@@ -180,7 +180,7 @@ Start a session from an existing brain manifest:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder
 ```
 
@@ -201,7 +201,7 @@ deprecation window:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend codex_app_server
 ```
@@ -233,7 +233,7 @@ Bootstrap is idempotent and preserves unrelated config settings.
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
@@ -301,13 +301,13 @@ Examples:
 ```bash
 ANTHROPIC_MODEL=opus ANTHROPIC_SMALL_FAST_MODEL=claude-3-5-haiku-latest \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 ANTHROPIC_MODEL=opus CLAUDE_CODE_SUBAGENT_MODEL=sonnet \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url http://localhost:<port>
@@ -320,7 +320,7 @@ Use the same loopback port configured for the CAO launcher. `9889` is the defaul
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/gemini/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend gemini_headless
 
@@ -360,7 +360,7 @@ pixi run python -m houmao.cao.tools.cao_server_launcher start \
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu \
@@ -433,7 +433,7 @@ Behavior:
     waiting-user surface keeps submission blocked.
   - Runtime never mixes parser families in a single turn, and never auto-retries
     under the other parsing mode after mode-specific failure.
-- CAO tmux session names use the canonical `AGENTSYS-<name>` namespace.
+- Canonical agent names still use the `AGENTSYS-<name>` namespace, but persisted `tmux_session_name` is now the actual tmux handle and must be learned from manifest or shared-registry metadata rather than inferred from canonical name alone.
 - `AGENTSYS` is reserved and cannot be used as the name portion.
 - `start-session --agent-identity <name>` accepts name inputs for tmux-backed
   backends (`cao_rest`, `codex_headless`, `claude_headless`, `gemini_headless`)
@@ -570,7 +570,11 @@ For the broader runtime-owned storage model, discovery pointers, and gateway nes
 
 Session manifests are written under:
 
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/manifest.json`
+- `<runtime-root>/sessions/<backend>/<session-id>/manifest.json` with `~/.houmao/runtime` as the default runtime root.
+
+Per-session local job directories live separately under:
+
+- `<working-directory>/.houmao/jobs/<session-id>/`
 
 Gateway-capable runtime-owned tmux sessions also write:
 
@@ -584,6 +588,7 @@ Manifests are validated against in-package JSON Schemas before write and on load
 
 Notes:
 
-- CAO session manifests use `schema_version=2` and require `cao.parsing_mode`.
+- Session manifests now use `schema_version=3` and persist first-class top-level `agent_name`, `agent_id`, `tmux_session_name`, and `job_dir` fields.
+- CAO session manifests still require `cao.parsing_mode`.
 - Legacy CAO manifests (`schema_version=1`) are rejected to avoid mixed-mode resumes.
 - Resume/start enforces parsing-mode consistency between persisted manifest and runtime session state.

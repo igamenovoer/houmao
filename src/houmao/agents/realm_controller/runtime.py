@@ -14,9 +14,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from houmao.owned_paths import AGENTSYS_JOB_DIR_ENV_VAR, resolve_runtime_root, resolve_session_job_dir
 from .agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
+    derive_auto_agent_name_base,
+    derive_agent_id_from_name,
     is_path_like_agent_identity,
     normalize_agent_identity_name,
 )
@@ -25,7 +28,7 @@ from .backends.cao_rest import (
     CaoSessionState,
     cao_backend_state_payload,
 )
-from .boundary_models import SessionManifestPayloadV2
+from .boundary_models import SessionManifestPayloadV3
 from .backends.claude_headless import ClaudeHeadlessSession
 from .backends.codex_headless import CodexHeadlessSession
 from .backends.codex_app_server import (
@@ -41,6 +44,7 @@ from .backends.headless_base import (
 from .backends.tmux_runtime import (
     TmuxCommandError,
     has_tmux_session as has_tmux_session_shared,
+    list_tmux_sessions as list_tmux_sessions_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -136,21 +140,21 @@ from .models import (
     SessionEvent,
 )
 from .registry_models import (
-    LiveAgentRegistryRecordV1,
+    LiveAgentRegistryRecordV2,
     RegistryGatewayV1,
     RegistryIdentityV1,
     RegistryMailboxV1,
     RegistryRuntimeV1,
     RegistryTerminalV1,
     canonicalize_registry_agent_name,
-    derive_agent_key,
 )
 from .registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
-    resolve_live_agent_record,
+    resolve_live_agent_record_by_agent_id,
+    resolve_live_agent_records_by_name,
 )
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
@@ -185,6 +189,16 @@ class AgentIdentityResolution:
     warnings: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ResolvedRuntimeIdentity:
+    """Resolved runtime-owned identity metadata for a started tmux-backed session."""
+
+    canonical_agent_name: str
+    agent_id: str
+    tmux_session_name: str
+    warnings: tuple[str, ...] = ()
+
+
 @dataclass
 class RuntimeSessionController:
     """Controller that binds a backend session to persisted manifest state."""
@@ -196,6 +210,9 @@ class RuntimeSessionController:
     backend_session: InteractiveSession
     agent_def_dir: Path | None = None
     agent_identity: str | None = None
+    agent_id: str | None = None
+    tmux_session_name: str | None = None
+    job_dir: Path | None = None
     agent_identity_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
     parsing_mode: CaoParsingMode | None = None
@@ -348,12 +365,17 @@ class RuntimeSessionController:
         """Persist current backend state to session manifest."""
 
         backend_state = _backend_state_for_session(self.backend_session)
+        self.tmux_session_name = _tmux_session_name_for_controller(self)
         payload = build_session_manifest_payload(
             SessionManifestRequest(
                 launch_plan=self.launch_plan,
                 role_name=self.role_name,
                 brain_manifest_path=self.brain_manifest_path,
                 backend_state=backend_state,
+                agent_name=self.agent_identity,
+                agent_id=self.agent_id,
+                tmux_session_name=self.tmux_session_name,
+                job_dir=self.job_dir,
                 registry_generation_id=self.registry_generation_id,
             )
         )
@@ -479,22 +501,32 @@ class RuntimeSessionController:
             )
         return session_name
 
-    def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV1 | None:
+    def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
         """Publish or refresh the shared-registry record for this live session."""
 
         record = _build_shared_registry_record_for_controller(self)
         if record is None:
             return None
+        existing_record = resolve_live_agent_record_by_agent_id(record.agent_id)
+        if existing_record is not None and existing_record.agent_name != record.agent_name:
+            self._record_registry_warning(
+                "Shared-registry agent-id reuse warning",
+                SessionManifestError(
+                    "authoritative agent_id "
+                    f"`{record.agent_id}` is being reused with canonical agent name "
+                    f"`{record.agent_name}` after previously publishing "
+                    f"`{existing_record.agent_name}`"
+                ),
+            )
         return publish_live_agent_record(record)
 
     def clear_shared_registry_record(self) -> bool:
         """Remove this session's shared-registry record during authoritative teardown."""
 
-        session_name = _tmux_session_name_for_controller(self)
-        if not self._is_tmux_backed() or session_name is None:
+        if not self._is_tmux_backed() or self.agent_id is None:
             return False
         return remove_live_agent_record(
-            session_name,
+            self.agent_id,
             generation_id=self.registry_generation_id,
         )
 
@@ -516,12 +548,13 @@ def start_runtime_session(
     agent_def_dir: Path,
     brain_manifest_path: Path,
     role_name: str,
-    runtime_root: Path,
+    runtime_root: Path | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
     cao_profile_store_dir: Path | None = None,
     agent_identity: str | None = None,
+    agent_id: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
@@ -542,6 +575,10 @@ def start_runtime_session(
     manifest = load_brain_manifest(brain_manifest_path)
     role_package = load_role_package(agent_def_dir, role_name)
 
+    try:
+        effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = backend or backend_for_tool(tool)
     if gateway_auto_attach and selected_backend not in _TMUX_BACKED_BACKENDS:
@@ -549,6 +586,47 @@ def start_runtime_session(
             "Launch-time gateway attach is only supported for tmux-backed backends."
         )
     selected_workdir = (working_directory or Path.cwd()).resolve()
+    session_id = generate_session_id(prefix=selected_backend)
+
+    resolved_runtime_identity: ResolvedRuntimeIdentity | None = None
+    agent_identity_warnings: tuple[str, ...] = ()
+    startup_warnings: tuple[str, ...] = ()
+    if selected_backend in _TMUX_BACKED_BACKENDS:
+        resolved_runtime_identity = _resolve_start_session_identity(
+            manifest=manifest,
+            tool=tool,
+            role_name=role_name,
+            requested_agent_identity=agent_identity,
+            requested_agent_id=agent_id,
+            session_id=session_id,
+        )
+        agent_identity_warnings = resolved_runtime_identity.warnings
+        existing_record = resolve_live_agent_record_by_agent_id(resolved_runtime_identity.agent_id)
+        if (
+            existing_record is not None
+            and existing_record.agent_name != resolved_runtime_identity.canonical_agent_name
+        ):
+            startup_warnings = (
+                "authoritative agent_id "
+                f"`{resolved_runtime_identity.agent_id}` was previously published as "
+                f"`{existing_record.agent_name}` and is now starting as "
+                f"`{resolved_runtime_identity.canonical_agent_name}`",
+            )
+    elif agent_identity is not None or agent_id is not None:
+        raise SessionManifestError(
+            "start-session --agent-identity/--agent-id are only supported for tmux-backed "
+            f"backends: {sorted(_TMUX_BACKED_BACKENDS)}."
+        )
+
+    try:
+        job_dir = resolve_session_job_dir(
+            session_id=session_id,
+            working_directory=selected_workdir,
+        )
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+    job_dir.mkdir(parents=True, exist_ok=True)
+
     declared_mailbox = _declared_mailbox_from_manifest(
         manifest,
         source=str(brain_manifest_path),
@@ -556,10 +634,14 @@ def start_runtime_session(
     try:
         resolved_mailbox = resolve_effective_mailbox_config(
             declared_config=declared_mailbox,
-            runtime_root=runtime_root.resolve(),
+            runtime_root=effective_runtime_root,
             tool=tool,
             role_name=role_name,
-            agent_identity=agent_identity,
+            agent_identity=(
+                resolved_runtime_identity.canonical_agent_name
+                if resolved_runtime_identity is not None
+                else None
+            ),
             transport_override=mailbox_transport,
             filesystem_root_override=mailbox_root,
             principal_id_override=mailbox_principal_id,
@@ -577,9 +659,9 @@ def start_runtime_session(
             mailbox=resolved_mailbox,
         )
     )
+    launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
-    session_id = generate_session_id(prefix=selected_backend)
-    manifest_path = default_manifest_path(runtime_root, selected_backend, session_id)
+    manifest_path = default_manifest_path(effective_runtime_root, selected_backend, session_id)
     manifest_path = manifest_path.resolve()
     if resolved_mailbox is not None:
         try:
@@ -591,24 +673,6 @@ def start_runtime_session(
         except RuntimeError as exc:
             raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
 
-    canonical_agent_identity: str | None = None
-    agent_identity_warnings: tuple[str, ...] = ()
-    if selected_backend in _TMUX_BACKED_BACKENDS:
-        if agent_identity is not None:
-            if is_path_like_agent_identity(agent_identity):
-                raise SessionManifestError(
-                    "start-session --agent-identity must be a name for "
-                    f"backend={selected_backend}, not a manifest path."
-                )
-            normalized = normalize_agent_identity_name(agent_identity)
-            canonical_agent_identity = normalized.canonical_name
-            agent_identity_warnings = normalized.warnings
-    elif agent_identity is not None:
-        raise SessionManifestError(
-            "start-session --agent-identity is only supported for tmux-backed "
-            f"backends: {sorted(_TMUX_BACKED_BACKENDS)}."
-        )
-
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
         role_name=role_name,
@@ -617,19 +681,22 @@ def start_runtime_session(
         api_base_url=api_base_url,
         cao_profile_store_dir=cao_profile_store_dir,
         session_manifest_path=manifest_path,
-        agent_identity=canonical_agent_identity,
+        agent_identity=(
+            resolved_runtime_identity.tmux_session_name
+            if resolved_runtime_identity is not None
+            else None
+        ),
         cao_parsing_mode=cao_parsing_mode,
     )
 
-    resolved_agent_identity: str | None = None
+    resolved_tmux_session_name: str | None = None
     resolved_parsing_mode: CaoParsingMode | None = None
-    startup_warnings: tuple[str, ...] = ()
     if isinstance(backend_session, CaoRestSession):
-        resolved_agent_identity = backend_session.state.session_name
+        resolved_tmux_session_name = backend_session.state.session_name
         resolved_parsing_mode = backend_session.state.parsing_mode
-        startup_warnings = backend_session.startup_warnings
+        startup_warnings = (*startup_warnings, *backend_session.startup_warnings)
     elif isinstance(backend_session, HeadlessInteractiveSession):
-        resolved_agent_identity = backend_session.state.tmux_session_name
+        resolved_tmux_session_name = backend_session.state.tmux_session_name
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
@@ -638,7 +705,14 @@ def start_runtime_session(
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
-        agent_identity=resolved_agent_identity,
+        agent_identity=(
+            resolved_runtime_identity.canonical_agent_name
+            if resolved_runtime_identity is not None
+            else None
+        ),
+        agent_id=resolved_runtime_identity.agent_id if resolved_runtime_identity is not None else None,
+        tmux_session_name=resolved_tmux_session_name,
+        job_dir=job_dir,
         agent_identity_warnings=agent_identity_warnings,
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
@@ -693,40 +767,42 @@ def resolve_agent_identity(
             raise SessionManifestError(f"Session manifest not found: {manifest_path}")
         return AgentIdentityResolution(session_manifest_path=manifest_path.resolve())
 
-    normalized = normalize_agent_identity_name(agent_identity)
-    try:
-        _ensure_tmux_session_exists(session_name=normalized.canonical_name)
-    except SessionManifestError as tmux_error:
-        registry_resolution = _resolve_agent_identity_from_shared_registry(
-            canonical_agent_identity=normalized.canonical_name,
-            explicit_agent_def_dir=explicit_agent_def_dir,
-            warnings=normalized.warnings,
-        )
-        if registry_resolution is not None:
-            return registry_resolution
-        raise SessionManifestError(
-            f"{tmux_error} Shared-registry fallback did not find a fresh record for "
-            f"`{normalized.canonical_name}`."
-        ) from tmux_error
+    registry_id_resolution = _resolve_agent_identity_from_shared_registry_agent_id(
+        agent_id=agent_identity,
+        explicit_agent_def_dir=explicit_agent_def_dir,
+    )
+    if registry_id_resolution is not None:
+        return registry_id_resolution
 
+    normalized = normalize_agent_identity_name(agent_identity)
+    tmux_resolution_error: SessionManifestError | None = None
     try:
         return _resolve_agent_identity_from_tmux_local(
             canonical_agent_identity=normalized.canonical_name,
             explicit_agent_def_dir=explicit_agent_def_dir,
             warnings=normalized.warnings,
         )
-    except _TmuxLocalDiscoveryUnavailableError as discovery_error:
-        registry_resolution = _resolve_agent_identity_from_shared_registry(
-            canonical_agent_identity=normalized.canonical_name,
-            explicit_agent_def_dir=explicit_agent_def_dir,
-            warnings=normalized.warnings,
-        )
-        if registry_resolution is not None:
-            return registry_resolution
+    except SessionManifestError as exc:
+        tmux_resolution_error = exc
+
+    registry_resolution = _resolve_agent_identity_from_shared_registry(
+        canonical_agent_identity=normalized.canonical_name,
+        explicit_agent_def_dir=explicit_agent_def_dir,
+        warnings=normalized.warnings,
+    )
+    if registry_resolution is not None:
+        return registry_resolution
+
+    if tmux_resolution_error is not None:
         raise SessionManifestError(
-            f"{discovery_error} Shared-registry fallback did not find a fresh record for "
+            f"{tmux_resolution_error} Shared-registry fallback did not find a fresh record for "
             f"`{normalized.canonical_name}`."
-        ) from discovery_error
+        ) from tmux_resolution_error
+
+    raise SessionManifestError(
+        f"Agent not found: no live tmux session or shared-registry record matched "
+        f"`{normalized.canonical_name}`."
+    )
 
 
 def resume_runtime_session(
@@ -748,6 +824,11 @@ def resume_runtime_session(
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
     manifest = load_brain_manifest(brain_manifest_path)
     role_package = load_role_package(agent_def_dir, role_name)
+    job_dir = _job_dir_from_manifest_payload(
+        payload=manifest_payload,
+        session_manifest_path=session_manifest_path.resolve(),
+    )
+    job_dir.mkdir(parents=True, exist_ok=True)
 
     launch_plan = build_launch_plan(
         LaunchPlanRequest(
@@ -758,6 +839,7 @@ def resume_runtime_session(
             mailbox=_resolved_mailbox_from_manifest_payload(manifest_payload),
         )
     )
+    launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -767,13 +849,14 @@ def resume_runtime_session(
         cao_profile_store_dir=cao_profile_store_dir,
         resume_state=manifest_payload,
         session_manifest_path=session_manifest_path.resolve(),
+        agent_identity=manifest_payload.tmux_session_name,
     )
 
-    resolved_agent_identity: str | None = None
+    resolved_tmux_session_name: str | None = None
     if isinstance(backend_session, CaoRestSession):
-        resolved_agent_identity = backend_session.state.session_name
+        resolved_tmux_session_name = backend_session.state.session_name
     elif isinstance(backend_session, HeadlessInteractiveSession):
-        resolved_agent_identity = backend_session.state.tmux_session_name
+        resolved_tmux_session_name = backend_session.state.tmux_session_name
 
     registry_generation_id = manifest_payload.registry_generation_id
     if backend in _TMUX_BACKED_BACKENDS and registry_generation_id is None:
@@ -786,7 +869,10 @@ def resume_runtime_session(
         manifest_path=session_manifest_path.resolve(),
         agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
-        agent_identity=resolved_agent_identity,
+        agent_identity=manifest_payload.agent_name,
+        agent_id=manifest_payload.agent_id,
+        tmux_session_name=resolved_tmux_session_name or manifest_payload.tmux_session_name,
+        job_dir=job_dir,
         parsing_mode=(
             backend_session.state.parsing_mode
             if isinstance(backend_session, CaoRestSession)
@@ -806,7 +892,7 @@ def _create_backend_session(
     agent_def_dir: Path,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
-    resume_state: SessionManifestPayloadV2 | None = None,
+    resume_state: SessionManifestPayloadV3 | None = None,
     session_manifest_path: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
@@ -911,7 +997,7 @@ def _create_backend_session(
                 profile_store_dir=cao_profile_store_dir,
                 existing_state=existing_state,
                 session_manifest_path=session_manifest_path,
-                agent_identity=agent_identity,
+                tmux_session_name=agent_identity,
                 parsing_mode=resolved_parsing_mode,
             ),
         )
@@ -920,7 +1006,7 @@ def _create_backend_session(
 
 
 def _resume_headless_state(
-    payload: SessionManifestPayloadV2 | None,
+    payload: SessionManifestPayloadV3 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -961,7 +1047,7 @@ def _require_session_manifest_path(
 
 
 def _resume_cao_state(
-    payload: SessionManifestPayloadV2 | None,
+    payload: SessionManifestPayloadV3 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -1084,7 +1170,7 @@ def _declared_mailbox_from_manifest(
 
 
 def _resolved_mailbox_from_manifest_payload(
-    payload: SessionManifestPayloadV2,
+    payload: SessionManifestPayloadV3,
 ) -> MailboxResolvedConfig | None:
     try:
         return resolved_mailbox_config_from_payload(payload.launch_plan.mailbox)
@@ -1105,6 +1191,121 @@ def _launch_plan_with_mailbox(
         env_var_names=sorted({*launch_plan.env_var_names, *mailbox_env.keys()}),
         mailbox=mailbox,
     )
+
+
+def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> LaunchPlan:
+    """Return a launch plan with the runtime-owned job-dir binding injected."""
+
+    updated_env = dict(launch_plan.env)
+    updated_env[AGENTSYS_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+    )
+
+
+def _job_dir_from_manifest_payload(
+    *,
+    payload: SessionManifestPayloadV3,
+    session_manifest_path: Path,
+) -> Path:
+    """Resolve the persisted or fallback job dir for one manifest payload."""
+
+    if payload.job_dir is not None:
+        return Path(payload.job_dir).resolve()
+
+    session_id = _runtime_session_id_from_manifest_path(session_manifest_path)
+    if session_id is None:
+        raise SessionManifestError(
+            "Session manifest is missing `job_dir` and does not use the runtime-owned "
+            "`<session-root>/manifest.json` layout required for fallback derivation."
+        )
+    try:
+        return resolve_session_job_dir(
+            session_id=session_id,
+            working_directory=Path(payload.working_directory).resolve(),
+        )
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+
+
+def _resolve_start_session_identity(
+    *,
+    manifest: dict[str, object],
+    tool: str,
+    role_name: str,
+    requested_agent_identity: str | None,
+    requested_agent_id: str | None,
+    session_id: str,
+) -> ResolvedRuntimeIdentity:
+    """Resolve canonical name, authoritative id, and tmux handle for session start."""
+
+    built_identity = _built_manifest_identity(manifest)
+    warnings: list[str] = []
+
+    if requested_agent_identity is not None and is_path_like_agent_identity(requested_agent_identity):
+        raise SessionManifestError(
+            "start-session --agent-identity must be a canonical agent name, not a manifest path."
+        )
+
+    if requested_agent_identity is not None:
+        normalized = normalize_agent_identity_name(requested_agent_identity)
+        canonical_agent_name = normalized.canonical_name
+        warnings.extend(normalized.warnings)
+    elif built_identity[0] is not None:
+        canonical_agent_name = built_identity[0]
+    else:
+        canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
+
+    persisted_agent_id = built_identity[1]
+    agent_id = requested_agent_id or persisted_agent_id or derive_agent_id_from_name(canonical_agent_name)
+
+    persisted_agent_name = built_identity[0]
+    if (
+        persisted_agent_id is not None
+        and persisted_agent_name is not None
+        and persisted_agent_name != canonical_agent_name
+    ):
+        warnings.append(
+            "reusing persisted authoritative agent_id "
+            f"`{persisted_agent_id}` for canonical agent name "
+            f"`{canonical_agent_name}` after build metadata previously named "
+            f"`{persisted_agent_name}`"
+        )
+
+    return ResolvedRuntimeIdentity(
+        canonical_agent_name=canonical_agent_name,
+        agent_id=agent_id,
+        tmux_session_name=f"houmao-{session_id}",
+        warnings=tuple(warnings),
+    )
+
+
+def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, str | None]:
+    """Read optional persisted identity metadata from a built brain manifest."""
+
+    raw_identity = manifest.get("identity")
+    if not isinstance(raw_identity, dict):
+        return None, None
+
+    raw_agent_name = raw_identity.get("canonical_agent_name")
+    agent_name = None
+    if isinstance(raw_agent_name, str) and raw_agent_name.strip():
+        agent_name = normalize_agent_identity_name(raw_agent_name).canonical_name
+
+    raw_agent_id = raw_identity.get("agent_id")
+    agent_id = raw_agent_id.strip() if isinstance(raw_agent_id, str) and raw_agent_id.strip() else None
+    return agent_name, agent_id
+
+
+def _default_canonical_agent_name(*, tool: str, role_name: str) -> str:
+    """Return the default canonical agent name for a tmux-backed session."""
+
+    normalized = normalize_agent_identity_name(
+        derive_auto_agent_name_base(tool=tool, role_name=role_name)
+    )
+    return normalized.canonical_name
 
 
 def _refresh_backend_launch_plan(
@@ -1231,6 +1432,23 @@ def _resolve_manifest_path_from_tmux_session(*, session_name: str) -> Path:
     return manifest_path
 
 
+def _resolve_agent_identity_from_shared_registry_agent_id(
+    *,
+    agent_id: str,
+    explicit_agent_def_dir: Path | None,
+) -> AgentIdentityResolution | None:
+    """Resolve a control target directly from the shared registry by agent id."""
+
+    record = resolve_live_agent_record_by_agent_id(agent_id)
+    if record is None:
+        return None
+    return _agent_identity_resolution_from_registry_record(
+        record=record,
+        explicit_agent_def_dir=explicit_agent_def_dir,
+        warnings=(),
+    )
+
+
 def _resolve_agent_identity_from_tmux_local(
     *,
     canonical_agent_identity: str,
@@ -1239,7 +1457,92 @@ def _resolve_agent_identity_from_tmux_local(
 ) -> AgentIdentityResolution:
     """Resolve a control target from tmux-local discovery pointers."""
 
+    direct_error: SessionManifestError | _TmuxLocalDiscoveryUnavailableError | None = None
+    try:
+        return _resolve_agent_identity_from_addressed_tmux_session(
+            canonical_agent_identity=canonical_agent_identity,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+            warnings=warnings,
+        )
+    except (SessionManifestError, _TmuxLocalDiscoveryUnavailableError) as exc:
+        direct_error = exc
+
+    try:
+        session_names = sorted(list_tmux_sessions_shared())
+    except TmuxCommandError as exc:
+        if direct_error is not None:
+            raise direct_error
+        raise SessionManifestError("Agent-name resolution requires `tmux` on PATH.") from exc
+
+    matches: list[tuple[str, Path]] = []
+    for session_name in session_names:
+        try:
+            manifest_path = _resolve_manifest_path_from_tmux_session(session_name=session_name)
+            payload = parse_session_manifest_payload(
+                load_session_manifest(manifest_path).payload,
+                source=str(manifest_path),
+            )
+        except (SessionManifestError, _TmuxLocalDiscoveryUnavailableError):
+            continue
+        if payload.backend not in _TMUX_BACKED_BACKENDS:
+            continue
+        if payload.tmux_session_name != session_name:
+            continue
+        if payload.agent_name != canonical_agent_identity:
+            continue
+        matches.append((session_name, manifest_path))
+
+    if not matches:
+        if direct_error is not None:
+            raise direct_error
+        raise _TmuxLocalDiscoveryUnavailableError(
+            f"No local tmux session metadata matched canonical agent name "
+            f"`{canonical_agent_identity}`."
+        )
+    if len(matches) > 1:
+        matched_sessions = ", ".join(sorted(session_name for session_name, _ in matches))
+        raise SessionManifestError(
+            "Agent-name resolution is ambiguous: canonical agent name "
+            f"`{canonical_agent_identity}` matched multiple tmux sessions: {matched_sessions}."
+        )
+
+    session_name, manifest_path = matches[0]
+    return AgentIdentityResolution(
+        session_manifest_path=manifest_path,
+        canonical_agent_identity=canonical_agent_identity,
+        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
+            session_name=session_name,
+            explicit_agent_def_dir=explicit_agent_def_dir,
+        ),
+        warnings=warnings,
+    )
+
+
+def _resolve_agent_identity_from_addressed_tmux_session(
+    *,
+    canonical_agent_identity: str,
+    explicit_agent_def_dir: Path | None,
+    warnings: tuple[str, ...],
+) -> AgentIdentityResolution:
+    """Resolve a control target from the addressed canonical tmux session."""
+
+    _ensure_tmux_session_exists(session_name=canonical_agent_identity)
     manifest_path = _resolve_manifest_path_from_tmux_session(session_name=canonical_agent_identity)
+    payload = parse_session_manifest_payload(
+        load_session_manifest(manifest_path).payload,
+        source=str(manifest_path),
+    )
+    if payload.backend not in _TMUX_BACKED_BACKENDS:
+        raise SessionManifestError(
+            "Resolved manifest mismatch: name-based resolution requires a tmux-backed "
+            f"manifest, got backend={payload.backend!r} from `{manifest_path}`."
+        )
+    if payload.agent_name != canonical_agent_identity:
+        raise _TmuxLocalDiscoveryUnavailableError(
+            "Resolved manifest mismatch: canonical agent name "
+            f"`{payload.agent_name}` does not match addressed tmux session "
+            f"`{canonical_agent_identity}`."
+        )
     _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
         session_name=canonical_agent_identity,
@@ -1263,9 +1566,31 @@ def _resolve_agent_identity_from_shared_registry(
 ) -> AgentIdentityResolution | None:
     """Resolve a control target from the shared live-agent registry."""
 
-    record = resolve_live_agent_record(canonical_agent_identity)
-    if record is None:
+    matches = resolve_live_agent_records_by_name(canonical_agent_identity)
+    if not matches:
         return None
+    if len(matches) > 1:
+        matched_agent_ids = ", ".join(sorted(record.agent_id for record in matches))
+        raise SessionManifestError(
+            "Shared-registry resolution is ambiguous: canonical agent name "
+            f"`{canonical_agent_identity}` matched multiple authoritative ids: "
+            f"{matched_agent_ids}."
+        )
+
+    return _agent_identity_resolution_from_registry_record(
+        record=matches[0],
+        explicit_agent_def_dir=explicit_agent_def_dir,
+        warnings=warnings,
+    )
+
+
+def _agent_identity_resolution_from_registry_record(
+    *,
+    record: LiveAgentRegistryRecordV2,
+    explicit_agent_def_dir: Path | None,
+    warnings: tuple[str, ...],
+) -> AgentIdentityResolution:
+    """Build one control-target resolution from a shared-registry record."""
 
     manifest_path = Path(record.runtime.manifest_path)
     if not manifest_path.is_absolute():
@@ -1281,12 +1606,12 @@ def _resolve_agent_identity_from_shared_registry(
 
     _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
-        session_name=canonical_agent_identity,
+        session_name=record.terminal.session_name,
     )
 
     return AgentIdentityResolution(
         session_manifest_path=manifest_path,
-        canonical_agent_identity=canonical_agent_identity,
+        canonical_agent_identity=record.agent_name,
         agent_def_dir=_resolve_agent_def_dir_for_registry_resolution(
             record=record,
             explicit_agent_def_dir=explicit_agent_def_dir,
@@ -1334,7 +1659,7 @@ def _resolve_agent_def_dir_for_name_resolution(
 
 def _resolve_agent_def_dir_for_registry_resolution(
     *,
-    record: LiveAgentRegistryRecordV1,
+    record: LiveAgentRegistryRecordV2,
     explicit_agent_def_dir: Path | None,
 ) -> Path:
     """Resolve the effective agent-definition root for registry-based control."""
@@ -1396,28 +1721,14 @@ def _validate_resolved_manifest_matches_tmux_session(
         )
 
 
-def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV2, manifest_path: Path) -> str:
-    if payload.backend == "cao_rest":
-        cao = payload.cao
-        if cao is None:
-            raise SessionManifestError(
-                f"Resolved manifest mismatch: `{manifest_path}` is missing `cao` payload."
-            )
-        persisted = cao.session_name.strip()
-        if not persisted:
-            raise SessionManifestError(
-                f"Resolved manifest mismatch: `{manifest_path}` has blank "
-                "`payload.cao.session_name`."
-            )
-        return persisted
-
-    persisted_backend = payload.backend_state.get("tmux_session_name")
-    if not isinstance(persisted_backend, str) or not persisted_backend.strip():
+def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV3, manifest_path: Path) -> str:
+    persisted = payload.tmux_session_name
+    if persisted is None or not persisted.strip():
         raise SessionManifestError(
             f"Resolved manifest mismatch: `{manifest_path}` is missing non-empty "
-            "`payload.backend_state.tmux_session_name`."
+            "`payload.tmux_session_name`."
         )
-    return persisted_backend.strip()
+    return persisted.strip()
 
 
 def _runtime_session_id_from_manifest_path(manifest_path: Path) -> str | None:
@@ -1439,19 +1750,20 @@ def _runtime_agent_def_dir(controller: RuntimeSessionController) -> Path | None:
 
 def _build_shared_registry_record_for_controller(
     controller: RuntimeSessionController,
-) -> LiveAgentRegistryRecordV1 | None:
+) -> LiveAgentRegistryRecordV2 | None:
     """Build one shared-registry record from current runtime-owned session state."""
 
     if not controller._is_tmux_backed():
         return None
 
-    session_name = _tmux_session_name_for_controller(controller)
-    if session_name is None:
+    tmux_session_name = _tmux_session_name_for_controller(controller)
+    if tmux_session_name is None:
         return None
 
-    canonical_agent_name = canonicalize_registry_agent_name(session_name)
+    canonical_agent_name = controller.agent_identity
+    agent_id = controller.agent_id
     generation_id = controller.registry_generation_id
-    if generation_id is None:
+    if generation_id is None or canonical_agent_name is None or agent_id is None:
         return None
 
     published_at = datetime.now(UTC)
@@ -1471,9 +1783,9 @@ def _build_shared_registry_record_for_controller(
         else None
     )
 
-    return LiveAgentRegistryRecordV1(
-        agent_name=canonical_agent_name,
-        agent_key=derive_agent_key(canonical_agent_name),
+    return LiveAgentRegistryRecordV2(
+        agent_name=canonicalize_registry_agent_name(canonical_agent_name),
+        agent_id=agent_id,
         generation_id=generation_id,
         published_at=published_at.isoformat(timespec="seconds"),
         lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
@@ -1492,7 +1804,7 @@ def _build_shared_registry_record_for_controller(
         ),
         terminal=RegistryTerminalV1(
             kind="tmux",
-            session_name=canonical_agent_name,
+            session_name=tmux_session_name,
         ),
         gateway=gateway_payload,
         mailbox=mailbox_payload,
@@ -1537,11 +1849,15 @@ def _shared_registry_gateway_payload(
 def _tmux_session_name_for_controller(controller: RuntimeSessionController) -> str | None:
     """Return the tmux session name for a runtime controller."""
 
+    if controller.tmux_session_name is not None:
+        return controller.tmux_session_name
     if isinstance(controller.backend_session, CaoRestSession):
         return controller.backend_session.state.session_name
     if isinstance(controller.backend_session, HeadlessInteractiveSession):
         return controller.backend_session.state.tmux_session_name
-    return controller.agent_identity
+    if controller._is_tmux_backed() and controller.agent_identity is not None:
+        return controller.agent_identity
+    return None
 
 
 def _require_gateway_paths_for_controller(controller: RuntimeSessionController) -> GatewayPaths:
@@ -1591,9 +1907,8 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    paths = _require_gateway_paths_for_controller(controller)
-    attach_contract = load_attach_contract(paths.attach_path)
     if controller.launch_plan.backend != "cao_rest":
+        paths = _require_gateway_paths_for_controller(controller)
         detail = (
             "Gateway attach is only implemented for runtime-owned backend='cao_rest' "
             f"sessions in v1, got backend={controller.launch_plan.backend!r}."
@@ -1605,6 +1920,8 @@ def _attach_gateway_for_controller(
             gateway_root=str(paths.gateway_root),
         )
 
+    paths = _require_gateway_paths_for_controller(controller)
+    attach_contract = load_attach_contract(paths.attach_path)
     try:
         host, requested_port = _resolve_gateway_listener(
             paths=paths,

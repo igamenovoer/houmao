@@ -11,17 +11,23 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from houmao.agents.realm_controller.agent_identity import (
+    derive_agent_id_from_name,
+    normalize_agent_identity_name,
+)
+
 from .boundary_models import (
     LaunchPlanPayloadV1,
     SessionManifestPayloadV2,
+    SessionManifestPayloadV3,
     format_pydantic_error,
 )
 from .errors import SessionManifestError
 from .models import LaunchPlan, SessionManifestHandle
 
 LAUNCH_PLAN_SCHEMA = "launch_plan.v1.schema.json"
-SESSION_MANIFEST_SCHEMA = "session_manifest.v2.schema.json"
-SESSION_MANIFEST_SCHEMA_VERSION = 2
+SESSION_MANIFEST_SCHEMA = "session_manifest.v3.schema.json"
+SESSION_MANIFEST_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -32,6 +38,10 @@ class SessionManifestRequest:
     role_name: str
     brain_manifest_path: Path
     backend_state: dict[str, Any]
+    agent_name: str | None = None
+    agent_id: str | None = None
+    tmux_session_name: str | None = None
+    job_dir: Path | None = None
     created_at_utc: str | None = None
     registry_generation_id: str | None = None
 
@@ -93,6 +103,13 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         request.launch_plan.redacted_payload(),
         context="launch_plan.v1 validation failed",
     ).model_dump(mode="json")
+    agent_name, agent_id, tmux_session_name = _resolve_manifest_identity(request)
+    job_dir = _resolve_manifest_job_dir(
+        request=request,
+        agent_name=agent_name,
+        agent_id=agent_id,
+        tmux_session_name=tmux_session_name,
+    )
 
     payload: dict[str, Any] = {
         "schema_version": SESSION_MANIFEST_SCHEMA_VERSION,
@@ -102,6 +119,10 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "created_at_utc": request.created_at_utc or datetime.now(UTC).isoformat(timespec="seconds"),
         "working_directory": str(request.launch_plan.working_directory),
         "brain_manifest_path": str(request.brain_manifest_path),
+        "agent_name": agent_name,
+        "agent_id": agent_id,
+        "tmux_session_name": tmux_session_name,
+        "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
         "registry_generation_id": request.registry_generation_id,
         "launch_plan": launch_payload,
         "backend_state": dict(request.backend_state),
@@ -145,7 +166,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
 
     return _validate_session_manifest_payload(
         payload,
-        context="session_manifest.v2 validation failed",
+        context="session_manifest.v3 validation failed",
     ).model_dump(mode="json")
 
 
@@ -167,7 +188,7 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
 
     validated = _validate_session_manifest_payload(
         payload,
-        context=f"session_manifest.v2 validation failed for {path}",
+        context=f"session_manifest.v3 validation failed for {path}",
     ).model_dump(mode="json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(validated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -196,22 +217,39 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
     except json.JSONDecodeError as exc:
         raise SessionManifestError(f"Invalid JSON in session manifest: {path}") from exc
 
-    _ensure_session_manifest_schema_version(payload, source=str(path))
-    model = _validate_session_manifest_payload(
-        payload,
-        context=f"session_manifest.v2 validation failed for {path}",
-    )
+    model = parse_session_manifest_payload(payload, source=str(path))
 
     return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
 
 
-def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV2:
-    """Parse a manifest payload into a typed Pydantic model."""
+def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV3:
+    """Parse a manifest payload into a typed normalized Pydantic model."""
 
-    _ensure_session_manifest_schema_version(payload, source=source)
-    return _validate_session_manifest_payload(
-        payload,
-        context=f"session_manifest.v2 validation failed for {source}",
+    schema_version = _schema_version_from_payload(payload)
+    if schema_version == SESSION_MANIFEST_SCHEMA_VERSION:
+        return _validate_session_manifest_payload(
+            payload,
+            context=f"session_manifest.v3 validation failed for {source}",
+        )
+    if schema_version == 2:
+        legacy_payload = _validate_session_manifest_payload_v2(
+            payload,
+            context=f"session_manifest.v2 validation failed for {source}",
+        )
+        upgraded_payload = _upgrade_legacy_manifest_payload(
+            payload=legacy_payload,
+            source=source,
+        )
+        return _validate_session_manifest_payload(
+            upgraded_payload,
+            context=f"session_manifest.v3 validation failed for upgraded {source}",
+        )
+
+    raise SessionManifestError(
+        "Session manifest schema-version mismatch: "
+        f"expected schema_version in {{2, {SESSION_MANIFEST_SCHEMA_VERSION}}}, "
+        f"got {schema_version!r} in `{source}`. "
+        "Legacy CAO manifests are not supported; start a new session."
     )
 
 
@@ -246,24 +284,159 @@ def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPla
 
 def _validate_session_manifest_payload(
     payload: object, *, context: str
+) -> SessionManifestPayloadV3:
+    try:
+        return SessionManifestPayloadV3.model_validate(payload)
+    except ValidationError as exc:
+        raise SessionManifestError(format_pydantic_error(context, exc)) from exc
+
+
+def _validate_session_manifest_payload_v2(
+    payload: object, *, context: str
 ) -> SessionManifestPayloadV2:
+    """Validate one legacy ``session_manifest.v2`` payload."""
+
     try:
         return SessionManifestPayloadV2.model_validate(payload)
     except ValidationError as exc:
         raise SessionManifestError(format_pydantic_error(context, exc)) from exc
 
 
-def _ensure_session_manifest_schema_version(payload: object, *, source: str) -> None:
-    if not isinstance(payload, dict):
-        return
+def _resolve_manifest_identity(
+    request: SessionManifestRequest,
+) -> tuple[str | None, str | None, str | None]:
+    """Resolve manifest identity metadata from explicit values and backend state."""
 
-    schema_version = payload.get("schema_version")
-    if schema_version == SESSION_MANIFEST_SCHEMA_VERSION:
-        return
+    agent_name = request.agent_name
+    tmux_session_name = request.tmux_session_name
 
-    raise SessionManifestError(
-        "Session manifest schema-version mismatch: "
-        f"expected schema_version={SESSION_MANIFEST_SCHEMA_VERSION}, "
-        f"got {schema_version!r} in `{source}`. "
-        "Legacy CAO manifests are not supported; start a new session."
+    if request.launch_plan.backend in {
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }:
+        if tmux_session_name is None:
+            tmux_session_name = _optional_non_empty_str(
+                request.backend_state.get("tmux_session_name")
+            )
+        if agent_name is None:
+            agent_name = tmux_session_name
+    elif request.launch_plan.backend == "cao_rest":
+        backend_session_name = _optional_non_empty_str(request.backend_state.get("session_name"))
+        if tmux_session_name is None:
+            tmux_session_name = backend_session_name
+        if agent_name is None and backend_session_name is not None:
+            agent_name = normalize_agent_identity_name(backend_session_name).canonical_name
+
+    if tmux_session_name is None:
+        tmux_session_name = agent_name
+
+    agent_id = request.agent_id
+    if agent_id is None and agent_name is not None:
+        agent_id = derive_agent_id_from_name(agent_name)
+
+    return agent_name, agent_id, tmux_session_name
+
+
+def _resolve_manifest_job_dir(
+    *,
+    request: SessionManifestRequest,
+    agent_name: str | None,
+    agent_id: str | None,
+    tmux_session_name: str | None,
+) -> Path | None:
+    """Resolve the persisted job dir for one manifest request."""
+
+    if request.job_dir is not None:
+        return request.job_dir
+
+    job_key = (
+        _optional_non_empty_str(request.backend_state.get("session_id"))
+        or _optional_non_empty_str(request.backend_state.get("session_name"))
+        or tmux_session_name
+        or agent_id
+        or agent_name
     )
+    if job_key is None:
+        return None
+
+    return (request.launch_plan.working_directory / ".houmao" / "jobs" / job_key).resolve()
+
+
+def _schema_version_from_payload(payload: object) -> int | None:
+    """Read the manifest schema version when the payload is a mapping."""
+
+    if not isinstance(payload, dict):
+        return None
+    schema_version = payload.get("schema_version")
+    return schema_version if isinstance(schema_version, int) else None
+
+
+def _upgrade_legacy_manifest_payload(
+    *, payload: SessionManifestPayloadV2, source: str
+) -> dict[str, Any]:
+    """Upgrade one in-memory v2 manifest payload to the v3 shape."""
+
+    upgraded = payload.model_dump(mode="json")
+    upgraded["schema_version"] = SESSION_MANIFEST_SCHEMA_VERSION
+    upgraded["agent_name"] = None
+    upgraded["agent_id"] = None
+    upgraded["tmux_session_name"] = None
+    upgraded["job_dir"] = _legacy_job_dir(payload=payload, source=source)
+
+    if payload.backend in {"codex_headless", "claude_headless", "gemini_headless"}:
+        tmux_session_name = _require_legacy_tmux_session_name(
+            payload.backend_state,
+            source=source,
+        )
+        upgraded["agent_name"] = tmux_session_name
+        upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
+        upgraded["tmux_session_name"] = tmux_session_name
+        return upgraded
+
+    if payload.backend == "cao_rest":
+        if payload.cao is None:
+            raise SessionManifestError(f"Legacy CAO manifest is missing `cao` state in `{source}`.")
+        tmux_session_name = payload.cao.session_name
+        upgraded["agent_name"] = tmux_session_name
+        upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
+        upgraded["tmux_session_name"] = tmux_session_name
+        return upgraded
+
+    return upgraded
+
+
+def _require_legacy_tmux_session_name(backend_state: dict[str, Any], *, source: str) -> str:
+    """Return the legacy persisted tmux session name from backend state."""
+
+    tmux_session_name = backend_state.get("tmux_session_name")
+    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
+        raise SessionManifestError(
+            f"Legacy manifest `{source}` is missing non-empty `backend_state.tmux_session_name`."
+        )
+    return tmux_session_name.strip()
+
+
+def _legacy_job_dir(*, payload: SessionManifestPayloadV2, source: str) -> str | None:
+    """Best-effort job-dir derivation for addressed legacy manifests."""
+
+    source_path = Path(source)
+    if source_path.name != "manifest.json":
+        return None
+
+    session_root = runtime_owned_session_root_from_manifest_path(source_path)
+    if session_root is None:
+        return None
+
+    session_id = session_root.name
+    working_directory = Path(payload.working_directory).resolve()
+    return str((working_directory / ".houmao" / "jobs" / session_id).resolve())
+
+
+def _optional_non_empty_str(value: object) -> str | None:
+    """Normalize one optional string value to a stripped non-empty string."""
+
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None

@@ -23,6 +23,9 @@ def test_start_session_outputs_canonical_agent_identity_for_cao(
             manifest_path=manifest_path,
             launch_plan=SimpleNamespace(backend="cao_rest", tool="codex"),
             agent_identity="AGENTSYS-gpu",
+            agent_id="agent-123",
+            tmux_session_name="houmao-session-1",
+            job_dir=tmp_path / "job-123",
             agent_identity_warnings=("prefix warning",),
             startup_warnings=("cleanup warning",),
             parsing_mode="cao_only",
@@ -51,6 +54,10 @@ def test_start_session_outputs_canonical_agent_identity_for_cao(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["agent_identity"] == "AGENTSYS-gpu"
+    assert payload["agent_name"] == "AGENTSYS-gpu"
+    assert payload["agent_id"] == "agent-123"
+    assert payload["tmux_session_name"] == "houmao-session-1"
+    assert payload["job_dir"] == str((tmp_path / "job-123"))
     assert payload["parsing_mode"] == "cao_only"
     assert payload["session_manifest"] == str(manifest_path)
     assert "warning: prefix warning" in captured.err
@@ -316,9 +323,9 @@ def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -
         "houmao.agents.realm_controller.cli.cleanup_stale_live_agent_records",
         lambda **kwargs: SimpleNamespace(
             registry_root=(tmp_path / "registry").resolve(),
-            removed_agent_keys=("dead",),
-            preserved_agent_keys=("live",),
-            failed_agent_keys=("stuck",),
+            removed_agent_ids=("dead",),
+            preserved_agent_ids=("live",),
+            failed_agent_ids=("stuck",),
         ),
     )
 
@@ -327,9 +334,9 @@ def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["grace_seconds"] == 0
-    assert payload["removed_agent_keys"] == ["dead"]
-    assert payload["preserved_agent_keys"] == ["live"]
-    assert payload["failed_agent_keys"] == ["stuck"]
+    assert payload["removed_agent_ids"] == ["dead"]
+    assert payload["preserved_agent_ids"] == ["live"]
+    assert payload["failed_agent_ids"] == ["stuck"]
 
 
 def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(

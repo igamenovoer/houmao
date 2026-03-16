@@ -69,12 +69,18 @@ Supported ad-hoc overrides:
 
 When launching (or managing pidfile state), artifacts live under:
 
-`runtime_root/cao-server/<host>-<port>/`
+`runtime_root/cao_servers/<host>-<port>/launcher/`
 
 - `cao-server.pid`
 - `cao-server.log`
 - `ownership.json`
 - `launcher_result.json`
+
+When `home_dir` is omitted, the launcher now derives the CAO `HOME` directory as the sibling path:
+
+`runtime_root/cao_servers/<host>-<port>/home/`
+
+The older `runtime_root/cao-server/<host>-<port>/` layout is a breaking-path change in this refactor and is not kept as a compatibility shim. Clean up legacy launcher artifacts manually if you still have them on disk.
 
 `start` now means "bootstrap a detached standalone local service and wait until it becomes healthy." Once `start` returns successfully, a later independent `status` command should still be able to reach the same service unless it has been explicitly stopped or crashed independently.
 

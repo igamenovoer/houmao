@@ -595,6 +595,7 @@ class CaoRestSession:
         session_manifest_path: Path | None = None,
         agent_def_dir: Path | None = None,
         agent_identity: str | None = None,
+        tmux_session_name: str | None = None,
         profile_store_dir: Path | None = None,
         poll_interval_seconds: float = 0.4,
         timeout_seconds: float = 120.0,
@@ -612,6 +613,7 @@ class CaoRestSession:
         self._provider = _provider_for_tool(launch_plan.tool)
         self._parsing_mode = self._require_supported_parsing_mode(parsing_mode)
         self._shadow_stall_policy = _resolve_shadow_stall_policy(launch_plan)
+        self._shadow_parser_stack: ShadowParserStack | None
         if tool_supports_cao_shadow_parser(launch_plan.tool):
             self._shadow_parser_stack = ShadowParserStack(tool=launch_plan.tool)
         else:
@@ -672,7 +674,8 @@ class CaoRestSession:
         session_name = _select_cao_session_name(
             tool=self._plan.tool,
             role_name=role_name,
-            requested_identity=agent_identity,
+            requested_identity=tmux_session_name or agent_identity,
+            normalize_requested_identity=tmux_session_name is None,
         )
         self._session_name = session_name
         self._terminal_id = self._start_terminal(session_name=session_name)
@@ -1659,7 +1662,13 @@ def generate_cao_session_name(
         raise BackendExecutionError(str(exc)) from exc
 
 
-def _select_cao_session_name(*, tool: str, role_name: str, requested_identity: str | None) -> str:
+def _select_cao_session_name(
+    *,
+    tool: str,
+    role_name: str,
+    requested_identity: str | None,
+    normalize_requested_identity: bool = True,
+) -> str:
     """Select a unique canonical CAO tmux session name."""
 
     _ensure_tmux_available()
@@ -1671,8 +1680,11 @@ def _select_cao_session_name(*, tool: str, role_name: str, requested_identity: s
             existing_sessions=occupied,
         )
 
-    normalized = normalize_agent_identity_name(requested_identity)
-    session_name = normalized.canonical_name
+    if normalize_requested_identity:
+        normalized = normalize_agent_identity_name(requested_identity)
+        session_name = normalized.canonical_name
+    else:
+        session_name = requested_identity.strip()
     if session_name in occupied:
         raise BackendExecutionError(
             f"Explicit agent identity `{session_name}` is already in use by an "

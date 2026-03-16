@@ -142,8 +142,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     )
 
     home = result.home_path
-    assert home == agent_def_dir / "tmp/agents-runtime/homes/codex/home-001"
+    assert home == agent_def_dir / "tmp/agents-runtime/homes/home-001"
     assert home.is_dir()
+    assert result.manifest_path == agent_def_dir / "tmp/agents-runtime/manifests/home-001.yaml"
 
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()

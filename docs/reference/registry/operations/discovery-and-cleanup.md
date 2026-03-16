@@ -110,22 +110,22 @@ Representative result:
 
 ```json
 {
-  "failed_agent_keys": ["<stale-agent-key-that-could-not-be-removed>"],
+  "failed_agent_ids": ["<stale-agent-id-that-could-not-be-removed>"],
   "failed_count": 1,
   "grace_seconds": 0,
-  "preserved_agent_keys": ["<fresh-agent-key>"],
+  "preserved_agent_ids": ["<fresh-agent-id>"],
   "preserved_count": 1,
   "registry_root": "/abs/path/registry",
-  "removed_agent_keys": ["<expired-agent-key>", "malformed"],
+  "removed_agent_ids": ["<expired-agent-id>", "malformed"],
   "removed_count": 2
 }
 ```
 
 Interpret the buckets like this:
 
-- `removed_agent_keys`: stale state that was successfully deleted,
-- `preserved_agent_keys`: directories that still represent fresh live records,
-- `failed_agent_keys`: stale directories that cleanup wanted to delete but could not remove.
+- `removed_agent_ids`: stale state that was successfully deleted,
+- `preserved_agent_ids`: directories that still represent fresh live records,
+- `failed_agent_ids`: stale directories that cleanup wanted to delete but could not remove.
 
 ## Cleanup Walkthrough
 

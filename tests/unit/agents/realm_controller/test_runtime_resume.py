@@ -138,6 +138,7 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
+                "tmux_session_name": "AGENTSYS-r",
             },
         )
     )

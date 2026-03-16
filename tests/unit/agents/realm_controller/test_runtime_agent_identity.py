@@ -13,6 +13,7 @@ import pytest
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
+    derive_agent_id_from_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import (
@@ -31,11 +32,10 @@ from houmao.agents.realm_controller.runtime import (
     resolve_agent_identity,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV1,
+    LiveAgentRegistryRecordV2,
     RegistryIdentityV1,
     RegistryRuntimeV1,
     RegistryTerminalV1,
-    derive_agent_key,
 )
 from houmao.agents.realm_controller.registry_storage import publish_live_agent_record
 
@@ -45,6 +45,16 @@ def _write(path: Path, text: str) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Force registry lookups to stay inside each test's temp directory."""
+
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
 
 
 def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
@@ -172,15 +182,14 @@ def _publish_registry_resolution_record(
 ) -> None:
     """Publish one fresh shared-registry record for resolution tests."""
 
+    now = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV1(
+        LiveAgentRegistryRecordV2(
             agent_name=session_name,
-            agent_key=derive_agent_key(session_name),
+            agent_id=derive_agent_id_from_name(session_name),
             generation_id="generation-1",
-            published_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC).isoformat(timespec="seconds"),
-            lease_expires_at=(
-                datetime(2026, 3, 13, 12, 0, tzinfo=UTC) + timedelta(hours=24)
-            ).isoformat(timespec="seconds"),
+            published_at=now.isoformat(timespec="seconds"),
+            lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
@@ -448,15 +457,14 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
     )
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
 
+    now = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV1(
+        LiveAgentRegistryRecordV2(
             agent_name="AGENTSYS-gpu",
-            agent_key=derive_agent_key("AGENTSYS-gpu"),
+            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
             generation_id="generation-1",
-            published_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC).isoformat(timespec="seconds"),
-            lease_expires_at=(
-                datetime(2026, 3, 13, 12, 0, tzinfo=UTC) + timedelta(hours=24)
-            ).isoformat(timespec="seconds"),
+            published_at=now.isoformat(timespec="seconds"),
+            lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
@@ -556,6 +564,8 @@ def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale
         timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
+        if cmd[1:3] == ["list-sessions", "-F"]:
+            return _completed(cmd, stdout="AGENTSYS-gpu\n")
         if cmd[1:3] == ["has-session", "-t"]:
             return _completed(cmd)
         if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:

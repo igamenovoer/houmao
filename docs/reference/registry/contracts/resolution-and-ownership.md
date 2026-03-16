@@ -1,6 +1,6 @@
 # Shared Registry Resolution And Ownership
 
-This page explains the dynamic rules around the shared registry: how names become keys, what makes a record fresh, how duplicate publishers are handled, and when registry state is treated as stale versus as a hard error.
+This page explains the dynamic rules around the shared registry: how canonical names relate to authoritative ids, what makes a record fresh, how duplicate publishers are handled, and when registry state is treated as stale versus as a hard error.
 
 ## Mental Model
 
@@ -11,7 +11,7 @@ The registry resolves in two stages:
 
 That distinction is why some failures collapse into “stale” while others still fail fast.
 
-## Canonical Names And Agent Keys
+## Canonical Names And Agent IDs
 
 Registry-facing input accepts either:
 
@@ -20,22 +20,16 @@ Registry-facing input accepts either:
 
 The runtime canonicalizes both to `AGENTSYS-gpu` before:
 
-- hashing,
 - reading a record,
 - publishing a record,
 - comparing logical ownership.
 
-`agent_key` is always:
-
-```text
-sha256(canonical agent_name).hexdigest()
-```
-
 Important consequences:
 
 - prefixed and unprefixed input refer to the same logical identity,
-- there is no second on-disk copy for the unprefixed form,
-- readers can compute the directory path directly without scanning a shared index.
+- canonical names remain the human-stable lookup surface,
+- `agent_id` is the authoritative runtime-wide directory key and direct lookup surface,
+- convenience lookup by canonical name may need to scan live records and can report ambiguity when multiple live `agent_id`s share one canonical name.
 
 ## Freshness And Lease Semantics
 
@@ -60,7 +54,8 @@ Rules:
 - a new tmux-backed live session gets one `generation_id`,
 - refreshes keep the same `generation_id`,
 - resume reuses the persisted `generation_id` when the same live session is being reclaimed,
-- a replacement publisher must use a different `generation_id`.
+- a replacement publisher must use a different `generation_id`,
+- ownership conflicts are enforced on `agent_id`, not on canonical name alone.
 
 Fresh duplicate ownership is not allowed.
 
@@ -81,7 +76,8 @@ The registry intentionally distinguishes “unusable stale state” from “this
 - malformed JSON,
 - schema-invalid under the strict model,
 - expired,
-- published under a different canonical name than the requested key.
+- published under a different canonical name than the requested name lookup,
+- ambiguous because more than one fresh `agent_id` matches the requested canonical name.
 
 Those cases are treated as not-found or stale discovery state rather than as a live result.
 
@@ -94,7 +90,8 @@ That path still fails explicitly when:
 - `runtime.manifest_path` is not absolute,
 - the manifest file no longer exists,
 - the resolved manifest backend is not tmux-backed,
-- the persisted tmux session identity in the manifest does not match the addressed agent name,
+- the persisted tmux session handle in the manifest does not match the addressed tmux session,
+- the canonical agent name must be learned from manifest or registry metadata rather than inferred from tmux session naming alone,
 - `runtime.agent_def_dir` is required but missing, non-absolute, or stale and no explicit `--agent-def-dir` override was supplied.
 
 That split is intentional:
@@ -104,16 +101,12 @@ That split is intentional:
 
 ## Known-Name Resolution Flow
 
-At the registry-storage layer, known-name resolution is deterministic:
+At the registry-storage layer, two lookup modes exist:
 
-1. canonicalize the input name,
-2. derive the full SHA-256 `agent_key`,
-3. load `live_agents/<agent-key>/record.json`,
-4. validate the strict record model,
-5. reject stale records,
-6. return the fresh record.
+1. direct lookup by authoritative `agent_id` using `live_agents/<agent-id>/record.json`,
+2. convenience lookup by canonical agent name by scanning live records and returning one unique fresh match.
 
-This means the common “find agent X” path does not require a shared index file or a full scan of `live_agents/`.
+Name-based lookup can therefore report ambiguity when multiple live `agent_id`s share one canonical name.
 
 ## Remove And Cleanup Ownership Boundaries
 

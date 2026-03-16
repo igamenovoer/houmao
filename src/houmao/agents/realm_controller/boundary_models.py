@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TypeAlias
 
 from pydantic import (
@@ -14,11 +15,17 @@ from pydantic import (
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 
+from .agent_identity import normalize_agent_identity_name
+from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
 JsonObject: TypeAlias = dict[str, JsonValue]
+_SAFE_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
+    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest"}
+)
 
 
 class _StrictBoundaryModel(BaseModel):
@@ -200,6 +207,113 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
             raise ValueError("launch_plan.backend must match manifest backend")
         if self.launch_plan.tool != self.tool:
             raise ValueError("launch_plan.tool must match manifest tool")
+
+        if self.backend == "codex_app_server":
+            if self.codex is None:
+                raise ValueError("codex is required for backend=codex_app_server")
+            if self.headless is not None or self.cao is not None:
+                raise ValueError("headless/cao must be omitted for backend=codex_app_server")
+        elif self.backend in {
+            "codex_headless",
+            "claude_headless",
+            "gemini_headless",
+        }:
+            if self.headless is None:
+                raise ValueError(
+                    "headless is required for backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+            if self.codex is not None or self.cao is not None:
+                raise ValueError(
+                    "codex/cao must be omitted for backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+        elif self.backend == "cao_rest":
+            if self.cao is None:
+                raise ValueError("cao is required for backend=cao_rest")
+            if self.codex is not None or self.headless is not None:
+                raise ValueError("codex/headless must be omitted for backend=cao_rest")
+        return self
+
+
+class SessionManifestPayloadV3(_StrictBoundaryModel):
+    """Persisted ``session_manifest.v3`` payload."""
+
+    schema_version: int
+    backend: BackendKind
+    tool: str
+    role_name: str
+    created_at_utc: str
+    working_directory: str
+    brain_manifest_path: str
+    agent_name: str | None = None
+    agent_id: str | None = None
+    tmux_session_name: str | None = None
+    job_dir: str | None = None
+    registry_generation_id: str | None = None
+    launch_plan: LaunchPlanPayloadV1
+    backend_state: JsonObject
+    codex: CodexSectionV1 | None = None
+    headless: HeadlessSectionV1 | None = None
+    cao: CaoSectionV2 | None = None
+
+    @field_validator(
+        "tool",
+        "role_name",
+        "created_at_utc",
+        "working_directory",
+        "brain_manifest_path",
+        "agent_name",
+        "agent_id",
+        "tmux_session_name",
+        "job_dir",
+        "registry_generation_id",
+    )
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_backend_sections_and_identity(self) -> "SessionManifestPayloadV3":
+        if self.schema_version != 3:
+            raise ValueError("schema_version must be 3")
+        if self.launch_plan.backend != self.backend:
+            raise ValueError("launch_plan.backend must match manifest backend")
+        if self.launch_plan.tool != self.tool:
+            raise ValueError("launch_plan.tool must match manifest tool")
+
+        if self.agent_name is not None:
+            try:
+                canonical_agent_name = normalize_agent_identity_name(self.agent_name).canonical_name
+            except SessionManifestError as exc:
+                raise ValueError(str(exc)) from exc
+            if canonical_agent_name != self.agent_name:
+                raise ValueError("agent_name must use canonical `AGENTSYS-...` form")
+
+        if self.agent_id is not None and not _SAFE_AGENT_ID_RE.fullmatch(self.agent_id):
+            raise ValueError(
+                "agent_id must use a safe filesystem component form "
+                "([A-Za-z0-9][A-Za-z0-9._-]*)"
+            )
+
+        expects_tmux_identity = self.backend in _TMUX_BACKED_BACKENDS
+        identity_fields = (
+            self.agent_name is not None,
+            self.agent_id is not None,
+            self.tmux_session_name is not None,
+        )
+        if expects_tmux_identity and not all(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name are required for tmux-backed backends"
+            )
+        if not expects_tmux_identity and any(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name must be omitted for non-tmux backends"
+            )
 
         if self.backend == "codex_app_server":
             if self.codex is None:

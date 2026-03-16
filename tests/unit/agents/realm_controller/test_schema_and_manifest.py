@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -81,8 +82,11 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     loaded = load_session_manifest(path)
 
     assert loaded.path == path
-    assert loaded.payload["schema_version"] == 2
+    assert loaded.payload["schema_version"] == 3
     assert loaded.payload["backend"] == "claude_headless"
+    assert loaded.payload["agent_name"] == "AGENTSYS-claude"
+    assert loaded.payload["agent_id"] == derive_agent_id_from_name("AGENTSYS-claude")
+    assert loaded.payload["tmux_session_name"] == "AGENTSYS-claude"
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "AGENTSYS-claude"
     assert "secret" not in path.read_text(encoding="utf-8")
@@ -100,6 +104,7 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
+                "tmux_session_name": "AGENTSYS-claude",
             },
         )
     )
@@ -111,16 +116,21 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
 
 def test_manifest_load_validation_fails_with_field_path(tmp_path: Path) -> None:
     path = tmp_path / "session.json"
+    agent_id = derive_agent_id_from_name("AGENTSYS-r")
     path.write_text(
         (
             "{"
-            '"schema_version": 2,'
+            '"schema_version": 3,'
             '"backend": "claude_headless",'
             '"tool": "claude",'
             '"role_name": "r",'
             '"created_at_utc": "2026-01-01T00:00:00+00:00",'
             '"working_directory": "/tmp/work",'
             '"brain_manifest_path": "/tmp/brain.yaml",'
+            '"agent_name": "AGENTSYS-r",'
+            f'"agent_id": "{agent_id}",'
+            '"tmux_session_name": "AGENTSYS-r",'
+            '"job_dir": null,'
             '"launch_plan": {"backend":"claude_headless","tool":"claude","executable":"claude","args":[],"working_directory":"/tmp/work","home_selector":{"env_var":"CLAUDE_CONFIG_DIR","home_path":"/tmp/home"},"env_var_names":[],"role_injection":{"method":"cao_profile","role_name":"r"},"metadata":{}},'
             '"backend_state": [],'
             '"headless": {"session_id":"sess","turn_index":0,"role_bootstrap_applied":true,"working_directory":"/tmp/work"}'
@@ -186,5 +196,8 @@ def test_cao_manifest_round_trip_persists_optional_tmux_window_name(
     write_session_manifest(path, payload)
     loaded = load_session_manifest(path)
 
+    assert loaded.payload["agent_name"] == "AGENTSYS-gpu"
+    assert loaded.payload["agent_id"] == derive_agent_id_from_name("AGENTSYS-gpu")
+    assert loaded.payload["tmux_session_name"] == "AGENTSYS-gpu"
     assert loaded.payload["cao"]["tmux_window_name"] == "developer-1"
     assert loaded.payload["backend_state"]["tmux_window_name"] == "developer-1"

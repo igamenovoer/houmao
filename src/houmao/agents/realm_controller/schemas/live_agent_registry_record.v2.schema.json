@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "RegistryGatewayV1": {
+      "additionalProperties": false,
+      "description": "Stable and live gateway metadata published into the registry.",
+      "properties": {
+        "attach_path": {
+          "title": "Attach Path",
+          "type": "string"
+        },
+        "gateway_root": {
+          "title": "Gateway Root",
+          "type": "string"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "enum": [
+                "127.0.0.1",
+                "0.0.0.0"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "protocol_version": {
+          "anyOf": [
+            {
+              "const": "v1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protocol Version"
+        },
+        "state_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Path"
+        }
+      },
+      "required": [
+        "gateway_root",
+        "attach_path"
+      ],
+      "title": "RegistryGatewayV1",
+      "type": "object"
+    },
+    "RegistryIdentityV1": {
+      "additionalProperties": false,
+      "description": "Identity metadata for one live published agent.",
+      "properties": {
+        "backend": {
+          "enum": [
+            "codex_headless",
+            "codex_app_server",
+            "claude_headless",
+            "gemini_headless",
+            "cao_rest"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "tool"
+      ],
+      "title": "RegistryIdentityV1",
+      "type": "object"
+    },
+    "RegistryMailboxV1": {
+      "additionalProperties": false,
+      "description": "Mailbox identity metadata for one live published session.",
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "filesystem_root": {
+          "title": "Filesystem Root",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "principal_id",
+        "address",
+        "filesystem_root",
+        "bindings_version"
+      ],
+      "title": "RegistryMailboxV1",
+      "type": "object"
+    },
+    "RegistryRuntimeV1": {
+      "additionalProperties": false,
+      "description": "Pointers to runtime-owned state for one live session.",
+      "properties": {
+        "agent_def_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Def Dir"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "session_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Root"
+        }
+      },
+      "required": [
+        "manifest_path"
+      ],
+      "title": "RegistryRuntimeV1",
+      "type": "object"
+    },
+    "RegistryTerminalV1": {
+      "additionalProperties": false,
+      "description": "Terminal-container hints for the live published session.",
+      "properties": {
+        "kind": {
+          "const": "tmux",
+          "default": "tmux",
+          "title": "Kind",
+          "type": "string"
+        },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_name"
+      ],
+      "title": "RegistryTerminalV1",
+      "type": "object"
+    }
+  },
+  "$id": "live_agent_registry_record.v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shared-registry ``record.json`` contract for one live published agent.",
+  "properties": {
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "gateway": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryGatewayV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "identity": {
+      "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "lease_expires_at": {
+      "title": "Lease Expires At",
+      "type": "string"
+    },
+    "mailbox": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryMailboxV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RegistryRuntimeV1"
+    },
+    "schema_version": {
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "terminal": {
+      "$ref": "#/$defs/RegistryTerminalV1"
+    }
+  },
+  "required": [
+    "agent_name",
+    "agent_id",
+    "generation_id",
+    "published_at",
+    "lease_expires_at",
+    "identity",
+    "runtime",
+    "terminal"
+  ],
+  "title": "LiveAgentRegistryRecordV2",
+  "type": "object"
+}

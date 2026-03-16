@@ -136,7 +136,7 @@ If record removal fails after the session was already stopped, the runtime keeps
 ## Current Implementation Notes
 
 - `refresh_shared_registry_record()` returns `None` for non-tmux-backed sessions or when required publication state is missing.
-- `publish_live_agent_record()` validates the serialized payload against the packaged `live_agent_registry_record.v1.schema.json` contract before any write starts.
+- `publish_live_agent_record()` validates the serialized payload against the packaged `live_agent_registry_record.v2.schema.json` contract before any write starts.
 - `publish_live_agent_record()` enforces freshness and conflict checks before and after the atomic replace.
 - Atomic record writes clean up orphan temp files on replace failure.
 - `cleanup_stale_live_agent_records()` continues past per-directory failures and reports them separately.

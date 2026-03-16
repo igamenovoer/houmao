@@ -129,8 +129,11 @@ def test_runtime_artifacts_are_partitioned_by_host_port(tmp_path: Path) -> None:
     localhost_artifacts = resolve_cao_server_runtime_artifacts(localhost_config)
     loopback_artifacts = resolve_cao_server_runtime_artifacts(loopback_config)
 
-    assert localhost_artifacts.artifact_dir.name == "localhost-9889"
-    assert loopback_artifacts.artifact_dir.name == "127.0.0.1-9889"
+    assert localhost_artifacts.server_root.name == "localhost-9889"
+    assert loopback_artifacts.server_root.name == "127.0.0.1-9889"
+    assert localhost_artifacts.artifact_dir.name == "launcher"
+    assert loopback_artifacts.artifact_dir.name == "launcher"
+    assert localhost_artifacts.home_dir == tmp_path.resolve()
     assert localhost_artifacts.pid_file.name == "cao-server.pid"
     assert localhost_artifacts.log_file.name == "cao-server.log"
     assert localhost_artifacts.ownership_file.name == "ownership.json"
