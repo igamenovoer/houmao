@@ -4,9 +4,9 @@ The current filesystem mailbox design stores mutable mailbox-view state in the s
 
 ## What Changes
 
-- Add a gateway-owned mail notifier capability that can be enabled or disabled through gateway HTTP endpoints, polls unread mail on an interval, and submits a runtime-owned notification turn only when the managed agent is idle.
+- Add a gateway-owned mail notifier capability that can be enabled or disabled through gateway HTTP endpoints, uses the runtime-owned session manifest's `launch_plan.mailbox` as its notifier-support contract, polls unread mail on an interval, and submits a runtime-owned notification turn only when the managed agent is idle.
 - Strengthen the gateway running-log contract so `gateway.log` becomes an operator-facing disk log that can be tailed to watch notifier polling, busy retries, queue actions, and lifecycle behavior.
-- Add per-mailbox SQLite state under each resolved mailbox directory so read or unread and related mailbox-view flags are stored per agent rather than in the shared mailbox-root SQLite index.
+- Add per-mailbox SQLite state under each resolved mailbox directory so read or unread and related mailbox-view flags are stored per agent rather than in the shared mailbox-root SQLite index, with mailbox-scoped message state keyed by `message_id` and mailbox-local thread summaries keyed by `thread_id`.
 - **BREAKING** Redefine the shared mailbox-root SQLite index as shared catalog state only; recipient-local mutable state such as read, starred, archived, deleted, and unread thread summaries moves to per-mailbox SQLite.
 - Update mailbox runtime bindings and system-skill guidance so `AGENTSYS_MAILBOX_FS_SQLITE_PATH` remains the shared-root catalog binding, new explicit local-mailbox bindings are added, and agents mark messages read after processing without depending on gateway presence.
 - Update mailbox managed scripts and repair flows so delivery, state mutation, and recovery keep shared catalog state and per-mailbox state consistent without introducing aggregate recipient-status mirrors.
@@ -25,5 +25,5 @@ The current filesystem mailbox design stores mutable mailbox-view state in the s
 ## Impact
 
 - Affected code: `src/houmao/agents/realm_controller/gateway_*`, `src/houmao/agents/mailbox_runtime_*`, `src/houmao/mailbox/*`, runtime mailbox skill assets, and mailbox helper scripts under `src/houmao/mailbox/assets/rules/scripts/`.
-- Affected APIs and contracts: gateway HTTP routes, gateway persisted state and running-log behavior, mailbox env vars, mailbox on-disk layout, and managed mailbox helper behavior.
+- Affected APIs and contracts: gateway HTTP routes, gateway persisted state and running-log behavior, the session-manifest mailbox-capability contract, mailbox env vars, mailbox on-disk layout, and managed mailbox helper behavior.
 - Affected docs and tests: gateway reference docs, mailbox reference docs, gateway runtime tests, mailbox transport tests, and migration coverage for old shared-root mailbox state.

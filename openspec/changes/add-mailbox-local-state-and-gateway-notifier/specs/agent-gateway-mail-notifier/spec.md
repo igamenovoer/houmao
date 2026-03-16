@@ -16,6 +16,12 @@ Notifier configuration SHALL include at minimum:
 
 If the managed session is not mailbox-enabled, notifier enablement SHALL fail explicitly rather than silently enabling a broken poll loop.
 
+The gateway SHALL determine whether notifier behavior is supported by loading the runtime-owned session manifest referenced by the gateway attach contract's `manifest_path` and inspecting `payload.launch_plan.mailbox`.
+
+The gateway SHALL NOT introduce a second persisted mailbox-capability flag in gateway-owned attach or notifier state.
+
+If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
+
 #### Scenario: Mail notifier is enabled with an explicit interval
 - **WHEN** a caller sends `PUT /v1/mail-notifier` with `enabled=true` and `interval_seconds=60`
 - **THEN** the gateway stores that notifier configuration durably
@@ -30,6 +36,11 @@ If the managed session is not mailbox-enabled, notifier enablement SHALL fail ex
 - **WHEN** a caller attempts to enable the mail notifier for a gateway-managed session whose launch plan has no mailbox binding
 - **THEN** the gateway rejects that notifier enablement explicitly
 - **AND THEN** it does not claim that notifier polling is active for that session
+
+#### Scenario: Mail notifier enablement fails when manifest-backed capability discovery is unavailable
+- **WHEN** a caller attempts to enable the mail notifier for a gateway-managed session whose attach contract lacks a readable runtime-owned session manifest
+- **THEN** the gateway rejects that notifier enablement explicitly
+- **AND THEN** it does not treat any gateway-owned attach or notifier artifact as a substitute mailbox-capability source
 
 ### Requirement: Gateway mail notifier polls local mailbox state and only schedules notifications when the agent is idle
 The gateway mail notifier SHALL inspect unread-mail state from the mailbox's resolved local mailbox SQLite database rather than from shared-root aggregate recipient state.

@@ -13,6 +13,8 @@ That local mailbox-state database SHALL be stored at a stable path under the res
 
 For an in-root mailbox directory, the local mailbox-state database SHALL live under `mailboxes/<address>/...`. For a symlink-registered mailbox, the local mailbox-state database SHALL live under the symlink-resolved mailbox directory rather than under the shared root entry path only.
 
+Within each mailbox-local database, mutable message-view rows SHALL be keyed by `message_id`, and mailbox-local thread summary rows SHALL be keyed by `thread_id`. Because the database already scopes to one resolved mailbox, those local tables SHALL NOT require `registration_id` as part of their row identity.
+
 #### Scenario: In-root mailbox gets a local mailbox-state database
 - **WHEN** the runtime initializes or validates an in-root filesystem mailbox directory for one mailbox address
 - **THEN** that mailbox directory contains a stable local mailbox-state SQLite database
@@ -22,6 +24,11 @@ For an in-root mailbox directory, the local mailbox-state database SHALL live un
 - **WHEN** a mailbox address is registered through a symlink to a private mailbox directory outside the shared root
 - **THEN** the mailbox-local SQLite state lives under that resolved private mailbox directory
 - **AND THEN** recipient-local mailbox-view state follows the mailbox directory that owns that view
+
+#### Scenario: Mailbox-local SQLite uses mailbox-scoped row identities
+- **WHEN** the transport initializes or migrates one mailbox-local database
+- **THEN** mutable message-view rows are identified by `message_id` and mailbox-local thread summary rows are identified by `thread_id`
+- **AND THEN** the local database does not repeat shared-root `registration_id` as part of those primary identities
 
 ### Requirement: Per-mailbox state is not mirrored into shared aggregate recipient-status tables
 The filesystem mailbox transport SHALL NOT require an authoritative shared-root aggregate recipient-status mirror for mailbox-view state such as read or unread.
@@ -48,6 +55,8 @@ The shared mailbox-root SQLite index SHALL record at minimum:
 
 The shared mailbox-root SQLite index SHALL NOT be the authoritative store for per-mailbox read, starred, archived, deleted, or unread thread-summary state once mailbox-local SQLite is available.
 
+If the shared mailbox-root SQLite index retains thread-summary rows for structural query support, those rows SHALL be structural-only and SHALL NOT remain authoritative for per-mailbox `unread_count` once mailbox-local SQLite is available.
+
 #### Scenario: Marking a message read updates mailbox-local SQLite state without rewriting Markdown
 - **WHEN** a recipient marks a delivered filesystem mailbox message as read
 - **THEN** the system updates that recipient mailbox's local mailbox-state SQLite database
@@ -57,3 +66,8 @@ The shared mailbox-root SQLite index SHALL NOT be the authoritative store for pe
 - **WHEN** a mailbox contains multiple related messages in one thread
 - **THEN** the transport records thread relationships and summary inputs in durable SQLite state
 - **AND THEN** the system can query thread-oriented mailbox views without reparsing every mailbox file on each request
+
+#### Scenario: Per-mailbox unread thread counts are rebuilt locally
+- **WHEN** the transport migrates or repairs mailbox-local state for one mailbox
+- **THEN** unread thread counts are rebuilt from that mailbox's local message-state rows
+- **AND THEN** any shared-root thread-summary data is treated as structural-only rather than as authoritative unread state

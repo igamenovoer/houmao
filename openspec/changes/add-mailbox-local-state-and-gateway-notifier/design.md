@@ -43,6 +43,8 @@ The shared mailbox root remains the authority for shared facts:
 - attachment metadata,
 - structural projection catalog data needed for repair.
 
+If a shared-root `thread_summaries` table remains for structural query support, it becomes structural-only once mailbox-local SQLite is available and no shared-root `unread_count` field remains authoritative for mailbox-view state.
+
 Each resolved mailbox directory gains its own `mailbox.sqlite`, which becomes the authority for mailbox-view state that can legitimately differ per mailbox:
 
 - `is_read`,
@@ -50,6 +52,15 @@ Each resolved mailbox directory gains its own `mailbox.sqlite`, which becomes th
 - `is_archived`,
 - `is_deleted`,
 - thread unread counts and similar mailbox-local summary caches.
+
+For v1, the mailbox-local identity shape is mailbox-scoped:
+
+```text
+message_state(message_id PRIMARY KEY, is_read, is_starred, is_archived, is_deleted, ...)
+thread_summaries(thread_id PRIMARY KEY, unread_count, ...)
+```
+
+Because each `mailbox.sqlite` belongs to one resolved mailbox directory, these local tables do not repeat shared-root `registration_id` as part of their primary identity.
 
 This lets sender and recipients carry independent state naturally. A sender can have a sent copy marked read while each recipient maintains its own read or unread and archive status.
 
@@ -131,6 +142,19 @@ Alternatives considered:
 - `POST /enable` and `POST /disable` endpoints. Rejected because repeated calls are less naturally idempotent and configuration updates become clumsier.
 - Folding notifier status into `GET /v1/status` only. Rejected because notifier configuration and operational counters are a separate concern from core gateway health and admission.
 
+### Decision: Use the runtime-owned session manifest as the notifier-support contract
+
+The gateway will treat `payload.launch_plan.mailbox` from the runtime-owned session manifest referenced by `attach_contract.manifest_path` as the sole persisted mailbox-capability contract for notifier control.
+
+Notifier enablement and notifier recovery paths will load that manifest and inspect `payload.launch_plan.mailbox` rather than copying mailbox-capability data into `GatewayAttachContractV1` or another gateway-owned persistence artifact.
+
+If the attach contract has no runtime-owned `manifest_path`, the manifest cannot be read or parsed, or the manifest launch plan has no mailbox binding, the gateway rejects notifier enablement explicitly and leaves notifier inactive.
+
+Alternatives considered:
+
+- Add mailbox-capability fields to the gateway attach contract. Rejected because it duplicates persisted truth and creates drift risk between attach state and the runtime-owned manifest.
+- Infer notifier support from local gateway or mailbox artifacts without consulting the session manifest. Rejected because mailbox enablement already lives in the persisted launch plan.
+
 ### Decision: Keep a tail-friendly gateway running log on disk as an explicit operator contract
 
 The gateway already has a disk log path under the gateway root. This change makes that running log an explicit operator-facing contract instead of an incidental child-process stdout sink.
@@ -187,9 +211,9 @@ The mailbox transport will migrate prior shared-root recipient-state rows into e
 Migration will:
 
 1. create `mailbox.sqlite` for each discovered active mailbox,
-2. copy per-mailbox state from shared-root `mailbox_state` into the corresponding local database when available,
-3. rebuild local thread summaries from local message-state rows,
-4. stop treating shared-root recipient-state tables as authoritative afterward.
+2. copy per-mailbox state from shared-root `mailbox_state` into mailbox-scoped local `message_state` rows keyed by `message_id`,
+3. rebuild mailbox-local `thread_summaries` keyed by `thread_id` from local `message_state` rows rather than carrying forward shared-root `thread_summaries.unread_count` as authoritative state,
+4. treat any remaining shared-root thread-summary data as structural-only and stop treating shared-root recipient-state tables as authoritative afterward.
 
 The shared-root repair path remains able to rebuild structural catalog data from canonical messages. Local mailbox repair remains able to initialize deterministic local state defaults when prior local state is absent.
 
