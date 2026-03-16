@@ -13,12 +13,15 @@ Success means you can run the mailbox roundtrip from a clean checkout, inspect o
 - [ ] `pixi` is installed.
 - [ ] The repo environment is installed (`pixi install` once).
 - [ ] `tmux` is installed and on `PATH`.
-- [ ] A CAO service is reachable at `http://localhost:9889`, or you have overridden `CAO_BASE_URL`.
-- [ ] If the CAO service was launched through this repository's launcher flow, its launcher ownership/config artifacts are still available so the tutorial can auto-detect the matching CAO profile store.
+- [ ] You are comfortable letting the wrapper manage a loopback CAO endpoint such as `http://localhost:9889` or `http://127.0.0.1:9991`.
 - [ ] The default Claude Code and Codex credential profiles selected by the tracked blueprints are available under `tests/fixtures/agents/brains/api-creds/`.
 - [ ] You are running from this repository checkout.
 
-If a prerequisite is missing or a runtime command clearly fails for credential/connectivity reasons, the wrapper exits `0` with a `SKIP:` message instead of mutating tracked files.
+The default verified path is launcher-managed loopback CAO. The wrapper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `--cao-profile-store` automatically, and stops that CAO again during cleanup when this run started it.
+
+If you point `CAO_BASE_URL` at a non-loopback or intentionally external CAO service, the wrapper does not guess ownership or profile-store state. Instead it exits `0` with a `SKIP:` message that tells you to use the manual `realm_controller` walkthrough with an explicit `CAO_PROFILE_STORE`.
+
+If a prerequisite is missing or a runtime command clearly fails for credential/connectivity reasons, the wrapper also exits `0` with a `SKIP:` message instead of mutating tracked files.
 
 ## Filesystem Layout
 
@@ -26,10 +29,12 @@ The wrapper now distinguishes the demo-owned output directory from the agent-vis
 
 ```text
 <demo-output-dir>/
+├── cao/                  # demo-local CAO launcher config and runtime state
 ├── project/              # git worktree of this repository; actual agent workdir
 ├── runtime/              # build-brain outputs and session manifests
 ├── shared-mailbox/       # shared filesystem mailbox root
 ├── inputs/               # copied tutorial inputs
+├── cao_start.json        # managed-CAO startup result
 ├── sender_*.json         # captured command outputs
 ├── receiver_*.json
 ├── mail_*.json
@@ -40,6 +45,13 @@ The wrapper now distinguishes the demo-owned output directory from the agent-vis
 By default, the wrapper uses the repo-local output directory `tmp/demo/mailbox-roundtrip-tutorial-pack`. You can override it with `--demo-output-dir <abs-or-rel-path>`. Relative paths are resolved from the repository root.
 
 Important note: `project/` is provisioned with `git worktree add --detach ... HEAD`. That means agents see committed repository state at `HEAD`, not your uncommitted local edits in the source checkout.
+
+Mailbox state now has two layers:
+
+- `shared-mailbox/index.sqlite` is the shared delivery/index database for the mailbox root.
+- `shared-mailbox/mailboxes/<address>/mailbox.sqlite` is the mailbox-local state database for one address.
+
+The runtime binds mailbox-local paths per session, so the tutorial verifies both the shared index and each participant's mailbox-local `mailbox.sqlite`. Gateway attach and gateway notifier enablement remain optional; this roundtrip still succeeds through runtime `mail` commands alone.
 
 ## Wrapper Options
 
@@ -52,10 +64,11 @@ Important note: `project/` is provisioned with `git worktree add --detach ... HE
 1. Resolve one demo-owned output directory.
 2. Provision `<demo-output-dir>/project` as a git worktree of the main repository.
 3. Copy tracked inputs into `<demo-output-dir>/inputs`.
-4. Build one Claude Code brain and one Codex brain through `build-brain --blueprint`.
-5. Start both sessions through `start-session --blueprint --backend cao_rest`, using `<demo-output-dir>/project` as `--workdir`, `<demo-output-dir>/shared-mailbox` as the shared mailbox root, and optional `AGENTSYS_LOCAL_JOBS_DIR` only when `--jobs-dir` is supplied.
-6. Use name-based follow-up control for `mail send`, `mail check`, `mail reply`, and `stop-session`, while preserving captured startup payloads for reporting and cleanup.
-7. Build a raw report from the command artifacts, sanitize non-deterministic fields, and compare the sanitized output against `expected_report/report.json`.
+4. Write `<demo-output-dir>/cao/launcher.toml`, start or reuse loopback CAO through the Python helper layer, and derive the matching profile store from that same demo-local launcher context.
+5. Build one Claude Code brain and one Codex brain through `build-brain --blueprint`.
+6. Start both sessions through `start-session --blueprint --backend cao_rest`, using `<demo-output-dir>/project` as `--workdir`, `<demo-output-dir>/shared-mailbox` as the shared mailbox root, and optional `AGENTSYS_LOCAL_JOBS_DIR` only when `--jobs-dir` is supplied.
+7. Use name-based follow-up control for `mail send`, `mail check`, `mail reply`, and `stop-session`, while preserving captured startup payloads for reporting and cleanup.
+8. Build a raw report from the command artifacts, sanitize non-deterministic fields, and compare the sanitized output against `expected_report/report.json`.
 
 The wrapper is a convenience layer. The real operator workflow is still the explicit runtime command sequence documented below.
 
@@ -119,13 +132,20 @@ MAILBOX_ROOT="$DEMO_OUTPUT_DIR/shared-mailbox"
 # 2) Optional: relocate per-session jobs away from the project worktree.
 export AGENTSYS_LOCAL_JOBS_DIR="$REPO_ROOT/tmp/demo/mailbox-jobs"
 
-# 3) Build the sender brain from the tracked Claude blueprint.
+# 3) Start or reuse loopback CAO through the demo-local launcher config.
+pixi run python scripts/demo/mailbox-roundtrip-tutorial-pack/scripts/tutorial_pack_helpers.py \
+  start-demo-cao \
+  --repo-root "$REPO_ROOT" \
+  --demo-output-dir "$DEMO_OUTPUT_DIR" \
+  --cao-base-url "$CAO_BASE_URL"
+
+# 4) Build the sender brain from the tracked Claude blueprint.
 pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir tests/fixtures/agents \
   --runtime-root "$RUNTIME_ROOT" \
   --blueprint blueprints/gpu-kernel-coder-claude.yaml
 
-# 4) Start the sender with mailbox overrides and the nested project workdir.
+# 5) Start the sender with mailbox overrides and the nested project workdir.
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --runtime-root "$RUNTIME_ROOT" \
@@ -140,7 +160,7 @@ pixi run python -m houmao.agents.realm_controller start-session \
   --mailbox-principal-id AGENTSYS-mailbox-sender \
   --mailbox-address AGENTSYS-mailbox-sender@agents.localhost
 
-# 5) Send the initial message from the sender to the receiver.
+# 6) Send the initial message from the sender to the receiver.
 pixi run python -m houmao.agents.realm_controller mail send \
   --agent-def-dir tests/fixtures/agents \
   --agent-identity AGENTSYS-mailbox-sender \
@@ -151,7 +171,9 @@ pixi run python -m houmao.agents.realm_controller mail send \
 
 Credentials still come from the blueprint-selected brain recipes. Mailbox transport, root, principal, and address stay explicit on `start-session`. The wrapper-only `--jobs-dir` flag simply maps to `AGENTSYS_LOCAL_JOBS_DIR` before the two `start-session` calls; direct `realm_controller` commands still use the env var rather than a new runtime CLI flag.
 
-When `CAO_PROFILE_STORE` is unset, the wrapper tries to detect it automatically from the repo-local CAO launcher context for the selected `CAO_BASE_URL`. It first checks the launcher ownership artifact for that base URL under `config/cao-server-launcher/local.toml`'s runtime root, then falls back to the config's `home_dir` when the base URL matches the repo-local launcher config. If you are intentionally using a different CAO server/profile-store pairing, you can still override detection with `CAO_PROFILE_STORE=/abs/path/.../agent-store`.
+On the default path, `CAO_PROFILE_STORE` does not need to be set by hand. The wrapper derives it from the demo-local launcher-managed CAO state under `<demo-output-dir>/cao/runtime/.../home/.aws/cli-agent-orchestrator/agent-store` and passes that value to both `start-session` calls. If you set `CAO_PROFILE_STORE` anyway, it must match the demo-managed value or the wrapper fails fast.
+
+If `CAO_BASE_URL` points at a non-loopback or intentionally external CAO service, the wrapper does not try to infer ownership or profile-store state. It exits with `SKIP:` guidance instead, and the supported path is the manual command-by-command walkthrough with an explicit `CAO_PROFILE_STORE`.
 
 ## Critical Output Snippet
 
@@ -159,16 +181,30 @@ Sanitized report shape:
 
 ```json
 {
+  "cao": {
+    "base_url": "http://localhost:9889",
+    "managed": true,
+    "profile_store": "<CAO_PROFILE_STORE>"
+  },
   "checks": {
+    "cao_managed": true,
     "receiver_start_mailbox_enabled": true,
+    "receiver_mailbox_local_sqlite_present": true,
     "receiver_stop_ok": true,
     "reply_parent_matches_send_message_id": true,
     "sender_start_mailbox_enabled": true,
+    "sender_mailbox_local_sqlite_present": true,
     "sender_stop_ok": true,
+    "shared_mailbox_index_present": true,
     "shared_mailbox_root": true
   },
   "demo": "mailbox-roundtrip-tutorial-pack",
   "demo_output_dir": "<DEMO_OUTPUT_DIR>",
+  "mailbox_state": {
+    "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
+    "sender_local_sqlite_path": "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>",
+    "receiver_local_sqlite_path": "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>"
+  },
   "project_workdir": "<PROJECT_WORKDIR>",
   "reply_parent_message_id": "<MESSAGE_ID>"
 }
@@ -197,6 +233,8 @@ The full tracked contract lives in `expected_report/report.json`. The placeholde
    ```text
    [demo][mailbox-roundtrip] demo output dir: ...
    [demo][mailbox-roundtrip] project workdir: ...
+   [demo][mailbox-roundtrip] cao_start: ok
+   [demo][mailbox-roundtrip] CAO mode: launcher-managed loopback
    [demo][mailbox-roundtrip] sender_build: ok
    [demo][mailbox-roundtrip] receiver_start: ok
    verification passed
@@ -212,6 +250,8 @@ The full tracked contract lives in `expected_report/report.json`. The placeholde
    Expected key files:
 
    ```text
+   cao/
+   cao_start.json
    sender_build.json
    sender_start.json
    mail_send.json
@@ -247,9 +287,10 @@ The wrapper documents the same steps it runs:
 3. Optionally export `AGENTSYS_LOCAL_JOBS_DIR` if you want the same jobs-root override that `--jobs-dir` provides.
 4. Build the Claude sender brain with `--blueprint blueprints/gpu-kernel-coder-claude.yaml`.
 5. Build the Codex receiver brain with `--blueprint blueprints/gpu-kernel-coder-codex.yaml`.
-6. Start both sessions with `--backend cao_rest`, `--workdir "$PROJECT_DIR"`, and explicit `--mailbox-transport`, `--mailbox-root`, `--mailbox-principal-id`, and `--mailbox-address`.
-7. Save the `message_id` from `mail send`, and fail if it is blank.
-8. Run receiver `mail check`, receiver `mail reply --message-id "$SEND_MESSAGE_ID"`, sender `mail check`, and then both `stop-session` calls.
+6. Start or reuse loopback CAO from the helper-owned launcher config, and use the matching demo-local profile store on both `start-session` calls.
+7. Start both sessions with `--backend cao_rest`, `--workdir "$PROJECT_DIR"`, and explicit `--mailbox-transport`, `--mailbox-root`, `--mailbox-principal-id`, and `--mailbox-address`.
+8. Save the `message_id` from `mail send`, and fail if it is blank.
+9. Run receiver `mail check`, receiver `mail reply --message-id "$SEND_MESSAGE_ID"`, sender `mail check`, and then both `stop-session` calls.
 
 Nothing in the runner depends on a tutorial-owned `state.json`. Follow-up commands target the two sessions by their name-based `--agent-identity` values, and cleanup uses the same identities if the second startup or a later command fails.
 
@@ -271,10 +312,16 @@ Snapshot mode rewrites `expected_report/report.json` from `report.sanitized.json
   Install tmux and retry because CAO-backed sessions still depend on tmux-managed runtime recovery.
 - `SKIP: missing credentials`
   Create the credential env files referenced by the tracked Claude and Codex recipes under `tests/fixtures/agents/brains/api-creds/`.
+- `SKIP: external CAO requires explicit CAO_PROFILE_STORE=/abs/path/.../agent-store`
+  The wrapper only verifies launcher-managed loopback CAO. Use the manual walkthrough if you want to target a non-loopback or otherwise external CAO service.
+- `SKIP: external CAO is not part of the default verified tutorial contract`
+  The wrapper intentionally stops here instead of guessing external launcher ownership or profile-store state.
 - `SKIP: connectivity unavailable`
   Start or repair the CAO service at `CAO_BASE_URL`, then retry.
 - `FAIL: demo project directory exists but is not a git worktree of the repository`
   Remove or relocate the incompatible `<demo-output-dir>/project` directory, then rerun.
+- `FAIL: command failed during cao_start`
+  Inspect `cao_start.err` and `cao_start.json`. Ownership-mismatch recovery or launcher startup failed before the agent sessions began.
 - `FAIL: command failed during receiver_start`
   Inspect `receiver_start.err`. The wrapper should still stop the already-started sender during trap cleanup.
 - `sanitized report mismatch`
@@ -293,8 +340,8 @@ Snapshot mode rewrites `expected_report/report.json` from `report.sanitized.json
 | `--jobs-dir` | optional wrapper override | Redirects per-session job dirs through `AGENTSYS_LOCAL_JOBS_DIR`; omit it to keep Houmao's default under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`. |
 | Sender identity | `AGENTSYS-mailbox-sender` | Name-based recovery target used for send, check, and stop. |
 | Receiver identity | `AGENTSYS-mailbox-receiver` | Name-based recovery target used for check, reply, and stop. |
-| `CAO_BASE_URL` | `http://localhost:9889` by default | Override when your CAO service is reachable on a different loopback endpoint. |
-| `CAO_PROFILE_STORE` | optional env override | Usually auto-detected from the repo-local launcher ownership/config for `CAO_BASE_URL`; set it explicitly only when you need to override that detection. |
+| `CAO_BASE_URL` | `http://localhost:9889` by default | Override when you want the wrapper to manage a different supported loopback endpoint such as `http://127.0.0.1:9991`. Non-loopback values are treated as external/manual mode and the wrapper skips with guidance. |
+| `CAO_PROFILE_STORE` | optional env override | On the default managed path this is derived automatically from the demo-local launcher state; set it only if you need to assert the exact managed store value. |
 
 ## Appendix: File Inventory
 
@@ -317,6 +364,8 @@ Scripts:
 
 Generated demo-output-dir artifacts:
 
+- `cao/`
+- `cao_start.json`, `cao_start.err`
 - `project/`
 - `runtime/`
 - `shared-mailbox/`
@@ -333,4 +382,5 @@ Generated demo-output-dir artifacts:
 - `receiver_stop.json`, `receiver_stop.err`
 - `report.json`
 - `report.sanitized.json`
+- `cleanup_cao_stop.json` when trap cleanup had to stop demo-managed CAO
 - `cleanup_sender_stop.json` / `cleanup_receiver_stop.json` only when trap cleanup had to intervene

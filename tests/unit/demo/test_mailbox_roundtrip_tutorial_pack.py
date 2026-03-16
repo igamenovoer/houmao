@@ -10,6 +10,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
+from houmao.mailbox.protocol import MailboxPrincipal
 
 
 def _repo_root() -> Path:
@@ -86,6 +88,10 @@ def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
     assert explicit_output == Path("/repo-root/demos/manual-mailbox-run")
     assert layout.project_workdir == explicit_output / "project"
     assert layout.runtime_root == explicit_output / "runtime"
+    assert layout.cao_dir == explicit_output / "cao"
+    assert layout.cao_launcher_config_path == explicit_output / "cao" / "launcher.toml"
+    assert layout.cao_runtime_root == explicit_output / "cao" / "runtime"
+    assert layout.cao_start_path == explicit_output / "cao_start.json"
     assert layout.mailbox_root == explicit_output / "shared-mailbox"
     assert layout.report_path == explicit_output / "report.json"
 
@@ -205,6 +211,150 @@ def test_detect_cao_profile_store_returns_none_for_unrelated_base_url_without_ow
     assert detected is None
 
 
+def test_start_demo_cao_writes_demo_local_launcher_config_and_profile_store(tmp_path: Path) -> None:
+    """Loopback demo CAO startup should write a demo-local launcher config and derive its store."""
+
+    repo_root = tmp_path / "repo"
+    demo_output_dir = repo_root / "tmp" / "demo"
+    calls: list[list[str]] = []
+
+    def fake_run_launcher(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        del cwd
+        calls.append(args)
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "healthy": True,
+                    "started_new_process": True,
+                    "reused_existing_process": False,
+                    "message": "started",
+                    "ownership": {
+                        "managed_by": "houmao.cao.server_launcher",
+                        "base_url": "http://localhost:9889",
+                        "artifact_dir": str(
+                            demo_output_dir
+                            / "cao"
+                            / "runtime"
+                            / "cao_servers"
+                            / "localhost-9889"
+                            / "launcher"
+                        ),
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    payload = HELPERS.start_demo_cao(
+        repo_root=repo_root,
+        demo_output_dir=demo_output_dir,
+        cao_base_url="http://localhost:9889",
+        run_launcher=fake_run_launcher,
+    )
+
+    config_path = demo_output_dir / "cao" / "launcher.toml"
+    assert calls == [["start", "--config", str(config_path)]]
+    assert config_path.read_text(encoding="utf-8").splitlines()[2] == 'home_dir = ""'
+    assert payload["managed"] is True
+    assert payload["started_current_run"] is True
+    assert payload["ownership_verified"] is True
+    assert payload["profile_store"] == str(
+        demo_output_dir
+        / "cao"
+        / "runtime"
+        / "cao_servers"
+        / "localhost-9889"
+        / "home"
+        / ".aws"
+        / "cli-agent-orchestrator"
+        / "agent-store"
+    )
+
+
+def test_start_demo_cao_attempts_recovery_for_unverified_healthy_reuse(tmp_path: Path) -> None:
+    """Unverified healthy reuse should trigger stop/status/start recovery before succeeding."""
+
+    repo_root = tmp_path / "repo"
+    demo_output_dir = repo_root / "tmp" / "demo"
+    artifact_dir = (
+        demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "launcher"
+    )
+    responses = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["start"],
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "healthy": True,
+                        "started_new_process": False,
+                        "reused_existing_process": True,
+                        "message": "reused unknown",
+                        "ownership": None,
+                    }
+                ),
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=["stop"],
+                returncode=0,
+                stdout=json.dumps({"stopped": True, "already_stopped": False}),
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=["status"],
+                returncode=2,
+                stdout=json.dumps({"healthy": False, "error": "connection refused"}),
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=["start"],
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "healthy": True,
+                        "started_new_process": True,
+                        "reused_existing_process": False,
+                        "message": "started fresh",
+                        "ownership": {
+                            "managed_by": "houmao.cao.server_launcher",
+                            "base_url": "http://localhost:9889",
+                            "artifact_dir": str(artifact_dir),
+                        },
+                    }
+                ),
+                stderr="",
+            ),
+        ]
+    )
+    calls: list[list[str]] = []
+
+    def fake_run_launcher(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        del cwd
+        calls.append(args)
+        return next(responses)
+
+    payload = HELPERS.start_demo_cao(
+        repo_root=repo_root,
+        demo_output_dir=demo_output_dir,
+        cao_base_url="http://localhost:9889",
+        run_launcher=fake_run_launcher,
+    )
+
+    config_path = demo_output_dir / "cao" / "launcher.toml"
+    assert calls == [
+        ["start", "--config", str(config_path)],
+        ["stop", "--config", str(config_path)],
+        ["status", "--config", str(config_path)],
+        ["start", "--config", str(config_path)],
+    ]
+    assert payload["recovery_attempted"] is True
+    assert payload["started_current_run"] is True
+    assert payload["ownership_verified"] is True
+
+
 def test_ensure_project_worktree_provisions_missing_project_directory(tmp_path: Path) -> None:
     """Missing project directories should be provisioned through git worktree add."""
 
@@ -304,6 +454,20 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     report_path = demo_output_dir / "report.json"
     parameters_path = PACK_DIR / "inputs" / "demo_parameters.json"
     message_id = "msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    bootstrap_filesystem_mailbox(
+        mailbox_root,
+        principal=MailboxPrincipal(
+            principal_id="AGENTSYS-mailbox-sender",
+            address="AGENTSYS-mailbox-sender@agents.localhost",
+        ),
+    )
+    bootstrap_filesystem_mailbox(
+        mailbox_root,
+        principal=MailboxPrincipal(
+            principal_id="AGENTSYS-mailbox-receiver",
+            address="AGENTSYS-mailbox-receiver@agents.localhost",
+        ),
+    )
 
     artifacts = {
         "sender_build": {
@@ -381,6 +545,68 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
 
     for label, payload in artifacts.items():
         _write_json(demo_output_dir / f"{label}.json", payload)
+    _write_json(
+        demo_output_dir / "cao_start.json",
+        {
+            "managed": True,
+            "base_url": "http://localhost:9889",
+            "launcher_config_path": str(demo_output_dir / "cao" / "launcher.toml"),
+            "runtime_root": str(demo_output_dir / "cao" / "runtime"),
+            "home_dir": str(demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "home"),
+            "profile_store": str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "home"
+                / ".aws"
+                / "cli-agent-orchestrator"
+                / "agent-store"
+            ),
+            "artifact_dir": str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "launcher"
+            ),
+            "log_file": str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "launcher"
+                / "cao-server.log"
+            ),
+            "launcher_result_file": str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "launcher"
+                / "launcher_result.json"
+            ),
+            "ownership_file": str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "launcher"
+                / "ownership.json"
+            ),
+            "healthy": True,
+            "started_current_run": True,
+            "reused_existing_process": False,
+            "ownership_verified": True,
+            "recovery_attempted": False,
+            "message": "started",
+        },
+    )
 
     report = HELPERS.build_report(
         output_path=report_path,
@@ -393,6 +619,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         reply_parent_message_id=message_id,
     )
 
+    assert report["checks"]["cao_managed"] is True
+    assert report["checks"]["shared_mailbox_index_present"] is True
+    assert report["checks"]["sender_mailbox_local_sqlite_present"] is True
+    assert report["checks"]["receiver_mailbox_local_sqlite_present"] is True
     assert report["checks"]["shared_mailbox_root"] is True
     assert report["checks"]["reply_parent_matches_send_message_id"] is True
 
@@ -403,6 +633,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["project_workdir"] == "<PROJECT_WORKDIR>"
     assert sanitized["runtime_root"] == "<RUNTIME_ROOT>"
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
+    assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
+    assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
+    assert sanitized["mailbox_state"]["sender_local_sqlite_path"] == "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>"
+    assert sanitized["mailbox_state"]["receiver_local_sqlite_path"] == "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>"
     assert sanitized["reply_parent_message_id"] == "<MESSAGE_ID>"
     assert sanitized["artifacts"]["mail_send"] == "<ARTIFACT_PATH:mail_send>"
     assert sanitized["steps"]["sender_build"]["home_id"] == "<BRAIN_HOME_ID>"

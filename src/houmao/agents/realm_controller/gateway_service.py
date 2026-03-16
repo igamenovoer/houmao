@@ -41,7 +41,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
+    append_gateway_notifier_audit_record,
     build_gateway_mail_notifier_status,
     delete_gateway_current_instance,
     gateway_health_response,
@@ -378,9 +380,7 @@ class GatewayServiceRuntime:
                 interval_seconds=request_payload.interval_seconds,
                 last_error=None,
             )
-            self._log(
-                f"mail notifier enabled interval_seconds={request_payload.interval_seconds}"
-            )
+            self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
             return build_gateway_mail_notifier_status(
                 record=record,
                 supported=True,
@@ -468,10 +468,7 @@ class GatewayServiceRuntime:
                 continue
 
             now_monotonic = time.monotonic()
-            if (
-                next_poll_monotonic is None
-                or scheduled_interval_seconds != record.interval_seconds
-            ):
+            if next_poll_monotonic is None or scheduled_interval_seconds != record.interval_seconds:
                 next_poll_monotonic = now_monotonic + record.interval_seconds
                 scheduled_interval_seconds = record.interval_seconds
 
@@ -498,6 +495,7 @@ class GatewayServiceRuntime:
                 return
 
             poll_time_utc = now_utc_iso()
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             try:
                 mailbox = self._load_notifier_mailbox_config()
             except GatewayError as exc:
@@ -506,6 +504,15 @@ class GatewayServiceRuntime:
                     enabled=False,
                     interval_seconds=None,
                     last_error=str(exc),
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=None,
+                    unread_digest=None,
+                    outcome="poll_error",
+                    detail=str(exc),
                 )
                 self._log(f"mail notifier disabled: {exc}")
                 return
@@ -517,6 +524,15 @@ class GatewayServiceRuntime:
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
                     last_error=str(exc),
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=None,
+                    unread_digest=None,
+                    outcome="poll_error",
+                    detail=str(exc),
                 )
                 self._log_rate_limited(
                     "mail_notifier_error",
@@ -531,6 +547,14 @@ class GatewayServiceRuntime:
                     last_notified_digest=None,
                     last_error=None,
                 )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=0,
+                    unread_digest=None,
+                    outcome="empty",
+                )
                 self._log_rate_limited("mail_notifier_empty", "mail notifier poll: no unread mail")
                 return
 
@@ -541,30 +565,49 @@ class GatewayServiceRuntime:
                     last_poll_at_utc=poll_time_utc,
                     last_error=None,
                 )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=unread_messages,
+                    unread_count=len(unread_messages),
+                    unread_digest=unread_digest,
+                    outcome="dedup_skip",
+                    detail="Unread set matched the last delivered reminder digest.",
+                )
                 self._log_rate_limited(
                     "mail_notifier_dedup",
                     "mail notifier poll: unread mail unchanged; skipping duplicate reminder",
                 )
                 return
 
-            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if (
                 status.request_admission != "open"
                 or status.active_execution != "idle"
                 or status.queue_depth > 0
             ):
+                busy_detail = (
+                    "mail notifier poll deferred because the managed session is busy "
+                    f"(admission={status.request_admission}, "
+                    f"active_execution={status.active_execution}, "
+                    f"queue_depth={status.queue_depth})"
+                )
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
                     last_error=None,
                 )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=unread_messages,
+                    unread_count=len(unread_messages),
+                    unread_digest=unread_digest,
+                    outcome="busy_skip",
+                    detail=busy_detail,
+                )
                 self._log_rate_limited(
                     "mail_notifier_busy",
-                    (
-                        "mail notifier poll deferred because the managed session is busy "
-                        f"(admission={status.request_admission}, active_execution={status.active_execution}, "
-                        f"queue_depth={status.queue_depth})"
-                    ),
+                    busy_detail,
                 )
                 return
 
@@ -576,6 +619,15 @@ class GatewayServiceRuntime:
                 last_notification_at_utc=poll_time_utc,
                 last_notified_digest=unread_digest,
                 last_error=None,
+            )
+            self._append_notifier_audit_record(
+                poll_time_utc=poll_time_utc,
+                status=status,
+                unread_messages=unread_messages,
+                unread_count=len(unread_messages),
+                unread_digest=unread_digest,
+                outcome="enqueued",
+                enqueued_request_id=request_id,
             )
             self._log(
                 f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
@@ -634,9 +686,7 @@ class GatewayServiceRuntime:
             "Unread messages:",
         ]
         for message in unread_messages[:10]:
-            lines.append(
-                f"- {message.created_at_utc} | {message.message_id} | {message.subject}"
-            )
+            lines.append(f"- {message.created_at_utc} | {message.message_id} | {message.subject}")
         if len(unread_messages) > 10:
             lines.append(f"- ... and {len(unread_messages) - 10} more unread messages")
         return "\n".join(lines)
@@ -680,6 +730,42 @@ class GatewayServiceRuntime:
         )
         self._refresh_status_snapshot(active_execution=self._active_execution_state())
         return request_id
+
+    def _append_notifier_audit_record(
+        self,
+        *,
+        poll_time_utc: str,
+        status: GatewayStatusV1,
+        unread_messages: list[_UnreadMailboxMessage],
+        unread_count: int | None,
+        unread_digest: str | None,
+        outcome: Literal["empty", "dedup_skip", "busy_skip", "enqueued", "poll_error"],
+        enqueued_request_id: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Persist one structured notifier audit row."""
+
+        append_gateway_notifier_audit_record(
+            self.m_paths.queue_path,
+            poll_time_utc=poll_time_utc,
+            unread_count=unread_count,
+            unread_digest=unread_digest,
+            unread_summary=tuple(
+                GatewayNotifierAuditUnreadMessage(
+                    message_id=message.message_id,
+                    thread_id=message.thread_id,
+                    created_at_utc=message.created_at_utc,
+                    subject=message.subject,
+                )
+                for message in unread_messages
+            ),
+            request_admission=status.request_admission,
+            active_execution=status.active_execution,
+            queue_depth=status.queue_depth,
+            outcome=outcome,
+            enqueued_request_id=enqueued_request_id,
+            detail=detail,
+        )
 
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
@@ -984,11 +1070,7 @@ class GatewayServiceRuntime:
         now_monotonic = time.monotonic()
         last_logged_at, suppressed_count = self.m_rate_limited_logs.get(key, (0.0, 0))
         if now_monotonic - last_logged_at >= _NOTIFIER_RATE_LIMIT_SECONDS:
-            suffix = (
-                f" (suppressed {suppressed_count} repeats)"
-                if suppressed_count > 0
-                else ""
-            )
+            suffix = f" (suppressed {suppressed_count} repeats)" if suppressed_count > 0 else ""
             self._log(message + suffix)
             self.m_rate_limited_logs[key] = (now_monotonic, 0)
             return

@@ -28,11 +28,15 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     gateway_paths_from_manifest_path,
     load_gateway_status,
+    read_gateway_notifier_audit_records,
     read_pid_file,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox.managed import DeliveryRequest, deliver_message
+from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
@@ -132,6 +136,68 @@ def _rewrite_manifest_terminal_id(manifest_path: Path, *, terminal_id: str) -> N
     payload["backend_state"]["terminal_id"] = terminal_id
     payload["cao"]["terminal_id"] = terminal_id
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _deliver_unread_mailbox_message(
+    mailbox_root: Path,
+    *,
+    message_id: str,
+    recipient_principal_id: str,
+    recipient_address: str,
+) -> str:
+    """Deliver one unread filesystem mailbox message for gateway notifier tests."""
+
+    sender = MailboxPrincipal(
+        principal_id="AGENTSYS-sender",
+        address="AGENTSYS-sender@agents.localhost",
+    )
+    bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+
+    staged_message = mailbox_root / "staging" / f"{message_id}.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": message_id,
+            "thread_id": message_id,
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-16T09:00:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient_principal_id,
+                    "address": recipient_address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Gateway notifier integration message",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    message = MailboxMessage(
+        message_id=request.message_id,
+        thread_id=request.thread_id,
+        in_reply_to=request.in_reply_to,
+        references=list(request.references),
+        created_at_utc=request.created_at_utc,
+        sender=request.sender.to_mailbox_principal(),
+        to=[principal.to_mailbox_principal() for principal in request.to],
+        cc=[principal.to_mailbox_principal() for principal in request.cc],
+        reply_to=[principal.to_mailbox_principal() for principal in request.reply_to],
+        subject=request.subject,
+        body_markdown="Gateway integration body\n",
+        attachments=[attachment.to_mailbox_attachment() for attachment in request.attachments],
+        headers=dict(request.headers),
+    )
+    staged_message.parent.mkdir(parents=True, exist_ok=True)
+    staged_message.write_text(serialize_message_document(message), encoding="utf-8")
+    deliver_message(mailbox_root, request)
+    return message_id
 
 
 class _FakeTmuxEnv:
@@ -960,6 +1026,114 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
             log_text = paths.log_path.read_text(encoding="utf-8")
             assert "mail notifier enabled interval_seconds=60" in log_text
             assert "mail notifier disabled" in log_text
+        finally:
+            _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway notifier polling should persist queryable audit history."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    mailbox_root = tmp_path / "mailbox"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+
+    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
+        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
+        tmux_env = _FakeTmuxEnv()
+        _install_gateway_runtime_fakes(
+            monkeypatch=monkeypatch,
+            registry=registry,
+            tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
+        )
+
+        start_exit, start_payload, start_err = _run_cli_json(
+            capsys,
+            [
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(runtime_root),
+                "--brain-manifest",
+                str(brain_manifest_path),
+                "--role",
+                "r",
+                "--backend",
+                "cao_rest",
+                "--workdir",
+                str(tmp_path),
+                "--cao-base-url",
+                fake_cao.base_url,
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--mailbox-address",
+                "AGENTSYS-gateway@agents.localhost",
+            ],
+        )
+        assert start_exit == 0
+        assert start_err == ""
+
+        manifest_path = Path(str(start_payload["session_manifest"]))
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        assert paths is not None
+
+        try:
+            attach_exit, attach_payload, attach_err = _run_cli_json(
+                capsys,
+                [
+                    "attach-gateway",
+                    "--agent-def-dir",
+                    str(agent_def_dir),
+                    "--agent-identity",
+                    str(manifest_path),
+                    "--gateway-host",
+                    "127.0.0.1",
+                ],
+            )
+            assert attach_exit == 0
+            assert attach_err == ""
+
+            message_id = _deliver_unread_mailbox_message(
+                mailbox_root,
+                message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+                recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+                recipient_address=str(start_payload["mailbox"]["address"]),
+            )
+
+            client = GatewayClient(
+                endpoint=GatewayEndpoint(
+                    host="127.0.0.1",
+                    port=int(attach_payload["gateway_port"]),
+                )
+            )
+            enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+            assert enabled_status.enabled is True
+
+            _wait_until(lambda: bool(fake_cao.messages()), timeout_seconds=5.0)
+            _wait_until(
+                lambda: any(
+                    row.outcome == "enqueued"
+                    for row in read_gateway_notifier_audit_records(paths.queue_path)
+                ),
+                timeout_seconds=5.0,
+            )
+
+            audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+            enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+            assert enqueued_rows
+            assert enqueued_rows[-1].unread_count == 1
+            assert enqueued_rows[-1].unread_summary[0].message_id == message_id
+            assert enqueued_rows[-1].enqueued_request_id is not None
+            assert fake_cao.messages()
+            assert message_id in fake_cao.messages()[-1][1]
         finally:
             _best_effort_cleanup_gateway(manifest_path)
 

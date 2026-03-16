@@ -227,7 +227,13 @@ Support contract rules:
 - The gateway loads the runtime-owned session manifest referenced by `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest to determine whether notifier behavior is supported.
 - Enabling the notifier fails explicitly when the attach contract has no readable manifest or when the manifest launch plan has no mailbox binding.
-- Unread-mail truth comes from mailbox-local SQLite, while notifier cadence, deduplication, and last-error bookkeeping remain gateway-owned state in `queue.sqlite`.
+- Unread-mail truth comes from mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+
+Detailed inspection note:
+
+- `GET /v1/mail-notifier` stays a compact snapshot surface.
+- Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
+- The runnable walkthrough for this behavior lives at [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md).
 
 ## Durable And Ephemeral Gateway Artifacts
 
@@ -256,7 +262,7 @@ Artifact roles:
 - `protocol-version.txt`: simple version marker for local artifacts
 - `desired-config.json`: desired host and port to reuse on later starts
 - `state.json`: read-optimized current status contract
-- `queue.sqlite`: durable queue records plus the singleton gateway-owned mail notifier record
+- `queue.sqlite`: durable queue records, the singleton gateway-owned mail notifier record, and the `gateway_notifier_audit` table that records one structured notifier decision row per enabled poll cycle
 - `events.jsonl`: append-only event log
 - `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
 - `run/current-instance.json`: current process id, host, port, epoch, and instance id
@@ -268,7 +274,7 @@ Operator note:
 tail -f <session-root>/gateway/logs/gateway.log
 ```
 
-That log is the stable tail-watch surface for the running gateway. Structured queue history still lives in `events.jsonl`, but `gateway.log` is the human-oriented running log for day-to-day observation.
+That log is the stable tail-watch surface for the running gateway. Request lifecycle history still lives in `events.jsonl`, while detailed mail-notifier decision history now lives in `queue.sqlite.gateway_notifier_audit`. `gateway.log` remains the human-oriented running log for day-to-day observation.
 
 ## Current Implementation Notes
 

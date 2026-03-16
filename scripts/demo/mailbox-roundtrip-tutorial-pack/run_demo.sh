@@ -50,9 +50,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-AGENT_DEF_DIR=""
+AGENT_DEF_DIR="${AGENT_DEF_DIR:-}"
 BACKEND=""
-CAO_BASE_URL=""
+CAO_BASE_URL="${CAO_BASE_URL:-}"
 MAILBOX_ROOT=""
 DEMO_OUTPUT_DIR=""
 PROJECT_WORKDIR=""
@@ -62,6 +62,7 @@ REPORT_PATH=""
 SANITIZED_REPORT_PATH=""
 PARAMS_PATH=""
 JOBS_DIR=""
+DEMO_EXTERNAL_CAO="${DEMO_EXTERNAL_CAO:-0}"
 SENDER_BLUEPRINT=""
 SENDER_REQUESTED_IDENTITY=""
 SENDER_CONTROL_IDENTITY=""
@@ -76,7 +77,9 @@ MESSAGE_SUBJECT=""
 INITIAL_BODY_FILE=""
 REPLY_BODY_FILE=""
 CAO_PROFILE_STORE="${CAO_PROFILE_STORE:-}"
-CAO_LAUNCHER_CONFIG_PATH="${CAO_LAUNCHER_CONFIG_PATH:-$REPO_ROOT/config/cao-server-launcher/local.toml}"
+CAO_MANAGED=0
+CAO_STARTED_BY_RUN=0
+CAO_STOPPED=0
 SENDER_STOPPED=0
 RECEIVER_STOPPED=0
 SENDER_STARTED=0
@@ -179,6 +182,15 @@ cleanup() {
       --agent-identity "$SENDER_CONTROL_IDENTITY" >"$DEMO_OUTPUT_DIR/cleanup_sender_stop.json" \
       2>"$DEMO_OUTPUT_DIR/cleanup_sender_stop.err" || true
   fi
+  if [[ "$CAO_MANAGED" -eq 1 && "$CAO_STARTED_BY_RUN" -eq 1 && "$CAO_STOPPED" -ne 1 ]]; then
+    log "cleanup: stopping launcher-managed CAO"
+    pixi run python "$HELPER_SCRIPT" stop-demo-cao \
+      --repo-root "$REPO_ROOT" \
+      --demo-output-dir "$DEMO_OUTPUT_DIR" \
+      --cao-base-url "$CAO_BASE_URL" >"$DEMO_OUTPUT_DIR/cleanup_cao_stop.json" \
+      2>"$DEMO_OUTPUT_DIR/cleanup_cao_stop.err" || true
+    CAO_STOPPED=1
+  fi
 }
 
 trap cleanup EXIT
@@ -227,6 +239,8 @@ mkdir -p "$RUNTIME_ROOT"
 rm -rf "$INPUTS_DIR"
 rm -rf "$DEMO_OUTPUT_DIR/shared-mailbox"
 rm -f \
+  "$DEMO_OUTPUT_DIR"/cao_*.json \
+  "$DEMO_OUTPUT_DIR"/cao_*.err \
   "$REPORT_PATH" \
   "$SANITIZED_REPORT_PATH" \
   "$DEMO_OUTPUT_DIR"/sender_*.json \
@@ -247,13 +261,35 @@ BACKEND="$(json_value "$PARAMS_PATH" backend)"
 CAO_BASE_URL="${CAO_BASE_URL:-$(json_value "$PARAMS_PATH" cao_base_url)}"
 CAO_BASE_URL="${CAO_BASE_URL%/}"
 MAILBOX_ROOT="$(pixi run python "$HELPER_SCRIPT" render-mailbox-root "$PARAMS_PATH" "$DEMO_OUTPUT_DIR")"
-if [[ -z "$CAO_PROFILE_STORE" ]]; then
-  CAO_PROFILE_STORE="$(
-    pixi run python "$HELPER_SCRIPT" detect-cao-profile-store \
+
+if [[ "$DEMO_EXTERNAL_CAO" == "1" ]]; then
+  log "CAO mode: external (DEMO_EXTERNAL_CAO=1)"
+elif pixi run python "$HELPER_SCRIPT" supports-loopback-cao --cao-base-url "$CAO_BASE_URL" >/dev/null 2>&1; then
+  run_demo_command cao_start \
+    pixi run python "$HELPER_SCRIPT" start-demo-cao \
       --repo-root "$REPO_ROOT" \
-      --cao-base-url "$CAO_BASE_URL" \
-      --launcher-config-path "$CAO_LAUNCHER_CONFIG_PATH"
-  )"
+      --demo-output-dir "$DEMO_OUTPUT_DIR" \
+      --cao-base-url "$CAO_BASE_URL"
+  CAO_MANAGED=1
+  MANAGED_CAO_PROFILE_STORE="$(json_value "$DEMO_OUTPUT_DIR/cao_start.json" profile_store)"
+  STARTED_CURRENT_RUN="$(json_value "$DEMO_OUTPUT_DIR/cao_start.json" started_current_run)"
+  if [[ "$STARTED_CURRENT_RUN" == "True" || "$STARTED_CURRENT_RUN" == "true" ]]; then
+    CAO_STARTED_BY_RUN=1
+  fi
+  if [[ -n "$CAO_PROFILE_STORE" && "$CAO_PROFILE_STORE" != "$MANAGED_CAO_PROFILE_STORE" ]]; then
+    fail "CAO_PROFILE_STORE override does not match the demo-managed CAO profile store"
+  fi
+  CAO_PROFILE_STORE="$MANAGED_CAO_PROFILE_STORE"
+  log "CAO mode: launcher-managed loopback"
+else
+  log "CAO mode: external (unsupported loopback launcher management for $CAO_BASE_URL)"
+fi
+
+if [[ "$CAO_MANAGED" -ne 1 && -z "$CAO_PROFILE_STORE" ]]; then
+  skip "external CAO requires explicit CAO_PROFILE_STORE=/abs/path/.../agent-store"
+fi
+if [[ "$CAO_MANAGED" -ne 1 ]]; then
+  skip "external CAO is not part of the default verified tutorial contract; use the manual realm_controller walkthrough with explicit CAO_PROFILE_STORE"
 fi
 
 SENDER_BLUEPRINT="$(json_value "$PARAMS_PATH" sender.blueprint)"

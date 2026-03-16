@@ -31,6 +31,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     GatewayCapabilityPublication,
     ensure_gateway_capability,
     gateway_paths_from_manifest_path,
+    read_gateway_notifier_audit_records,
     write_gateway_current_instance,
 )
 from houmao.agents.realm_controller.loaders import load_blueprint
@@ -440,7 +441,9 @@ def _seed_cao_gateway_root(
     mailbox_enabled: bool = False,
 ) -> Path:
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    plan = _sample_cao_plan_with_mailbox(tmp_path) if mailbox_enabled else _sample_cao_plan(tmp_path)
+    plan = (
+        _sample_cao_plan_with_mailbox(tmp_path) if mailbox_enabled else _sample_cao_plan(tmp_path)
+    )
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=plan,
@@ -479,7 +482,13 @@ def _seed_cao_gateway_root(
     return paths.gateway_root
 
 
-def _deliver_unread_mailbox_message(tmp_path: Path) -> str:
+def _deliver_unread_mailbox_message(
+    tmp_path: Path,
+    *,
+    message_id: str = "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+    created_at_utc: str = "2026-03-16T09:00:00Z",
+    subject: str = "Gateway unread reminder",
+) -> str:
     mailbox_root = tmp_path / "mailbox"
     sender = MailboxPrincipal(
         principal_id="AGENTSYS-sender",
@@ -495,11 +504,11 @@ def _deliver_unread_mailbox_message(tmp_path: Path) -> str:
     request = DeliveryRequest.from_payload(
         {
             "staged_message_path": str(staged_message),
-            "message_id": "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
-            "thread_id": "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "message_id": message_id,
+            "thread_id": message_id,
             "in_reply_to": None,
             "references": [],
-            "created_at_utc": "2026-03-16T09:00:00Z",
+            "created_at_utc": created_at_utc,
             "sender": {
                 "principal_id": sender.principal_id,
                 "address": sender.address,
@@ -512,7 +521,7 @@ def _deliver_unread_mailbox_message(tmp_path: Path) -> str:
             ],
             "cc": [],
             "reply_to": [],
-            "subject": "Gateway unread reminder",
+            "subject": subject,
             "attachments": [],
             "headers": {},
         }
@@ -748,6 +757,9 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
     message_id = _deliver_unread_mailbox_message(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
@@ -796,6 +808,72 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     log_text = (gateway_root / "logs" / "gateway.log").read_text(encoding="utf-8")
     assert "mail notifier enabled" in log_text
     assert "mail notifier enqueued" in log_text
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    dedup_rows = [row for row in audit_rows if row.outcome == "dedup_skip"]
+    assert enqueued_rows
+    assert dedup_rows
+    assert enqueued_rows[-1].unread_count == 1
+    assert enqueued_rows[-1].unread_summary[0].message_id == message_id
+    assert enqueued_rows[-1].enqueued_request_id is not None
+    assert all(row.unread_digest == enqueued_rows[-1].unread_digest for row in dedup_rows)
+
+
+def test_gateway_mail_notifier_summarizes_multiple_unread_messages_in_one_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    first_message_id = _deliver_unread_mailbox_message(
+        tmp_path,
+        message_id="msg-20260316T090000Z-11111111111111111111111111111111",
+        created_at_utc="2026-03-16T09:00:00Z",
+        subject="Gateway unread reminder one",
+    )
+    second_message_id = _deliver_unread_mailbox_message(
+        tmp_path,
+        message_id="msg-20260316T090100Z-22222222222222222222222222222222",
+        created_at_utc="2026-03-16T09:01:00Z",
+        subject="Gateway unread reminder two",
+    )
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        prompt = fake_client.submitted_prompts[0][1]
+        assert first_message_id in prompt
+        assert second_message_id in prompt
+    finally:
+        runtime.shutdown()
+
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert enqueued_rows
+    latest_row = enqueued_rows[-1]
+    assert latest_row.unread_count == 2
+    assert [item.message_id for item in latest_row.unread_summary] == [
+        first_message_id,
+        second_message_id,
+    ]
 
 
 def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
@@ -803,6 +881,9 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
     message_id = _deliver_unread_mailbox_message(tmp_path)
 
     class _SlowFakeCaoRestClient(_FakeCaoRestClient):
@@ -844,3 +925,13 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
 
     log_text = (gateway_root / "logs" / "gateway.log").read_text(encoding="utf-8")
     assert "mail notifier poll deferred" in log_text
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert busy_rows
+    assert enqueued_rows
+    assert any(
+        row.active_execution == "running" or (row.queue_depth is not None and row.queue_depth > 0)
+        for row in busy_rows
+    )
+    assert enqueued_rows[-1].unread_summary[0].message_id == message_id

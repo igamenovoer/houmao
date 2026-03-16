@@ -278,6 +278,8 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
         )
 
     mailbox_root = config.filesystem_root.resolve()
+    # Registration-dependent path resolution stays strict. Runtime startup must bootstrap the
+    # mailbox before calling this helper when the mailbox root is already initialized.
     mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=config.address)
     inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
     local_sqlite_path = resolve_active_mailbox_local_sqlite_path(mailbox_root, address=config.address)

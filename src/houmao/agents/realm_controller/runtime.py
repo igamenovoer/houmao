@@ -650,17 +650,6 @@ def start_runtime_session(
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
 
-    launch_plan = build_launch_plan(
-        LaunchPlanRequest(
-            brain_manifest=manifest,
-            role_package=role_package,
-            backend=selected_backend,
-            working_directory=selected_workdir,
-            mailbox=resolved_mailbox,
-        )
-    )
-    launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
-
     manifest_path = default_manifest_path(effective_runtime_root, selected_backend, session_id)
     manifest_path = manifest_path.resolve()
     if resolved_mailbox is not None:
@@ -672,6 +661,17 @@ def start_runtime_session(
             )
         except RuntimeError as exc:
             raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
+
+    launch_plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role_package,
+            backend=selected_backend,
+            working_directory=selected_workdir,
+            mailbox=resolved_mailbox,
+        )
+    )
+    launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,

@@ -12,15 +12,37 @@
     "sender_start": "<ARTIFACT_PATH:sender_start>",
     "sender_stop": "<ARTIFACT_PATH:sender_stop>"
   },
+  "cao": {
+    "artifact_dir": "<CAO_ARTIFACT_DIR>",
+    "base_url": "http://localhost:9889",
+    "healthy": true,
+    "home_dir": "<CAO_HOME_DIR>",
+    "launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
+    "launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
+    "log_file": "<CAO_LOG_FILE>",
+    "managed": true,
+    "message": "started fake CAO",
+    "ownership_file": "<CAO_OWNERSHIP_FILE>",
+    "ownership_verified": true,
+    "profile_store": "<CAO_PROFILE_STORE>",
+    "recovery_attempted": false,
+    "reused_existing_process": false,
+    "runtime_root": "<CAO_RUNTIME_ROOT>",
+    "started_current_run": true
+  },
   "checks": {
+    "cao_managed": true,
     "receiver_build_manifest_present": true,
+    "receiver_mailbox_local_sqlite_present": true,
     "receiver_start_mailbox_enabled": true,
     "receiver_stop_ok": true,
     "reply_parent_matches_send_message_id": true,
     "send_message_id_present": true,
     "sender_build_manifest_present": true,
+    "sender_mailbox_local_sqlite_present": true,
     "sender_start_mailbox_enabled": true,
     "sender_stop_ok": true,
+    "shared_mailbox_index_present": true,
     "shared_mailbox_root": true
   },
   "demo": "mailbox-roundtrip-tutorial-pack",
@@ -39,6 +61,13 @@
   ],
   "generated_at_utc": "<TIMESTAMP>",
   "mailbox_root": "<MAILBOX_ROOT>",
+  "mailbox_state": {
+    "receiver_local_sqlite_path": "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>",
+    "receiver_mailbox_dir": "<RECEIVER_MAILBOX_DIR>",
+    "sender_local_sqlite_path": "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>",
+    "sender_mailbox_dir": "<SENDER_MAILBOX_DIR>",
+    "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>"
+  },
   "parameters": {
     "agent_def_dir": "<AGENT_DEF_DIR>",
     "backend": "cao_rest",

@@ -203,6 +203,91 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 raise SystemExit(process.returncode)
 
             module = args[3]
+            if module == "houmao.cao.tools.cao_server_launcher":
+                command = args[4]
+
+                def arg_value(flag: str) -> str:
+                    index = args.index(flag)
+                    return args[index + 1]
+
+                def save_state() -> None:
+                    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+                def load_launcher_context(config_path: Path) -> tuple[str, Path, Path]:
+                    config_values: dict[str, str] = {}
+                    for line in config_path.read_text(encoding="utf-8").splitlines():
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith("#"):
+                            continue
+                        key, raw_value = stripped.split("=", 1)
+                        config_values[key.strip()] = raw_value.strip().strip('"')
+                    base_url = config_values["base_url"].rstrip("/")
+                    runtime_root_raw = config_values["runtime_root"]
+                    runtime_root = (
+                        (config_path.parent / runtime_root_raw).resolve()
+                        if not Path(runtime_root_raw).is_absolute()
+                        else Path(runtime_root_raw).resolve()
+                    )
+                    host_port = base_url.removeprefix("http://")
+                    host, port = host_port.split(":", 1)
+                    server_root = runtime_root / "cao_servers" / f"{host}-{port}"
+                    return base_url, server_root / "launcher", server_root / "home"
+
+                config_path = Path(arg_value("--config")).resolve()
+                base_url, artifact_dir, home_dir = load_launcher_context(config_path)
+                ownership = {
+                    "managed_by": "houmao.cao.server_launcher",
+                    "base_url": base_url,
+                    "artifact_dir": str(artifact_dir),
+                }
+
+                if command == "start":
+                    state["cao"] = {"healthy": True}
+                    print(
+                        json.dumps(
+                            {
+                                "healthy": True,
+                                "started_new_process": True,
+                                "reused_existing_process": False,
+                                "message": "started fake CAO",
+                                "ownership": ownership,
+                            }
+                        )
+                    )
+                    save_state()
+                    raise SystemExit(0)
+
+                if command == "status":
+                    healthy = bool(state.get("cao", {}).get("healthy"))
+                    print(
+                        json.dumps(
+                            {
+                                "healthy": healthy,
+                                "service": "cli-agent-orchestrator" if healthy else None,
+                                "error": None if healthy else "connection refused",
+                            }
+                        )
+                    )
+                    save_state()
+                    raise SystemExit(0 if healthy else 2)
+
+                if command == "stop":
+                    healthy = bool(state.get("cao", {}).get("healthy"))
+                    state["cao"] = {"healthy": False}
+                    print(
+                        json.dumps(
+                            {
+                                "stopped": healthy,
+                                "already_stopped": not healthy,
+                                "message": "stopped fake CAO" if healthy else "fake CAO already stopped",
+                            }
+                        )
+                    )
+                    save_state()
+                    raise SystemExit(0)
+
+                raise SystemExit(f"unexpected launcher command: {command!r}")
+
             if module != "houmao.agents.realm_controller":
                 process = subprocess.run(
                     [sys.executable, "-m", module, *args[4:]],
@@ -262,13 +347,23 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 blueprint = arg_value("--blueprint")
                 runtime_root = Path(arg_value("--runtime-root"))
                 tool = "claude" if "claude" in blueprint else "codex"
-                mailbox_root = arg_value("--mailbox-root")
+                mailbox_root = Path(arg_value("--mailbox-root"))
                 principal_id = arg_value("--mailbox-principal-id")
                 mailbox_address = arg_value("--mailbox-address")
                 workdir = Path(arg_value("--workdir"))
                 session_manifest = runtime_root / "sessions" / f"{agent_identity}.json"
                 session_manifest.parent.mkdir(parents=True, exist_ok=True)
                 session_manifest.write_text("{}", encoding="utf-8")
+                from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
+                from houmao.mailbox.protocol import MailboxPrincipal
+
+                bootstrap_filesystem_mailbox(
+                    mailbox_root,
+                    principal=MailboxPrincipal(
+                        principal_id=principal_id,
+                        address=mailbox_address,
+                    ),
+                )
                 jobs_root = os.environ.get("AGENTSYS_LOCAL_JOBS_DIR")
                 if jobs_root:
                     job_dir = Path(jobs_root) / agent_identity
@@ -293,7 +388,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                                 "transport": "filesystem",
                                 "principal_id": principal_id,
                                 "address": mailbox_address,
-                                "filesystem_root": mailbox_root,
+                                "filesystem_root": str(mailbox_root),
                                 "bindings_version": "2026-03-16T12:00:00Z",
                             },
                         }
@@ -399,6 +494,17 @@ def _realm_controller_calls(command_log: list[dict[str, object]]) -> list[list[s
     return calls
 
 
+def _launcher_calls(command_log: list[dict[str, object]]) -> list[list[str]]:
+    """Return logged `cao_server_launcher` invocations."""
+
+    calls: list[list[str]] = []
+    for entry in command_log:
+        args = [str(item) for item in entry["args"]]
+        if args[:4] == ["run", "python", "-m", "houmao.cao.tools.cao_server_launcher"]:
+            calls.append(args)
+    return calls
+
+
 def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: Path) -> None:
     """The shell runner should honor the revised output-dir and jobs-dir contract."""
 
@@ -407,8 +513,6 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
     (repo_root / "tests" / "fixtures").mkdir(parents=True)
     demo_pack_dir = _copy_demo_pack(repo_root)
     _copy_agent_defs(repo_root)
-    launcher_home_dir = tmp_path / "launcher-home"
-    _write_launcher_context(repo_root, base_url="http://localhost:9889", launcher_home_dir=launcher_home_dir)
 
     fake_bin_dir = tmp_path / "fake-bin"
     fake_bin_dir.mkdir()
@@ -421,9 +525,12 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
     env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
     env["FAKE_PIXI_STATE"] = str(state_path)
     env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    env.pop("CAO_PROFILE_STORE", None)
+    env.pop("DEMO_EXTERNAL_CAO", None)
 
     result = subprocess.run(
         [
@@ -454,7 +561,9 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
     )
     assert actual_sanitized == expected_sanitized
 
-    calls = _realm_controller_calls(_load_command_log(log_path))
+    command_log = _load_command_log(log_path)
+    calls = _realm_controller_calls(command_log)
+    launcher_calls = _launcher_calls(command_log)
     build_calls = [call for call in calls if call[4] == "build-brain"]
     start_calls = [call for call in calls if call[4] == "start-session"]
     mail_calls = [call for call in calls if call[4:6] == ["mail", "send"]]
@@ -481,8 +590,20 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
         assert "--cao-profile-store" in call
         assert (
             call[call.index("--cao-profile-store") + 1]
-            == str(launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "agent-store")
+            == str(
+                demo_output_dir
+                / "cao"
+                / "runtime"
+                / "cao_servers"
+                / "localhost-9889"
+                / "home"
+                / ".aws"
+                / "cli-agent-orchestrator"
+                / "agent-store"
+            )
         )
+
+    assert [call[4] for call in launcher_calls] == ["start", "stop"]
 
     sender_start = json.loads((demo_output_dir / "sender_start.json").read_text(encoding="utf-8"))
     receiver_start = json.loads((demo_output_dir / "receiver_start.json").read_text(encoding="utf-8"))
@@ -495,6 +616,54 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
     assert len(stop_calls) == 2
     stop_identities = {call[call.index("--agent-identity") + 1] for call in stop_calls}
     assert stop_identities == {"AGENTSYS-mailbox-sender", "AGENTSYS-mailbox-receiver"}
+
+
+def test_mailbox_roundtrip_runner_honors_agent_def_dir_env_override(tmp_path: Path) -> None:
+    """The shell runner should preserve the documented `AGENT_DEF_DIR` override."""
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts" / "demo").mkdir(parents=True)
+    (repo_root / "tests" / "fixtures").mkdir(parents=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    custom_agent_def_dir = repo_root / "custom-agent-defs"
+    shutil.copytree(
+        _source_repo_root() / "tests" / "fixtures" / "agents",
+        custom_agent_def_dir,
+    )
+
+    fake_bin_dir = tmp_path / "fake-bin"
+    fake_bin_dir.mkdir()
+    _write_fake_tools(fake_bin_dir)
+
+    state_path = tmp_path / "pixi-state.json"
+    log_path = tmp_path / "pixi-command-log.jsonl"
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
+    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
+    env["FAKE_PIXI_STATE"] = str(state_path)
+    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    env["AGENT_DEF_DIR"] = str(custom_agent_def_dir)
+    env.pop("CAO_PROFILE_STORE", None)
+    env.pop("DEMO_EXTERNAL_CAO", None)
+
+    result = subprocess.run(
+        [str(demo_pack_dir / "run_demo.sh")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "verification passed" in result.stdout
+
+    calls = _realm_controller_calls(_load_command_log(log_path))
+    assert calls
+    assert all("--agent-def-dir" in call for call in calls)
+    assert all(call[call.index("--agent-def-dir") + 1] == str(custom_agent_def_dir) for call in calls)
 
 
 def test_mailbox_roundtrip_runner_cleans_up_sender_when_receiver_start_fails(tmp_path: Path) -> None:
@@ -515,10 +684,13 @@ def test_mailbox_roundtrip_runner_cleans_up_sender_when_receiver_start_fails(tmp
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
     env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
     env["FAKE_PIXI_STATE"] = str(state_path)
     env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
     env["FAKE_RECEIVER_START_FAIL"] = "1"
+    env.pop("CAO_PROFILE_STORE", None)
+    env.pop("DEMO_EXTERNAL_CAO", None)
 
     result = subprocess.run(
         [str(demo_pack_dir / "run_demo.sh")],
@@ -532,10 +704,56 @@ def test_mailbox_roundtrip_runner_cleans_up_sender_when_receiver_start_fails(tmp
     assert result.returncode == 1
     assert "receiver_start" in result.stdout
 
-    calls = _realm_controller_calls(_load_command_log(log_path))
+    command_log = _load_command_log(log_path)
+    calls = _realm_controller_calls(command_log)
+    launcher_calls = _launcher_calls(command_log)
     stop_calls = [call for call in calls if call[4] == "stop-session"]
     assert len(stop_calls) == 1
     assert stop_calls[0][stop_calls[0].index("--agent-identity") + 1] == "AGENTSYS-mailbox-sender"
+    assert [call[4] for call in launcher_calls] == ["start", "stop"]
 
     demo_output_dir = _demo_output_dir(repo_root)
     assert (demo_output_dir / "cleanup_sender_stop.json").is_file()
+    assert (demo_output_dir / "cleanup_cao_stop.json").is_file()
+
+
+def test_mailbox_roundtrip_runner_skips_external_cao_without_explicit_profile_store(
+    tmp_path: Path,
+) -> None:
+    """External CAO mode should skip instead of guessing profile-store state."""
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts" / "demo").mkdir(parents=True)
+    (repo_root / "tests" / "fixtures").mkdir(parents=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    _copy_agent_defs(repo_root)
+
+    fake_bin_dir = tmp_path / "fake-bin"
+    fake_bin_dir.mkdir()
+    _write_fake_tools(fake_bin_dir)
+
+    state_path = tmp_path / "pixi-state.json"
+    log_path = tmp_path / "pixi-command-log.jsonl"
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
+    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
+    env["FAKE_PIXI_STATE"] = str(state_path)
+    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    env["CAO_BASE_URL"] = "http://cao.example.com:9889"
+    env.pop("CAO_PROFILE_STORE", None)
+    env.pop("DEMO_EXTERNAL_CAO", None)
+
+    result = subprocess.run(
+        [str(demo_pack_dir / "run_demo.sh")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "SKIP: external CAO requires explicit CAO_PROFILE_STORE" in result.stdout
+    assert _launcher_calls(_load_command_log(log_path)) == []

@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping, Protocol, cast
+from typing import Literal, Mapping, Protocol, Sequence, cast
 
 from pydantic import ValidationError
 
@@ -26,9 +26,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHost,
     GatewayJsonObject,
     GatewayJsonValue,
+    GatewayAdmissionState,
     GatewayMailNotifierStatusV1,
     GatewayProtocolVersion,
     GatewayStatusV1,
+    GatewayExecutionState,
     format_gateway_validation_error,
 )
 from houmao.agents.realm_controller.manifest import (
@@ -107,6 +109,42 @@ class GatewayMailNotifierRecord:
     last_notification_at_utc: str | None
     last_notified_digest: str | None
     last_error: str | None
+
+
+GatewayNotifierAuditOutcome = Literal[
+    "empty",
+    "dedup_skip",
+    "busy_skip",
+    "enqueued",
+    "poll_error",
+]
+
+
+@dataclass(frozen=True)
+class GatewayNotifierAuditUnreadMessage:
+    """Compact unread-message summary stored in notifier audit history."""
+
+    message_id: str
+    thread_id: str
+    created_at_utc: str
+    subject: str
+
+
+@dataclass(frozen=True)
+class GatewayNotifierAuditRecord:
+    """Durable per-poll gateway notifier audit record."""
+
+    audit_id: int
+    poll_time_utc: str
+    unread_count: int | None
+    unread_digest: str | None
+    unread_summary: tuple[GatewayNotifierAuditUnreadMessage, ...]
+    request_admission: GatewayAdmissionState | None
+    active_execution: GatewayExecutionState | None
+    queue_depth: int | None
+    outcome: GatewayNotifierAuditOutcome
+    enqueued_request_id: str | None
+    detail: str | None
 
 
 class _TmuxEnvSetter(Protocol):
@@ -445,10 +483,14 @@ def write_gateway_mail_notifier_record(
         updated = GatewayMailNotifierRecord(
             enabled=record.enabled if enabled is _UNSET else bool(enabled),
             interval_seconds=(
-                record.interval_seconds if interval_seconds is _UNSET else cast(int | None, interval_seconds)
+                record.interval_seconds
+                if interval_seconds is _UNSET
+                else cast(int | None, interval_seconds)
             ),
             last_poll_at_utc=(
-                record.last_poll_at_utc if last_poll_at_utc is _UNSET else cast(str | None, last_poll_at_utc)
+                record.last_poll_at_utc
+                if last_poll_at_utc is _UNSET
+                else cast(str | None, last_poll_at_utc)
             ),
             last_notification_at_utc=(
                 record.last_notification_at_utc
@@ -484,6 +526,115 @@ def build_gateway_mail_notifier_status(
         last_notification_at_utc=record.last_notification_at_utc,
         last_error=record.last_error,
     )
+
+
+def append_gateway_notifier_audit_record(
+    sqlite_path: Path,
+    *,
+    poll_time_utc: str,
+    unread_count: int | None,
+    unread_digest: str | None,
+    unread_summary: Sequence[GatewayNotifierAuditUnreadMessage],
+    request_admission: GatewayAdmissionState | None,
+    active_execution: GatewayExecutionState | None,
+    queue_depth: int | None,
+    outcome: GatewayNotifierAuditOutcome,
+    enqueued_request_id: str | None = None,
+    detail: str | None = None,
+) -> GatewayNotifierAuditRecord:
+    """Append one notifier audit row and return the persisted record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        _ensure_queue_schema(connection)
+        connection.execute(
+            """
+            INSERT INTO gateway_notifier_audit (
+                poll_time_utc,
+                unread_count,
+                unread_digest,
+                unread_summary_json,
+                request_admission,
+                active_execution,
+                queue_depth,
+                outcome,
+                enqueued_request_id,
+                detail
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                poll_time_utc,
+                unread_count,
+                unread_digest,
+                _serialize_gateway_notifier_unread_summary(unread_summary),
+                request_admission,
+                active_execution,
+                queue_depth,
+                outcome,
+                enqueued_request_id,
+                detail,
+            ),
+        )
+        row = connection.execute("SELECT last_insert_rowid()").fetchone()
+        connection.commit()
+    if row is None:
+        raise SessionManifestError(
+            "Gateway notifier audit insert did not return a persistent audit row id."
+        )
+    return GatewayNotifierAuditRecord(
+        audit_id=int(row[0]),
+        poll_time_utc=poll_time_utc,
+        unread_count=unread_count,
+        unread_digest=unread_digest,
+        unread_summary=tuple(unread_summary),
+        request_admission=request_admission,
+        active_execution=active_execution,
+        queue_depth=queue_depth,
+        outcome=outcome,
+        enqueued_request_id=enqueued_request_id,
+        detail=detail,
+    )
+
+
+def read_gateway_notifier_audit_records(
+    sqlite_path: Path,
+    *,
+    limit: int | None = None,
+) -> list[GatewayNotifierAuditRecord]:
+    """Load notifier audit history in chronological order."""
+
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive when provided")
+    if not sqlite_path.is_file():
+        return []
+
+    query = """
+        SELECT
+            audit_id,
+            poll_time_utc,
+            unread_count,
+            unread_digest,
+            unread_summary_json,
+            request_admission,
+            active_execution,
+            queue_depth,
+            outcome,
+            enqueued_request_id,
+            detail
+        FROM gateway_notifier_audit
+        ORDER BY audit_id DESC
+    """
+    parameters: tuple[int, ...] | tuple[()] = ()
+    if limit is not None:
+        query += " LIMIT ?"
+        parameters = (limit,)
+
+    with sqlite3.connect(sqlite_path) as connection:
+        _ensure_queue_schema(connection)
+        rows = connection.execute(query, parameters).fetchall()
+
+    rows.reverse()
+    return [_row_to_gateway_notifier_audit_record(row) for row in rows]
 
 
 def build_offline_gateway_status(
@@ -649,58 +800,135 @@ def _ensure_queue_database(sqlite_path: Path) -> None:
 
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gateway_requests (
-                request_id TEXT PRIMARY KEY,
-                request_kind TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                state TEXT NOT NULL,
-                accepted_at_utc TEXT NOT NULL,
-                started_at_utc TEXT,
-                finished_at_utc TEXT,
-                managed_agent_instance_epoch INTEGER NOT NULL,
-                error_detail TEXT,
-                result_json TEXT
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gateway_mail_notifier (
-                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                enabled INTEGER NOT NULL DEFAULT 0,
-                interval_seconds INTEGER,
-                last_poll_at_utc TEXT,
-                last_notification_at_utc TEXT,
-                last_notified_digest TEXT,
-                last_error TEXT,
-                updated_at_utc TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO gateway_mail_notifier (
-                singleton,
-                enabled,
-                interval_seconds,
-                last_poll_at_utc,
-                last_notification_at_utc,
-                last_notified_digest,
-                last_error,
-                updated_at_utc
-            )
-            VALUES (1, 0, NULL, NULL, NULL, NULL, NULL, ?)
-            """,
-            (now_utc_iso(),),
-        )
+        _ensure_queue_schema(connection)
         connection.commit()
+
+
+def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
+    """Create or upgrade the durable gateway queue schema."""
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_requests (
+            request_id TEXT PRIMARY KEY,
+            request_kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            state TEXT NOT NULL,
+            accepted_at_utc TEXT NOT NULL,
+            started_at_utc TEXT,
+            finished_at_utc TEXT,
+            managed_agent_instance_epoch INTEGER NOT NULL,
+            error_detail TEXT,
+            result_json TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_mail_notifier (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            interval_seconds INTEGER,
+            last_poll_at_utc TEXT,
+            last_notification_at_utc TEXT,
+            last_notified_digest TEXT,
+            last_error TEXT,
+            updated_at_utc TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_notifier_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_time_utc TEXT NOT NULL,
+            unread_count INTEGER,
+            unread_digest TEXT,
+            unread_summary_json TEXT NOT NULL DEFAULT '[]',
+            request_admission TEXT,
+            active_execution TEXT,
+            queue_depth INTEGER,
+            outcome TEXT NOT NULL CHECK (
+                outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
+            ),
+            enqueued_request_id TEXT,
+            detail TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO gateway_mail_notifier (
+            singleton,
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error,
+            updated_at_utc
+        )
+        VALUES (1, 0, NULL, NULL, NULL, NULL, NULL, ?)
+        """,
+        (now_utc_iso(),),
+    )
+
+
+def _serialize_gateway_notifier_unread_summary(
+    unread_summary: Sequence[GatewayNotifierAuditUnreadMessage],
+) -> str:
+    """Serialize unread-summary rows for SQLite persistence."""
+
+    payload = [
+        {
+            "message_id": item.message_id,
+            "thread_id": item.thread_id,
+            "created_at_utc": item.created_at_utc,
+            "subject": item.subject,
+        }
+        for item in unread_summary
+    ]
+    return json.dumps(payload, sort_keys=True)
+
+
+def _row_to_gateway_notifier_audit_record(
+    row: sqlite3.Row | tuple[object, ...],
+) -> GatewayNotifierAuditRecord:
+    """Convert one SQLite row into a notifier audit record."""
+
+    payload = json.loads(str(row[4]))
+    if not isinstance(payload, list):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must decode to a list."
+        )
+    unread_summary = tuple(
+        GatewayNotifierAuditUnreadMessage(
+            message_id=_require_json_string(item, key="message_id"),
+            thread_id=_require_json_string(item, key="thread_id"),
+            created_at_utc=_require_json_string(item, key="created_at_utc"),
+            subject=_require_json_string(item, key="subject"),
+        )
+        for item in payload
+    )
+    return GatewayNotifierAuditRecord(
+        audit_id=int(row[0]),
+        poll_time_utc=str(row[1]),
+        unread_count=None if row[2] is None else int(row[2]),
+        unread_digest=None if row[3] is None else str(row[3]),
+        unread_summary=unread_summary,
+        request_admission=None if row[5] is None else cast(GatewayAdmissionState, str(row[5])),
+        active_execution=None if row[6] is None else cast(GatewayExecutionState, str(row[6])),
+        queue_depth=None if row[7] is None else int(row[7]),
+        outcome=cast(GatewayNotifierAuditOutcome, str(row[8])),
+        enqueued_request_id=None if row[9] is None else str(row[9]),
+        detail=None if row[10] is None else str(row[10]),
+    )
 
 
 def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> GatewayMailNotifierRecord:
     """Load the singleton gateway notifier row from durable storage."""
 
+    _ensure_queue_schema(connection)
     row = connection.execute(
         """
         SELECT
@@ -741,6 +969,7 @@ def _write_gateway_mail_notifier_record(
 ) -> None:
     """Persist the singleton gateway notifier row."""
 
+    _ensure_queue_schema(connection)
     connection.execute(
         """
         INSERT INTO gateway_mail_notifier (
@@ -773,6 +1002,21 @@ def _write_gateway_mail_notifier_record(
             now_utc_iso(),
         ),
     )
+
+
+def _require_json_string(value: object, *, key: str) -> str:
+    """Return one required JSON object string field."""
+
+    if not isinstance(value, dict):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must contain JSON objects."
+        )
+    field_value = value.get(key)
+    if not isinstance(field_value, str):
+        raise SessionManifestError(
+            f"Gateway notifier audit unread_summary_json is missing string field {key!r}."
+        )
+    return field_value
 
 
 def _load_json_mapping(path: Path, *, missing_prefix: str) -> GatewayJsonObject:

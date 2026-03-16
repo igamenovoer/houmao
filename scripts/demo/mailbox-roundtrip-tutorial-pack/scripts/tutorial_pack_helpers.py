@@ -16,6 +16,16 @@ from typing import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
+from houmao.cao.server_launcher import (
+    load_cao_server_launcher_config,
+    resolve_cao_server_runtime_artifacts,
+)
+from houmao.mailbox.filesystem import (
+    resolve_active_mailbox_dir,
+    resolve_active_mailbox_local_sqlite_path,
+)
+
 _TIMESTAMP_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$"
 )
@@ -45,6 +55,19 @@ _PATH_PLACEHOLDERS = {
     "launch_helper_path": "<LAUNCH_HELPER_PATH>",
     "job_dir": "<JOB_DIR>",
     "filesystem_root": "<MAILBOX_FILESYSTEM_ROOT>",
+    "cao_launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
+    "cao_runtime_root": "<CAO_RUNTIME_ROOT>",
+    "cao_home_dir": "<CAO_HOME_DIR>",
+    "cao_profile_store": "<CAO_PROFILE_STORE>",
+    "cao_artifact_dir": "<CAO_ARTIFACT_DIR>",
+    "cao_log_file": "<CAO_LOG_FILE>",
+    "cao_launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
+    "cao_ownership_file": "<CAO_OWNERSHIP_FILE>",
+    "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
+    "sender_mailbox_dir": "<SENDER_MAILBOX_DIR>",
+    "sender_local_sqlite_path": "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>",
+    "receiver_mailbox_dir": "<RECEIVER_MAILBOX_DIR>",
+    "receiver_local_sqlite_path": "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>",
 }
 _VALUE_PLACEHOLDERS = {
     "generated_at_utc": "<TIMESTAMP>",
@@ -68,6 +91,7 @@ _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/mailbox-roundtrip-tutorial-pack")
 
 
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+LauncherRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 
 
 @dataclass(frozen=True)
@@ -120,6 +144,10 @@ class DemoLayout:
     demo_output_dir: Path
     project_workdir: Path
     runtime_root: Path
+    cao_dir: Path
+    cao_launcher_config_path: Path
+    cao_runtime_root: Path
+    cao_start_path: Path
     inputs_dir: Path
     mailbox_root: Path
     report_path: Path
@@ -393,10 +421,15 @@ def build_demo_layout(*, demo_output_dir: Path) -> DemoLayout:
     """Build the demo-owned output layout for one run."""
 
     resolved_output_dir = demo_output_dir.resolve()
+    cao_dir = resolved_output_dir / "cao"
     return DemoLayout(
         demo_output_dir=resolved_output_dir,
         project_workdir=resolved_output_dir / "project",
         runtime_root=resolved_output_dir / "runtime",
+        cao_dir=cao_dir,
+        cao_launcher_config_path=cao_dir / "launcher.toml",
+        cao_runtime_root=cao_dir / "runtime",
+        cao_start_path=resolved_output_dir / "cao_start.json",
         inputs_dir=resolved_output_dir / "inputs",
         mailbox_root=resolved_output_dir / "shared-mailbox",
         report_path=resolved_output_dir / "report.json",
@@ -573,6 +606,202 @@ def ensure_project_worktree(
     return resolved_project_workdir
 
 
+def supports_loopback_cao_launcher_management(cao_base_url: str) -> bool:
+    """Return whether the base URL can use demo-local launcher management."""
+
+    return is_supported_loopback_cao_base_url(_normalize_cao_base_url(cao_base_url))
+
+
+def _default_launcher_runner(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+    """Run one launcher CLI command via the repo Pixi environment."""
+
+    return subprocess.run(
+        [
+            "pixi",
+            "run",
+            "python",
+            "-m",
+            "houmao.cao.tools.cao_server_launcher",
+            *args,
+        ],
+        cwd=str(repo_root.resolve()),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def write_demo_cao_launcher_config(*, demo_output_dir: Path, cao_base_url: str) -> Path:
+    """Write the demo-local CAO launcher config and return its path."""
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    layout.cao_dir.mkdir(parents=True, exist_ok=True)
+    layout.cao_launcher_config_path.write_text(
+        "\n".join(
+            [
+                f'base_url = "{_normalize_cao_base_url(cao_base_url)}"',
+                'runtime_root = "runtime"',
+                'home_dir = ""',
+                'proxy_policy = "clear"',
+                "startup_timeout_seconds = 15",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return layout.cao_launcher_config_path
+
+
+def _launcher_json(
+    *,
+    repo_root: Path,
+    args: list[str],
+    accepted_exit_codes: set[int],
+    run_launcher: LauncherRunner,
+) -> dict[str, Any]:
+    """Run one launcher command and parse one JSON payload from stdout/stderr."""
+
+    result = run_launcher(args, repo_root.resolve())
+    if result.returncode not in accepted_exit_codes:
+        detail = result.stderr.strip() or result.stdout.strip() or "launcher command failed"
+        raise RuntimeError(detail)
+    payload_text = result.stdout.strip() or result.stderr.strip()
+    if not payload_text:
+        raise RuntimeError("launcher command returned no JSON payload")
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"launcher returned malformed JSON: {exc}") from exc
+    return _require_mapping(payload, context="launcher result")
+
+
+def _ownership_verified(payload: dict[str, Any], *, artifact_dir: Path, base_url: str) -> bool:
+    """Return whether one launcher result payload carries matching ownership."""
+
+    ownership = payload.get("ownership")
+    if not isinstance(ownership, dict):
+        return False
+    return (
+        ownership.get("managed_by") == "houmao.cao.server_launcher"
+        and ownership.get("base_url") == base_url
+        and ownership.get("artifact_dir") == str(artifact_dir)
+    )
+
+
+def start_demo_cao(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+    cao_base_url: str,
+    run_launcher: LauncherRunner = _default_launcher_runner,
+) -> dict[str, Any]:
+    """Start or reuse demo-local loopback CAO and return one structured payload."""
+
+    normalized_base_url = _normalize_cao_base_url(cao_base_url)
+    if not supports_loopback_cao_launcher_management(normalized_base_url):
+        raise ValueError(
+            "demo-local CAO launcher management only supports loopback base URLs "
+            "with explicit ports"
+        )
+
+    config_path = write_demo_cao_launcher_config(
+        demo_output_dir=demo_output_dir,
+        cao_base_url=normalized_base_url,
+    )
+    config = load_cao_server_launcher_config(config_path)
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+    start_payload = _launcher_json(
+        repo_root=repo_root,
+        args=["start", "--config", str(config_path)],
+        accepted_exit_codes={0},
+        run_launcher=run_launcher,
+    )
+    ownership_verified = _ownership_verified(
+        start_payload,
+        artifact_dir=artifacts.artifact_dir,
+        base_url=normalized_base_url,
+    )
+    recovery_attempted = False
+
+    if bool(start_payload.get("reused_existing_process")) and not ownership_verified:
+        recovery_attempted = True
+        stop_payload = _launcher_json(
+            repo_root=repo_root,
+            args=["stop", "--config", str(config_path)],
+            accepted_exit_codes={0, 2},
+            run_launcher=run_launcher,
+        )
+        status_payload = _launcher_json(
+            repo_root=repo_root,
+            args=["status", "--config", str(config_path)],
+            accepted_exit_codes={0, 2},
+            run_launcher=run_launcher,
+        )
+        if bool(stop_payload.get("stopped")) and not bool(status_payload.get("healthy")):
+            start_payload = _launcher_json(
+                repo_root=repo_root,
+                args=["start", "--config", str(config_path)],
+                accepted_exit_codes={0},
+                run_launcher=run_launcher,
+            )
+            ownership_verified = _ownership_verified(
+                start_payload,
+                artifact_dir=artifacts.artifact_dir,
+                base_url=normalized_base_url,
+            )
+        if not ownership_verified:
+            raise RuntimeError(
+                "healthy CAO server reuse could not be verified through the demo-local launcher "
+                "context; stop the existing service or use an explicit external CAO flow with "
+                "CAO_PROFILE_STORE set"
+            )
+
+    return {
+        "managed": True,
+        "base_url": normalized_base_url,
+        "launcher_config_path": str(config.config_path),
+        "runtime_root": str(config.runtime_root),
+        "home_dir": str(artifacts.home_dir),
+        "profile_store": str(default_cao_profile_store(cao_home=artifacts.home_dir)),
+        "artifact_dir": str(artifacts.artifact_dir),
+        "log_file": str(artifacts.log_file),
+        "launcher_result_file": str(artifacts.launcher_result_file),
+        "ownership_file": str(artifacts.ownership_file),
+        "healthy": bool(start_payload.get("healthy")),
+        "started_current_run": bool(start_payload.get("started_new_process")),
+        "reused_existing_process": bool(start_payload.get("reused_existing_process")),
+        "ownership_verified": ownership_verified,
+        "recovery_attempted": recovery_attempted,
+        "message": _require_non_empty_string(start_payload.get("message"), context="message"),
+    }
+
+
+def stop_demo_cao(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+    cao_base_url: str,
+    run_launcher: LauncherRunner = _default_launcher_runner,
+) -> dict[str, Any]:
+    """Stop demo-local CAO using the demo-owned launcher config."""
+
+    del cao_base_url
+    config_path = build_demo_layout(demo_output_dir=demo_output_dir).cao_launcher_config_path
+    if not config_path.exists():
+        return {
+            "managed": False,
+            "stopped": False,
+            "already_stopped": True,
+            "message": f"demo-local launcher config not found: {config_path}",
+        }
+    return _launcher_json(
+        repo_root=repo_root,
+        args=["stop", "--config", str(config_path)],
+        accepted_exit_codes={0, 2},
+        run_launcher=run_launcher,
+    )
+
+
 def build_report(
     *,
     output_path: Path,
@@ -595,6 +824,26 @@ def build_report(
     receiver_mailbox = _require_mapping(
         receiver_start.get("mailbox"), context="receiver_start.mailbox"
     )
+    sender_address = _require_non_empty_string(sender_mailbox.get("address"), context="sender address")
+    receiver_address = _require_non_empty_string(
+        receiver_mailbox.get("address"),
+        context="receiver address",
+    )
+    mailbox_state = {
+        "shared_index_sqlite_path": str((mailbox_root.resolve() / "index.sqlite").resolve()),
+        "sender_mailbox_dir": str(resolve_active_mailbox_dir(mailbox_root, address=sender_address)),
+        "sender_local_sqlite_path": str(
+            resolve_active_mailbox_local_sqlite_path(mailbox_root, address=sender_address)
+        ),
+        "receiver_mailbox_dir": str(
+            resolve_active_mailbox_dir(mailbox_root, address=receiver_address)
+        ),
+        "receiver_local_sqlite_path": str(
+            resolve_active_mailbox_local_sqlite_path(mailbox_root, address=receiver_address)
+        ),
+    }
+    cao_start_path = build_demo_layout(demo_output_dir=demo_output_dir).cao_start_path
+    cao_payload = _require_mapping(_read_json(cao_start_path), context=str(cao_start_path))
 
     report = {
         "demo": parameters.demo_id,
@@ -608,10 +857,13 @@ def build_report(
         "artifacts": {
             label: str(path.resolve()) for label, path in _artifact_paths(demo_output_dir).items()
         },
+        "cao": cao_payload,
         "flow": list(_FLOW),
+        "mailbox_state": mailbox_state,
         "reply_parent_message_id": reply_parent_message_id,
         "steps": artifacts,
         "checks": {
+            "cao_managed": bool(cao_payload.get("managed")),
             "sender_build_manifest_present": bool(artifacts["sender_build"].get("manifest_path")),
             "receiver_build_manifest_present": bool(
                 artifacts["receiver_build"].get("manifest_path")
@@ -621,6 +873,13 @@ def build_report(
             "shared_mailbox_root": sender_mailbox.get("filesystem_root")
             == receiver_mailbox.get("filesystem_root")
             == str(mailbox_root.resolve()),
+            "shared_mailbox_index_present": Path(mailbox_state["shared_index_sqlite_path"]).is_file(),
+            "sender_mailbox_local_sqlite_present": Path(
+                mailbox_state["sender_local_sqlite_path"]
+            ).is_file(),
+            "receiver_mailbox_local_sqlite_present": Path(
+                mailbox_state["receiver_local_sqlite_path"]
+            ).is_file(),
             "send_message_id_present": bool(send_message_id),
             "reply_parent_matches_send_message_id": reply_parent_message_id == send_message_id,
             "sender_stop_ok": artifacts["sender_stop"].get("status") == "ok",
@@ -634,6 +893,29 @@ def build_report(
 def _sanitize_string(value: str, *, key: str | None, parent_key: str | None) -> str:
     """Sanitize one string value using field-aware placeholders."""
 
+    if parent_key == "cao":
+        cao_placeholders = {
+            "launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
+            "runtime_root": "<CAO_RUNTIME_ROOT>",
+            "home_dir": "<CAO_HOME_DIR>",
+            "profile_store": "<CAO_PROFILE_STORE>",
+            "artifact_dir": "<CAO_ARTIFACT_DIR>",
+            "log_file": "<CAO_LOG_FILE>",
+            "launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
+            "ownership_file": "<CAO_OWNERSHIP_FILE>",
+        }
+        if key in cao_placeholders:
+            return cao_placeholders[key]
+    if parent_key == "mailbox_state":
+        mailbox_placeholders = {
+            "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
+            "sender_mailbox_dir": "<SENDER_MAILBOX_DIR>",
+            "sender_local_sqlite_path": "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>",
+            "receiver_mailbox_dir": "<RECEIVER_MAILBOX_DIR>",
+            "receiver_local_sqlite_path": "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>",
+        }
+        if key in mailbox_placeholders:
+            return mailbox_placeholders[key]
     if key in _VALUE_PLACEHOLDERS:
         return _VALUE_PLACEHOLDERS[key]
     if key in _PATH_PLACEHOLDERS:
@@ -721,10 +1003,48 @@ def _cmd_ensure_project_worktree(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_supports_loopback_cao(args: argparse.Namespace) -> int:
+    """Return success when the CAO URL can use demo-local launcher management."""
+
+    if supports_loopback_cao_launcher_management(args.cao_base_url):
+        print("managed-loopback")
+        return 0
+    print("external")
+    return 1
+
+
 def _cmd_message_id(args: argparse.Namespace) -> int:
     """Print one validated message_id."""
 
     print(extract_message_id(args.payload))
+    return 0
+
+
+def _cmd_start_demo_cao(args: argparse.Namespace) -> int:
+    """Start or reuse one demo-local loopback CAO service."""
+
+    payload = start_demo_cao(
+        repo_root=args.repo_root,
+        demo_output_dir=args.demo_output_dir,
+        cao_base_url=args.cao_base_url,
+    )
+    if args.output is not None:
+        _write_json(args.output, payload)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_stop_demo_cao(args: argparse.Namespace) -> int:
+    """Stop one demo-local loopback CAO service."""
+
+    payload = stop_demo_cao(
+        repo_root=args.repo_root,
+        demo_output_dir=args.demo_output_dir,
+        cao_base_url=args.cao_base_url,
+    )
+    if args.output is not None:
+        _write_json(args.output, payload)
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -789,9 +1109,27 @@ def _build_parser() -> argparse.ArgumentParser:
     worktree_parser.add_argument("--project-workdir", type=Path, required=True)
     worktree_parser.set_defaults(func=_cmd_ensure_project_worktree)
 
+    loopback_parser = subparsers.add_parser("supports-loopback-cao")
+    loopback_parser.add_argument("--cao-base-url", required=True)
+    loopback_parser.set_defaults(func=_cmd_supports_loopback_cao)
+
     message_id_parser = subparsers.add_parser("message-id")
     message_id_parser.add_argument("payload", type=Path)
     message_id_parser.set_defaults(func=_cmd_message_id)
+
+    start_demo_cao_parser = subparsers.add_parser("start-demo-cao")
+    start_demo_cao_parser.add_argument("--output", type=Path)
+    start_demo_cao_parser.add_argument("--repo-root", type=Path, required=True)
+    start_demo_cao_parser.add_argument("--demo-output-dir", type=Path, required=True)
+    start_demo_cao_parser.add_argument("--cao-base-url", required=True)
+    start_demo_cao_parser.set_defaults(func=_cmd_start_demo_cao)
+
+    stop_demo_cao_parser = subparsers.add_parser("stop-demo-cao")
+    stop_demo_cao_parser.add_argument("--output", type=Path)
+    stop_demo_cao_parser.add_argument("--repo-root", type=Path, required=True)
+    stop_demo_cao_parser.add_argument("--demo-output-dir", type=Path, required=True)
+    stop_demo_cao_parser.add_argument("--cao-base-url", required=True)
+    stop_demo_cao_parser.set_defaults(func=_cmd_stop_demo_cao)
 
     build_report_parser = subparsers.add_parser("build-report")
     build_report_parser.add_argument("--output", type=Path, required=True)

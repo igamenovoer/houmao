@@ -90,7 +90,7 @@ class _LauncherConfigModel(BaseModel):
         if value is None:
             return None
         if not value.strip():
-            raise ValueError("must not be empty when provided")
+            return None
         return value.strip()
 
     @field_validator("startup_timeout_seconds")

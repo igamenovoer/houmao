@@ -45,26 +45,31 @@ def _write_config(
     *,
     base_url: str = "http://localhost:9889",
     runtime_root: str = "tmp/agents-runtime",
-    home_dir: Path | None = None,
+    home_dir: Path | str | None = None,
+    include_home_dir: bool = True,
     proxy_policy: str = "clear",
     startup_timeout_seconds: float = 15.0,
     extras: str = "",
 ) -> Path:
-    home = home_dir or tmp_path
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "launcher.toml"
+    lines = [
+        f'base_url = "{base_url}"',
+        f'runtime_root = "{runtime_root}"',
+    ]
+    if include_home_dir:
+        home = tmp_path if home_dir is None else home_dir
+        lines.append(f'home_dir = "{home}"')
+    lines.extend(
+        [
+            f'proxy_policy = "{proxy_policy}"',
+            f"startup_timeout_seconds = {startup_timeout_seconds}",
+            extras,
+            "",
+        ]
+    )
     path.write_text(
-        "\n".join(
-            [
-                f'base_url = "{base_url}"',
-                f'runtime_root = "{runtime_root}"',
-                f'home_dir = "{home}"',
-                f'proxy_policy = "{proxy_policy}"',
-                f"startup_timeout_seconds = {startup_timeout_seconds}",
-                extras,
-                "",
-            ]
-        ),
+        "\n".join(lines),
         encoding="utf-8",
     )
     return path
@@ -169,6 +174,32 @@ def test_config_validation_accepts_non_default_loopback_port(tmp_path: Path) -> 
     )
 
     assert config.base_url == "http://127.0.0.1:9991"
+
+
+def test_config_validation_accepts_blank_home_dir_as_derived_default(tmp_path: Path) -> None:
+    config = load_cao_server_launcher_config(_write_config(tmp_path, home_dir=""))
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+
+    assert artifacts.home_dir == (artifacts.server_root / "home").resolve()
+
+
+def test_config_validation_accepts_omitted_home_dir_as_derived_default(tmp_path: Path) -> None:
+    config = load_cao_server_launcher_config(_write_config(tmp_path, include_home_dir=False))
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+
+    assert artifacts.home_dir == (artifacts.server_root / "home").resolve()
+
+
+def test_checked_in_local_launcher_config_uses_portable_blank_home_dir() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    config_path = repo_root / "config" / "cao-server-launcher" / "local.toml"
+
+    config = load_cao_server_launcher_config(config_path)
+    artifacts = resolve_cao_server_runtime_artifacts(config)
+
+    assert config.base_url == "http://localhost:9889"
+    assert artifacts.home_dir == (artifacts.server_root / "home").resolve()
+    assert "/data/agents/cao-home" not in str(artifacts.home_dir)
 
 
 def test_load_config_applies_one_shot_base_url_override(tmp_path: Path) -> None:

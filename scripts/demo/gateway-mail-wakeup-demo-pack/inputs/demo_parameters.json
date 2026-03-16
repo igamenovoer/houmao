@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "demo_id": "gateway-mail-wakeup-demo-pack",
+  "agent_def_dir": "tests/fixtures/agents",
+  "backend": "cao_rest",
+  "cao_base_url": "http://localhost:9889",
+  "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
+  "agent": {
+    "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
+    "agent_identity": "AGENTSYS-gateway-mailbox-agent",
+    "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent",
+    "mailbox_address": "AGENTSYS-gateway-mailbox-agent@agents.localhost"
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "notifier_interval_seconds": 1,
+    "idle_poll_interval_seconds": 3
+  },
+  "delivery": {
+    "sender_principal_id": "AGENTSYS-mail-injector",
+    "sender_address": "AGENTSYS-mail-injector@agents.localhost",
+    "subject": "Gateway wake-up demo",
+    "body_file": "inputs/wake_up_message.md"
+  },
+  "automatic": {
+    "idle_timeout_seconds": 180,
+    "output_timeout_seconds": 180,
+    "output_file_relative_path": "outputs/wakeup-time.txt"
+  }
+}
