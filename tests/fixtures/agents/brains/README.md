@@ -33,7 +33,7 @@ Use profile names that encode provider + account + intent, for example:
 
 Rotation guidance:
 
-- Use a separate credential profile per concurrently running brain.
-- Do not run two active brains against the same writable profile at once.
-- Rotate by creating a new profile directory and updating recipes/blueprints to point at the new profile name.
+- Recipes select credential profiles by name, and blueprints inherit that choice through their bound recipe.
+- Concurrent brains may reuse the same credential profile when the provider/tool allows shared API-key or token usage.
+- If the provider or CLI imposes rate or session limits for that credential, rotate by creating a new profile directory and updating the affected recipes/blueprints to point at the new profile name.
 - Keep secrets only in `agents/brains/api-creds/` (local-only); never inline secrets into recipes, adapters, or blueprints.

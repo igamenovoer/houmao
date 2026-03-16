@@ -20,13 +20,13 @@ The system SHALL support a non-CAO interactive mode where callers can send multi
 ### Requirement: Headless Claude/Gemini/Codex sessions are tmux-backed and inspectable
 For headless sessions of tmux-backed CLI tools (at minimum Claude Code, Gemini, and Codex), the runtime SHALL create and own a tmux session per started session.
 
-The tmux session name SHALL follow the `AGENTSYS-...` agent identity rules.
+The runtime SHALL choose and persist one tmux session name per started session as a unique live-session handle rather than assuming the canonical agent identity is the tmux session name.
 
 The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` into the tmux session environment so that name-based `--agent-identity` resolution can locate the persisted session manifest.
 
 #### Scenario: Start a headless session creates a tmux identity with manifest pointer
 - **WHEN** a developer starts a headless Codex, Claude, or Gemini session without CAO
-- **THEN** the runtime creates a tmux session whose name is in the `AGENTSYS-` namespace
+- **THEN** the runtime creates a tmux-backed live session and persists its actual tmux session name as metadata for that live session
 - **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH` pointing at the persisted session manifest JSON
 
 ### Requirement: Codex headless backend uses `codex exec --json` and resumes via thread id
@@ -127,9 +127,11 @@ When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
 or `no_proxy` and will respect caller-provided values (for example, to enable
 traffic-watching development proxies).
 
+When starting a CAO-backed session, the runtime SHALL pass the resolved working directory through to CAO as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or the launcher home.
+
 #### Scenario: CAO-backed session launch and messaging
 - **WHEN** a developer starts a CAO-backed session and provides a CAO API base URL at session start
-- **THEN** the system creates a CAO session/terminal, sends prompts, and fetches replies using CAO REST endpoints
+- **THEN** the system creates a CAO session/terminal using the resolved working directory, sends prompts, and fetches replies using CAO REST endpoints
 - **AND THEN** the system persists the CAO API base URL and terminal identity in the session manifest
 - **AND THEN** subsequent prompt and stop operations target the CAO terminal using only the persisted session manifest fields (no CAO base URL override)
 
@@ -143,6 +145,12 @@ traffic-watching development proxies).
 - **WHEN** a developer starts or resumes a CAO-backed session using a supported loopback CAO base URL
 - **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
 - **THEN** runtime-owned CAO HTTP communication uses caller-provided proxy and `NO_PROXY` settings
+
+#### Scenario: CAO-backed launch does not reject a workdir outside launcher home
+- **WHEN** a developer starts a CAO-backed session whose resolved workdir is outside the launcher home or user home tree
+- **AND WHEN** the installed CAO server accepts that workdir
+- **THEN** the runtime passes the resolved workdir through to CAO
+- **AND THEN** the runtime does not fail solely because that workdir is outside those home paths
 
 ### Requirement: Mailbox enablement is resolved before session start and persisted for resume
 The runtime SHALL enable filesystem mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
@@ -167,16 +175,26 @@ The runtime SHALL resolve one effective mailbox configuration before building th
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
 When filesystem mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the filesystem mailbox binding env contract before mailbox-related work is expected from the agent.
 
+When no explicit filesystem mailbox content root override is supplied, the runtime SHALL derive the effective filesystem mailbox content root from the independent Houmao mailbox root rather than from the effective runtime root.
+
+When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before publishing `AGENTSYS_MAILBOX_FS_ROOT`.
+
 #### Scenario: Start session projects mailbox system skills with filesystem bindings
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
 - **AND THEN** the runtime starts the session with the filesystem mailbox binding env vars needed by those mailbox system skills
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to the effective mailbox content root for that session
 
-#### Scenario: Start session defaults filesystem mailbox root from runtime root
+#### Scenario: Start session defaults filesystem mailbox root from the Houmao mailbox root
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
-- **THEN** the runtime derives the effective filesystem mailbox content root from the configured runtime root
+- **THEN** the runtime derives the effective filesystem mailbox content root from the Houmao mailbox root default
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived default path
+
+#### Scenario: Mailbox-root env-var override redirects the effective mailbox root
+- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
+- **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
+- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived path
 
 ### Requirement: Runtime sessions support filesystem mailbox binding refresh
 The runtime SHALL support an explicit control path that refreshes filesystem mailbox binding env vars for an active session without requiring regeneration of the mailbox system skill templates.
@@ -387,6 +405,151 @@ The system SHALL persist a session manifest JSON (session handle) alongside the 
 - **AND THEN** if required CAO manifest fields are missing/blank or internally inconsistent (for example `cao.api_base_url` != `backend_state.api_base_url`), the system fails fast with `SessionManifestError`
 - **AND THEN** if CAO network/HTTP requests fail, the system reports the failure as `BackendExecutionError`
 
+### Requirement: Runtime defaults new build and session state to the Houmao runtime root
+When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
+
+When no explicit runtime-root override is supplied and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
+
+At minimum, this default SHALL apply to:
+- generated brain homes under `~/.houmao/runtime/homes/<home-id>/`,
+- generated manifests under `~/.houmao/runtime/manifests/<home-id>.yaml`,
+- runtime-owned session roots for started sessions,
+- other durable runtime-owned session artifacts that are derived from the effective runtime root.
+
+Explicit runtime-root overrides SHALL continue to take precedence over the default.
+
+The default build-state layout SHALL NOT require tool- or family-based directory bucketing in order to associate a generated home or manifest with an agent.
+
+When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name, authoritative `agent_id`, persisted terminal metadata, and other explicit runtime metadata rather than on bucket names in the directory hierarchy.
+
+Whenever runtime-owned directory naming needs one path component that stands for one agent rather than one session, backend, or service instance, the runtime SHALL use authoritative `agent_id` for that directory name instead of canonical agent name.
+
+#### Scenario: Build flow defaults generated homes and manifests to the Houmao runtime root
+- **WHEN** a developer runs a build flow without an explicit runtime-root override
+- **THEN** the generated brain home and manifest are written under `~/.houmao/runtime`
+
+#### Scenario: Build flow does not require tool-family buckets in the default layout
+- **WHEN** a developer runs a build flow without an explicit runtime-root override
+- **THEN** the generated home path is rooted under `~/.houmao/runtime/homes/<home-id>/`
+- **AND THEN** the generated manifest path is rooted under `~/.houmao/runtime/manifests/<home-id>.yaml`
+- **AND THEN** those default paths do not require an intermediate tool- or family-grouping bucket
+
+#### Scenario: Start-session defaults durable session state to the Houmao runtime root
+- **WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
+- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `~/.houmao/runtime`
+
+#### Scenario: Runtime-root env-var override redirects durable runtime state
+- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **AND WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
+- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `/tmp/houmao-runtime`
+
+### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
+For runtime-owned sessions, the runtime SHALL persist canonical agent name as a strong human-facing metadata field for normal operator use, but it SHALL NOT treat canonical agent name as the authoritative writable-state key.
+
+The runtime SHALL materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session, and that `agent_id` SHALL replace registry-specific `agent_key` for cross-module identity association.
+
+The session-manifest schema for this capability SHALL expose canonical agent name and authoritative `agent_id` as first-class top-level manifest fields rather than burying them inside `backend_state`.
+
+When the caller does not provide an explicit `agent_id`, the runtime SHALL first reuse a previously persisted `agent_id` for the same built or resumed agent when one exists in manifest metadata, build metadata, or equivalent runtime-owned metadata.
+
+Only when no explicit `agent_id` and no previously persisted `agent_id` exist SHALL the runtime bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+
+When runtime-controlled start, resume, or publication logic encounters an existing association for the same `agent_id` but a different canonical agent name, the runtime SHALL emit a warning and continue treating that `agent_id` as authoritative for system-owned writable association.
+
+When runtime-controlled lookup encounters more than one live or persisted association for the same canonical agent name but different authoritative `agent_id` values, the runtime SHALL surface ambiguity rather than silently treating those associations as one agent.
+
+#### Scenario: Start-session bootstraps a default agent id from the canonical agent name when no persisted id exists
+- **WHEN** a developer starts a runtime-owned session with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the caller does not provide an explicit `agent_id`
+- **AND WHEN** no previously persisted `agent_id` exists for that same built or resumed agent
+- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's initial authoritative `agent_id`
+- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the bootstrapped `agent_id`
+
+#### Scenario: Start-session reuses a previously persisted agent id
+- **WHEN** a developer starts or resumes a runtime-owned session for an agent whose existing persisted metadata already carries `agent_id=abc123`
+- **AND WHEN** the caller does not provide an explicit replacement `agent_id`
+- **THEN** the runtime reuses `agent_id=abc123`
+- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical agent name
+
+#### Scenario: Agent-keyed runtime-owned directories use agent id rather than canonical agent name
+- **WHEN** runtime-owned directory derivation needs one path component that stands for one agent
+- **THEN** the runtime uses that agent's authoritative `agent_id` for the directory name
+- **AND THEN** canonical agent name remains an operator-facing metadata field rather than the writable directory key
+
+#### Scenario: Explicit agent id reused with a different canonical name triggers a warning
+- **WHEN** runtime-owned metadata or shared-registry publication already associates `agent_id=abc123` with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** a later runtime-controlled start or publication explicitly uses `agent_id=abc123` with canonical agent name `AGENTSYS-editor`
+- **THEN** the runtime emits a warning about the different-name same-id association
+- **AND THEN** the runtime still treats `agent_id=abc123` as the authoritative writable-state identity
+
+#### Scenario: Same canonical name with different agent ids is reported as ambiguous
+- **WHEN** runtime-controlled lookup sees more than one live or persisted session metadata surface for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** those metadata surfaces carry different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
+- **THEN** the runtime reports that canonical-name lookup is ambiguous
+- **AND THEN** it requires disambiguation by `agent_id`, manifest path, or another explicit metadata surface
+
+### Requirement: Tmux session names are unique live-session handles rather than authoritative agent names
+For tmux-backed runtime sessions, the runtime SHALL treat the tmux session name as a unique handle for one live session rather than as the source of truth for canonical agent name or authoritative `agent_id`.
+
+The runtime SHALL choose and persist the tmux session name explicitly for each started tmux-backed session rather than relying on tmux collision auto-renaming as an identity mechanism.
+
+Persisted runtime metadata for a tmux-backed session SHALL record at minimum:
+- canonical agent name,
+- authoritative `agent_id`,
+- the actual tmux session name used for that live session.
+
+The session-manifest schema for this capability SHALL also expose that actual tmux session name as a first-class top-level manifest field rather than only as backend-specific state.
+
+When runtime-controlled logic needs to recover the true canonical agent name or authoritative `agent_id` for a tmux-backed live session, it SHALL read persisted manifest metadata or shared-registry publication rather than inferring that identity from the tmux session name alone.
+
+#### Scenario: Tmux-backed start persists the actual tmux session name separately from canonical agent name
+- **WHEN** the runtime starts a tmux-backed session for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the runtime chooses live tmux session name `houmao-session-abc123`
+- **THEN** persisted runtime metadata records canonical agent name `AGENTSYS-gpu`
+- **AND THEN** that same metadata also records tmux session name `houmao-session-abc123` as a distinct live-session handle
+
+#### Scenario: Runtime learns true agent identity from manifest or registry rather than from tmux session name
+- **WHEN** runtime-controlled logic needs to inspect tmux-backed live session `houmao-session-abc123`
+- **THEN** it reads persisted manifest metadata or shared-registry publication to recover canonical agent name and authoritative `agent_id`
+- **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
+
+### Requirement: Runtime creates and reuses a per-agent job dir for each started session
+For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.
+
+When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as:
+- `<AGENTSYS_LOCAL_JOBS_DIR>/<session-id>/`
+
+The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `AGENTSYS_JOB_DIR`.
+
+The per-agent job dir SHALL be intended for session-local logs, temporary outputs, and destructive scratch work, and SHALL NOT replace the durable runtime-owned session root under the effective runtime root.
+
+Resume and later runtime-controlled work for the same persisted session SHALL continue to use the same derived per-agent job dir rather than allocating a replacement directory for that same session id.
+
+For this capability, runtime-controlled stop behavior SHALL NOT automatically remove the job dir.
+
+#### Scenario: Start-session creates the job dir and publishes its binding
+- **WHEN** a developer starts a runtime-owned session with working directory `/repo/app`
+- **AND WHEN** the generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the runtime creates `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
+#### Scenario: Resume reuses the same job dir for the same session
+- **WHEN** the runtime resumes control of a previously started session whose working directory and session id already determine one per-agent job dir
+- **THEN** resumed runtime-controlled work continues to use that same per-agent job dir
+- **AND THEN** the runtime does not allocate a different destructive-scratch directory for that same logical session
+
+#### Scenario: Local-jobs-dir env-var override relocates the effective job dir
+- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a runtime-owned session whose generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the runtime creates `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
+#### Scenario: Stop-session does not auto-clean the job dir in this version
+- **WHEN** a runtime-owned session has created a job dir for one session id
+- **AND WHEN** a developer later stops that session through runtime-controlled stop behavior
+- **THEN** the runtime leaves the job dir in place in this version
+- **AND THEN** later cleanup of that scratch directory remains manual
+
 ### Requirement: Runtime-generated manifests/configs are schema-validated
 The system SHALL schema-validate all runtime-generated structured manifest/config artifacts on write and on read/load.
 
@@ -405,7 +568,7 @@ The system SHALL keep JSON Schema files for runtime-generated structured artifac
 
 #### Scenario: Session manifest schema is versioned and discoverable
 - **WHEN** developers inspect the runtime package source
-- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v1.schema.json`) under the runtime package `schemas/` directory
+- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v3.schema.json`) under the runtime package `schemas/` directory
 - **AND THEN** generated artifacts include schema version information that selects the matching schema for validation
 
 ### Requirement: CAO parsing mode is explicit and constrained
@@ -416,6 +579,10 @@ Allowed values are exactly:
 - `shadow_only`
 
 The selected mode SHALL be persisted in session runtime state so resumed operations use the same parsing mode.
+
+`cao_only` SHALL remain the generic CAO-native mode for CAO-backed sessions.
+`shadow_only` SHALL be used only for tools that have a runtime-owned shadow parser family.
+The runtime SHALL define one explicit shadow-parser-support capability contract for this purpose, and that contract SHALL be shared by parsing-mode validation and backend parser-stack selection rather than inferred indirectly from unrelated defaults.
 
 Default mapping SHALL be:
 - `tool=claude` -> `shadow_only`
@@ -431,12 +598,20 @@ Default mapping SHALL be:
 - **AND WHEN** the tool is `codex`
 - **THEN** the resolved parsing mode is `shadow_only`
 
+#### Scenario: Session start accepts explicit `cao_only`
+- **WHEN** a caller starts a CAO-backed session and explicitly specifies `parsing_mode=cao_only`
+- **THEN** the resolved parsing mode is `cao_only`
+
 #### Scenario: Session start fails when parsing mode cannot be resolved
 - **WHEN** a caller starts a CAO-backed session and configuration does not provide an explicit parsing mode or a valid tool default
 - **THEN** the system rejects the start request with an explicit validation error
 
 #### Scenario: Unknown parsing mode is rejected
 - **WHEN** a caller requests a parsing mode other than `cao_only` or `shadow_only`
+- **THEN** the system rejects the request with an explicit unsupported-mode error
+
+#### Scenario: `shadow_only` is rejected when no runtime shadow parser exists
+- **WHEN** a caller requests `parsing_mode=shadow_only` for a CAO-backed tool that does not have a runtime-owned shadow parser family
 - **THEN** the system rejects the request with an explicit unsupported-mode error
 
 ### Requirement: Codex runtime launch applies non-interactive home bootstrap
@@ -693,27 +868,29 @@ The system SHALL NOT accept `--session-manifest` on those commands.
 - **WHEN** a developer invokes `send-prompt` or `stop-session` with `--session-manifest`
 - **THEN** the CLI rejects the invocation with an explicit argument validation error
 
-### Requirement: CAO session start supports a human agent identity name and uses it as the tmux session name
+### Requirement: CAO session start supports a human agent identity name and persists the actual tmux session name
 When starting a CAO-backed session, the system SHALL allow the caller to provide an agent identity name via `start-session --agent-identity <name>` (name-only for CAO in this change).
-For CAO-backed sessions, the system SHALL use the canonical `AGENTSYS-...` identity as the tmux session name.
+For CAO-backed sessions, the system SHALL persist the canonical `AGENTSYS-...` identity separately from the actual tmux session name used for the live session.
 
 If the caller does not provide a name, the system SHALL generate a short, easy-to-type name derived from the tool and role/blueprint identity, and SHALL add a conflict-avoiding suffix when needed.
 
-#### Scenario: Start CAO session with an explicit name uses the canonical tmux session name
+#### Scenario: Start CAO session with an explicit name persists the canonical identity
 - **WHEN** a developer starts a CAO-backed session with `start-session --agent-identity gpu`
-- **THEN** the tmux session name used for the session is `AGENTSYS-gpu`
+- **THEN** the persisted canonical agent identity for the session is `AGENTSYS-gpu`
+- **AND THEN** the actual tmux session name is persisted separately as the live-session handle
 
 #### Scenario: Start CAO session without a name auto-generates a short identity
 - **WHEN** a developer starts a CAO-backed session without providing `--agent-identity`
-- **THEN** the runtime selects a short `AGENTSYS-...` tmux session name derived from tool + role/blueprint
-- **AND THEN** the selected name is unique among existing tmux sessions
+- **THEN** the runtime selects a short canonical `AGENTSYS-...` identity derived from tool + role/blueprint
+- **AND THEN** the selected identity remains distinct from the actual tmux session name used for the live session
 
-### Requirement: CAO session start returns the selected agent identity
-For CAO-backed sessions, the `start-session` CLI output SHALL include the selected canonical agent identity so callers can reuse it for subsequent prompt/stop operations.
+### Requirement: CAO session start returns the selected agent identity and tmux session handle
+For CAO-backed sessions, the `start-session` CLI output SHALL include the selected canonical agent identity and the persisted actual tmux session name so callers can reuse the identity while retaining the true live-session handle in diagnostics.
 
-#### Scenario: `start-session` output includes the canonical identity
+#### Scenario: `start-session` output includes the canonical identity and tmux session name
 - **WHEN** a developer starts a CAO-backed session
 - **THEN** the `start-session` CLI output includes the selected canonical agent identity (for example `AGENTSYS-gpu`)
+- **AND THEN** the same output includes the actual persisted tmux session name for that live session
 
 ### Requirement: CAO `start-session` output includes resolved parsing mode
 For CAO-backed sessions, the `start-session` CLI output SHALL include the resolved `parsing_mode` alongside the canonical agent identity.
@@ -727,7 +904,8 @@ For CAO-backed sessions, parsing mode selection (`cao_only` or `shadow_only`) SH
 
 #### Scenario: Start-session still publishes AGENTSYS identity and manifest pointer in both modes
 - **WHEN** a developer starts a CAO-backed session with `parsing_mode=cao_only` or `parsing_mode=shadow_only`
-- **THEN** the tmux session identity follows canonical `AGENTSYS-...` naming rules
+- **THEN** the runtime still persists canonical `AGENTSYS-...` identity metadata and the manifest pointer for the session
+- **AND THEN** the tmux session name remains a distinct live-session handle rather than the authoritative agent identity
 - **AND THEN** tmux session env includes `AGENTSYS_MANIFEST_PATH` pointing to the absolute persisted session manifest path
 
 #### Scenario: Name-based prompt/stop addressing remains mode-independent
@@ -1305,7 +1483,7 @@ By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
 
 When `AGENTSYS_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
 
-For runtime-owned tmux-backed sessions in v1, the published shared-registry agent name SHALL default to the canonical `AGENTSYS-...` agent identity used for the tmux session.
+For runtime-owned tmux-backed sessions, the published shared-registry record SHALL persist the canonical `AGENTSYS-...` agent identity together with the authoritative `agent_id` and the actual tmux session name for that live session.
 
 When runtime publication code receives an agent name in namespace-free form, it SHALL canonicalize that name to the exact `AGENTSYS-...` form before publishing the shared-registry record.
 
@@ -1313,16 +1491,16 @@ For a given live runtime-owned tmux-backed session, the runtime SHALL persist an
 
 That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
 
-The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
+The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, authoritative `agent_id`, actual tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
 
 #### Scenario: Session start publishes a shared-registry record alongside tmux pointers
 - **WHEN** the runtime starts a runtime-owned tmux-backed session with canonical identity `AGENTSYS-gpu`
 - **THEN** the runtime publishes the normal tmux session environment discovery pointers for that session
-- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/` keyed by `AGENTSYS-gpu`
+- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/<agent-id>/record.json` that stores canonical agent name `AGENTSYS-gpu`
 
 #### Scenario: Runtime publication canonicalizes namespace-free agent input
 - **WHEN** runtime publication logic receives agent input `gpu` for a tmux-backed session
-- **THEN** it canonicalizes that input to `AGENTSYS-gpu` before deriving the shared-registry key
+- **THEN** it canonicalizes that input to `AGENTSYS-gpu` before publishing the shared-registry record
 - **AND THEN** the published record stores canonical agent name `AGENTSYS-gpu`
 
 #### Scenario: CI override redirects runtime publication
@@ -1410,4 +1588,3 @@ The runtime SHALL still surface the registry cleanup failure separately so opera
 - **AND WHEN** later shared-registry record removal fails because of a filesystem or permission problem
 - **THEN** the stop operation still reports the successful termination result
 - **AND THEN** the registry cleanup problem is surfaced separately for operator follow-up
-

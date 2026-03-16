@@ -81,6 +81,7 @@ Optional binding between a brain recipe and a role.
 Use this when:
 
 - you want one named, shareable agent definition without embedding secrets
+- you want CLI entrypoints such as `build-brain --blueprint ...` or `start-session --blueprint ...` to resolve the role and the recipe-selected tool/config/credential inputs together
 
 ## Runtime Outputs (Generated)
 
@@ -106,7 +107,8 @@ Default runtime root is `tmp/agents-runtime/`.
 
 - Commit: adapters, config profiles, skills, recipes, roles, blueprints.
 - Do not commit: `agents/brains/api-creds/**` contents or secret values anywhere.
-- Use distinct credential profiles for concurrent active sessions.
+- Let recipes own credential-profile selection; blueprints stay secret-free and inherit that selection through their bound recipe.
+- Concurrent active sessions may reuse the same provider credentials when the provider/tool allows it. If you hit provider-side rate or session limits, rotate one recipe or blueprint to a different credential profile.
 - Keep adapter definitions authoritative for per-tool projection and launch behavior.
 
 ## Migration Status

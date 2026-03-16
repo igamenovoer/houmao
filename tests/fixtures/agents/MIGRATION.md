@@ -23,5 +23,6 @@ The new model builds homes under a configurable runtime root:
 ## Credential Notes
 
 - Place secrets only under `agents/brains/api-creds/<tool>/<cred-profile>/`.
-- Do not share one writable credential profile across concurrent runs.
-- Rotate by creating a new `<cred-profile>` and updating recipes/blueprints.
+- Recipes pick credential profiles by name, and blueprints inherit that choice through the selected recipe.
+- Concurrent runs may reuse the same credential profile when the provider/tool allows shared API-key or token usage.
+- If you need a separate rate-limit lane or the provider enforces session limits, rotate by creating a new `<cred-profile>` and updating the affected recipes/blueprints.
