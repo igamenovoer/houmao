@@ -118,7 +118,7 @@ Start a tmux-backed session:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu

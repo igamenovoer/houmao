@@ -2,6 +2,8 @@
 
 This page explains the current v1 gateway contracts: how attachability is published, what the live HTTP surface looks like, and which files under `gateway/` are durable versus ephemeral.
 
+For the broader runtime-root and session-root filesystem map around this subtree, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
+
 ## Mental Model
 
 The gateway contract has two layers.
@@ -37,7 +39,7 @@ Representative CAO-backed attach contract:
     "profile_path": "/abs/path/runtime-profile.md",
     "parsing_mode": "shadow_only"
   },
-  "manifest_path": "/abs/path/tmp/agents-runtime/sessions/cao_rest/cao-rest-1/manifest.json",
+  "manifest_path": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
   "agent_def_dir": "/abs/path/tests/fixtures/agents",
   "runtime_session_id": "cao-rest-1",
   "desired_host": "127.0.0.1",
@@ -186,6 +188,8 @@ Observable current error semantics:
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
 
 ## Durable And Ephemeral Gateway Artifacts
+
+For the full runtime-managed session tree that surrounds `gateway/`, use [Agents And Runtime](../../system-files/agents-and-runtime.md). This page keeps the gateway-local artifact semantics.
 
 Representative gateway tree:
 

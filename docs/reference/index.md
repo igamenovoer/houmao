@@ -6,6 +6,7 @@
 
 ## Reference Pages
 
+- [System Files Reference](system-files/index.md)
 - [Realm Controller](realm_controller.md)
 - [Runtime-Managed Agents Reference](agents/index.md)
 - [Shared Registry Reference](registry/index.md)

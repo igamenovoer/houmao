@@ -69,22 +69,23 @@ Important shared-registry procedures include at minimum:
 - **THEN** the page provides both prose explanation and a Mermaid sequence diagram
 - **AND THEN** the reader is not required to infer the full procedure from the diagram alone
 
-### Requirement: Shared-registry contract documentation explains the locator-layer boundary and implemented v1 record semantics
+### Requirement: Shared-registry contract documentation explains the locator-layer boundary and implemented v2 record semantics
 The shared-registry contract documentation SHALL explain that the shared registry is a locator layer pointing to runtime-owned state rather than a replacement authority for manifests, tmux discovery, gateway artifacts, or mailbox state.
 
 At minimum, that contract coverage SHALL include:
 
 - why the shared registry exists alongside tmux-local discovery,
 - the effective registry root and `AGENTSYS_GLOBAL_REGISTRY_DIR` override behavior,
-- the `live_agents/<agent-key>/record.json` layout,
-- canonical `AGENTSYS-...` naming and full-SHA-256 `agent_key` derivation,
-- the strict v1 record fields and which nested sections are optional,
+- the `live_agents/<agent-id>/record.json` layout,
+- canonical `AGENTSYS-...` naming, authoritative `agent_id`, and the difference between name lookup and directory identity,
+- the strict v2 record fields and which nested sections are optional,
 - lease freshness and timezone-aware timestamp expectations,
 - `generation_id` ownership and duplicate-publisher conflict semantics,
 - malformed, invalid, or expired records resolving as stale rather than live,
-- the boundary that records store secret-free pointers rather than copied runtime payloads.
+- the boundary that records store secret-free pointers rather than copied runtime payloads,
+- the shipped v2 standalone JSON Schema and current typed publication model.
 
-The contract documentation SHALL reflect current implemented v1 behavior and SHALL NOT describe planned packaged-schema enforcement or broader backend coverage as though it were already shipped.
+The contract documentation SHALL reflect current implemented v2 behavior and SHALL describe the shipped v2 standalone JSON Schema and current typed publication model as already-shipped behavior.
 
 #### Scenario: Contract docs explain why the registry exists and what it does not own
 - **WHEN** a reader needs to understand the purpose of the shared registry
@@ -92,8 +93,8 @@ The contract documentation SHALL reflect current implemented v1 behavior and SHA
 - **AND THEN** the reader can tell that the registry is a pointer layer rather than a central runtime state store
 
 #### Scenario: Contract docs cover implemented record and ownership semantics
-- **WHEN** a reader needs the normative shared-registry reference for current v1 behavior
-- **THEN** the contract pages describe record layout, canonical naming, key derivation, freshness, ownership conflicts, and stale-record behavior
+- **WHEN** a reader needs the normative shared-registry reference for current implemented behavior
+- **THEN** the contract pages describe record layout, authoritative `agent_id`, canonical naming, freshness, ownership conflicts, stale-record behavior, and the shipped v2 schema surface
 - **AND THEN** the reader does not need to reconstruct those rules only from scattered source files or archived registry changes
 
 ### Requirement: Shared-registry operational documentation covers discovery fallback and cleanup workflows
@@ -151,10 +152,9 @@ This source mapping SHALL help keep the repo-level registry reference aligned wi
 ### Requirement: Shared-registry reference pages introduce terminology clearly
 The shared-registry reference documentation SHALL introduce important subsystem terms clearly instead of assuming prior knowledge.
 
-At minimum, the documentation SHALL define or explain recurring terms such as shared registry, live-agent record, agent key, generation id, lease freshness, canonical agent name, and locator layer before relying on them heavily.
+At minimum, the documentation SHALL define or explain recurring terms such as shared registry, live-agent record, `agent_id`, generation id, lease freshness, canonical agent name, and locator layer before relying on them heavily.
 
 #### Scenario: Reader encounters registry terms with enough context
 - **WHEN** a new user or developer encounters shared-registry terminology in the reference subtree
 - **THEN** the page or subtree entrypoint explains that terminology in accessible language
 - **AND THEN** the documentation does not rely on unexplained registry jargon as the only way to understand registry behavior
-

@@ -9,6 +9,7 @@
 
 For the new detailed reference trees, use:
 
+- [System Files Reference](./system-files/index.md) for the canonical Houmao-owned filesystem map, root overrides, and operator preparation guidance.
 - [Runtime-Managed Agents Reference](./agents/index.md) for session targeting, interaction-path comparison, runtime-owned state, and recovery boundaries.
 - [Shared Registry Reference](./registry/index.md) for cross-runtime-root discovery, record contracts, cleanup behavior, and runtime publication hooks.
 - [Agent Gateway Reference](./gateway/index.md) for gateway attachability, HTTP and status contracts, queue behavior, and lifecycle handling.
@@ -61,11 +62,8 @@ For the dedicated registry subtree, start at [Shared Registry Reference](./regis
 
 New runtime-owned tmux-backed sessions now publish gateway capability by default even when no live gateway process is attached yet.
 
-Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. This page keeps the gateway overview short so those details live in one place.
+Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical session-root, nested `gateway/`, and `job_dir` filesystem map. This page keeps the gateway overview short so those details live in one place.
 
-- Runtime-owned session state now lives under `<runtime_root>/sessions/<backend>/<session-id>/`.
-- The session manifest lives at `<session-root>/manifest.json`.
-- Gateway-owned durable state lives under `<session-root>/gateway/`.
 - The tmux session environment publishes stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
 - When a live gateway is attached, tmux also publishes `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`.
 - `state.json` is seeded under the gateway root before the first live attach and returns to the offline or not-attached state on graceful detach.
@@ -77,7 +75,7 @@ Launch-time auto-attach is optional:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --gateway-auto-attach
@@ -139,7 +137,7 @@ Mailbox support can come from declarative brain config or from `start-session` o
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport filesystem \
@@ -180,7 +178,7 @@ Start a session from an existing brain manifest:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder
 ```
 
@@ -201,7 +199,7 @@ deprecation window:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend codex_app_server
 ```
@@ -233,13 +231,13 @@ Bootstrap is idempotent and preserves unrelated config settings.
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Summarize the current plan"
 ```
 
@@ -301,13 +299,13 @@ Examples:
 ```bash
 ANTHROPIC_MODEL=opus ANTHROPIC_SMALL_FAST_MODEL=claude-3-5-haiku-latest \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 ANTHROPIC_MODEL=opus CLAUDE_CODE_SUBAGENT_MODEL=sonnet \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url http://localhost:<port>
@@ -320,13 +318,13 @@ Use the same loopback port configured for the CAO launcher. `9889` is the defaul
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend gemini_headless
 
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/gemini_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/gemini_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
 
@@ -360,7 +358,7 @@ pixi run python -m houmao.cao.tools.cao_server_launcher start \
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu \
@@ -566,23 +564,7 @@ egress and injects loopback entries into `NO_PROXY`/`no_proxy` by default.
 
 ## Session Manifest
 
-For the broader runtime-owned storage model, discovery pointers, and gateway nesting under the same session root, see [Runtime-Managed State And Recovery](./agents/internals/state-and-recovery.md) and [Gateway Protocol And State Contracts](./gateway/contracts/protocol-and-state.md).
-
-Session manifests are written under:
-
-- `<runtime-root>/sessions/<backend>/<session-id>/manifest.json` with `~/.houmao/runtime` as the default runtime root.
-
-Per-session local job directories live separately under:
-
-- `<working-directory>/.houmao/jobs/<session-id>/`
-
-Gateway-capable runtime-owned tmux sessions also write:
-
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/attach.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/state.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/desired-config.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/queue.sqlite`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/events.jsonl`
+Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical runtime-owned filesystem inventory covering generated homes, generated manifests, runtime session roots, nested gateway files, and workspace-local `job_dir` placement.
 
 Manifests are validated against in-package JSON Schemas before write and on load/resume.
 

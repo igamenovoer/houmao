@@ -2,6 +2,8 @@
 
 This page explains the static contract around the shared registry: where it lives, how live-agent directories are named, what `record.json` contains, and what the registry intentionally does not store.
 
+For the broader Houmao filesystem map and operator-facing preparation guidance, use [System Files / Shared Registry](../../system-files/shared-registry.md) and [Operator Preparation](../../system-files/operator-preparation.md).
+
 ## Mental Model
 
 The registry layout is deliberately small.
@@ -114,7 +116,7 @@ Representative record with optional gateway and mailbox metadata present:
 
 `terminal` is the terminal-container hint for the published session.
 
-Current v1 scope:
+Current implementation scope:
 
 - `kind` is `tmux`,
 - `terminal.session_name` is the actual tmux session handle and does not need to equal the canonical `agent_name`.
@@ -165,4 +167,5 @@ That boundary is the main reason the registry can stay small and safe to inspect
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
 - [`src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v2.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/live_agent_registry_record.v2.schema.json)
+- [`docs/reference/system-files/shared-registry.md`](../../system-files/shared-registry.md)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

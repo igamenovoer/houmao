@@ -2,6 +2,8 @@
 
 This page explains how the runtime actually owns registry publication: where `generation_id` comes from, which lifecycle hooks refresh records, how stop teardown clears discoverability, and why some registry failures become warnings instead of failed primary actions.
 
+For the broader filesystem placement of the registry root and `record.json`, use [System Files / Shared Registry](../../system-files/shared-registry.md).
+
 ## Mental Model
 
 The runtime, not the backend helpers, owns shared-registry publication.
@@ -59,7 +61,7 @@ sequenceDiagram
     participant RG as shared registry
     RT->>MF: write manifest with<br/>registry_generation_id
     RT->>GW: seed or refresh stable<br/>gateway capability
-    RT->>RG: build LiveAgentRegistryRecordV1
+    RT->>RG: build LiveAgentRegistryRecordV2
     RT->>RG: publish record.json
     RG-->>RT: verified fresh record
 ```

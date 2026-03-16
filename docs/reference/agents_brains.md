@@ -9,8 +9,8 @@ For the runtime-managed session model layered on top of these built homes, use [
 
 The canonical on-disk sources live under an **agent definition directory** that
 contains `brains/`, `roles/`, and `blueprints/`. The generated runtime homes
-live under a runtime root (default: `tmp/agents-runtime/`) and are safe to
-delete/rebuild.
+live under the effective runtime root (default: `~/.houmao/runtime`) and are
+safe to delete or rebuild. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical generated-home, manifest, and session-root filesystem map.
 
 ## Canonical Layout
 
@@ -79,9 +79,9 @@ pixi run python scripts/agents/build_brain_home.py \
 
 Outputs:
 
-- Runtime home: `tmp/agents-runtime/homes/<tool>/<home-id>/`
-- Manifest: `tmp/agents-runtime/manifests/<tool>/<home-id>.yaml`
-- Launch helper: `tmp/agents-runtime/homes/<tool>/<home-id>/launch.sh`
+- Runtime home: `<runtime-root>/homes/<home-id>/`
+- Manifest: `<runtime-root>/manifests/<home-id>.yaml`
+- Launch helper: `<runtime-root>/homes/<home-id>/launch.sh`
 
 The manifest is **secret-free** (it records env var names and local paths, but
 not secret values).
@@ -139,13 +139,13 @@ Tool notes (current adapters):
 After building, start the tool using the generated helper:
 
 ```bash
-tmp/agents-runtime/homes/<tool>/<home-id>/launch.sh
+<runtime-root>/homes/<home-id>/launch.sh
 ```
 
 Example live Codex smoke test for the Yunwu-backed profile:
 
 ```bash
-tmp/agents-runtime/homes/codex/<home-id>/launch.sh exec --skip-git-repo-check \
+<runtime-root>/homes/<home-id>/launch.sh exec --skip-git-repo-check \
   'Respond with exactly this text and nothing else: YUNWU_CODEX_SMOKE_OK'
 ```
 
@@ -188,7 +188,7 @@ from houmao.agents import BuildRequest, build_brain_home
 result = build_brain_home(
     BuildRequest(
         agent_def_dir=Path("."),
-        runtime_root=Path("tmp/agents-runtime"),
+        runtime_root=Path("/abs/path/houmao-runtime"),
         tool="codex",
         skills=["openspec-apply-change"],
         config_profile="default",

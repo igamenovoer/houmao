@@ -223,7 +223,7 @@ Example:
 ```bash
 AGENTSYS_CAO_CODEX_VERSION=0.98.0 \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url http://localhost:9889 \

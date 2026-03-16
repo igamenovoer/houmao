@@ -12,12 +12,12 @@ The system SHALL deterministically treat an identity value as a file path when i
 If a path-like identity value does not resolve to an existing file, the system SHALL fail with an explicit "manifest not found" error and SHALL NOT interpret it as an agent name.
 
 #### Scenario: Path-like identity resolves as a manifest path
-- **WHEN** a caller provides `--agent-identity tmp/agents-runtime/sessions/cao_rest/session-20260101-000000Z-abcd1234.json`
+- **WHEN** a caller provides `--agent-identity /abs/path/.houmao/runtime/sessions/cao_rest/session-20260101-000000Z-abcd1234/manifest.json`
 - **AND WHEN** that file exists
 - **THEN** the runtime loads the session manifest from that path and resumes the session
 
 #### Scenario: Missing path-like identity fails fast
-- **WHEN** a caller provides `--agent-identity tmp/agents-runtime/sessions/cao_rest/missing.json`
+- **WHEN** a caller provides `--agent-identity /abs/path/.houmao/runtime/sessions/cao_rest/missing/manifest.json`
 - **AND WHEN** that file does not exist
 - **THEN** the runtime rejects the operation with an explicit "manifest not found" error
 

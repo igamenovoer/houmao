@@ -2,6 +2,8 @@
 
 This page explains the runtime-managed surfaces that operators and developers actually call: how sessions are targeted, which CLI commands exist for which job, and which runtime-owned artifacts back those commands.
 
+For the canonical filesystem layout behind generated homes, runtime session roots, nested gateway files, and workspace-local job directories, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
+
 ## Mental Model
 
 The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or CAO-backed.
@@ -21,7 +23,7 @@ Pass a manifest path as `--agent-identity` when you already know the exact sessi
 
 ```bash
 pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
 
@@ -65,18 +67,7 @@ The main runtime-managed commands are intentionally different:
 
 ## Runtime-Owned Artifacts
 
-Runtime-managed sessions persist state under:
-
-```text
-<runtime_root>/sessions/<backend>/<session-id>/
-  manifest.json
-  gateway/
-    attach.json
-    state.json
-    desired-config.json
-    queue.sqlite
-    events.jsonl
-```
+Runtime-managed sessions persist a durable manifest under `<runtime_root>/sessions/<backend>/<session-id>/manifest.json` and may materialize a nested `gateway/` subtree plus a workspace-local `job_dir`. Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the canonical tree, contract levels, and cleanup guidance.
 
 Publicly relevant details:
 
@@ -128,4 +119,5 @@ These docs intentionally describe the implemented behavior, not the full design 
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/realm_controller/agent_identity.py`](../../../../src/houmao/agents/realm_controller/agent_identity.py)
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../../src/houmao/agents/realm_controller/manifest.py)
+- [`docs/reference/system-files/agents-and-runtime.md`](../../system-files/agents-and-runtime.md)
 - [`docs/reference/realm_controller_send_keys.md`](../../realm_controller_send_keys.md)
