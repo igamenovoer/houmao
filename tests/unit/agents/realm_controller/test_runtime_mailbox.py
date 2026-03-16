@@ -109,6 +109,12 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     assert (mailbox.filesystem_root / "index.sqlite").is_file()
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
     assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/inbox").is_dir()
+    assert (
+        mailbox.filesystem_root
+        / "mailboxes"
+        / "AGENTSYS-research@agents.localhost"
+        / "mailbox.sqlite"
+    ).is_file()
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["principal_id"] == "AGENTSYS-research"
@@ -267,6 +273,12 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
     assert refreshed.filesystem_root == new_root.resolve()
     assert controller.launch_plan.mailbox == refreshed
     assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(new_root.resolve())
+    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
+        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost"
+    )
+    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
+        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost" / "mailbox.sqlite"
+    )
     assert captured["launch_plan"].mailbox == refreshed
     assert refreshed.bindings_version != old_mailbox.bindings_version
     assert (new_root / "protocol-version.txt").is_file()

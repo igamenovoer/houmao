@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHost,
     GatewayJsonObject,
     GatewayJsonValue,
+    GatewayMailNotifierStatusV1,
     GatewayProtocolVersion,
     GatewayStatusV1,
     format_gateway_validation_error,
@@ -49,6 +50,7 @@ _LIVE_GATEWAY_ENV_VARS: tuple[str, ...] = (
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
 )
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,18 @@ class GatewayLiveBindings:
     port: int
     state_path: Path
     protocol_version: GatewayProtocolVersion
+
+
+@dataclass(frozen=True)
+class GatewayMailNotifierRecord:
+    """Durable gateway-owned notifier configuration and runtime state."""
+
+    enabled: bool
+    interval_seconds: int | None
+    last_poll_at_utc: str | None
+    last_notification_at_utc: str | None
+    last_notified_digest: str | None
+    last_error: str | None
 
 
 class _TmuxEnvSetter(Protocol):
@@ -407,6 +421,71 @@ def delete_gateway_current_instance(paths: GatewayPaths) -> None:
             continue
 
 
+def read_gateway_mail_notifier_record(sqlite_path: Path) -> GatewayMailNotifierRecord:
+    """Load the durable gateway notifier record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        return _read_gateway_mail_notifier_record(connection)
+
+
+def write_gateway_mail_notifier_record(
+    sqlite_path: Path,
+    *,
+    enabled: bool | object = _UNSET,
+    interval_seconds: int | None | object = _UNSET,
+    last_poll_at_utc: str | None | object = _UNSET,
+    last_notification_at_utc: str | None | object = _UNSET,
+    last_notified_digest: str | None | object = _UNSET,
+    last_error: str | None | object = _UNSET,
+) -> GatewayMailNotifierRecord:
+    """Persist selected notifier fields and return the resulting durable record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        record = _read_gateway_mail_notifier_record(connection)
+        updated = GatewayMailNotifierRecord(
+            enabled=record.enabled if enabled is _UNSET else bool(enabled),
+            interval_seconds=(
+                record.interval_seconds if interval_seconds is _UNSET else cast(int | None, interval_seconds)
+            ),
+            last_poll_at_utc=(
+                record.last_poll_at_utc if last_poll_at_utc is _UNSET else cast(str | None, last_poll_at_utc)
+            ),
+            last_notification_at_utc=(
+                record.last_notification_at_utc
+                if last_notification_at_utc is _UNSET
+                else cast(str | None, last_notification_at_utc)
+            ),
+            last_notified_digest=(
+                record.last_notified_digest
+                if last_notified_digest is _UNSET
+                else cast(str | None, last_notified_digest)
+            ),
+            last_error=record.last_error if last_error is _UNSET else cast(str | None, last_error),
+        )
+        _write_gateway_mail_notifier_record(connection, updated)
+        connection.commit()
+        return updated
+
+
+def build_gateway_mail_notifier_status(
+    *,
+    record: GatewayMailNotifierRecord,
+    supported: bool,
+    support_error: str | None,
+) -> GatewayMailNotifierStatusV1:
+    """Build the structured HTTP status payload for the gateway notifier."""
+
+    return GatewayMailNotifierStatusV1(
+        enabled=record.enabled,
+        interval_seconds=record.interval_seconds,
+        supported=supported,
+        support_error=support_error,
+        last_poll_at_utc=record.last_poll_at_utc,
+        last_notification_at_utc=record.last_notification_at_utc,
+        last_error=record.last_error,
+    )
+
+
 def build_offline_gateway_status(
     *,
     attach_contract: GatewayAttachContractV1,
@@ -586,7 +665,114 @@ def _ensure_queue_database(sqlite_path: Path) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gateway_mail_notifier (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                interval_seconds INTEGER,
+                last_poll_at_utc TEXT,
+                last_notification_at_utc TEXT,
+                last_notified_digest TEXT,
+                last_error TEXT,
+                updated_at_utc TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO gateway_mail_notifier (
+                singleton,
+                enabled,
+                interval_seconds,
+                last_poll_at_utc,
+                last_notification_at_utc,
+                last_notified_digest,
+                last_error,
+                updated_at_utc
+            )
+            VALUES (1, 0, NULL, NULL, NULL, NULL, NULL, ?)
+            """,
+            (now_utc_iso(),),
+        )
         connection.commit()
+
+
+def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> GatewayMailNotifierRecord:
+    """Load the singleton gateway notifier row from durable storage."""
+
+    row = connection.execute(
+        """
+        SELECT
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error
+        FROM gateway_mail_notifier
+        WHERE singleton = 1
+        """
+    ).fetchone()
+    if row is None:
+        record = GatewayMailNotifierRecord(
+            enabled=False,
+            interval_seconds=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_notified_digest=None,
+            last_error=None,
+        )
+        _write_gateway_mail_notifier_record(connection, record)
+        return record
+    return GatewayMailNotifierRecord(
+        enabled=bool(int(row[0])),
+        interval_seconds=None if row[1] is None else int(row[1]),
+        last_poll_at_utc=None if row[2] is None else str(row[2]),
+        last_notification_at_utc=None if row[3] is None else str(row[3]),
+        last_notified_digest=None if row[4] is None else str(row[4]),
+        last_error=None if row[5] is None else str(row[5]),
+    )
+
+
+def _write_gateway_mail_notifier_record(
+    connection: sqlite3.Connection,
+    record: GatewayMailNotifierRecord,
+) -> None:
+    """Persist the singleton gateway notifier row."""
+
+    connection.execute(
+        """
+        INSERT INTO gateway_mail_notifier (
+            singleton,
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error,
+            updated_at_utc
+        )
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET
+            enabled = excluded.enabled,
+            interval_seconds = excluded.interval_seconds,
+            last_poll_at_utc = excluded.last_poll_at_utc,
+            last_notification_at_utc = excluded.last_notification_at_utc,
+            last_notified_digest = excluded.last_notified_digest,
+            last_error = excluded.last_error,
+            updated_at_utc = excluded.updated_at_utc
+        """,
+        (
+            int(record.enabled),
+            record.interval_seconds,
+            record.last_poll_at_utc,
+            record.last_notification_at_utc,
+            record.last_notified_digest,
+            record.last_error,
+            now_utc_iso(),
+        ),
+    )
 
 
 def _load_json_mapping(path: Path, *, missing_prefix: str) -> GatewayJsonObject:

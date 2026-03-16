@@ -37,6 +37,7 @@ Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path cr
         <filename>
   mailboxes/
     <address>/
+      mailbox.sqlite
       inbox/
       sent/
       archive/
@@ -57,7 +58,7 @@ Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path cr
 
 - `rules/scripts/`
   Shared helper scripts for sensitive mailbox operations.
-  Operations that touch `index.sqlite` or `locks/` should use these scripts instead of ad hoc direct mutations.
+  Operations that touch shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/` should use these scripts instead of ad hoc direct mutations.
   Scripts may be `.py` or `.sh`; Python scripts may depend on standard-library modules and additional Python packages when the shared mailbox declares those dependencies in `rules/scripts/requirements.txt`.
   In v1, the runtime-managed asset set includes `requirements.txt`, `register_mailbox.py`, `deregister_mailbox.py`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`.
   These filenames are stable within a given `protocol-version.txt` value.
@@ -67,6 +68,11 @@ Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path cr
   Recipient-facing mailbox projection for delivered messages.
   The `mailboxes/<address>` entry may be a real directory under `<mailbox_root>` or a symlink to a private mailbox directory outside `<mailbox_root>`.
   Individual inbox entries are symlinks to canonical message files under `messages/`.
+
+- `mailboxes/<address>/mailbox.sqlite`
+  Mailbox-local SQLite state for one resolved mailbox directory.
+  This database stores mailbox-view state keyed by `message_id` plus mailbox-local thread summary caches keyed by `thread_id`.
+  It is the authoritative store for read, starred, archived, deleted, and unread-thread mailbox-view state for that mailbox.
 
 - `mailboxes/<address>/sent`
   Sender-facing mailbox projection for outbound messages.
@@ -91,8 +97,8 @@ Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path cr
   Lock names are derived from the literal full mailbox address, not from `principal_id`.
 
 - `index.sqlite`
-  Query and mutable-state store for unread or read, starred, archived, and thread summary state.
-  It also tracks attachment metadata and message-to-attachment associations for managed or referenced attachments.
+  Shared mailbox-root structural catalog for registrations, canonical messages, recipient associations, projections, and attachment metadata.
+  Mailbox-view state that can differ per mailbox lives in each mailbox directory's `mailbox.sqlite` instead.
   This transport does not rely on `index.sqlite-wal` or `index.sqlite-shm` sidecar files.
 
 - `staging/`
@@ -109,4 +115,4 @@ Expect Markdown files with structured front matter describing:
 - sender and recipient mailbox principals, routed by full address
 - attachment metadata
 
-Treat the Markdown file as immutable after delivery. Update read or unread and related mailbox state in SQLite instead of rewriting the delivered message body.
+Treat the Markdown file as immutable after delivery. Update read or unread and related mailbox-view state in mailbox-local SQLite instead of rewriting the delivered message body.

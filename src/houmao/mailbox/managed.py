@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import sys
 import time
-from typing import Callable, ClassVar, Iterator, Literal, Sequence, TextIO, TypeVar
+from typing import Callable, ClassVar, Iterable, Iterator, Literal, Sequence, TextIO, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from houmao.mailbox.filesystem import (
     FilesystemMailboxPaths,
     MailboxRegistration,
+    initialize_mailbox_local_sqlite_schema,
     initialize_sqlite_schema,
     resolve_filesystem_mailbox_paths,
     unsupported_mailbox_root_reason,
@@ -570,6 +571,389 @@ def _normalize_managed_timestamp(value: str) -> str:
         raise ValueError(str(exc)) from exc
 
 
+def ensure_mailbox_local_state(
+    mailbox_root: Path,
+    *,
+    addresses: Sequence[str] | None = None,
+) -> None:
+    """Ensure active mailbox registrations have initialized local mailbox SQLite state."""
+
+    paths = _resolve_paths(mailbox_root)
+    _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.is_file():
+        return
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        registrations = (
+            _load_active_registrations(connection, addresses)
+            if addresses is not None
+            else _load_all_active_registrations(connection)
+        )
+        try:
+            with _attached_local_mailboxes(connection, registrations.values()) as attached_aliases:
+                for registration in sorted(
+                    registrations.values(),
+                    key=lambda item: (item.address, item.registration_id),
+                ):
+                    _seed_or_rebuild_local_mailbox_state(
+                        connection=connection,
+                        registration=registration,
+                        local_alias=attached_aliases[registration.registration_id],
+                        overwrite=False,
+                    )
+                connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
+def _attached_local_mailboxes(
+    connection: sqlite3.Connection,
+    registrations: Iterable[MailboxRegistration],
+) -> Iterator[dict[str, str]]:
+    """Attach mailbox-local SQLite databases to one shared-root SQLite connection."""
+
+    return _attached_local_mailboxes_with_options(
+        connection=connection,
+        registrations=registrations,
+        replace_unreadable=False,
+    )
+
+
+@contextmanager
+def _attached_local_mailboxes_with_options(
+    *,
+    connection: sqlite3.Connection,
+    registrations: Iterable[MailboxRegistration],
+    replace_unreadable: bool,
+) -> Iterator[dict[str, str]]:
+    """Attach mailbox-local SQLite databases to one shared-root SQLite connection."""
+
+    alias_by_registration_id: dict[str, str] = {}
+    attached_aliases: list[str] = []
+    unique_registrations: list[MailboxRegistration] = []
+    seen_registration_ids: set[str] = set()
+    for registration in registrations:
+        if registration.registration_id in seen_registration_ids:
+            continue
+        seen_registration_ids.add(registration.registration_id)
+        unique_registrations.append(registration)
+
+    try:
+        for index, registration in enumerate(unique_registrations):
+            _prepare_local_mailbox_sqlite_path(
+                registration,
+                replace_unreadable=replace_unreadable,
+            )
+            alias = f"mailbox_local_{index}"
+            connection.execute(
+                f"ATTACH DATABASE ? AS {alias}",
+                (str(registration.local_sqlite_path),),
+            )
+            alias_by_registration_id[registration.registration_id] = alias
+            attached_aliases.append(alias)
+        yield alias_by_registration_id
+    finally:
+        for alias in reversed(attached_aliases):
+            connection.execute(f"DETACH DATABASE {alias}")
+
+
+def _prepare_local_mailbox_sqlite_path(
+    registration: MailboxRegistration,
+    *,
+    replace_unreadable: bool,
+) -> None:
+    """Create or repair one mailbox-local SQLite database before attachment."""
+
+    try:
+        initialize_mailbox_local_sqlite_schema(registration.local_sqlite_path)
+    except sqlite3.DatabaseError:
+        if not replace_unreadable:
+            raise
+        if registration.local_sqlite_path.exists():
+            _backup_replaced_index(registration.local_sqlite_path, suffix="local-unusable")
+        initialize_mailbox_local_sqlite_schema(registration.local_sqlite_path)
+
+
+def _load_all_active_registrations(
+    connection: sqlite3.Connection,
+) -> dict[str, MailboxRegistration]:
+    """Load every active registration keyed by address."""
+
+    rows = connection.execute(
+        """
+        SELECT
+            registration_id,
+            address,
+            owner_principal_id,
+            status,
+            mailbox_kind,
+            mailbox_path,
+            mailbox_entry_path,
+            display_name,
+            manifest_path_hint,
+            role,
+            created_at_utc,
+            deactivated_at_utc,
+            replaced_by_registration_id
+        FROM mailbox_registrations
+        WHERE status = 'active'
+        """
+    ).fetchall()
+    return {registration.address: registration for registration in _rows_to_registrations(rows)}
+
+
+def _seed_or_rebuild_local_mailbox_state(
+    *,
+    connection: sqlite3.Connection,
+    registration: MailboxRegistration,
+    local_alias: str,
+    overwrite: bool,
+) -> None:
+    """Seed or rebuild one mailbox-local SQLite database from shared structural state."""
+
+    existing_row_count = int(
+        connection.execute(f"SELECT COUNT(*) FROM {local_alias}.message_state").fetchone()[0]
+    )
+    if existing_row_count > 0 and not overwrite:
+        _rebuild_local_thread_summaries(connection=connection, local_alias=local_alias)
+        return
+
+    if overwrite or existing_row_count > 0:
+        _clear_local_mailbox_state(connection=connection, local_alias=local_alias)
+
+    rows = _registration_local_state_rows(
+        connection=connection,
+        registration_id=registration.registration_id,
+    )
+    for row in rows:
+        _insert_local_message_state_row(
+            connection=connection,
+            local_alias=local_alias,
+            message_id=row["message_id"],
+            thread_id=row["thread_id"],
+            created_at_utc=row["created_at_utc"],
+            subject=row["subject"],
+            is_read=row["is_read"],
+            is_starred=row["is_starred"],
+            is_archived=row["is_archived"],
+            is_deleted=row["is_deleted"],
+        )
+    _rebuild_local_thread_summaries(connection=connection, local_alias=local_alias)
+
+
+def _registration_local_state_rows(
+    *,
+    connection: sqlite3.Connection,
+    registration_id: str,
+) -> list[dict[str, object]]:
+    """Build mailbox-local state rows from shared structural projections plus legacy state."""
+
+    rows = connection.execute(
+        """
+        SELECT
+            projection.message_id,
+            message.thread_id,
+            message.created_at_utc,
+            message.subject,
+            projection.folder_name,
+            state.is_read,
+            state.is_starred,
+            state.is_archived,
+            state.is_deleted
+        FROM mailbox_projections AS projection
+        JOIN messages AS message ON message.message_id = projection.message_id
+        LEFT JOIN mailbox_state AS state
+          ON state.registration_id = projection.registration_id
+         AND state.message_id = projection.message_id
+        WHERE projection.registration_id = ?
+        ORDER BY message.created_at_utc ASC, projection.message_id ASC
+        """,
+        (registration_id,),
+    ).fetchall()
+
+    return [
+        {
+            "message_id": str(row[0]),
+            "thread_id": str(row[1]),
+            "created_at_utc": str(row[2]),
+            "subject": str(row[3]),
+            "is_read": _coerce_optional_bool(row[5], default=_default_read_for_folder(str(row[4]))),
+            "is_starred": _coerce_optional_bool(row[6], default=False),
+            "is_archived": _coerce_optional_bool(row[7], default=False),
+            "is_deleted": _coerce_optional_bool(row[8], default=False),
+        }
+        for row in rows
+    ]
+
+
+def _coerce_optional_bool(value: object, *, default: bool) -> bool:
+    """Convert one optional SQLite boolean value into a Python bool."""
+
+    if value is None:
+        return default
+    return bool(int(value))
+
+
+def _default_read_for_folder(folder_name: str) -> bool:
+    """Return the deterministic default read state for one projection folder."""
+
+    return folder_name == "sent"
+
+
+def _clear_local_mailbox_state(
+    *,
+    connection: sqlite3.Connection,
+    local_alias: str,
+) -> None:
+    """Delete mailbox-local state rows from one attached mailbox database."""
+
+    connection.execute(f"DELETE FROM {local_alias}.thread_summaries")
+    connection.execute(f"DELETE FROM {local_alias}.message_state")
+
+
+def _reset_local_mailbox_database(mailbox_path: Path) -> None:
+    """Initialize and clear one mailbox-local SQLite database."""
+
+    sqlite_path = mailbox_path.resolve() / "mailbox.sqlite"
+    initialize_mailbox_local_sqlite_schema(sqlite_path)
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute("DELETE FROM thread_summaries")
+        connection.execute("DELETE FROM message_state")
+        connection.commit()
+
+
+def _insert_local_message_state_row(
+    *,
+    connection: sqlite3.Connection,
+    local_alias: str,
+    message_id: str,
+    thread_id: str,
+    created_at_utc: str,
+    subject: str,
+    is_read: bool,
+    is_starred: bool,
+    is_archived: bool,
+    is_deleted: bool,
+) -> None:
+    """Insert or replace one mailbox-local message-state row."""
+
+    connection.execute(
+        f"""
+        INSERT INTO {local_alias}.message_state (
+            message_id,
+            thread_id,
+            created_at_utc,
+            subject,
+            is_read,
+            is_starred,
+            is_archived,
+            is_deleted
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            thread_id = excluded.thread_id,
+            created_at_utc = excluded.created_at_utc,
+            subject = excluded.subject,
+            is_read = excluded.is_read,
+            is_starred = excluded.is_starred,
+            is_archived = excluded.is_archived,
+            is_deleted = excluded.is_deleted
+        """,
+        (
+            message_id,
+            thread_id,
+            created_at_utc,
+            subject,
+            int(is_read),
+            int(is_starred),
+            int(is_archived),
+            int(is_deleted),
+        ),
+    )
+
+
+def _rebuild_local_thread_summaries(
+    *,
+    connection: sqlite3.Connection,
+    local_alias: str,
+) -> None:
+    """Rebuild all mailbox-local thread summaries from local message-state rows."""
+
+    thread_rows = connection.execute(
+        f"SELECT DISTINCT thread_id FROM {local_alias}.message_state ORDER BY thread_id ASC"
+    ).fetchall()
+    connection.execute(f"DELETE FROM {local_alias}.thread_summaries")
+    for row in thread_rows:
+        _recompute_local_thread_summary(
+            connection=connection,
+            local_alias=local_alias,
+            thread_id=str(row[0]),
+        )
+
+
+def _recompute_local_thread_summary(
+    *,
+    connection: sqlite3.Connection,
+    local_alias: str,
+    thread_id: str,
+) -> None:
+    """Recompute one mailbox-local thread summary from local message-state rows."""
+
+    latest_row = connection.execute(
+        f"""
+        SELECT message_id, created_at_utc, subject
+        FROM {local_alias}.message_state
+        WHERE thread_id = ?
+        ORDER BY created_at_utc DESC, message_id DESC
+        LIMIT 1
+        """,
+        (thread_id,),
+    ).fetchone()
+    if latest_row is None:
+        connection.execute(
+            f"DELETE FROM {local_alias}.thread_summaries WHERE thread_id = ?",
+            (thread_id,),
+        )
+        return
+
+    unread_count = int(
+        connection.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM {local_alias}.message_state
+            WHERE thread_id = ? AND is_read = 0
+            """,
+            (thread_id,),
+        ).fetchone()[0]
+    )
+    connection.execute(
+        f"""
+        INSERT INTO {local_alias}.thread_summaries (
+            thread_id,
+            normalized_subject,
+            latest_message_id,
+            latest_message_created_at_utc,
+            unread_count
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(thread_id) DO UPDATE SET
+            normalized_subject = excluded.normalized_subject,
+            latest_message_id = excluded.latest_message_id,
+            latest_message_created_at_utc = excluded.latest_message_created_at_utc,
+            unread_count = excluded.unread_count
+        """,
+        (
+            thread_id,
+            str(latest_row[2]).strip().lower(),
+            str(latest_row[0]),
+            str(latest_row[1]),
+            unread_count,
+        ),
+    )
+
+
 def register_mailbox(
     mailbox_root: Path,
     request: RegisterMailboxRequest,
@@ -612,6 +996,7 @@ def register_mailbox(
                     connection, active_registration.registration_id, request
                 )
                 connection.commit()
+                initialize_mailbox_local_sqlite_schema(active_registration.local_sqlite_path)
                 return {
                     "ok": True,
                     "mode": request.mode,
@@ -642,6 +1027,7 @@ def register_mailbox(
                     connection, occupying_registration.registration_id, request
                 )
                 connection.commit()
+                initialize_mailbox_local_sqlite_schema(occupying_registration.local_sqlite_path)
                 return {
                     "ok": True,
                     "mode": request.mode,
@@ -728,6 +1114,7 @@ def register_mailbox(
                     replacement_registration_id=replacement_registration_id,
                 )
             connection.commit()
+            _reset_local_mailbox_database(desired_mailbox_path)
             return result
 
 
@@ -839,65 +1226,76 @@ def deliver_message(
                 message_id=request.message_id,
             )
 
-            created_projection_paths: list[Path] = []
-            moved_to_canonical = False
+            with _attached_local_mailboxes(
+                connection,
+                (
+                    sender_registration,
+                    *recipient_registrations.values(),
+                ),
+            ) as attached_aliases:
+                created_projection_paths: list[Path] = []
+                moved_to_canonical = False
 
-            try:
-                if canonical_path.exists():
-                    raise ManagedMailboxOperationError(
-                        f"canonical message already exists: {canonical_path}"
+                try:
+                    if canonical_path.exists():
+                        raise ManagedMailboxOperationError(
+                            f"canonical message already exists: {canonical_path}"
+                        )
+
+                    canonical_dir.mkdir(parents=True, exist_ok=True)
+                    staged_message_path.replace(canonical_path)
+                    moved_to_canonical = True
+
+                    for projection_path in projection_paths:
+                        _create_projection_symlink(projection_path, canonical_path)
+                        created_projection_paths.append(projection_path)
+
+                    connection.execute("BEGIN IMMEDIATE")
+                    _insert_message_record(
+                        connection=connection,
+                        request=request,
+                        canonical_path=canonical_path,
+                        sender_registration_id=sender_registration.registration_id,
                     )
-
-                canonical_dir.mkdir(parents=True, exist_ok=True)
-                staged_message_path.replace(canonical_path)
-                moved_to_canonical = True
-
-                for projection_path in projection_paths:
-                    _create_projection_symlink(projection_path, canonical_path)
-                    created_projection_paths.append(projection_path)
-
-                connection.execute("BEGIN IMMEDIATE")
-                _insert_message_record(
-                    connection=connection,
-                    request=request,
-                    canonical_path=canonical_path,
-                    sender_registration_id=sender_registration.registration_id,
-                )
-                _insert_recipient_records(
-                    connection=connection,
-                    request=request,
-                    recipient_registrations=recipient_registrations,
-                )
-                _insert_attachment_records(connection, request)
-                _insert_projection_records(
-                    connection=connection,
-                    sender_registration=sender_registration,
-                    recipient_principals=recipient_principals,
-                    recipient_registrations=recipient_registrations,
-                    projection_paths=projection_paths,
-                    message_id=request.message_id,
-                )
-                _insert_mailbox_state_records(
-                    connection=connection,
-                    sender_registration=sender_registration,
-                    recipient_principals=recipient_principals,
-                    recipient_registrations=recipient_registrations,
-                    message_id=request.message_id,
-                )
-                _recompute_thread_summary(connection, request.thread_id)
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                for projection_path in reversed(created_projection_paths):
-                    if projection_path.is_symlink() or projection_path.exists():
-                        projection_path.unlink(missing_ok=True)
-                if (
-                    moved_to_canonical
-                    and canonical_path.exists()
-                    and not staged_message_path.exists()
-                ):
-                    canonical_path.replace(staged_message_path)
-                raise
+                    _insert_recipient_records(
+                        connection=connection,
+                        request=request,
+                        recipient_registrations=recipient_registrations,
+                    )
+                    _insert_attachment_records(connection, request)
+                    _insert_projection_records(
+                        connection=connection,
+                        sender_registration=sender_registration,
+                        recipient_principals=recipient_principals,
+                        recipient_registrations=recipient_registrations,
+                        projection_paths=projection_paths,
+                        message_id=request.message_id,
+                    )
+                    _insert_mailbox_state_records(
+                        connection=connection,
+                        local_aliases=attached_aliases,
+                        sender_registration=sender_registration,
+                        recipient_principals=recipient_principals,
+                        recipient_registrations=recipient_registrations,
+                        message_id=request.message_id,
+                        thread_id=request.thread_id,
+                        created_at_utc=request.created_at_utc,
+                        subject=request.subject,
+                    )
+                    _recompute_thread_summary(connection, request.thread_id)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    for projection_path in reversed(created_projection_paths):
+                        if projection_path.is_symlink() or projection_path.exists():
+                            projection_path.unlink(missing_ok=True)
+                    if (
+                        moved_to_canonical
+                        and canonical_path.exists()
+                        and not staged_message_path.exists()
+                    ):
+                        canonical_path.replace(staged_message_path)
+                    raise
 
     return {
         "ok": True,
@@ -935,78 +1333,106 @@ def update_mailbox_state(
             if message_row is None:
                 raise ManagedMailboxOperationError(f"unknown message id `{request.message_id}`")
             thread_id = str(message_row[0])
+            with _attached_local_mailboxes(connection, (registration,)) as attached_aliases:
+                local_alias = attached_aliases[registration.registration_id]
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    existing_state = connection.execute(
+                        f"""
+                        SELECT 1
+                        FROM {local_alias}.message_state
+                        WHERE message_id = ?
+                        """,
+                        (request.message_id,),
+                    ).fetchone()
+                    if existing_state is None:
+                        projection_row = connection.execute(
+                            """
+                            SELECT projection.folder_name, message.thread_id, message.created_at_utc, message.subject
+                            FROM mailbox_projections AS projection
+                            JOIN messages AS message ON message.message_id = projection.message_id
+                            WHERE projection.registration_id = ? AND projection.message_id = ?
+                            """,
+                            (registration.registration_id, request.message_id),
+                        ).fetchone()
+                        if projection_row is None:
+                            raise ManagedMailboxOperationError(
+                                f"message `{request.message_id}` is not projected into `{request.address}`"
+                            )
+                        legacy_state_row = connection.execute(
+                            """
+                            SELECT is_read, is_starred, is_archived, is_deleted
+                            FROM mailbox_state
+                            WHERE registration_id = ? AND message_id = ?
+                            """,
+                            (registration.registration_id, request.message_id),
+                        ).fetchone()
+                        folder_name = str(projection_row[0])
+                        _insert_local_message_state_row(
+                            connection=connection,
+                            local_alias=local_alias,
+                            message_id=request.message_id,
+                            thread_id=str(projection_row[1]),
+                            created_at_utc=str(projection_row[2]),
+                            subject=str(projection_row[3]),
+                            is_read=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[0],
+                                default=_default_read_for_folder(folder_name),
+                            ),
+                            is_starred=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[1],
+                                default=False,
+                            ),
+                            is_archived=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[2],
+                                default=False,
+                            ),
+                            is_deleted=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[3],
+                                default=False,
+                            ),
+                        )
 
-            connection.execute("BEGIN IMMEDIATE")
-            existing_state = connection.execute(
-                """
-                SELECT 1
-                FROM mailbox_state
-                WHERE registration_id = ? AND message_id = ?
-                """,
-                (registration.registration_id, request.message_id),
-            ).fetchone()
-            if existing_state is None:
-                projection_exists = connection.execute(
-                    """
-                    SELECT 1
-                    FROM mailbox_projections
-                    WHERE registration_id = ? AND message_id = ?
-                    """,
-                    (registration.registration_id, request.message_id),
-                ).fetchone()
-                if projection_exists is None:
+                    assignments: list[str] = []
+                    parameters: list[object] = []
+                    if request.read is not None:
+                        assignments.append("is_read = ?")
+                        parameters.append(int(request.read))
+                    if request.starred is not None:
+                        assignments.append("is_starred = ?")
+                        parameters.append(int(request.starred))
+                    if request.archived is not None:
+                        assignments.append("is_archived = ?")
+                        parameters.append(int(request.archived))
+                    if request.deleted is not None:
+                        assignments.append("is_deleted = ?")
+                        parameters.append(int(request.deleted))
+                    parameters.append(request.message_id)
+                    connection.execute(
+                        f"""
+                        UPDATE {local_alias}.message_state
+                        SET {", ".join(assignments)}
+                        WHERE message_id = ?
+                        """,
+                        tuple(parameters),
+                    )
+                    _recompute_local_thread_summary(
+                        connection=connection,
+                        local_alias=local_alias,
+                        thread_id=thread_id,
+                    )
+                    state_row = connection.execute(
+                        f"""
+                        SELECT is_read, is_starred, is_archived, is_deleted
+                        FROM {local_alias}.message_state
+                        WHERE message_id = ?
+                        """,
+                        (request.message_id,),
+                    ).fetchone()
+                    connection.commit()
+                except Exception:
                     connection.rollback()
-                    raise ManagedMailboxOperationError(
-                        f"message `{request.message_id}` is not projected into `{request.address}`"
-                    )
-                connection.execute(
-                    """
-                    INSERT INTO mailbox_state (
-                        registration_id,
-                        message_id,
-                        is_read,
-                        is_starred,
-                        is_archived,
-                        is_deleted
-                    )
-                    VALUES (?, ?, 0, 0, 0, 0)
-                    """,
-                    (registration.registration_id, request.message_id),
-                )
-
-            assignments: list[str] = []
-            parameters: list[object] = []
-            if request.read is not None:
-                assignments.append("is_read = ?")
-                parameters.append(int(request.read))
-            if request.starred is not None:
-                assignments.append("is_starred = ?")
-                parameters.append(int(request.starred))
-            if request.archived is not None:
-                assignments.append("is_archived = ?")
-                parameters.append(int(request.archived))
-            if request.deleted is not None:
-                assignments.append("is_deleted = ?")
-                parameters.append(int(request.deleted))
-            parameters.extend((registration.registration_id, request.message_id))
-            connection.execute(
-                f"""
-                UPDATE mailbox_state
-                SET {", ".join(assignments)}
-                WHERE registration_id = ? AND message_id = ?
-                """,
-                tuple(parameters),
-            )
-            _recompute_thread_summary(connection, thread_id)
-            state_row = connection.execute(
-                """
-                SELECT is_read, is_starred, is_archived, is_deleted
-                FROM mailbox_state
-                WHERE registration_id = ? AND message_id = ?
-                """,
-                (registration.registration_id, request.message_id),
-            ).fetchone()
-            connection.commit()
+                    raise
 
     assert state_row is not None
     return {
@@ -1061,51 +1487,73 @@ def repair_mailbox_index(
             restored_state_count = 0
             defaulted_state_count = 0
             thread_ids: set[str] = set()
+            try:
+                with _attached_local_mailboxes_with_options(
+                    connection=connection,
+                    registrations=recovered_registrations.values(),
+                    replace_unreadable=True,
+                ) as attached_aliases:
+                    for registration in recovered_registrations.values():
+                        if registration.mailbox_path.exists() and registration.mailbox_path.is_dir():
+                            _clear_local_mailbox_state(
+                                connection=connection,
+                                local_alias=attached_aliases[registration.registration_id],
+                            )
 
-            for recovered_message in recovered_messages:
-                thread_ids.add(recovered_message.message.thread_id)
-                sender_registration_id = snapshot.sender_registration_ids.get(
-                    recovered_message.message.message_id
-                )
-                if sender_registration_id is None:
-                    sender_registration_id = _best_effort_registration_id(
-                        registrations=recovered_registrations,
-                        address=recovered_message.message.sender.address,
-                        owner_principal_id=recovered_message.message.sender.principal_id,
-                    )
-                _insert_recovered_message_record(
-                    connection=connection,
-                    recovered_message=recovered_message,
-                    sender_registration_id=sender_registration_id,
-                )
-                recipient_registration_ids = _insert_recovered_recipient_records(
-                    connection=connection,
-                    message=recovered_message.message,
-                    snapshot=snapshot,
-                    registrations=recovered_registrations,
-                )
-                _insert_recovered_attachment_records(connection, recovered_message.message)
-                projection_count += _repair_projection_records(
-                    connection=connection,
-                    registrations=recovered_registrations,
-                    recovered_message=recovered_message,
-                    sender_registration_id=sender_registration_id,
-                    recipient_registration_ids=recipient_registration_ids,
-                )
-                restored_count, defaulted_count = _insert_recovered_mailbox_state_records(
-                    connection=connection,
-                    snapshot=snapshot,
-                    registrations=recovered_registrations,
-                    message=recovered_message.message,
-                    sender_registration_id=sender_registration_id,
-                    recipient_registration_ids=recipient_registration_ids,
-                )
-                restored_state_count += restored_count
-                defaulted_state_count += defaulted_count
+                    for recovered_message in recovered_messages:
+                        thread_ids.add(recovered_message.message.thread_id)
+                        sender_registration_id = snapshot.sender_registration_ids.get(
+                            recovered_message.message.message_id
+                        )
+                        if sender_registration_id is None:
+                            sender_registration_id = _best_effort_registration_id(
+                                registrations=recovered_registrations,
+                                address=recovered_message.message.sender.address,
+                                owner_principal_id=recovered_message.message.sender.principal_id,
+                            )
+                        _insert_recovered_message_record(
+                            connection=connection,
+                            recovered_message=recovered_message,
+                            sender_registration_id=sender_registration_id,
+                        )
+                        recipient_registration_ids = _insert_recovered_recipient_records(
+                            connection=connection,
+                            message=recovered_message.message,
+                            snapshot=snapshot,
+                            registrations=recovered_registrations,
+                        )
+                        _insert_recovered_attachment_records(connection, recovered_message.message)
+                        projection_count += _repair_projection_records(
+                            connection=connection,
+                            registrations=recovered_registrations,
+                            recovered_message=recovered_message,
+                            sender_registration_id=sender_registration_id,
+                            recipient_registration_ids=recipient_registration_ids,
+                        )
+                        restored_count, defaulted_count = _insert_recovered_mailbox_state_records(
+                            connection=connection,
+                            snapshot=snapshot,
+                            registrations=recovered_registrations,
+                            local_aliases=attached_aliases,
+                            message=recovered_message.message,
+                            sender_registration_id=sender_registration_id,
+                            recipient_registration_ids=recipient_registration_ids,
+                        )
+                        restored_state_count += restored_count
+                        defaulted_state_count += defaulted_count
 
-            for thread_id in sorted(thread_ids):
-                _recompute_thread_summary(connection, thread_id)
-            connection.commit()
+                    for thread_id in sorted(thread_ids):
+                        _recompute_thread_summary(connection, thread_id)
+                    for registration in recovered_registrations.values():
+                        if registration.mailbox_path.exists() and registration.mailbox_path.is_dir():
+                            _rebuild_local_thread_summaries(
+                                connection=connection,
+                                local_alias=attached_aliases[registration.registration_id],
+                            )
+                    connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     return {
         "ok": True,
@@ -1658,6 +2106,7 @@ def _ensure_artifact_for_registration(registration: MailboxRegistration) -> None
             raise ManagedMailboxOperationError(
                 f"mailbox registration for `{registration.address}` is missing `{directory_name}/`"
             )
+    initialize_mailbox_local_sqlite_schema(registration.local_sqlite_path)
 
 
 def _build_projection_targets(
@@ -1857,12 +2306,16 @@ def _insert_projection_records(
 def _insert_mailbox_state_records(
     *,
     connection: sqlite3.Connection,
+    local_aliases: dict[str, str],
     sender_registration: MailboxRegistration,
     recipient_principals: Sequence[ManagedPrincipal],
     recipient_registrations: dict[str, MailboxRegistration],
     message_id: str,
+    thread_id: str,
+    created_at_utc: str,
+    subject: str,
 ) -> None:
-    """Insert deterministic default mailbox-state rows."""
+    """Insert deterministic default mailbox-local state rows."""
 
     affected_registration_ids = {
         sender_registration.registration_id,
@@ -1872,28 +2325,27 @@ def _insert_mailbox_state_records(
         ),
     }
     for registration_id in sorted(affected_registration_ids):
-        connection.execute(
-            """
-            INSERT INTO mailbox_state (
-                registration_id,
-                message_id,
-                is_read,
-                is_starred,
-                is_archived,
-                is_deleted
-            )
-            VALUES (?, ?, ?, 0, 0, 0)
-            """,
-            (
-                registration_id,
-                message_id,
-                int(registration_id == sender_registration.registration_id),
-            ),
+        _insert_local_message_state_row(
+            connection=connection,
+            local_alias=local_aliases[registration_id],
+            message_id=message_id,
+            thread_id=thread_id,
+            created_at_utc=created_at_utc,
+            subject=subject,
+            is_read=(registration_id == sender_registration.registration_id),
+            is_starred=False,
+            is_archived=False,
+            is_deleted=False,
+        )
+        _recompute_local_thread_summary(
+            connection=connection,
+            local_alias=local_aliases[registration_id],
+            thread_id=thread_id,
         )
 
 
 def _recompute_thread_summary(connection: sqlite3.Connection, thread_id: str) -> None:
-    """Recompute cached thread summary state."""
+    """Recompute shared structural thread-summary state."""
 
     latest_row = connection.execute(
         """
@@ -1908,17 +2360,6 @@ def _recompute_thread_summary(connection: sqlite3.Connection, thread_id: str) ->
     if latest_row is None:
         return
 
-    unread_count = int(
-        connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM mailbox_state AS state
-            JOIN messages AS message ON message.message_id = state.message_id
-            WHERE message.thread_id = ? AND state.is_read = 0
-            """,
-            (thread_id,),
-        ).fetchone()[0]
-    )
     connection.execute(
         """
         INSERT INTO thread_summaries (
@@ -1940,7 +2381,7 @@ def _recompute_thread_summary(connection: sqlite3.Connection, thread_id: str) ->
             str(latest_row[2]).strip().lower(),
             str(latest_row[0]),
             str(latest_row[1]),
-            unread_count,
+            0,
         ),
     )
 
@@ -2555,11 +2996,12 @@ def _insert_recovered_mailbox_state_records(
     connection: sqlite3.Connection,
     snapshot: _IndexSnapshot,
     registrations: dict[str, MailboxRegistration],
+    local_aliases: dict[str, str],
     message: MailboxMessage,
     sender_registration_id: str | None,
     recipient_registration_ids: Sequence[str | None],
 ) -> tuple[int, int]:
-    """Insert restored or default mailbox-state rows for one recovered message."""
+    """Insert restored or default mailbox-local state rows for one recovered message."""
 
     restored_state_count = 0
     defaulted_state_count = 0
@@ -2578,30 +3020,24 @@ def _insert_recovered_mailbox_state_records(
         else:
             read_state, starred_state, archived_state, deleted_state = prior_state
             state_values = (
-                int(read_state),
-                int(starred_state),
-                int(archived_state),
-                int(deleted_state),
+                bool(read_state),
+                bool(starred_state),
+                bool(archived_state),
+                bool(deleted_state),
             )
             restored_state_count += 1
 
-        connection.execute(
-            """
-            INSERT INTO mailbox_state (
-                registration_id,
-                message_id,
-                is_read,
-                is_starred,
-                is_archived,
-                is_deleted
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                registration_id,
-                message.message_id,
-                *state_values,
-            ),
+        _insert_local_message_state_row(
+            connection=connection,
+            local_alias=local_aliases[registration_id],
+            message_id=message.message_id,
+            thread_id=message.thread_id,
+            created_at_utc=message.created_at_utc,
+            subject=message.subject,
+            is_read=bool(state_values[0]),
+            is_starred=bool(state_values[1]),
+            is_archived=bool(state_values[2]),
+            is_deleted=bool(state_values[3]),
         )
 
     return restored_state_count, defaulted_state_count

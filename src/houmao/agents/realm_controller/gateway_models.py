@@ -16,6 +16,7 @@ from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
 GatewayRequestKind = Literal["submit_prompt", "interrupt"]
+GatewayStoredRequestKind = Literal["submit_prompt", "interrupt", "mail_notifier_prompt"]
 GatewayHealthState = Literal["healthy", "not_attached"]
 GatewayConnectivityState = Literal["connected", "unavailable"]
 GatewayRecoveryState = Literal["idle", "awaiting_rebind", "reconciliation_required"]
@@ -44,6 +45,7 @@ GATEWAY_STATE_SCHEMA_VERSION = 1
 GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
+GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 
 
 class _StrictGatewayModel(BaseModel):
@@ -340,6 +342,81 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class GatewayMailNotifierPutV1(_StrictGatewayModel):
+    """`PUT /v1/mail-notifier` request body."""
+
+    schema_version: int = Field(default=GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION)
+    enabled: Literal[True] = True
+    interval_seconds: int
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def _positive_interval_seconds(cls, value: int) -> int:
+        """Validate a positive notifier polling interval."""
+
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayMailNotifierPutV1":
+        """Validate the notifier request schema version."""
+
+        if self.schema_version != GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayMailNotifierStatusV1(_StrictGatewayModel):
+    """`GET|PUT|DELETE /v1/mail-notifier` response body."""
+
+    schema_version: int = Field(default=GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION)
+    enabled: bool
+    interval_seconds: int | None = None
+    supported: bool
+    support_error: str | None = None
+    last_poll_at_utc: str | None = None
+    last_notification_at_utc: str | None = None
+    last_error: str | None = None
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def _optional_positive_interval(cls, value: int | None) -> int | None:
+        """Validate the optional notifier interval."""
+
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @field_validator(
+        "support_error",
+        "last_poll_at_utc",
+        "last_notification_at_utc",
+        "last_error",
+    )
+    @classmethod
+    def _optional_not_blank_text(cls, value: str | None) -> str | None:
+        """Validate optional notifier status text fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_notifier_status(self) -> "GatewayMailNotifierStatusV1":
+        """Validate notifier status invariants."""
+
+        if self.schema_version != GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION}")
+        if self.enabled and self.interval_seconds is None:
+            raise ValueError("enabled notifier status requires interval_seconds")
+        return self
 
 
 class GatewayStatusV1(_StrictGatewayModel):

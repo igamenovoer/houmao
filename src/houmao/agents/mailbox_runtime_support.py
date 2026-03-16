@@ -11,7 +11,11 @@ from typing import Any, cast
 
 from houmao.owned_paths import resolve_mailbox_root
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
-from houmao.mailbox.filesystem import resolve_active_mailbox_inbox_dir
+from houmao.mailbox.filesystem import (
+    resolve_active_mailbox_dir,
+    resolve_active_mailbox_inbox_dir,
+    resolve_active_mailbox_local_sqlite_path,
+)
 
 from .mailbox_runtime_models import (
     MailboxDeclarativeConfig,
@@ -43,6 +47,8 @@ _MAILBOX_FILESYSTEM_ENV_VARS = (
     "AGENTSYS_MAILBOX_FS_ROOT",
     "AGENTSYS_MAILBOX_FS_SQLITE_PATH",
     "AGENTSYS_MAILBOX_FS_INBOX_DIR",
+    "AGENTSYS_MAILBOX_FS_MAILBOX_DIR",
+    "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH",
 )
 
 
@@ -272,7 +278,9 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
         )
 
     mailbox_root = config.filesystem_root.resolve()
+    mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=config.address)
     inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
+    local_sqlite_path = resolve_active_mailbox_local_sqlite_path(mailbox_root, address=config.address)
     return {
         "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
         "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
@@ -281,6 +289,8 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
         "AGENTSYS_MAILBOX_FS_ROOT": str(mailbox_root),
         "AGENTSYS_MAILBOX_FS_SQLITE_PATH": str(mailbox_root / "index.sqlite"),
         "AGENTSYS_MAILBOX_FS_INBOX_DIR": str(inbox_dir),
+        "AGENTSYS_MAILBOX_FS_MAILBOX_DIR": str(mailbox_dir),
+        "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
     }
 
 

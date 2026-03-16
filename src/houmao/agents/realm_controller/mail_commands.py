@@ -67,8 +67,14 @@ def prepare_mail_prompt(
             ),
             "Inspect the shared mailbox `rules/` directory first before touching shared mailbox state.",
             "Inspect `rules/scripts/requirements.txt` before invoking a shared Python mailbox helper.",
-            "Use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`.",
+            (
+                "Use shared scripts from `rules/scripts/` for any mailbox step that touches "
+                "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
+            ),
             "Follow the mailbox env bindings for the current session. Do not guess paths or sender identity.",
+            (
+                "Only mark messages read after the message has actually been processed successfully."
+            ),
             (
                 "Return exactly one JSON result between "
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."

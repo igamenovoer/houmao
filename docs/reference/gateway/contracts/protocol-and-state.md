@@ -52,6 +52,7 @@ Current v1 scope:
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach is implemented first for `backend=cao_rest`.
 - Headless backends can still be gateway-capable at the attach-contract layer even though the live adapter boundary is narrower today.
+- `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mail notifier support.
 
 ## Live Gateway Bindings
 
@@ -77,6 +78,9 @@ Current v1 routes:
 - `GET /health`
 - `GET /v1/status`
 - `POST /v1/requests`
+- `GET /v1/mail-notifier`
+- `PUT /v1/mail-notifier`
+- `DELETE /v1/mail-notifier`
 
 ### `GET /health`
 
@@ -154,6 +158,8 @@ Current public request kinds:
 - `submit_prompt`
 - `interrupt`
 
+The notifier reminder path does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
+
 Representative prompt submission:
 
 ```json
@@ -187,6 +193,42 @@ Observable current error semantics:
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
 
+### `GET|PUT|DELETE /v1/mail-notifier`
+
+These routes manage the gateway-owned unread-mail reminder loop for mailbox-enabled sessions.
+
+Representative enable request:
+
+```json
+{
+  "schema_version": 1,
+  "enabled": true,
+  "interval_seconds": 60
+}
+```
+
+Representative status response:
+
+```json
+{
+  "schema_version": 1,
+  "enabled": true,
+  "interval_seconds": 60,
+  "supported": true,
+  "support_error": null,
+  "last_poll_at_utc": "2026-03-16T09:45:00+00:00",
+  "last_notification_at_utc": "2026-03-16T09:45:00+00:00",
+  "last_error": null
+}
+```
+
+Support contract rules:
+
+- The gateway loads the runtime-owned session manifest referenced by `attach.json.manifest_path`.
+- It inspects `payload.launch_plan.mailbox` in that manifest to determine whether notifier behavior is supported.
+- Enabling the notifier fails explicitly when the attach contract has no readable manifest or when the manifest launch plan has no mailbox binding.
+- Unread-mail truth comes from mailbox-local SQLite, while notifier cadence, deduplication, and last-error bookkeeping remain gateway-owned state in `queue.sqlite`.
+
 ## Durable And Ephemeral Gateway Artifacts
 
 For the full runtime-managed session tree that surrounds `gateway/`, use [Agents And Runtime](../../system-files/agents-and-runtime.md). This page keeps the gateway-local artifact semantics.
@@ -214,11 +256,19 @@ Artifact roles:
 - `protocol-version.txt`: simple version marker for local artifacts
 - `desired-config.json`: desired host and port to reuse on later starts
 - `state.json`: read-optimized current status contract
-- `queue.sqlite`: durable queue records
+- `queue.sqlite`: durable queue records plus the singleton gateway-owned mail notifier record
 - `events.jsonl`: append-only event log
-- `logs/gateway.log`: gateway process output
+- `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
 - `run/current-instance.json`: current process id, host, port, epoch, and instance id
 - `run/gateway.pid`: pidfile mirror
+
+Operator note:
+
+```bash
+tail -f <session-root>/gateway/logs/gateway.log
+```
+
+That log is the stable tail-watch surface for the running gateway. Structured queue history still lives in `events.jsonl`, but `gateway.log` is the human-oriented running log for day-to-day observation.
 
 ## Current Implementation Notes
 

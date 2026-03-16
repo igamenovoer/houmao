@@ -161,6 +161,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     assert (
         mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/archive"
     ).is_dir()
+    assert (
+        mailbox.filesystem_root
+        / "mailboxes"
+        / "AGENTSYS-research@agents.localhost"
+        / "mailbox.sqlite"
+    ).is_file()
 
     refreshed = controller.refresh_mailbox_bindings(
         filesystem_root=runtime_root / "refreshed-mail",

@@ -41,6 +41,8 @@ The resolved session payload persists:
 }
 ```
 
+That persisted `launch_plan.mailbox` payload is also the runtime-owned mailbox capability contract reused by resume, refresh, and gateway-side integrations. The gateway mail notifier reads mailbox support from the session manifest rather than persisting a second mailbox copy under `gateway/`.
+
 ## Runtime-Owned Mailbox Bindings
 
 Common env vars:
@@ -54,14 +56,29 @@ Filesystem-specific env vars:
 
 - `AGENTSYS_MAILBOX_FS_ROOT`
 - `AGENTSYS_MAILBOX_FS_SQLITE_PATH`
+- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR`
+- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH`
 - `AGENTSYS_MAILBOX_FS_INBOX_DIR`
 
 Important rules:
 
 - Re-read the env vars before each mailbox action.
 - Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative.
+- `AGENTSYS_MAILBOX_FS_SQLITE_PATH` remains the shared mailbox-root `index.sqlite` catalog.
+- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` resolves the current mailbox-view directory for the addressed mailbox.
+- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` is the authoritative mailbox-view SQLite database for the current mailbox.
 - `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration, so it may resolve through a symlinked `mailboxes/<address>` entry into a private directory.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes, discard cached assumptions and reload the current bindings.
+
+## Shared Catalog Versus Mailbox-Local State
+
+The filesystem transport now splits durable state between a shared catalog and mailbox-local mailbox-view state.
+
+- The shared mailbox-root `index.sqlite` keeps registrations, canonical message catalog data, projections, delivery metadata, attachment metadata, and other structural state shared across the mailbox root.
+- Each resolved mailbox directory owns `mailbox.sqlite`, which keeps mailbox-view state that can differ per mailbox, including read or unread, starred, archived, deleted, and mailbox-local thread summaries.
+- Inside `mailbox.sqlite`, `message_state` rows are keyed by `message_id` and mailbox-local `thread_summaries` rows are keyed by `thread_id`.
+- Because the database is already scoped to one resolved mailbox directory, mailbox-local rows do not need `registration_id` as part of their primary identity.
+- Shared-root unread counters are no longer authoritative for mailbox-view state once mailbox-local SQLite exists.
 
 ## Projected Skill Contract
 
@@ -70,7 +87,9 @@ The runtime projects `.system/mailbox/email-via-filesystem` into the brain home 
 - require the runtime-managed env vars,
 - inspect `rules/` before touching shared mailbox state,
 - inspect `rules/scripts/requirements.txt` before invoking Python helpers,
-- use shared managed scripts for steps that touch `index.sqlite` or `locks/`,
+- use shared managed scripts for steps that touch `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`,
+- treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for mailbox-view read or unread and thread-summary state,
+- only mark a message read after successful processing,
 - refuse unsupported transports.
 
 This keeps mailbox behavior runtime-owned rather than role-authored.

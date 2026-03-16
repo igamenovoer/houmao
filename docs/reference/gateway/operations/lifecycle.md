@@ -141,6 +141,23 @@ Current behavior boundary:
 - gateway-routed requests do not auto-attach the gateway,
 - direct runtime control remains valid even for sessions that are gateway-capable but not currently gateway-attached.
 
+## Tail The Running Log
+
+The live gateway keeps one append-only running log at `<session-root>/gateway/logs/gateway.log`.
+
+That file is the operator-facing view for:
+
+- gateway start and stop,
+- request execution outcomes,
+- mail notifier enable or disable changes,
+- notifier poll decisions such as empty polls, dedup skips, and busy deferrals.
+
+Typical watch command:
+
+```bash
+tail -f <session-root>/gateway/logs/gateway.log
+```
+
 ## Current Implementation Notes
 
 - A session can be gateway-capable even when `gateway-status` reports `gateway_health=not_attached`.

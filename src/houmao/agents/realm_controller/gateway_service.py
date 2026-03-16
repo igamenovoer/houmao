@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -17,6 +18,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -29,23 +31,28 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
-    GatewayRequestKind,
+    GatewayStoredRequestKind,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     append_gateway_event,
+    build_gateway_mail_notifier_status,
     delete_gateway_current_instance,
     gateway_health_response,
     gateway_paths_from_session_root,
     generate_gateway_request_id,
     load_attach_contract,
     load_gateway_current_instance,
+    read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
+    write_gateway_mail_notifier_record,
     write_gateway_current_instance,
     write_gateway_status,
 )
@@ -53,9 +60,12 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.mailbox import resolve_active_mailbox_local_sqlite_path
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
+_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
+_NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 
 
@@ -76,9 +86,19 @@ class _QueuedGatewayRequestRecord:
     """
 
     request_id: str
-    request_kind: GatewayRequestKind
+    request_kind: GatewayStoredRequestKind
     payload_json: str
     managed_agent_instance_epoch: int
+
+
+@dataclass(frozen=True)
+class _UnreadMailboxMessage:
+    """Unread mailbox-local message summary used for notifier prompts."""
+
+    message_id: str
+    thread_id: str
+    created_at_utc: str
+    subject: str
 
 
 class CaoGatewayAdapter:
@@ -180,10 +200,13 @@ class GatewayServiceRuntime:
         self.m_attach_contract = load_attach_contract(self.m_paths.attach_path)
         self.m_adapter = CaoGatewayAdapter(attach_contract_path=self.m_paths.attach_path)
         self.m_lock = threading.Lock()
+        self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
+        self.m_notifier_thread: threading.Thread | None = None
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
+        self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
 
     @classmethod
     def from_gateway_root(
@@ -219,6 +242,9 @@ class GatewayServiceRuntime:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
             self._refresh_status_snapshot(active_execution="idle")
+            self._log(
+                f"gateway started host={self.m_host} port={self.m_port} attach_identity={self.m_attach_contract.attach_identity}"
+            )
 
         self.m_worker_thread = threading.Thread(
             target=self._worker_loop,
@@ -226,6 +252,12 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_worker_thread.start()
+        self.m_notifier_thread = threading.Thread(
+            target=self._notifier_loop,
+            name="gateway-mail-notifier",
+            daemon=True,
+        )
+        self.m_notifier_thread.start()
 
     def set_listener(self, *, host: GatewayHost, port: int) -> None:
         """Update the live listener bindings before runtime startup."""
@@ -241,7 +273,11 @@ class GatewayServiceRuntime:
         self.m_stop_event.set()
         if self.m_worker_thread is not None:
             self.m_worker_thread.join(timeout=2.0)
+        if self.m_notifier_thread is not None:
+            self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            self._flush_rate_limited_logs()
+            self._log("gateway stopping")
             delete_gateway_current_instance(self.m_paths)
 
     def health(self) -> GatewayHealthResponseV1:
@@ -306,6 +342,9 @@ class GatewayServiceRuntime:
                     "accepted_at_utc": accepted_at_utc,
                 },
             )
+            self._log(
+                f"accepted public gateway request request_id={request_id} kind={request_payload.kind}"
+            )
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             return GatewayAcceptedRequestV1(
                 request_id=request_id,
@@ -315,6 +354,332 @@ class GatewayServiceRuntime:
                 queue_depth=status.queue_depth,
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
+
+    def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Return the current notifier configuration and runtime status."""
+
+        with self.m_lock:
+            return self._mail_notifier_status_locked()
+
+    def put_mail_notifier(
+        self,
+        request_payload: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Enable or reconfigure the gateway mail notifier."""
+
+        with self.m_lock:
+            try:
+                self._load_notifier_mailbox_config()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                enabled=True,
+                interval_seconds=request_payload.interval_seconds,
+                last_error=None,
+            )
+            self._log(
+                f"mail notifier enabled interval_seconds={request_payload.interval_seconds}"
+            )
+            return build_gateway_mail_notifier_status(
+                record=record,
+                supported=True,
+                support_error=None,
+            )
+
+    def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Disable the gateway mail notifier explicitly."""
+
+        with self.m_lock:
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                enabled=False,
+                interval_seconds=None,
+                last_notified_digest=None,
+                last_error=None,
+            )
+            supported, support_error = self._notifier_support_status()
+            self._log("mail notifier disabled")
+            return build_gateway_mail_notifier_status(
+                record=record,
+                supported=supported,
+                support_error=support_error,
+            )
+
+    def _mail_notifier_status_locked(self) -> GatewayMailNotifierStatusV1:
+        """Return the notifier status while the runtime lock is held."""
+
+        record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+        supported, support_error = self._notifier_support_status()
+        return build_gateway_mail_notifier_status(
+            record=record,
+            supported=supported,
+            support_error=support_error,
+        )
+
+    def _notifier_support_status(self) -> tuple[bool, str | None]:
+        """Return whether notifier behavior is currently supported."""
+
+        try:
+            self._load_notifier_mailbox_config()
+        except GatewayError as exc:
+            return False, str(exc)
+        return True, None
+
+    def _load_notifier_mailbox_config(self):  # type: ignore[no-untyped-def]
+        """Load the manifest-backed mailbox config required by the notifier."""
+
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is None:
+            raise GatewayError(
+                "Gateway attach contract is missing runtime-owned `manifest_path`; mail notifier is unsupported."
+            )
+        try:
+            handle = load_session_manifest(Path(manifest_path))
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except SessionManifestError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest is unreadable for mail notifier support: {exc}"
+            ) from exc
+
+        try:
+            mailbox = resolved_mailbox_config_from_payload(payload.launch_plan.mailbox)
+        except ValueError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
+            ) from exc
+        if mailbox is None:
+            raise GatewayError(
+                "Runtime-owned session manifest launch plan has no mailbox binding; mail notifier is unsupported."
+            )
+        return mailbox
+
+    def _notifier_loop(self) -> None:
+        """Poll mailbox-local unread state when the notifier is enabled."""
+
+        next_poll_monotonic: float | None = None
+        scheduled_interval_seconds: int | None = None
+        while not self.m_stop_event.is_set():
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                next_poll_monotonic = None
+                scheduled_interval_seconds = None
+                self.m_stop_event.wait(_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS)
+                continue
+
+            now_monotonic = time.monotonic()
+            if (
+                next_poll_monotonic is None
+                or scheduled_interval_seconds != record.interval_seconds
+            ):
+                next_poll_monotonic = now_monotonic + record.interval_seconds
+                scheduled_interval_seconds = record.interval_seconds
+
+            remaining = next_poll_monotonic - now_monotonic
+            if remaining > 0:
+                self.m_stop_event.wait(min(remaining, _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS))
+                continue
+
+            self._run_notifier_cycle()
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                next_poll_monotonic = None
+                scheduled_interval_seconds = None
+            else:
+                scheduled_interval_seconds = record.interval_seconds
+                next_poll_monotonic = time.monotonic() + record.interval_seconds
+
+    def _run_notifier_cycle(self) -> None:
+        """Execute one notifier polling cycle."""
+
+        with self.m_lock:
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                return
+
+            poll_time_utc = now_utc_iso()
+            try:
+                mailbox = self._load_notifier_mailbox_config()
+            except GatewayError as exc:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=False,
+                    interval_seconds=None,
+                    last_error=str(exc),
+                )
+                self._log(f"mail notifier disabled: {exc}")
+                return
+
+            try:
+                unread_messages = self._load_unread_mailbox_messages(mailbox)
+            except GatewayError as exc:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=str(exc),
+                )
+                self._log_rate_limited(
+                    "mail_notifier_error",
+                    f"mail notifier poll error: {exc}",
+                )
+                return
+
+            if not unread_messages:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
+                self._log_rate_limited("mail_notifier_empty", "mail notifier poll: no unread mail")
+                return
+
+            unread_digest = self._mail_notifier_digest(unread_messages)
+            if unread_digest == record.last_notified_digest:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=None,
+                )
+                self._log_rate_limited(
+                    "mail_notifier_dedup",
+                    "mail notifier poll: unread mail unchanged; skipping duplicate reminder",
+                )
+                return
+
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            if (
+                status.request_admission != "open"
+                or status.active_execution != "idle"
+                or status.queue_depth > 0
+            ):
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=None,
+                )
+                self._log_rate_limited(
+                    "mail_notifier_busy",
+                    (
+                        "mail notifier poll deferred because the managed session is busy "
+                        f"(admission={status.request_admission}, active_execution={status.active_execution}, "
+                        f"queue_depth={status.queue_depth})"
+                    ),
+                )
+                return
+
+            prompt = self._build_mail_notifier_prompt(unread_messages)
+            request_id = self._enqueue_internal_prompt(prompt=prompt)
+            write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                last_poll_at_utc=poll_time_utc,
+                last_notification_at_utc=poll_time_utc,
+                last_notified_digest=unread_digest,
+                last_error=None,
+            )
+            self._log(
+                f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
+            )
+
+    def _load_unread_mailbox_messages(self, mailbox) -> list[_UnreadMailboxMessage]:  # type: ignore[no-untyped-def]
+        """Load unread mailbox-local messages for notifier polling."""
+
+        try:
+            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+                mailbox.filesystem_root,
+                address=mailbox.address,
+            )
+        except Exception as exc:
+            raise GatewayError(f"Failed to resolve mailbox-local SQLite path: {exc}") from exc
+
+        try:
+            with sqlite3.connect(local_sqlite_path) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT message_id, thread_id, created_at_utc, subject
+                    FROM message_state
+                    WHERE is_read = 0
+                    ORDER BY created_at_utc ASC, message_id ASC
+                    """
+                ).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise GatewayError(
+                f"Mailbox-local SQLite is unreadable for notifier polling: {local_sqlite_path}"
+            ) from exc
+
+        return [
+            _UnreadMailboxMessage(
+                message_id=str(row[0]),
+                thread_id=str(row[1]),
+                created_at_utc=str(row[2]),
+                subject=str(row[3]),
+            )
+            for row in rows
+        ]
+
+    def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+        """Build a stable digest for one unread-mail snapshot."""
+
+        digest_source = "\n".join(message.message_id for message in unread_messages)
+        return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+
+    def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+        """Build the reminder prompt submitted through the internal notifier path."""
+
+        lines = [
+            "You have unread filesystem mailbox messages.",
+            "Use the runtime-owned mailbox skill to inspect and process them.",
+            "Only mark a message read after you have processed it successfully.",
+            "",
+            "Unread messages:",
+        ]
+        for message in unread_messages[:10]:
+            lines.append(
+                f"- {message.created_at_utc} | {message.message_id} | {message.subject}"
+            )
+        if len(unread_messages) > 10:
+            lines.append(f"- ... and {len(unread_messages) - 10} more unread messages")
+        return "\n".join(lines)
+
+    def _enqueue_internal_prompt(self, *, prompt: str) -> str:
+        """Insert one internal notifier prompt into durable queue storage."""
+
+        request_id = generate_gateway_request_id()
+        accepted_at_utc = now_utc_iso()
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO gateway_requests (
+                    request_id,
+                    request_kind,
+                    payload_json,
+                    state,
+                    accepted_at_utc,
+                    managed_agent_instance_epoch
+                )
+                VALUES (?, ?, ?, 'accepted', ?, ?)
+                """,
+                (
+                    request_id,
+                    "mail_notifier_prompt",
+                    json.dumps({"prompt": prompt}, sort_keys=True),
+                    accepted_at_utc,
+                    self.m_current_epoch,
+                ),
+            )
+            connection.commit()
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "accepted_internal",
+                "request_id": request_id,
+                "request_kind": "mail_notifier_prompt",
+                "accepted_at_utc": accepted_at_utc,
+            },
+        )
+        self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        return request_id
 
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
@@ -368,7 +733,7 @@ class GatewayServiceRuntime:
             self._refresh_status_snapshot(active_execution="running")
             return _QueuedGatewayRequestRecord(
                 request_id=str(request_id),
-                request_kind=cast(GatewayRequestKind, request_kind),
+                request_kind=cast(GatewayStoredRequestKind, request_kind),
                 payload_json=str(payload_json),
                 managed_agent_instance_epoch=int(epoch),
             )
@@ -409,9 +774,10 @@ class GatewayServiceRuntime:
                     result_json=None,
                 )
                 return
+            self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
 
         try:
-            if request_kind == "submit_prompt":
+            if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
                 self.m_adapter.submit_prompt(terminal_id=terminal_id, prompt=payload.prompt)
             elif request_kind == "interrupt":
@@ -470,6 +836,12 @@ class GatewayServiceRuntime:
                     "result_json": result_json,
                 },
             )
+            if state == "completed":
+                self._log(f"completed gateway request request_id={request_id}")
+            else:
+                self._log(
+                    f"failed gateway request request_id={request_id} detail={error_detail or 'unknown error'}"
+                )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
 
     def _mark_running_requests_failed(self) -> None:
@@ -596,6 +968,41 @@ class GatewayServiceRuntime:
 
         return os.getpid()
 
+    def _log(self, message: str) -> None:
+        """Emit one tail-friendly gateway log line to the stable gateway log."""
+
+        line = f"{now_utc_iso()} {message}"
+        with self.m_log_lock:
+            self.m_paths.logs_dir.mkdir(parents=True, exist_ok=True)
+            with self.m_paths.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        print(line, flush=True)
+
+    def _log_rate_limited(self, key: str, message: str) -> None:
+        """Emit one gateway log line with coarse repetition suppression."""
+
+        now_monotonic = time.monotonic()
+        last_logged_at, suppressed_count = self.m_rate_limited_logs.get(key, (0.0, 0))
+        if now_monotonic - last_logged_at >= _NOTIFIER_RATE_LIMIT_SECONDS:
+            suffix = (
+                f" (suppressed {suppressed_count} repeats)"
+                if suppressed_count > 0
+                else ""
+            )
+            self._log(message + suffix)
+            self.m_rate_limited_logs[key] = (now_monotonic, 0)
+            return
+        self.m_rate_limited_logs[key] = (last_logged_at, suppressed_count + 1)
+
+    def _flush_rate_limited_logs(self) -> None:
+        """Flush any suppressed rate-limited notifier log counters."""
+
+        for key, (_, suppressed_count) in list(self.m_rate_limited_logs.items()):
+            if suppressed_count <= 0:
+                continue
+            self._log(f"{key}: suppressed {suppressed_count} repeated messages")
+            self.m_rate_limited_logs[key] = (time.monotonic(), 0)
+
 
 def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     """Create the FastAPI app bound to one gateway runtime.
@@ -630,6 +1037,26 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Accept one gateway-managed request."""
 
         return runtime.create_request(request_payload)
+
+    @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _get_mail_notifier() -> GatewayMailNotifierStatusV1:
+        """Serve notifier configuration and runtime status."""
+
+        return runtime.get_mail_notifier()
+
+    @app.put("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _put_mail_notifier(
+        request_payload: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Enable or reconfigure the gateway mail notifier."""
+
+        return runtime.put_mail_notifier(request_payload)
+
+    @app.delete("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _delete_mail_notifier() -> GatewayMailNotifierStatusV1:
+        """Disable the gateway mail notifier."""
+
+        return runtime.delete_mail_notifier()
 
     return app
 

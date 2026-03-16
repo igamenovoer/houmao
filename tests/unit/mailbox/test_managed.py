@@ -63,16 +63,15 @@ def _mailbox_state_for_address(
     address: str,
     message_id: str,
 ) -> tuple[int, int, int, int] | None:
-    with sqlite3.connect(sqlite_path) as connection:
+    registration = load_active_mailbox_registration(sqlite_path.parent, address=address)
+    with sqlite3.connect(registration.local_sqlite_path) as connection:
         row = connection.execute(
             """
-            SELECT state.is_read, state.is_starred, state.is_archived, state.is_deleted
-            FROM mailbox_state AS state
-            JOIN mailbox_registrations AS registration
-              ON registration.registration_id = state.registration_id
-            WHERE registration.address = ? AND state.message_id = ?
+            SELECT is_read, is_starred, is_archived, is_deleted
+            FROM message_state
+            WHERE message_id = ?
             """,
-            (address, message_id),
+            (message_id,),
         ).fetchone()
     return None if row is None else tuple(int(value) for value in row)
 
@@ -745,3 +744,164 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
         address=recipient.address,
         message_id=request.message_id,
     ) == (0, 0, 0, 0)
+
+
+def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_path: Path) -> None:
+    sender = MailboxPrincipal(
+        principal_id="AGENTSYS-sender",
+        address="AGENTSYS-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="AGENTSYS-recipient",
+        address="AGENTSYS-recipient@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    bootstrap_filesystem_mailbox(paths.root, principal=recipient)
+
+    staged_message = paths.staging_dir / "legacy-migration.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T071500Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T071500Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T07:15:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Legacy state migration",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    sender_registration = load_active_mailbox_registration(paths.root, address=sender.address)
+    recipient_registration = load_active_mailbox_registration(paths.root, address=recipient.address)
+    sender_registration.local_sqlite_path.unlink()
+    recipient_registration.local_sqlite_path.unlink()
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        connection.execute("DELETE FROM mailbox_state")
+        connection.execute(
+            """
+            INSERT INTO mailbox_state (
+                registration_id,
+                message_id,
+                is_read,
+                is_starred,
+                is_archived,
+                is_deleted
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sender_registration.registration_id,
+                request.message_id,
+                1,
+                0,
+                0,
+                0,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO mailbox_state (
+                registration_id,
+                message_id,
+                is_read,
+                is_starred,
+                is_archived,
+                is_deleted
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                recipient_registration.registration_id,
+                request.message_id,
+                1,
+                1,
+                0,
+                0,
+            ),
+        )
+        connection.commit()
+
+    bootstrap_filesystem_mailbox(paths.root)
+
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (1, 0, 0, 0)
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=recipient.address,
+        message_id=request.message_id,
+    ) == (1, 1, 0, 0)
+
+
+def test_repair_mailbox_index_rebuilds_unreadable_local_mailbox_state(tmp_path: Path) -> None:
+    sender = MailboxPrincipal(
+        principal_id="AGENTSYS-sender",
+        address="AGENTSYS-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="AGENTSYS-recipient",
+        address="AGENTSYS-recipient@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    bootstrap_filesystem_mailbox(paths.root, principal=recipient)
+
+    staged_message = paths.staging_dir / "repair-local-state.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T081500Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T081500Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T08:15:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Unreadable local mailbox state",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    recipient_registration = load_active_mailbox_registration(paths.root, address=recipient.address)
+    recipient_registration.local_sqlite_path.write_text("not a sqlite database", encoding="utf-8")
+
+    result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
+
+    assert result["ok"] is True
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=recipient.address,
+        message_id=request.message_id,
+    ) == (0, 0, 0, 0)
+    assert list(recipient_registration.local_sqlite_path.parent.glob("mailbox.sqlite.local-unusable-*.bak"))

@@ -6,13 +6,17 @@ import subprocess
 import time
 from pathlib import Path
 
+from fastapi import HTTPException
 import pytest
 from pydantic import ValidationError
 
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.agents.realm_controller.errors import GatewayHttpError, LaunchPlanError
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
+    GatewayMailNotifierPutV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
@@ -43,6 +47,9 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox.managed import DeliveryRequest, deliver_message
+from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 
 
 def _write(path: Path, text: str) -> None:
@@ -88,6 +95,65 @@ def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
         ),
         metadata={},
     )
+
+
+def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
+    mailbox_root = tmp_path / "mailbox"
+    principal_id = "AGENTSYS-gpu"
+    address = "AGENTSYS-gpu@agents.localhost"
+    bootstrap_filesystem_mailbox(
+        mailbox_root,
+        principal=MailboxPrincipal(principal_id=principal_id, address=address),
+    )
+    mailbox = MailboxResolvedConfig(
+        transport="filesystem",
+        principal_id=principal_id,
+        address=address,
+        filesystem_root=mailbox_root.resolve(),
+        bindings_version="2026-03-16T08:00:00.000001Z",
+    )
+    return LaunchPlan(
+        backend="cao_rest",
+        tool="codex",
+        executable="codex",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env=mailbox_env_bindings(mailbox),
+        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
+        role_injection=RoleInjectionPlan(
+            method="cao_profile",
+            role_name="role",
+            prompt="role prompt",
+        ),
+        metadata={},
+        mailbox=mailbox,
+    )
+
+
+def _write_canonical_staged_message(
+    staged_message: Path,
+    request: DeliveryRequest,
+    *,
+    body_markdown: str = "Body\n",
+) -> None:
+    message = MailboxMessage(
+        message_id=request.message_id,
+        thread_id=request.thread_id,
+        in_reply_to=request.in_reply_to,
+        references=list(request.references),
+        created_at_utc=request.created_at_utc,
+        sender=request.sender.to_mailbox_principal(),
+        to=[principal.to_mailbox_principal() for principal in request.to],
+        cc=[principal.to_mailbox_principal() for principal in request.cc],
+        reply_to=[principal.to_mailbox_principal() for principal in request.reply_to],
+        subject=request.subject,
+        body_markdown=body_markdown,
+        attachments=[attachment.to_mailbox_attachment() for attachment in request.attachments],
+        headers=dict(request.headers),
+    )
+    staged_message.write_text(serialize_message_document(message), encoding="utf-8")
 
 
 class _FakeInteractiveSession:
@@ -367,9 +433,14 @@ class _FakeCaoRestClient:
         return CaoSuccessResponse(success=True)
 
 
-def _seed_cao_gateway_root(tmp_path: Path, *, terminal_id: str = "term-123") -> Path:
+def _seed_cao_gateway_root(
+    tmp_path: Path,
+    *,
+    terminal_id: str = "term-123",
+    mailbox_enabled: bool = False,
+) -> Path:
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    plan = _sample_cao_plan(tmp_path)
+    plan = _sample_cao_plan_with_mailbox(tmp_path) if mailbox_enabled else _sample_cao_plan(tmp_path)
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=plan,
@@ -406,6 +477,49 @@ def _seed_cao_gateway_root(tmp_path: Path, *, terminal_id: str = "term-123") -> 
         )
     )
     return paths.gateway_root
+
+
+def _deliver_unread_mailbox_message(tmp_path: Path) -> str:
+    mailbox_root = tmp_path / "mailbox"
+    sender = MailboxPrincipal(
+        principal_id="AGENTSYS-sender",
+        address="AGENTSYS-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="AGENTSYS-gpu",
+        address="AGENTSYS-gpu@agents.localhost",
+    )
+    bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+
+    staged_message = mailbox_root / "staging" / "gateway-unread.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-16T09:00:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Gateway unread reminder",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(mailbox_root, request)
+    return request.message_id
 
 
 def test_gateway_request_model_rejects_invalid_submit_prompt_payload() -> None:
@@ -573,3 +687,160 @@ def test_gateway_service_blocks_replay_when_instance_changes(
         ).fetchone()
     assert row == ("accepted",)
     assert fake_client.submitted_prompts == []
+
+
+def test_gateway_mail_notifier_rejects_enablement_without_manifest_mailbox_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    status = runtime.get_mail_notifier()
+    assert status.enabled is False
+    assert status.supported is False
+    assert status.support_error is not None
+
+    with pytest.raises(HTTPException, match="no mailbox binding"):
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+
+
+def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+
+    attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
+    attach_payload["manifest_path"] = str((tmp_path / "missing-manifest.json").resolve())
+    paths.attach_path.write_text(
+        json.dumps(attach_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    with pytest.raises(HTTPException, match="unreadable"):
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+
+
+def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        assert status.enabled is True
+        assert status.supported is True
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        assert message_id in fake_client.submitted_prompts[0][1]
+        time.sleep(1.3)
+        assert len(fake_client.submitted_prompts) == 1
+    finally:
+        runtime.shutdown()
+
+    fake_client.submitted_prompts.clear()
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        time.sleep(1.3)
+        assert fake_client.submitted_prompts == []
+        status = runtime.get_mail_notifier()
+        assert status.enabled is True
+        assert status.last_notification_at_utc is not None
+    finally:
+        runtime.shutdown()
+
+    log_text = (gateway_root / "logs" / "gateway.log").read_text(encoding="utf-8")
+    assert "mail notifier enabled" in log_text
+    assert "mail notifier enqueued" in log_text
+
+
+def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+
+    class _SlowFakeCaoRestClient(_FakeCaoRestClient):
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            if message == "busy-work":
+                time.sleep(1.5)
+            return super().send_terminal_input(terminal_id, message)
+
+    fake_client = _SlowFakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
+            )
+        )
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 4.5
+        while time.monotonic() < deadline and len(fake_client.submitted_prompts) < 2:
+            time.sleep(0.05)
+
+        assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
+        assert len(fake_client.submitted_prompts) == 2
+        assert message_id in fake_client.submitted_prompts[1][1]
+    finally:
+        runtime.shutdown()
+
+    log_text = (gateway_root / "logs" / "gateway.log").read_text(encoding="utf-8")
+    assert "mail notifier poll deferred" in log_text

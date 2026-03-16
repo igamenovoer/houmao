@@ -52,8 +52,10 @@ pixi run python -m houmao.agents.realm_controller mail check \
 Operational guidance:
 
 - Re-read the current mailbox bindings before each action.
-- Treat SQLite as the source of truth for unread versus read state.
+- Treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for unread versus read state and mailbox-local thread summaries.
+- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog, not as the mailbox-view read or unread authority.
 - Read canonical content by following projections back to `messages/<date>/<message-id>.md`.
+- Only mark a message read after the mailbox action or processing step has completed successfully.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changed, reload paths and retry from current bindings.
 
 ## Send New Mail
@@ -74,8 +76,8 @@ Stepwise expectations:
 1. The runtime validates attachment paths and body source.
 2. The runtime prompts the session with the mailbox skill and a structured request.
 3. The session inspects `rules/`.
-4. If the action touches `index.sqlite` or `locks/`, the session uses the managed helper under `rules/scripts/`.
-5. The delivery flow stages the message, moves it into the canonical store, creates inbox/sent projections, updates SQLite state, and returns one JSON result.
+4. If the action touches `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, the session uses the managed helper under `rules/scripts/`.
+5. The delivery flow stages the message, moves it into the canonical store, creates inbox or sent projections, updates the shared catalog plus mailbox-local mailbox state, and returns one JSON result.
 
 ```mermaid
 sequenceDiagram

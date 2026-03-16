@@ -69,7 +69,7 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status | Stable operator-facing artifact | Durable, but reflects current status |
 | `<session-root>/gateway/queue.sqlite` | gateway-capability publication | live gateway process | Durable request queue state | Stable path, implementation-owned contents | Treat as durable while the session is active |
 | `<session-root>/gateway/events.jsonl` | gateway-capability publication | live gateway process | Append-only gateway event log | Stable path, implementation-owned contents | Safe to inspect; not the source of truth for queue state |
-| `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Process log output | Current implementation detail with stable placement | Log-style cleanup only after the session is stopped |
+| `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Append-only running log for lifecycle, queue execution, and notifier polling | Stable operator-facing artifact | Log-style cleanup only after the session is stopped |
 | `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process/binding snapshot | Current implementation detail | Ephemeral |
 | `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process | Current implementation detail | Ephemeral |
 

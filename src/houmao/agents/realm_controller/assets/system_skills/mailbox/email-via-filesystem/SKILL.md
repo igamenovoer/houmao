@@ -1,13 +1,13 @@
 ---
 name: email-via-filesystem
-description: Operate the filesystem-backed async mailbox transport for agents using runtime-provided mailbox env vars. Use when Codex needs to read, send, reply to, or inspect email-like messages stored as Markdown files under a runtime-provided mailbox content root with SQLite-backed mailbox state and lock-file synchronization.
+description: Operate the filesystem-backed async mailbox transport for agents using runtime-provided mailbox env vars. Use when Codex needs to read, send, reply to, or inspect email-like messages stored as Markdown files under a runtime-provided mailbox content root with a shared SQLite catalog, mailbox-local SQLite state, and lock-file synchronization.
 ---
 
 # Email Via Filesystem
 
 ## Overview
 
-Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, and mailbox state lives in SQLite. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
+Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, shared catalog state lives in `index.sqlite`, and mailbox-view state for the current mailbox lives in mailbox-local `mailbox.sqlite`. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
 
 ## References
 
@@ -22,16 +22,18 @@ Use this skill to work with the mailbox transport where canonical messages live 
 - Before interacting with shared mailbox state, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
 - If the mailbox claims to be initialized but the managed `rules/scripts/` files are missing, stop and report a mailbox-initialization error instead of improvising replacements.
 - Before invoking a shared Python helper from `rules/scripts/`, inspect `rules/scripts/requirements.txt` so you know which Python dependencies must already be installed or need to be installed for that mailbox.
-- For any mailbox step that touches `index.sqlite` or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
+- For any mailbox step that touches shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
 - When the shared mailbox provides a header-helper script under `rules/scripts/`, you may use it to insert or normalize standardized headers or YAML front matter during message composition, but treat it as optional guidance rather than a required transport primitive.
 
 ## Read Mail
 
 - Inspect the shared mailbox `rules/` directory first so mailbox-local rules can refine how this particular shared mailbox expects reads or status updates to work.
-- Inspect unread state from SQLite when available; treat the database as the source for read or unread, starred, archived, and thread summary state.
+- Inspect unread state from `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` when available; treat that mailbox-local database as the source of truth for read or unread, starred, archived, deleted, and thread summary state for the current mailbox.
+- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as shared structural catalog state, not as the mailbox-view authority for the current mailbox.
 - Read message content by following inbox or sent symlink projections back to the canonical Markdown message file in `messages/<YYYY-MM-DD>/...`, not from ad hoc cached copies.
 - Use [references/filesystem-layout.md](references/filesystem-layout.md) for the exact mailbox tree and message file shape.
 - Preserve thread ancestry exactly as stored. Do not infer thread membership from subject lines alone.
+- Mark a message read only after the message has actually been processed successfully.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and reload the current bindings before continuing.
 
 ## Send Or Reply
@@ -49,12 +51,12 @@ When writing directly to the filesystem transport:
 
 1. Stage the outgoing message before exposing it to recipients.
 2. Inspect `rules/scripts/requirements.txt` before invoking a shared Python helper from `rules/scripts/`.
-3. Use the shared helper script from `rules/scripts/` for sensitive steps that touch `index.sqlite` or `locks/`.
+3. Use the shared helper script from `rules/scripts/` for sensitive steps that touch shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`.
 4. Respect the mailbox `.lock` files for any full mailbox address whose registration, mailbox state, or projections will be changed.
 5. Place the canonical delivered Markdown message under `messages/<YYYY-MM-DD>/...`.
 6. Materialize recipient inbox and sender sent entries as symlink projections to that canonical message instead of copying the message body into mailbox folders.
 7. Keep canonical message content immutable after delivery.
-8. Update mutable mailbox state in SQLite instead of rewriting delivered message bodies.
+8. Update mailbox-view state in mailbox-local SQLite instead of rewriting delivered message bodies.
 
 ## Guardrails
 
@@ -66,6 +68,7 @@ When writing directly to the filesystem transport:
 - Do not invent archive or draft folder workflows in v1; treat `archive/` and `drafts/` as reserved placeholders unless a future change defines those workflows.
 - Do not treat mailbox filenames alone as unread or read markers.
 - Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
+- Do not mark a message read merely because unread mail was detected or because a reminder prompt mentioned it.
 - Do not bypass locking when creating or updating mailbox projections.
 - Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
 - Do not assume a true-email runtime transport exists in this change; if the transport is not `filesystem`, stop and report that only the filesystem mailbox transport is implemented here.

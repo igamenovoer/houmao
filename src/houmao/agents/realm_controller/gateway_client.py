@@ -16,6 +16,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHost,
     GatewayJsonObject,
     GatewayJsonValue,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayRequestCreateV1,
     GatewayStatusV1,
 )
@@ -75,6 +77,26 @@ class GatewayClient:
             GatewayAcceptedRequestV1,
             body=payload.model_dump(mode="json"),
         )
+
+    def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Call `GET /v1/mail-notifier`."""
+
+        return self._request_model("GET", "/v1/mail-notifier", GatewayMailNotifierStatusV1)
+
+    def put_mail_notifier(self, payload: GatewayMailNotifierPutV1) -> GatewayMailNotifierStatusV1:
+        """Call `PUT /v1/mail-notifier`."""
+
+        return self._request_model(
+            "PUT",
+            "/v1/mail-notifier",
+            GatewayMailNotifierStatusV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Call `DELETE /v1/mail-notifier`."""
+
+        return self._request_model("DELETE", "/v1/mail-notifier", GatewayMailNotifierStatusV1)
 
     def _request_model(
         self,

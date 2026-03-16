@@ -165,6 +165,12 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     assert plan.env["AGENTSYS_MAILBOX_FS_INBOX_DIR"] == str(
         mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost" / "inbox"
     )
+    assert plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
+        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost"
+    )
+    assert plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
+        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost" / "mailbox.sqlite"
+    )
     assert "AGENTSYS_MAILBOX_FS_ROOT" in plan.env_var_names
     assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
 

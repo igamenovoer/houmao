@@ -30,7 +30,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_status,
     read_pid_file,
 )
+from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
+from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
+from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 def _write(path: Path, text: str) -> None:
@@ -219,6 +222,7 @@ class _FakeCaoRestSession:
         session_manifest_path: Path | None = None,
         agent_def_dir: Path | None = None,
         agent_identity: str | None = None,
+        tmux_session_name: str | None = None,
         profile_store_dir: Path | None = None,
         poll_interval_seconds: float = 0.4,
         timeout_seconds: float = 120.0,
@@ -234,6 +238,7 @@ class _FakeCaoRestSession:
             session_manifest_path,
             agent_def_dir,
             agent_identity,
+            tmux_session_name,
             profile_store_dir,
             poll_interval_seconds,
             timeout_seconds,
@@ -479,10 +484,12 @@ def _install_gateway_runtime_fakes(
     monkeypatch: pytest.MonkeyPatch,
     registry: _FakeCaoSessionRegistry,
     tmux_env: _FakeTmuxEnv,
+    registry_root: Path,
 ) -> None:
     """Install fake CAO session and tmux environment hooks."""
 
     _FakeCaoRestSession.m_registry = registry
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
@@ -535,6 +542,7 @@ def test_start_session_reports_partial_gateway_auto_attach_failure_on_bind_confl
             monkeypatch=monkeypatch,
             registry=registry,
             tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
         )
 
         conflict_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -616,6 +624,7 @@ def test_gateway_cli_contract_covers_attach_control_detach_replacement_and_stop(
             monkeypatch=monkeypatch,
             registry=registry,
             tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
         )
 
         start_exit, start_payload, start_err = _run_cli_json(
@@ -856,6 +865,105 @@ def test_gateway_cli_contract_covers_attach_control_detach_replacement_and_stop(
             _best_effort_cleanup_gateway(manifest_path)
 
 
+def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway notifier routes should use the manifest-backed mailbox contract."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    mailbox_root = tmp_path / "mailbox"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+
+    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
+        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
+        tmux_env = _FakeTmuxEnv()
+        _install_gateway_runtime_fakes(
+            monkeypatch=monkeypatch,
+            registry=registry,
+            tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
+        )
+
+        start_exit, start_payload, start_err = _run_cli_json(
+            capsys,
+            [
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(runtime_root),
+                "--brain-manifest",
+                str(brain_manifest_path),
+                "--role",
+                "r",
+                "--backend",
+                "cao_rest",
+                "--workdir",
+                str(tmp_path),
+                "--cao-base-url",
+                fake_cao.base_url,
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--mailbox-address",
+                "AGENTSYS-gateway@agents.localhost",
+            ],
+        )
+        assert start_exit == 0
+        assert start_err == ""
+
+        manifest_path = Path(str(start_payload["session_manifest"]))
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        assert paths is not None
+
+        try:
+            attach_exit, attach_payload, attach_err = _run_cli_json(
+                capsys,
+                [
+                    "attach-gateway",
+                    "--agent-def-dir",
+                    str(agent_def_dir),
+                    "--agent-identity",
+                    str(manifest_path),
+                    "--gateway-host",
+                    "127.0.0.1",
+                ],
+            )
+            assert attach_exit == 0
+            assert attach_err == ""
+
+            client = GatewayClient(
+                endpoint=GatewayEndpoint(
+                    host="127.0.0.1",
+                    port=int(attach_payload["gateway_port"]),
+                )
+            )
+
+            initial_status = client.get_mail_notifier()
+            assert initial_status.supported is True
+            assert initial_status.enabled is False
+
+            enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+            assert enabled_status.supported is True
+            assert enabled_status.enabled is True
+            assert enabled_status.interval_seconds == 60
+
+            disabled_status = client.delete_mail_notifier()
+            assert disabled_status.supported is True
+            assert disabled_status.enabled is False
+
+            _wait_until(lambda: paths.log_path.is_file())
+            log_text = paths.log_path.read_text(encoding="utf-8")
+            assert "mail notifier enabled interval_seconds=60" in log_text
+            assert "mail notifier disabled" in log_text
+        finally:
+            _best_effort_cleanup_gateway(manifest_path)
+
+
 def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -874,6 +982,7 @@ def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
             monkeypatch=monkeypatch,
             registry=registry,
             tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
         )
 
         start_exit, start_payload, start_err = _run_cli_json(
