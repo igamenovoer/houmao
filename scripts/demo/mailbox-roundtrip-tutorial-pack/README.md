@@ -14,6 +14,7 @@ Success means you can run the mailbox roundtrip from a clean checkout, inspect o
 - [ ] The repo environment is installed (`pixi install` once).
 - [ ] `tmux` is installed and on `PATH`.
 - [ ] A CAO service is reachable at `http://localhost:9889`, or you have overridden `CAO_BASE_URL`.
+- [ ] If the CAO service was launched through this repository's launcher flow, its launcher ownership/config artifacts are still available so the tutorial can auto-detect the matching CAO profile store.
 - [ ] The default Claude Code and Codex credential profiles selected by the tracked blueprints are available under `tests/fixtures/agents/brains/api-creds/`.
 - [ ] You are running from this repository checkout.
 
@@ -149,6 +150,8 @@ pixi run python -m houmao.agents.realm_controller mail send \
 ```
 
 Credentials still come from the blueprint-selected brain recipes. Mailbox transport, root, principal, and address stay explicit on `start-session`. The wrapper-only `--jobs-dir` flag simply maps to `AGENTSYS_LOCAL_JOBS_DIR` before the two `start-session` calls; direct `realm_controller` commands still use the env var rather than a new runtime CLI flag.
+
+When `CAO_PROFILE_STORE` is unset, the wrapper tries to detect it automatically from the repo-local CAO launcher context for the selected `CAO_BASE_URL`. It first checks the launcher ownership artifact for that base URL under `config/cao-server-launcher/local.toml`'s runtime root, then falls back to the config's `home_dir` when the base URL matches the repo-local launcher config. If you are intentionally using a different CAO server/profile-store pairing, you can still override detection with `CAO_PROFILE_STORE=/abs/path/.../agent-store`.
 
 ## Critical Output Snippet
 
@@ -291,7 +294,7 @@ Snapshot mode rewrites `expected_report/report.json` from `report.sanitized.json
 | Sender identity | `AGENTSYS-mailbox-sender` | Name-based recovery target used for send, check, and stop. |
 | Receiver identity | `AGENTSYS-mailbox-receiver` | Name-based recovery target used for check, reply, and stop. |
 | `CAO_BASE_URL` | `http://localhost:9889` by default | Override when your CAO service is reachable on a different loopback endpoint. |
-| `CAO_PROFILE_STORE` | optional env override | Pass this when you need a non-default CAO profile-store directory. |
+| `CAO_PROFILE_STORE` | optional env override | Usually auto-detected from the repo-local launcher ownership/config for `CAO_BASE_URL`; set it explicitly only when you need to override that detection. |
 
 ## Appendix: File Inventory
 

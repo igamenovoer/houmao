@@ -76,6 +76,7 @@ MESSAGE_SUBJECT=""
 INITIAL_BODY_FILE=""
 REPLY_BODY_FILE=""
 CAO_PROFILE_STORE="${CAO_PROFILE_STORE:-}"
+CAO_LAUNCHER_CONFIG_PATH="${CAO_LAUNCHER_CONFIG_PATH:-$REPO_ROOT/config/cao-server-launcher/local.toml}"
 SENDER_STOPPED=0
 RECEIVER_STOPPED=0
 SENDER_STARTED=0
@@ -244,7 +245,16 @@ DEFAULT_AGENT_DEF_DIR="$(json_value "$PARAMS_PATH" agent_def_dir)"
 AGENT_DEF_DIR="${AGENT_DEF_DIR:-$REPO_ROOT/$DEFAULT_AGENT_DEF_DIR}"
 BACKEND="$(json_value "$PARAMS_PATH" backend)"
 CAO_BASE_URL="${CAO_BASE_URL:-$(json_value "$PARAMS_PATH" cao_base_url)}"
+CAO_BASE_URL="${CAO_BASE_URL%/}"
 MAILBOX_ROOT="$(pixi run python "$HELPER_SCRIPT" render-mailbox-root "$PARAMS_PATH" "$DEMO_OUTPUT_DIR")"
+if [[ -z "$CAO_PROFILE_STORE" ]]; then
+  CAO_PROFILE_STORE="$(
+    pixi run python "$HELPER_SCRIPT" detect-cao-profile-store \
+      --repo-root "$REPO_ROOT" \
+      --cao-base-url "$CAO_BASE_URL" \
+      --launcher-config-path "$CAO_LAUNCHER_CONFIG_PATH"
+  )"
+fi
 
 SENDER_BLUEPRINT="$(json_value "$PARAMS_PATH" sender.blueprint)"
 SENDER_REQUESTED_IDENTITY="$(json_value "$PARAMS_PATH" sender.agent_identity)"
@@ -274,6 +284,9 @@ log "project workdir: $PROJECT_WORKDIR"
 log "runtime root: $RUNTIME_ROOT"
 log "mailbox root: $MAILBOX_ROOT"
 log "agent definitions: $AGENT_DEF_DIR"
+if [[ -n "$CAO_PROFILE_STORE" ]]; then
+  log "CAO profile store: $CAO_PROFILE_STORE"
+fi
 if [[ -n "$JOBS_DIR" ]]; then
   log "jobs root override: $JOBS_DIR"
 else

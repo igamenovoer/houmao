@@ -9,6 +9,7 @@ import stat
 import subprocess
 import textwrap
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def _source_repo_root() -> Path:
@@ -44,6 +45,56 @@ def _copy_agent_defs(repo_root: Path) -> None:
     shutil.copytree(
         _source_repo_root() / "tests" / "fixtures" / "agents",
         repo_root / "tests" / "fixtures" / "agents",
+    )
+
+
+def _write_launcher_context(repo_root: Path, *, base_url: str, launcher_home_dir: Path) -> None:
+    """Write one repo-local launcher config plus ownership artifact."""
+
+    config_dir = repo_root / "config" / "cao-server-launcher"
+    runtime_root = repo_root / "config" / "cao-server-launcher" / "tmp" / "agents-runtime"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "local.toml").write_text(
+        textwrap.dedent(
+            f"""\
+            base_url = "{base_url}"
+            runtime_root = "tmp/agents-runtime"
+            home_dir = "{launcher_home_dir}"
+            proxy_policy = "clear"
+            startup_timeout_seconds = 15
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    parsed = urlparse(base_url)
+    assert parsed.hostname is not None
+    assert parsed.port is not None
+    host = parsed.hostname
+    port = parsed.port
+    ownership_path = runtime_root / "cao_servers" / f"{host}-{port}" / "launcher" / "ownership.json"
+    ownership_path.parent.mkdir(parents=True, exist_ok=True)
+    ownership_path.write_text(
+        json.dumps(
+            {
+                "managed_by": "houmao.cao.server_launcher",
+                "launch_mode": "detached",
+                "base_url": base_url,
+                "runtime_root": str(runtime_root),
+                "artifact_dir": str(ownership_path.parent),
+                "home_dir": str(launcher_home_dir),
+                "config_path": str(config_dir / "local.toml"),
+                "proxy_policy": "clear",
+                "pid": 1234,
+                "process_group_id": 1234,
+                "executable_path": str(repo_root / "fake-bin" / "cao-server"),
+                "started_at_utc": "2026-03-16T09:00:00+00:00",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
 
@@ -356,6 +407,8 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
     (repo_root / "tests" / "fixtures").mkdir(parents=True)
     demo_pack_dir = _copy_demo_pack(repo_root)
     _copy_agent_defs(repo_root)
+    launcher_home_dir = tmp_path / "launcher-home"
+    _write_launcher_context(repo_root, base_url="http://localhost:9889", launcher_home_dir=launcher_home_dir)
 
     fake_bin_dir = tmp_path / "fake-bin"
     fake_bin_dir.mkdir()
@@ -425,6 +478,11 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
         assert call[call.index("--mailbox-root") + 1] == str(demo_output_dir / "shared-mailbox")
         assert "--mailbox-principal-id" in call
         assert "--mailbox-address" in call
+        assert "--cao-profile-store" in call
+        assert (
+            call[call.index("--cao-profile-store") + 1]
+            == str(launcher_home_dir / ".aws" / "cli-agent-orchestrator" / "agent-store")
+        )
 
     sender_start = json.loads((demo_output_dir / "sender_start.json").read_text(encoding="utf-8"))
     receiver_start = json.loads((demo_output_dir / "receiver_start.json").read_text(encoding="utf-8"))

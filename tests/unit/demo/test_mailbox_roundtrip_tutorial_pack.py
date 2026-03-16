@@ -90,6 +90,121 @@ def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
     assert layout.report_path == explicit_output / "report.json"
 
 
+def test_detect_cao_profile_store_prefers_launcher_ownership_home_dir(tmp_path: Path) -> None:
+    """Profile-store detection should prefer the launcher ownership artifact when present."""
+
+    repo_root = tmp_path / "repo"
+    config_dir = repo_root / "config" / "cao-server-launcher"
+    runtime_root = repo_root / "tmp" / "agents-runtime"
+    launcher_home = tmp_path / "launcher-home-from-ownership"
+    ownership_path = runtime_root / "cao_servers" / "127.0.0.1-9991" / "launcher" / "ownership.json"
+    config_dir.mkdir(parents=True)
+    ownership_path.parent.mkdir(parents=True, exist_ok=True)
+    (config_dir / "local.toml").write_text(
+        '\n'.join(
+            [
+                'base_url = "http://localhost:9889"',
+                f'runtime_root = "{runtime_root}"',
+                f'home_dir = "{tmp_path / "launcher-home-from-config"}"',
+                'proxy_policy = "clear"',
+                "startup_timeout_seconds = 15",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ownership_path.write_text(
+        json.dumps(
+            {
+                "managed_by": "houmao.cao.server_launcher",
+                "launch_mode": "detached",
+                "base_url": "http://127.0.0.1:9991",
+                "runtime_root": str(runtime_root),
+                "artifact_dir": str(ownership_path.parent),
+                "home_dir": str(launcher_home),
+                "config_path": str(config_dir / "local.toml"),
+                "proxy_policy": "clear",
+                "pid": 1234,
+                "process_group_id": 1234,
+                "executable_path": str(tmp_path / "bin" / "cao-server"),
+                "started_at_utc": "2026-03-16T09:00:00+00:00",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    detected = HELPERS.detect_cao_profile_store(
+        repo_root=repo_root,
+        cao_base_url="http://127.0.0.1:9991",
+    )
+
+    assert detected == launcher_home / ".aws" / "cli-agent-orchestrator" / "agent-store"
+
+
+def test_detect_cao_profile_store_falls_back_to_matching_launcher_config_home_dir(
+    tmp_path: Path,
+) -> None:
+    """Profile-store detection should fall back to launcher config when ownership is absent."""
+
+    repo_root = tmp_path / "repo"
+    config_dir = repo_root / "config" / "cao-server-launcher"
+    launcher_home = tmp_path / "launcher-home"
+    config_dir.mkdir(parents=True)
+    (config_dir / "local.toml").write_text(
+        '\n'.join(
+            [
+                'base_url = "http://localhost:9889"',
+                f'runtime_root = "{repo_root / "tmp" / "agents-runtime"}"',
+                f'home_dir = "{launcher_home}"',
+                'proxy_policy = "clear"',
+                "startup_timeout_seconds = 15",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    detected = HELPERS.detect_cao_profile_store(
+        repo_root=repo_root,
+        cao_base_url="http://localhost:9889",
+    )
+
+    assert detected == launcher_home / ".aws" / "cli-agent-orchestrator" / "agent-store"
+
+
+def test_detect_cao_profile_store_returns_none_for_unrelated_base_url_without_ownership(
+    tmp_path: Path,
+) -> None:
+    """Profile-store detection should not guess when only an unrelated config base URL is present."""
+
+    repo_root = tmp_path / "repo"
+    config_dir = repo_root / "config" / "cao-server-launcher"
+    config_dir.mkdir(parents=True)
+    (config_dir / "local.toml").write_text(
+        '\n'.join(
+            [
+                'base_url = "http://localhost:9889"',
+                f'runtime_root = "{repo_root / "tmp" / "agents-runtime"}"',
+                f'home_dir = "{tmp_path / "launcher-home"}"',
+                'proxy_policy = "clear"',
+                "startup_timeout_seconds = 15",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    detected = HELPERS.detect_cao_profile_store(
+        repo_root=repo_root,
+        cao_base_url="http://127.0.0.1:9991",
+    )
+
+    assert detected is None
+
+
 def test_ensure_project_worktree_provisions_missing_project_directory(tmp_path: Path) -> None:
     """Missing project directories should be provisioned through git worktree add."""
 

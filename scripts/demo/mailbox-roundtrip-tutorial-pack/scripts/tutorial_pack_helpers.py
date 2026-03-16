@@ -8,11 +8,13 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 _TIMESTAMP_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$"
@@ -69,6 +71,15 @@ GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 
 
 @dataclass(frozen=True)
+class LauncherConfigSnapshot:
+    """Minimal launcher-config fields needed for CAO profile-store discovery."""
+
+    base_url: str
+    runtime_root: Path | None
+    home_dir: Path | None
+
+
+@dataclass(frozen=True)
 class DemoParticipant:
     """One tutorial participant definition."""
 
@@ -121,6 +132,13 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_toml(path: Path) -> dict[str, Any]:
+    """Load one TOML mapping from disk."""
+
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    return _require_mapping(payload, context=str(path))
+
+
 def _write_json(path: Path, payload: Any) -> None:
     """Write one JSON value to disk."""
 
@@ -142,6 +160,141 @@ def _require_non_empty_string(value: Any, *, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{context} must be a non-empty string")
     return value
+
+
+def _normalize_cao_base_url(value: str) -> str:
+    """Normalize one loopback CAO base URL string."""
+
+    normalized = value.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme != "http":
+        raise ValueError("CAO base URL must use http")
+    if parsed.hostname is None or parsed.port is None:
+        raise ValueError("CAO base URL must include host and explicit port")
+    return f"http://{parsed.hostname}:{parsed.port}"
+
+
+def _cao_server_root(runtime_root: Path, *, base_url: str) -> Path:
+    """Return the launcher-managed server root for one base URL."""
+
+    parsed = urlparse(_normalize_cao_base_url(base_url))
+    assert parsed.hostname is not None
+    assert parsed.port is not None
+    return (runtime_root.resolve() / "cao_servers" / f"{parsed.hostname}-{parsed.port}").resolve()
+
+
+def _resolve_optional_config_path(raw_path: str | None, *, repo_root: Path) -> Path:
+    """Resolve one optional launcher-config path."""
+
+    if raw_path is None or not raw_path.strip():
+        return (repo_root.resolve() / "config" / "cao-server-launcher" / "local.toml").resolve()
+    candidate = Path(raw_path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (repo_root.resolve() / candidate).resolve()
+
+
+def _resolve_optional_absolute_or_config_relative(
+    raw_path: str | None,
+    *,
+    config_path: Path,
+) -> Path | None:
+    """Resolve one optional path relative to the launcher config when needed."""
+
+    if raw_path is None or not raw_path.strip():
+        return None
+    candidate = Path(raw_path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (config_path.parent.resolve() / candidate).resolve()
+
+
+def _load_launcher_config_snapshot(config_path: Path) -> LauncherConfigSnapshot:
+    """Load the launcher config fields needed for CAO profile-store detection."""
+
+    payload = _read_toml(config_path)
+    base_url = _normalize_cao_base_url(
+        _require_non_empty_string(payload.get("base_url"), context="base_url")
+    )
+    runtime_root = _resolve_optional_absolute_or_config_relative(
+        payload.get("runtime_root"),
+        config_path=config_path,
+    )
+    home_dir = _resolve_optional_absolute_or_config_relative(
+        payload.get("home_dir"),
+        config_path=config_path,
+    )
+    return LauncherConfigSnapshot(
+        base_url=base_url,
+        runtime_root=runtime_root,
+        home_dir=home_dir,
+    )
+
+
+def _ownership_home_dir(path: Path, *, expected_base_url: str) -> Path | None:
+    """Return the ownership-recorded CAO home dir when it matches the target URL."""
+
+    if not path.exists():
+        return None
+    payload = _require_mapping(_read_json(path), context=str(path))
+    managed_by = _require_non_empty_string(payload.get("managed_by"), context="managed_by")
+    if managed_by != "houmao.cao.server_launcher":
+        return None
+    base_url = _normalize_cao_base_url(
+        _require_non_empty_string(payload.get("base_url"), context="base_url")
+    )
+    if base_url != expected_base_url:
+        return None
+    home_dir_raw = payload.get("home_dir")
+    if home_dir_raw is None:
+        return None
+    home_dir = Path(_require_non_empty_string(home_dir_raw, context="home_dir")).expanduser()
+    return home_dir.resolve()
+
+
+def default_cao_profile_store(*, cao_home: Path) -> Path:
+    """Return the CAO agent-store path derived from one CAO home directory."""
+
+    return (cao_home.resolve() / ".aws" / "cli-agent-orchestrator" / "agent-store").resolve()
+
+
+def detect_cao_profile_store(
+    *,
+    repo_root: Path,
+    cao_base_url: str,
+    launcher_config_path: str | None = None,
+) -> Path | None:
+    """Best-effort detect the CAO profile store for the selected base URL.
+
+    Detection order:
+
+    1. Launcher ownership artifact for the target base URL, if present.
+    2. Launcher config `home_dir` when the config base URL matches the target URL.
+    3. Launcher default server-root-local `home/` when `home_dir` is omitted and
+       the config base URL matches the target URL.
+    """
+
+    normalized_base_url = _normalize_cao_base_url(cao_base_url)
+    config_path = _resolve_optional_config_path(launcher_config_path, repo_root=repo_root)
+    if not config_path.exists():
+        return None
+
+    config = _load_launcher_config_snapshot(config_path)
+    if config.runtime_root is None:
+        return None
+
+    server_root = _cao_server_root(config.runtime_root, base_url=normalized_base_url)
+    ownership_path = server_root / "launcher" / "ownership.json"
+    ownership_home = _ownership_home_dir(ownership_path, expected_base_url=normalized_base_url)
+    if ownership_home is not None:
+        return default_cao_profile_store(cao_home=ownership_home)
+
+    if config.base_url != normalized_base_url:
+        return None
+
+    if config.home_dir is not None:
+        return default_cao_profile_store(cao_home=config.home_dir)
+    return default_cao_profile_store(cao_home=server_root / "home")
 
 
 def _participant_from_payload(payload: Any, *, context: str) -> DemoParticipant:
@@ -592,6 +745,19 @@ def _cmd_build_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_detect_cao_profile_store(args: argparse.Namespace) -> int:
+    """Print one best-effort detected CAO profile-store path."""
+
+    detected = detect_cao_profile_store(
+        repo_root=args.repo_root,
+        cao_base_url=args.cao_base_url,
+        launcher_config_path=args.launcher_config_path,
+    )
+    if detected is not None:
+        print(detected)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the helper CLI parser."""
 
@@ -637,6 +803,12 @@ def _build_parser() -> argparse.ArgumentParser:
     build_report_parser.add_argument("--agent-def-dir", type=Path, required=True)
     build_report_parser.add_argument("--reply-parent-message-id", required=True)
     build_report_parser.set_defaults(func=_cmd_build_report)
+
+    detect_profile_store_parser = subparsers.add_parser("detect-cao-profile-store")
+    detect_profile_store_parser.add_argument("--repo-root", type=Path, required=True)
+    detect_profile_store_parser.add_argument("--cao-base-url", required=True)
+    detect_profile_store_parser.add_argument("--launcher-config-path")
+    detect_profile_store_parser.set_defaults(func=_cmd_detect_cao_profile_store)
 
     return parser
 
