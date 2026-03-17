@@ -21,6 +21,9 @@ print_help() {
 Usage:
   scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>] [--parameters <path>] [--expected-report <path>] [--cao-parsing-mode <cao_only|shadow_only>]
 
+The default output root is `scripts/demo/mailbox-roundtrip-tutorial-pack/outputs/`.
+Fresh full runs recreate that output root from scratch; stepwise commands reuse the same selected root.
+
 Fresh automatic mailbox coverage defaults to shadow_only for both agents.
 Use AGENTSYS_MAILBOX_ROUNDTRIP_ALLOW_CAO_ONLY_DEBUG=1 to allow a debug-only cao_only override.
 EOF
@@ -105,7 +108,7 @@ if ! command -v pixi >/dev/null 2>&1; then
   exit 1
 fi
 
-DEMO_OUTPUT_DIR="$(resolve_path "$RAW_DEMO_OUTPUT_DIR" "tmp/demo/mailbox-roundtrip-tutorial-pack")"
+DEMO_OUTPUT_DIR="$(resolve_path "$RAW_DEMO_OUTPUT_DIR" "scripts/demo/mailbox-roundtrip-tutorial-pack/outputs")"
 if [[ -n "$RAW_PARAMETERS_PATH" ]]; then
   PARAMETERS_PATH="$(resolve_path "$RAW_PARAMETERS_PATH")"
 else

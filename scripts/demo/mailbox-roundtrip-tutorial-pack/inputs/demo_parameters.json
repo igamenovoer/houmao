@@ -4,7 +4,7 @@
   "agent_def_dir": "tests/fixtures/agents",
   "backend": "cao_rest",
   "cao_base_url": "http://localhost:9889",
-  "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
+  "shared_mailbox_root_template": "{demo_output_dir}/mailbox",
   "sender": {
     "blueprint": "blueprints/gpu-kernel-coder-claude.yaml",
     "agent_identity": "AGENTSYS-mailbox-sender",
@@ -20,6 +20,6 @@
   "message": {
     "subject": "Mailbox tutorial roundtrip",
     "initial_body_file": "inputs/initial_message.md",
-    "reply_body_file": "inputs/reply_message.md"
+    "reply_instructions_file": "inputs/reply_instructions.md"
   }
 }

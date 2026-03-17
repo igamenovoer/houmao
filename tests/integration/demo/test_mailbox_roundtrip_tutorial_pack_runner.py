@@ -349,7 +349,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 sender: dict[str, str],
                 recipients: list[dict[str, str]],
                 subject: str,
-                body_file: Path,
+                body_markdown: str,
             ) -> dict[str, object]:
                 from houmao.mailbox.managed import DeliveryRequest, deliver_message
                 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
@@ -392,7 +392,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     cc=[principal.to_mailbox_principal() for principal in request.cc],
                     reply_to=[principal.to_mailbox_principal() for principal in request.reply_to],
                     subject=request.subject,
-                    body_markdown=body_file.read_text(encoding="utf-8"),
+                    body_markdown=body_markdown,
                     attachments=[attachment.to_mailbox_attachment() for attachment in request.attachments],
                     headers=dict(request.headers),
                 )
@@ -497,6 +497,12 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 agent_identity = arg_value("--agent-identity")
                 session = state["sessions"][agent_identity]
                 request_id = next_request_id()
+
+                def body_markdown() -> str:
+                    if "--body-file" in args:
+                        return Path(arg_value("--body-file")).resolve().read_text(encoding="utf-8")
+                    return arg_value("--body-content")
+
                 if operation == "send":
                     recipient = find_session_by_address(arg_value("--to"))
                     mailbox_root = Path(session["mailbox_root"])
@@ -511,7 +517,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                         sender=session,
                         recipients=[recipient],
                         subject=subject,
-                        body_file=Path(arg_value("--body-file")).resolve(),
+                        body_markdown=body_markdown(),
                     )
                     state["messages"][state["send_message_id"]] = {
                         "canonical_path": str(deliver_result["canonical_path"]),
@@ -570,7 +576,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                         sender=session,
                         recipients=[recipient],
                         subject=parent_message["subject"],
-                        body_file=Path(arg_value("--body-file")).resolve(),
+                        body_markdown=body_markdown(),
                     )
                     state["messages"][state["reply_message_id"]] = {
                         "canonical_path": str(deliver_result["canonical_path"]),
@@ -613,7 +619,7 @@ def _demo_output_dir(repo_root: Path, relative_path: str | None = None) -> Path:
     """Return the expected demo output directory."""
 
     if relative_path is None:
-        return repo_root / "tmp" / "demo" / "mailbox-roundtrip-tutorial-pack"
+        return repo_root / "scripts" / "demo" / "mailbox-roundtrip-tutorial-pack" / "outputs"
     return repo_root / relative_path
 
 
@@ -768,12 +774,16 @@ def test_mailbox_roundtrip_scenario_runner_covers_contract_and_ownership_cases(
     )
     assert explicit["checks"]["sender_job_dir"].endswith("/jobs-root/AGENTSYS-mailbox-sender")
     assert implicit["checks"]["send_body_matches_input"] is True
-    assert implicit["checks"]["reply_body_matches_input"] is True
+    assert implicit["checks"]["reply_body_present"] is True
     assert implicit["checks"]["reply_parent_matches_send"] is True
     assert implicit["checks"]["sender_sent_projection_targets_send"] is True
     assert implicit["checks"]["receiver_inbox_projection_targets_send"] is True
     assert implicit["checks"]["receiver_sent_projection_targets_reply"] is True
     assert implicit["checks"]["sender_inbox_projection_targets_reply"] is True
+    assert implicit["checks"]["chat_log_has_send_event"] is True
+    assert implicit["checks"]["chat_log_has_reply_event"] is True
+    assert implicit["checks"]["chat_log_send_matches_input"] is True
+    assert implicit["checks"]["chat_log_reply_matches_mailbox_reply"] is True
     assert implicit["checks"]["send_message_path"].endswith(
         "/msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
     )
@@ -781,7 +791,7 @@ def test_mailbox_roundtrip_scenario_runner_covers_contract_and_ownership_cases(
         "/msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md"
     )
     assert explicit["checks"]["send_body_matches_input"] is True
-    assert explicit["checks"]["reply_body_matches_input"] is True
+    assert explicit["checks"]["reply_body_present"] is True
     assert rerun["checks"]["reuse_marker_preserved"] is True
     assert incompatible["checks"]["sender_start_created"] is False
     assert ownership["checks"]["cao_ownership"] == "reused-existing-process"
@@ -838,15 +848,17 @@ def test_mailbox_roundtrip_scenario_runner_covers_stepwise_snapshot_and_cleanup_
     assert snapshot["ok"] is True
     assert failure["ok"] is True
     assert interrupted["ok"] is True
-    assert stepwise["checks"]["verify_result_path"].endswith("/verify_result.json")
+    assert stepwise["checks"]["verify_result_path"].endswith("/control/verify_result.json")
     assert stepwise["checks"]["send_body_matches_input"] is True
-    assert stepwise["checks"]["reply_body_matches_input"] is True
+    assert stepwise["checks"]["reply_body_present"] is True
     assert stepwise["checks"]["reply_thread_matches_send"] is True
     assert stepwise["checks"]["reply_parent_matches_send"] is True
     assert stepwise["checks"]["sender_sent_projection_targets_send"] is True
     assert stepwise["checks"]["receiver_inbox_projection_targets_send"] is True
     assert stepwise["checks"]["receiver_sent_projection_targets_reply"] is True
     assert stepwise["checks"]["sender_inbox_projection_targets_reply"] is True
+    assert stepwise["checks"]["chat_log_has_send_event"] is True
+    assert stepwise["checks"]["chat_log_has_reply_event"] is True
     assert snapshot["checks"]["snapshot_refreshed"] is True
     assert snapshot["checks"]["snapshot_excludes_raw_body_content"] is True
     assert failure["checks"]["cleanup_mode"] is True
