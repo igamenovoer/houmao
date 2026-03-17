@@ -57,3 +57,25 @@ If raw CAO `tail` text is retained for debugging, it SHALL remain in diagnostics
 - **WHEN** a downstream caller needs reliable machine-readable data from a `shadow_only` result
 - **THEN** the runtime exposes the best-effort projection surfaces without claiming exact reply extraction
 - **AND THEN** the caller uses an explicit schema-shaped contract or caller-owned extractor to recover the needed payload
+
+### Requirement: Repo-owned CAO workflows for supported shadow tools follow the shadow-first contract
+For CAO-backed tools that have a runtime-owned shadow parser family, repo-owned workflows, demos, and maintainer-facing helper surfaces SHALL treat `shadow_only` as the normal parsing posture.
+
+Such surfaces MAY rely on the existing per-tool parsing-mode default or request `shadow_only` explicitly, but SHALL NOT pin `cao_only` as their normal default unless the workflow exists specifically to exercise or debug the CAO-native path.
+
+When one such shadow-first workflow needs text beyond completion status, it SHALL use structured shadow payloads, explicit schema/sentinel outputs, side-effect verification, or clearly labeled best-effort shadow extraction rather than assuming the final runtime `done.message` contains the exact agent reply text.
+
+#### Scenario: Repo-owned CAO helper workflow relies on the supported tool default
+- **WHEN** a repo-owned workflow starts a CAO-backed Claude or Codex session without an explicit parsing-mode override
+- **THEN** the workflow runs under the runtime-resolved `shadow_only` default for that supported tool
+- **AND THEN** the workflow does not introduce an unnecessary `cao_only` override just to preserve older answer-text assumptions
+
+#### Scenario: Shadow-first workflow needs text evidence beyond neutral completion message
+- **WHEN** a repo-owned CAO workflow for Claude or Codex needs text evidence from a successful `shadow_only` turn
+- **THEN** it does not treat the final runtime `done.message` as the authoritative reply text
+- **AND THEN** it uses structured shadow payloads, explicit schema/sentinel outputs, side-effect checks, or clearly labeled best-effort shadow extraction instead
+
+#### Scenario: CAO-native troubleshooting remains an explicit exception
+- **WHEN** a maintainer runs a dedicated troubleshooting or CAO-native coverage path for a supported tool
+- **THEN** that path may still request `parsing_mode=cao_only`
+- **AND THEN** the exception is explicit rather than being presented as the normal default posture

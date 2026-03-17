@@ -12,6 +12,8 @@ This matters because the current in-tree consumers are not all using the project
 
 The existing specs say projection is not the authoritative final answer for the last prompt, but they stop short of saying that projection also does not guarantee exact recovered text. The repo therefore needs a clearer reliability model that preserves projection’s legitimate uses while steering important downstream behavior toward schema-shaped outputs and explicit caller-owned extraction.
 
+The core CAO runtime already resolves `shadow_only` by default for supported CAO-backed Claude and Codex sessions. The remaining inconsistency is above that layer: some CLI/help text, maintainer docs, demo packs, report verifiers, and test helpers still behave as if `cao_only` extracted answer text or `done.message` reply text were the normal success contract. As more repo workflows rely on the shadow parser, those surfaces become misleading or brittle.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -20,6 +22,7 @@ The existing specs say projection is not the authoritative final answer for the 
 - Refactor projection logic into modular swappable processor instances so provider/version-specific cleanup can change without rewriting a monolithic parser class.
 - Preserve shadow projection as a useful runtime surface for lifecycle diffing, inspection, and best-effort caller-side pattern matching.
 - Make reliable downstream machine use depend on schema-shaped prompt/result contracts and explicit extractor logic instead of on projection fidelity.
+- Make repo-owned CAO workflows, demos, docs, and incidental test helpers shadow-first by default for tools with runtime shadow parser support, while keeping `cao_only` as an explicit advanced/debug override where intentionally supported.
 - Audit and revise affected runtime modules and docs so their wording matches the intended contract.
 
 **Non-Goals:**
@@ -106,6 +109,24 @@ For important parsing, the runtime may inspect more than one available shadow su
 - Treat mailbox parsing as an exception and leave the rationale implicit: rejected because the repo is already showing the pattern we want others to follow.
 - Promote raw tmux output to a first-class machine contract: rejected because it encourages brittle downstream parsing and undercuts the existing projection/contract separation.
 
+### Decision: Repo-owned CAO workflows for supported tools are shadow-first by default
+
+For tools that have a runtime-owned shadow parser family, repo-owned CAO workflows should follow the runtime's shadow-first posture instead of preserving a mixed-mode mental model.
+
+Concretely:
+
+- repo-owned docs, demos, and helper workflows should either omit parsing-mode overrides and rely on the existing `shadow_only` default or request `shadow_only` explicitly when being explicit is clearer,
+- repo-owned helpers and tests should not default to `cao_only` when parsing mode is incidental rather than the subject under test,
+- `cao_only` remains supported as an explicit expert/debug/troubleshooting path and for dedicated CAO-native coverage, and
+- successful shadow-mode workflows that need text beyond completion status must use protocol-specific verification, side-effect checks, schema/sentinel contracts, or clearly labeled best-effort shadow extraction instead of assuming the final runtime `done.message` is the actual reply text.
+
+This decision also applies to repo-owned helper code that parses live shadow snapshots outside the main turn engine. Such helper code should prefer the shared stack-level shadow abstraction so projector selection, version handling, and controlled overrides stay centralized while the parser stack becomes more modular.
+
+**Alternatives considered**
+
+- Keep repo-owned docs/demos/tests in a mixed-mode posture and rely on local maintainer knowledge to remember that shadow is already the real default: rejected because it keeps producing fragile or misleading consumers.
+- Force every repo-owned workflow to pass `--cao-parsing-mode shadow_only` explicitly: rejected because runtime already resolves that default for supported tools and many workflows are clearer when they rely on the shared default instead of duplicating it everywhere.
+
 ### Decision: Reframe interactive demo inspect as a best-effort diagnostic surface
 
 The demo’s `--with-output-text` option is useful, but it is not a reliable data-extraction API. The design will keep the field for operator inspection while revising the contract and wording from “clean output text” to “best-effort projected dialog tail”.
@@ -122,6 +143,7 @@ That keeps the demo useful without teaching callers the wrong lesson about proje
 - [Some existing callers may already assume `dialog_text` is exact] -> Mitigation: make the revised contract explicit in specs, developer docs, reference docs, and affected CLI/demo wording; audit in-tree consumers during implementation.
 - [Projector modularity could leak into runtime lifecycle logic] -> Mitigation: keep `DialogProjection` stable and keep `_TurnMonitor` consuming only the shared projection contract.
 - [Provider code could still become rigid if projector selection is hardcoded in one place] -> Mitigation: require explicit processor-selection boundaries and constructor-level override points for tests and controlled advanced use.
+- [Repo-owned demos or helper scripts may keep treating `done.message` as reply text even after shadow becomes the default posture] -> Mitigation: update spec-owned demo/report contracts, convert helper code to shadow-aware extraction or side-effect validation, and flip incidental test defaults away from `cao_only`.
 - [Best-effort wording may feel weaker to operators] -> Mitigation: preserve the existing cleaned surfaces and diagnostic value while being explicit about what they are for.
 - [Schema-shaped prompting still runs through messy TUIs] -> Mitigation: require explicit sentinels or compact structured payloads and let caller-owned extractors choose the most suitable text surface (`normalized_text` or `dialog_text`).
 - [Refactoring projectors and hardened mailbox/result extraction may add implementation complexity] -> Mitigation: keep the projector abstraction narrowly focused on projection only, and keep machine parsing centered on explicit sentinel/schema contracts rather than on new parser families.
@@ -131,10 +153,11 @@ That keeps the demo useful without teaching callers the wrong lesson about proje
 1. Revise the affected specs so the contract clearly distinguishes best-effort projection from reliable extraction and requires modular projector selection in the parser stack.
 2. Introduce the shared projector abstraction and provider/version-aware processor selection path while preserving the existing `DialogProjection` payload contract.
 3. Refactor Claude and Codex projection code into swappable processor implementations and route provenance through `projector_id`.
-4. Update runtime/parser docs and module wording to describe `dialog_text` and demo inspect output as best-effort projected text.
-5. Audit in-tree consumers and keep only the usages that fit the intended reliability tier.
-6. For machine-critical flows, preserve or harden schema-shaped prompt/result contracts and explicit extraction helpers.
-7. Update tests so they validate processor swapping, revised contract language, and downstream consumer behavior rather than overclaiming projection exactness.
+4. Update runtime/parser docs and module wording to describe `dialog_text`, demo inspect output, and supported CAO workflow posture in shadow-first best-effort terms.
+5. Audit repo-owned demos, report verifiers, and helper scripts that still scrape `done.message` or default to `cao_only`, and convert them to shadow-aware success criteria or explicit exceptions.
+6. Audit in-tree consumers and keep only the usages that fit the intended reliability tier.
+7. For machine-critical flows, preserve or harden schema-shaped prompt/result contracts and explicit extraction helpers.
+8. Update tests so they validate processor swapping, revised contract language, shadow-first workflow defaults, and downstream consumer behavior rather than overclaiming projection exactness.
 
 ## Open Questions
 

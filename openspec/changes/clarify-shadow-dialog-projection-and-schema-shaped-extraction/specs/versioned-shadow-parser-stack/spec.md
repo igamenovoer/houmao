@@ -29,3 +29,13 @@ This controlled override MAY be exposed through stack construction, provider par
 - **WHEN** a test or advanced caller supplies an explicit projection processor override for a supported provider
 - **THEN** the stack uses that processor for matching snapshots
 - **AND THEN** the returned `DialogProjection.projection_metadata.projector_id` reflects the injected processor
+
+### Requirement: Repo-owned shadow-aware helper code uses the shared stack-level abstraction
+Repo-owned workflows or demo helpers that need to parse supported provider TUI snapshots outside the main CAO turn engine SHALL use the shared shadow parser stack or another repo-owned stack-level adapter that preserves provider selection, projector selection, and controlled override behavior.
+
+They SHALL NOT bypass that shared abstraction by pinning provider-private parser classes as the normal integration point for shadow parsing behavior that the stack now owns.
+
+#### Scenario: Demo helper parses supported TUI snapshots through the shared stack
+- **WHEN** a repo-owned helper needs to inspect live Claude or Codex `mode=full` output outside the main turn engine
+- **THEN** it obtains parsing behavior through `ShadowParserStack` or an equivalent shared adapter
+- **AND THEN** provider/version-specific projector selection remains centralized in the shared stack
