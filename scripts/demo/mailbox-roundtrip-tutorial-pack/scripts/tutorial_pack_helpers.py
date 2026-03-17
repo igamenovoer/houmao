@@ -49,9 +49,11 @@ _COMMAND_FLOW = [*_REPORT_FLOW, *_STOP_FLOW]
 _ARTIFACT_FILENAMES = {label: f"{label}.json" for label in _COMMAND_FLOW}
 _PATH_PLACEHOLDERS = {
     "demo_output_dir": "<DEMO_OUTPUT_DIR>",
+    "control_dir": "<CONTROL_DIR>",
     "project_workdir": "<PROJECT_WORKDIR>",
     "runtime_root": "<RUNTIME_ROOT>",
     "mailbox_root": "<MAILBOX_ROOT>",
+    "chat_log_path": "<CHAT_LOG_PATH>",
     "agent_def_dir": "<AGENT_DEF_DIR>",
     "session_manifest": "<SESSION_MANIFEST_PATH>",
     "manifest_path": "<BRAIN_MANIFEST_PATH>",
@@ -86,14 +88,14 @@ _VALUE_PLACEHOLDERS = {
 _TIMESTAMP_KEYS = {
     "created_at",
     "generated_at_utc",
+    "ts_utc",
     "received_at",
     "sent_at",
     "started_at",
     "updated_at",
 }
-_DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/mailbox-roundtrip-tutorial-pack")
+_DEFAULT_DEMO_OUTPUT_DIR = Path("scripts/demo/mailbox-roundtrip-tutorial-pack/outputs")
 _DEFAULT_AUTOMATION_CAO_PARSING_MODE = "shadow_only"
-_DEBUG_ALLOW_CAO_ONLY_ENV_VAR = "AGENTSYS_MAILBOX_ROUNDTRIP_ALLOW_CAO_ONLY_DEBUG"
 
 
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
@@ -129,7 +131,7 @@ class MessageConfig:
 
     subject: str
     initial_body_file: str
-    reply_body_file: str
+    reply_instructions_file: str
 
 
 @dataclass(frozen=True)
@@ -152,12 +154,14 @@ class DemoLayout:
     """Resolved demo-owned filesystem layout."""
 
     demo_output_dir: Path
+    control_dir: Path
     project_workdir: Path
     runtime_root: Path
     cao_dir: Path
     cao_launcher_config_path: Path
     cao_runtime_root: Path
     cao_start_path: Path
+    chats_path: Path
     inputs_dir: Path
     mailbox_root: Path
     state_path: Path
@@ -368,8 +372,8 @@ def _message_from_payload(payload: Any) -> MessageConfig:
         initial_body_file=_require_non_empty_string(
             mapping.get("initial_body_file"), context="message.initial_body_file"
         ),
-        reply_body_file=_require_non_empty_string(
-            mapping.get("reply_body_file"), context="message.reply_body_file"
+        reply_instructions_file=_require_non_empty_string(
+            mapping.get("reply_instructions_file"), context="message.reply_instructions_file"
         ),
     )
 
@@ -439,21 +443,24 @@ def build_demo_layout(*, demo_output_dir: Path) -> DemoLayout:
 
     resolved_output_dir = demo_output_dir.resolve()
     cao_dir = resolved_output_dir / "cao"
+    control_dir = resolved_output_dir / "control"
     return DemoLayout(
         demo_output_dir=resolved_output_dir,
+        control_dir=control_dir,
         project_workdir=resolved_output_dir / "project",
         runtime_root=resolved_output_dir / "runtime",
         cao_dir=cao_dir,
         cao_launcher_config_path=cao_dir / "launcher.toml",
         cao_runtime_root=cao_dir / "runtime",
-        cao_start_path=resolved_output_dir / "cao_start.json",
+        cao_start_path=control_dir / "cao_start.json",
+        chats_path=resolved_output_dir / "chats.jsonl",
         inputs_dir=resolved_output_dir / "inputs",
-        mailbox_root=resolved_output_dir / "shared-mailbox",
-        state_path=resolved_output_dir / "demo_state.json",
-        report_path=resolved_output_dir / "report.json",
-        sanitized_report_path=resolved_output_dir / "report.sanitized.json",
-        verify_result_path=resolved_output_dir / "verify_result.json",
-        stop_result_path=resolved_output_dir / "stop_result.json",
+        mailbox_root=resolved_output_dir / "mailbox",
+        state_path=control_dir / "demo_state.json",
+        report_path=control_dir / "report.json",
+        sanitized_report_path=control_dir / "report.sanitized.json",
+        verify_result_path=control_dir / "verify_result.json",
+        stop_result_path=control_dir / "stop_result.json",
     )
 
 
@@ -523,7 +530,6 @@ def inspect_roundtrip_mailbox(
     send_message_id: str,
     reply_message_id: str,
     initial_body_path: Path,
-    reply_body_path: Path,
 ) -> dict[str, Any]:
     """Inspect canonical roundtrip mailbox artifacts for one completed demo run."""
 
@@ -532,7 +538,6 @@ def inspect_roundtrip_mailbox(
     send_message = parse_message_document(send_message_path.read_text(encoding="utf-8"))
     reply_message = parse_message_document(reply_message_path.read_text(encoding="utf-8"))
     initial_body = initial_body_path.read_text(encoding="utf-8")
-    reply_body = reply_body_path.read_text(encoding="utf-8")
 
     sender_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=sender_address)
     receiver_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=receiver_address)
@@ -549,7 +554,7 @@ def inspect_roundtrip_mailbox(
         "send_body_markdown": send_message.body_markdown,
         "reply_body_markdown": reply_message.body_markdown,
         "send_body_matches_input": send_message.body_markdown == initial_body,
-        "reply_body_matches_input": reply_message.body_markdown == reply_body,
+        "reply_body_present": bool(reply_message.body_markdown.strip()),
         "send_thread_matches_message_id": send_message.thread_id == send_message_id,
         "reply_thread_matches_send": reply_message.thread_id == send_message_id,
         "reply_parent_matches_send": reply_message.in_reply_to == send_message_id,
@@ -572,23 +577,134 @@ def inspect_roundtrip_mailbox(
     }
 
 
-def _artifact_paths(demo_output_dir: Path) -> dict[str, Path]:
-    """Return the expected demo-output-dir-local artifact paths."""
+def _append_chat_event(
+    layout: DemoLayout,
+    *,
+    kind: str,
+    sender: str,
+    recipient: str,
+    content: str,
+    message_id: str,
+    thread_id: str,
+    in_reply_to: str | None = None,
+    subject: str | None = None,
+) -> None:
+    """Append one semantic tutorial chat event to the pack-owned chat log."""
 
-    return {label: demo_output_dir / filename for label, filename in _ARTIFACT_FILENAMES.items()}
+    event = {
+        "ts_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+        "kind": kind,
+        "from": sender,
+        "to": recipient,
+        "content": content,
+        "message_id": message_id,
+        "thread_id": thread_id,
+    }
+    if in_reply_to is not None:
+        event["in_reply_to"] = in_reply_to
+    if subject is not None:
+        event["subject"] = subject
+    layout.chats_path.parent.mkdir(parents=True, exist_ok=True)
+    with layout.chats_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
 
 
-def _report_artifact_paths(demo_output_dir: Path) -> dict[str, Path]:
-    """Return the report-building artifact set for one demo output directory."""
+def _load_chat_events(chats_path: Path) -> list[dict[str, Any]]:
+    """Load append-only chat events from one tutorial chat-log path."""
 
-    return {label: demo_output_dir / _ARTIFACT_FILENAMES[label] for label in _REPORT_FLOW}
+    if not chats_path.is_file():
+        return []
+    events: list[dict[str, Any]] = []
+    for line in chats_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        events.append(_require_mapping(payload, context=str(chats_path)))
+    return events
 
 
-def _load_artifacts(demo_output_dir: Path) -> dict[str, dict[str, Any]]:
-    """Load all required JSON artifacts from the demo output directory."""
+def inspect_chat_log(
+    *,
+    chats_path: Path,
+    send_message_id: str,
+    reply_message_id: str,
+    sender_address: str,
+    receiver_address: str,
+    initial_body_path: Path,
+    reply_body_markdown: str,
+) -> dict[str, Any]:
+    """Inspect semantic chat-log evidence for one completed tutorial roundtrip."""
+
+    initial_body = initial_body_path.read_text(encoding="utf-8")
+    events = _load_chat_events(chats_path)
+    send_event = next(
+        (
+            event
+            for event in events
+            if event.get("kind") == "send" and event.get("message_id") == send_message_id
+        ),
+        None,
+    )
+    reply_event = next(
+        (
+            event
+            for event in events
+            if event.get("kind") == "reply" and event.get("message_id") == reply_message_id
+        ),
+        None,
+    )
+    kinds = [str(event.get("kind", "")) for event in events]
+    return {
+        "path": str(chats_path.resolve()),
+        "event_count": len(events),
+        "kinds": kinds,
+        "send_event_present": send_event is not None,
+        "reply_event_present": reply_event is not None,
+        "send_event_matches_input": isinstance(send_event, dict)
+        and send_event.get("content") == initial_body,
+        "reply_event_matches_mailbox_reply": isinstance(reply_event, dict)
+        and reply_event.get("content") == reply_body_markdown,
+        "send_event_from_matches_sender": isinstance(send_event, dict)
+        and send_event.get("from") == sender_address,
+        "send_event_to_matches_receiver": isinstance(send_event, dict)
+        and send_event.get("to") == receiver_address,
+        "reply_event_from_matches_receiver": isinstance(reply_event, dict)
+        and reply_event.get("from") == receiver_address,
+        "reply_event_to_matches_sender": isinstance(reply_event, dict)
+        and reply_event.get("to") == sender_address,
+        "reply_event_content_present": isinstance(reply_event, dict)
+        and isinstance(reply_event.get("content"), str)
+        and bool(str(reply_event.get("content")).strip()),
+        "reply_event_thread_matches_send": isinstance(reply_event, dict)
+        and reply_event.get("thread_id") == send_message_id,
+        "reply_event_parent_matches_send": isinstance(reply_event, dict)
+        and reply_event.get("in_reply_to") == send_message_id,
+    }
+
+
+def _artifact_path(layout: DemoLayout, label: str) -> Path:
+    """Return one control-artifact path for a tracked command label."""
+
+    return layout.control_dir / _ARTIFACT_FILENAMES[label]
+
+
+def _artifact_paths(layout: DemoLayout) -> dict[str, Path]:
+    """Return the expected control-artifact paths for one demo layout."""
+
+    return {label: _artifact_path(layout, label) for label in _COMMAND_FLOW}
+
+
+def _report_artifact_paths(layout: DemoLayout) -> dict[str, Path]:
+    """Return the report-building artifact set for one demo layout."""
+
+    return {label: _artifact_path(layout, label) for label in _REPORT_FLOW}
+
+
+def _load_artifacts(layout: DemoLayout) -> dict[str, dict[str, Any]]:
+    """Load all required JSON control artifacts for one demo layout."""
 
     artifacts: dict[str, dict[str, Any]] = {}
-    for label, path in _report_artifact_paths(demo_output_dir).items():
+    for label, path in _report_artifact_paths(layout).items():
         artifacts[label] = _require_mapping(_read_json(path), context=str(path))
     return artifacts
 
@@ -1087,17 +1203,21 @@ def _initial_state(
     """Build the initial persisted state payload for one demo root."""
 
     initial_body_path = layout.inputs_dir / Path(parameters.message.initial_body_file).name
-    reply_body_path = layout.inputs_dir / Path(parameters.message.reply_body_file).name
+    reply_instructions_path = (
+        layout.inputs_dir / Path(parameters.message.reply_instructions_file).name
+    )
     return {
         "schema_version": 2,
         "demo_id": parameters.demo_id,
         "parameters_path": str(parameters_path.resolve()),
         "demo_output_dir": str(layout.demo_output_dir),
+        "control_dir": str(layout.control_dir),
         "project_workdir": str(layout.project_workdir),
         "runtime_root": str(layout.runtime_root),
         "mailbox_root": str(
             render_mailbox_root(parameters, demo_output_dir=layout.demo_output_dir)
         ),
+        "chat_log_path": str(layout.chats_path),
         "agent_def_dir": str(agent_def_dir.resolve()),
         "jobs_dir": None if jobs_dir is None else str(jobs_dir.resolve()),
         "cao_parsing_mode": cao_parsing_mode,
@@ -1107,7 +1227,7 @@ def _initial_state(
         "message": {
             "subject": parameters.message.subject,
             "initial_body_file": str(initial_body_path.resolve()),
-            "reply_body_file": str(reply_body_path.resolve()),
+            "reply_instructions_file": str(reply_instructions_path.resolve()),
             "send_message_id": None,
             "reply_message_id": None,
         },
@@ -1138,36 +1258,31 @@ def _state_cao_parsing_mode(state: dict[str, Any]) -> str | None:
     return _require_non_empty_string(raw_mode, context="cao_parsing_mode")
 
 
-def _debug_cao_only_allowed() -> bool:
-    """Return whether the debug-only `cao_only` override is enabled."""
-
-    return os.environ.get(_DEBUG_ALLOW_CAO_ONLY_ENV_VAR, "").strip() == "1"
-
-
 def _resolve_demo_cao_parsing_mode(
     *,
     requested_mode: str | None,
     persisted_mode: str | None,
 ) -> str:
-    """Resolve the effective demo CAO parsing mode for automatic workflow steps."""
+    """Resolve the effective demo CAO parsing mode for tutorial-pack workflow steps."""
 
     if requested_mode is not None:
         normalized_requested = requested_mode.strip()
         if normalized_requested == "shadow_only":
             return normalized_requested
-        if normalized_requested == "cao_only":
-            if _debug_cao_only_allowed():
-                return normalized_requested
-            raise ValueError(
-                "automatic mailbox roundtrip coverage requires `shadow_only`; "
-                f"set `{_DEBUG_ALLOW_CAO_ONLY_ENV_VAR}=1` to allow debug-only `cao_only` runs"
-            )
         raise ValueError(
-            f"Unsupported CAO parsing mode for mailbox tutorial pack: {normalized_requested!r}"
+            "mailbox tutorial pack only supports `shadow_only`; "
+            f"received {normalized_requested!r}"
         )
 
     if persisted_mode is not None:
-        return persisted_mode.strip()
+        normalized_persisted = persisted_mode.strip()
+        if normalized_persisted == "shadow_only":
+            return normalized_persisted
+        raise ValueError(
+            "mailbox tutorial pack found persisted demo state with unsupported "
+            f"`cao_parsing_mode={normalized_persisted}`; recreate the demo output root "
+            "so the pack can restart in `shadow_only`"
+        )
     return _DEFAULT_AUTOMATION_CAO_PARSING_MODE
 
 
@@ -1189,29 +1304,11 @@ def _freshen_demo_output(*, pack_dir: Path, layout: DemoLayout) -> None:
     """Reset one demo root while preserving the durable project worktree."""
 
     layout.demo_output_dir.mkdir(parents=True, exist_ok=True)
-    for path in (layout.runtime_root, layout.mailbox_root, layout.cao_dir):
+    for path in (layout.runtime_root, layout.mailbox_root, layout.cao_dir, layout.control_dir):
         if path.exists():
             shutil.rmtree(path)
-
-    removable_files = [
-        layout.cao_start_path,
-        layout.state_path,
-        layout.report_path,
-        layout.sanitized_report_path,
-        layout.verify_result_path,
-        layout.stop_result_path,
-        *_artifact_paths(layout.demo_output_dir).values(),
-    ]
-    for path in removable_files:
-        if path.exists():
-            path.unlink()
-        stderr_path = _stderr_path_for(path)
-        if stderr_path.exists():
-            stderr_path.unlink()
-
-    for pattern in ("cleanup_*.json", "cleanup_*.err"):
-        for path in layout.demo_output_dir.glob(pattern):
-            path.unlink()
+    if layout.chats_path.exists():
+        layout.chats_path.unlink()
 
     _copy_inputs(pack_dir=pack_dir, layout=layout)
 
@@ -1233,6 +1330,38 @@ def _maybe_inject_fault(trigger: str) -> None:
         raise RuntimeError(f"synthetic mailbox demo fault after {trigger}")
     if normalized_fault == f"interrupt-after-{trigger}":
         raise KeyboardInterrupt(f"synthetic mailbox demo interrupt after {trigger}")
+
+
+def _compose_reply_body(
+    *,
+    reply_instructions_path: Path,
+    reply_parent_message_id: str,
+    sender_address: str,
+    receiver_address: str,
+) -> str:
+    """Build one deterministic tutorial reply body from the tracked authoring instructions."""
+
+    instructions = reply_instructions_path.read_text(encoding="utf-8").strip()
+    if not instructions:
+        raise ValueError(f"reply instructions are empty: {reply_instructions_path}")
+
+    return "\n".join(
+        [
+            "# Mailbox Tutorial: Authored Reply",
+            "",
+            (
+                "Confirmed. The mailbox roundtrip is active and this reply stays in the same "
+                "thread as the original send."
+            ),
+            "",
+            f"- Parent `message_id`: `{reply_parent_message_id}`.",
+            f"- Sender mailbox: `{sender_address}`.",
+            f"- Receiver mailbox: `{receiver_address}`.",
+            "- The original sender can now run `mail check`.",
+            "",
+            "Reply authored from the tracked tutorial instructions for this pack run.",
+        ]
+    )
 
 
 def start_demo(
@@ -1306,7 +1435,7 @@ def start_demo(
                     sender_state.get("blueprint"), context="sender.blueprint"
                 ),
             ],
-            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_build"],
+            stdout_path=_artifact_path(layout, "sender_build"),
             env=env,
         )
         sender_state["build"] = sender_build
@@ -1327,7 +1456,7 @@ def start_demo(
                     context="receiver.blueprint",
                 ),
             ],
-            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_build"],
+            stdout_path=_artifact_path(layout, "receiver_build"),
             env=env,
         )
         receiver_state["build"] = receiver_build
@@ -1383,7 +1512,7 @@ def start_demo(
                 "--cao-parsing-mode",
                 resolved_cao_parsing_mode,
             ],
-            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_start"],
+            stdout_path=_artifact_path(layout, "sender_start"),
             env=env,
         )
         sender_state["start"] = sender_start
@@ -1443,7 +1572,7 @@ def start_demo(
                 "--cao-parsing-mode",
                 resolved_cao_parsing_mode,
             ],
-            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_start"],
+            stdout_path=_artifact_path(layout, "receiver_start"),
             env=env,
         )
         receiver_state["start"] = receiver_start
@@ -1502,11 +1631,13 @@ def roundtrip_demo(
     initial_body_file = Path(
         _require_non_empty_string(message_state.get("initial_body_file"), context="message.initial")
     )
-    reply_body_file = Path(
-        _require_non_empty_string(message_state.get("reply_body_file"), context="message.reply")
+    reply_instructions_file = Path(
+        _require_non_empty_string(
+            message_state.get("reply_instructions_file"), context="message.reply_instructions"
+        )
     )
-    if not initial_body_file.is_file() or not reply_body_file.is_file():
-        raise ValueError("copied message body inputs are missing from the demo output directory")
+    if not initial_body_file.is_file() or not reply_instructions_file.is_file():
+        raise ValueError("copied message inputs are missing from the demo output directory")
 
     resolved_cao_parsing_mode = _resolve_demo_cao_parsing_mode(
         requested_mode=cao_parsing_mode,
@@ -1543,12 +1674,31 @@ def roundtrip_demo(
             "--body-file",
             str(initial_body_file),
         ],
-        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"],
+        stdout_path=_artifact_path(layout, "mail_send"),
         env=env,
     )
     message_state["send_message_id"] = _require_non_empty_string(
         mail_send.get("message_id"),
         context="mail_send.message_id",
+    )
+    send_message_id = _require_non_empty_string(
+        message_state.get("send_message_id"), context="message.send_message_id"
+    )
+    _append_chat_event(
+        layout,
+        kind="send",
+        sender=_require_non_empty_string(
+            sender_state.get("mailbox_address"), context="sender.address"
+        ),
+        recipient=_require_non_empty_string(
+            receiver_state.get("mailbox_address"), context="receiver.address"
+        ),
+        content=initial_body_file.read_text(encoding="utf-8"),
+        message_id=send_message_id,
+        thread_id=_require_non_empty_string(
+            mail_send.get("thread_id"), context="mail_send.thread_id"
+        ),
+        subject=_require_non_empty_string(message_state.get("subject"), context="message.subject"),
     )
     _write_state(layout.state_path, state)
     _maybe_inject_fault("mail-send")
@@ -1571,10 +1721,21 @@ def roundtrip_demo(
             "--limit",
             "10",
         ],
-        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_check"],
+        stdout_path=_artifact_path(layout, "receiver_check"),
         env=env,
     )
     _maybe_inject_fault("receiver-check")
+
+    reply_body_content = _compose_reply_body(
+        reply_instructions_path=reply_instructions_file,
+        reply_parent_message_id=send_message_id,
+        sender_address=_require_non_empty_string(
+            sender_state.get("mailbox_address"), context="sender.address"
+        ),
+        receiver_address=_require_non_empty_string(
+            receiver_state.get("mailbox_address"), context="receiver.address"
+        ),
+    )
 
     mail_reply = _run_realm_controller_json(
         repo_root=repo_root,
@@ -1595,15 +1756,34 @@ def roundtrip_demo(
                 message_state.get("send_message_id"),
                 context="message.send_message_id",
             ),
-            "--body-file",
-            str(reply_body_file),
+            "--body-content",
+            reply_body_content,
         ],
-        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_reply"],
+        stdout_path=_artifact_path(layout, "mail_reply"),
         env=env,
     )
     message_state["reply_message_id"] = _require_non_empty_string(
         mail_reply.get("message_id"),
         context="mail_reply.message_id",
+    )
+    _append_chat_event(
+        layout,
+        kind="reply",
+        sender=_require_non_empty_string(
+            receiver_state.get("mailbox_address"), context="receiver.address"
+        ),
+        recipient=_require_non_empty_string(
+            sender_state.get("mailbox_address"), context="sender.address"
+        ),
+        content=reply_body_content,
+        message_id=_require_non_empty_string(
+            message_state.get("reply_message_id"), context="message.reply_message_id"
+        ),
+        thread_id=_require_non_empty_string(
+            mail_reply.get("thread_id"), context="mail_reply.thread_id"
+        ),
+        in_reply_to=send_message_id,
+        subject=_require_non_empty_string(message_state.get("subject"), context="message.subject"),
     )
     _write_state(layout.state_path, state)
     _maybe_inject_fault("mail-reply")
@@ -1626,7 +1806,7 @@ def roundtrip_demo(
             "--limit",
             "10",
         ],
-        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_check"],
+        stdout_path=_artifact_path(layout, "sender_check"),
         env=env,
     )
     _maybe_inject_fault("sender-check")
@@ -1652,16 +1832,14 @@ def verify_demo(
     steps = _require_state_mapping(state, "steps")
     if (
         not bool(steps.get("roundtrip_complete"))
-        and not (layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"]).exists()
+        and not _artifact_path(layout, "mail_send").exists()
     ):
         raise ValueError("roundtrip artifacts are not available for verification")
 
     message_state = _require_state_mapping(state, "message")
     reply_parent_message_id = message_state.get("send_message_id")
     if not isinstance(reply_parent_message_id, str) or not reply_parent_message_id.strip():
-        reply_parent_message_id = extract_message_id(
-            layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"]
-        )
+        reply_parent_message_id = extract_message_id(_artifact_path(layout, "mail_send"))
         message_state["send_message_id"] = reply_parent_message_id
 
     report = build_report(
@@ -1767,7 +1945,7 @@ def stop_demo(
             artifact_name = (
                 f"cleanup_{role}_stop.json" if cleanup else _ARTIFACT_FILENAMES[f"{role}_stop"]
             )
-            artifact_path = layout.demo_output_dir / artifact_name
+            artifact_path = layout.control_dir / artifact_name
             try:
                 stop_payload = _run_realm_controller_json(
                     repo_root=repo_root,
@@ -1833,7 +2011,7 @@ def stop_demo(
                 "payload": cao_payload,
             }
             if cleanup:
-                _write_json(layout.demo_output_dir / "cleanup_cao_stop.json", cao_payload)
+                _write_json(layout.control_dir / "cleanup_cao_stop.json", cao_payload)
         except Exception as exc:
             result["cao_stop"] = {
                 "attempted": True,
@@ -1930,8 +2108,9 @@ def build_report(
     """Build one raw tutorial report from captured command artifacts."""
 
     parameters = load_demo_parameters(parameters_path)
-    artifacts = _load_artifacts(demo_output_dir)
-    send_message_id = extract_message_id(demo_output_dir / _ARTIFACT_FILENAMES["mail_send"])
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    artifacts = _load_artifacts(layout)
+    send_message_id = extract_message_id(_artifact_path(layout, "mail_send"))
     sender_start = artifacts["sender_start"]
     receiver_start = artifacts["receiver_start"]
     sender_mailbox = _require_mapping(sender_start.get("mailbox"), context="sender_start.mailbox")
@@ -1958,25 +2137,55 @@ def build_report(
             resolve_active_mailbox_local_sqlite_path(mailbox_root, address=receiver_address)
         ),
     }
-    cao_start_path = build_demo_layout(demo_output_dir=demo_output_dir).cao_start_path
-    cao_payload = _require_mapping(_read_json(cao_start_path), context=str(cao_start_path))
+    cao_payload = _require_mapping(
+        _read_json(layout.cao_start_path), context=str(layout.cao_start_path)
+    )
+    mailbox_inspection = inspect_roundtrip_mailbox(
+        mailbox_root=mailbox_root,
+        sender_address=sender_address,
+        receiver_address=receiver_address,
+        send_message_id=send_message_id,
+        reply_message_id=_require_non_empty_string(
+            artifacts["mail_reply"].get("message_id"), context="mail_reply.message_id"
+        ),
+        initial_body_path=layout.inputs_dir / Path(parameters.message.initial_body_file).name,
+    )
+    chat_log = inspect_chat_log(
+        chats_path=layout.chats_path,
+        send_message_id=send_message_id,
+        reply_message_id=_require_non_empty_string(
+            artifacts["mail_reply"].get("message_id"), context="mail_reply.message_id"
+        ),
+        sender_address=sender_address,
+        receiver_address=receiver_address,
+        initial_body_path=layout.inputs_dir / Path(parameters.message.initial_body_file).name,
+        reply_body_markdown=_require_non_empty_string(
+            mailbox_inspection.get("reply_body_markdown"), context="mailbox.reply_body_markdown"
+        ),
+    )
 
     report = {
         "demo": parameters.demo_id,
         "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "demo_output_dir": str(demo_output_dir.resolve()),
+        "control_dir": str(layout.control_dir.resolve()),
         "project_workdir": str(project_workdir.resolve()),
         "runtime_root": str(runtime_root.resolve()),
         "mailbox_root": str(mailbox_root.resolve()),
+        "chat_log_path": str(layout.chats_path.resolve()),
         "agent_def_dir": str(agent_def_dir.resolve()),
         "parameters": parameters_to_payload(parameters),
         "artifacts": {
-            label: str(path.resolve())
-            for label, path in _report_artifact_paths(demo_output_dir).items()
+            label: str(path.resolve()) for label, path in _report_artifact_paths(layout).items()
         },
         "cao": cao_payload,
         "flow": list(_REPORT_FLOW),
         "mailbox_state": mailbox_state,
+        "chat_log": {
+            "path": chat_log["path"],
+            "event_count": chat_log["event_count"],
+            "kinds": chat_log["kinds"],
+        },
         "reply_parent_message_id": reply_parent_message_id,
         "steps": artifacts,
         "checks": {
@@ -2001,6 +2210,22 @@ def build_report(
             ).is_file(),
             "send_message_id_present": bool(send_message_id),
             "reply_parent_matches_send_message_id": reply_parent_message_id == send_message_id,
+            "mailbox_send_body_matches_input": bool(mailbox_inspection["send_body_matches_input"]),
+            "mailbox_reply_body_present": bool(mailbox_inspection["reply_body_present"]),
+            "mailbox_reply_thread_matches_send": bool(
+                mailbox_inspection["reply_thread_matches_send"]
+            ),
+            "mailbox_reply_parent_matches_send": bool(
+                mailbox_inspection["reply_parent_matches_send"]
+            ),
+            "chat_log_present": layout.chats_path.is_file(),
+            "chat_log_has_send_event": bool(chat_log["send_event_present"]),
+            "chat_log_has_reply_event": bool(chat_log["reply_event_present"]),
+            "chat_log_send_matches_input": bool(chat_log["send_event_matches_input"]),
+            "chat_log_reply_matches_mailbox_reply": bool(
+                chat_log["reply_event_matches_mailbox_reply"]
+            ),
+            "chat_log_reply_parent_matches_send": bool(chat_log["reply_event_parent_matches_send"]),
         },
     }
     _write_json(output_path, report)
@@ -2033,6 +2258,8 @@ def _sanitize_string(value: str, *, key: str | None, parent_key: str | None) -> 
         }
         if key in mailbox_placeholders:
             return mailbox_placeholders[key]
+    if parent_key == "chat_log" and key == "path":
+        return "<CHAT_LOG_PATH>"
     if key in _VALUE_PLACEHOLDERS:
         return _VALUE_PLACEHOLDERS[key]
     if key in _PATH_PLACEHOLDERS:
@@ -2370,7 +2597,7 @@ def _build_parser() -> argparse.ArgumentParser:
         if command_name in {"start", "roundtrip", "auto", "stop"}:
             subparser.add_argument(
                 "--cao-parsing-mode",
-                choices=["cao_only", "shadow_only"],
+                choices=["shadow_only"],
             )
         if command_name in {"start", "auto"}:
             subparser.add_argument("--jobs-dir", type=Path)

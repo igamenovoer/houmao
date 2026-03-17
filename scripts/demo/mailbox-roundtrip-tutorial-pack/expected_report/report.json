@@ -28,8 +28,27 @@
     "runtime_root": "<CAO_RUNTIME_ROOT>",
     "started_current_run": true
   },
+  "chat_log": {
+    "event_count": 2,
+    "kinds": [
+      "send",
+      "reply"
+    ],
+    "path": "<CHAT_LOG_PATH>"
+  },
+  "chat_log_path": "<CHAT_LOG_PATH>",
   "checks": {
     "cao_managed": true,
+    "chat_log_has_reply_event": true,
+    "chat_log_has_send_event": true,
+    "chat_log_present": true,
+    "chat_log_reply_matches_mailbox_reply": true,
+    "chat_log_reply_parent_matches_send": true,
+    "chat_log_send_matches_input": true,
+    "mailbox_reply_body_present": true,
+    "mailbox_reply_parent_matches_send": true,
+    "mailbox_reply_thread_matches_send": true,
+    "mailbox_send_body_matches_input": true,
     "receiver_build_manifest_present": true,
     "receiver_mailbox_local_sqlite_present": true,
     "receiver_start_mailbox_enabled": true,
@@ -41,6 +60,7 @@
     "shared_mailbox_index_present": true,
     "shared_mailbox_root": true
   },
+  "control_dir": "<CONTROL_DIR>",
   "demo": "mailbox-roundtrip-tutorial-pack",
   "demo_output_dir": "<DEMO_OUTPUT_DIR>",
   "flow": [
@@ -69,7 +89,7 @@
     "demo_id": "mailbox-roundtrip-tutorial-pack",
     "message": {
       "initial_body_file": "inputs/initial_message.md",
-      "reply_body_file": "inputs/reply_message.md",
+      "reply_instructions_file": "inputs/reply_instructions.md",
       "subject": "Mailbox tutorial roundtrip"
     },
     "receiver": {
@@ -85,7 +105,7 @@
       "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-sender"
     },
-    "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox"
+    "shared_mailbox_root_template": "{demo_output_dir}/mailbox"
   },
   "project_workdir": "<PROJECT_WORKDIR>",
   "reply_parent_message_id": "<MESSAGE_ID>",

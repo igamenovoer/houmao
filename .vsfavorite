@@ -19,14 +19,10 @@
     {
       "filePath": "magic-context",
       "group": "Default"
-    },
-    {
-      "filePath": ".shadow-repo/add-mailbox-local-state-and-gateway-notifier",
-      "group": "Default"
     }
   ],
   "groups": [
     "Default"
   ],
-  "refreshTime": "3/17/2026, 6:38:03 AM 59"
+  "refreshTime": "3/17/2026, 10:31:50 AM 601"
 }

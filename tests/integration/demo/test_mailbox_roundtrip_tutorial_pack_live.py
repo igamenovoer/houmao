@@ -798,7 +798,7 @@ def _write_parameters(
             "agent_def_dir": str(agent_def_dir.resolve()),
             "backend": "cao_rest",
             "cao_base_url": cao_base_url,
-            "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
+            "shared_mailbox_root_template": "{demo_output_dir}/mailbox",
             "sender": {
                 "blueprint": "blueprints/mailbox-live-sender.yaml",
                 "agent_identity": sender_identity,
@@ -814,7 +814,7 @@ def _write_parameters(
             "message": {
                 "subject": "Mailbox tutorial roundtrip",
                 "initial_body_file": "inputs/initial_message.md",
-                "reply_body_file": "inputs/reply_message.md",
+                "reply_instructions_file": "inputs/reply_instructions.md",
             },
         },
     )
@@ -946,6 +946,8 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
     expected_report_path = tmp_path / "expected-report.json"
 
     try:
+        layout = HELPERS.build_demo_layout(demo_output_dir=demo_output_dir)
+        restart_layout = HELPERS.build_demo_layout(demo_output_dir=restart_demo_output_dir)
         start_result = _run_demo_command(
             command="start",
             demo_output_dir=demo_output_dir,
@@ -955,16 +957,16 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
         assert start_result.returncode == 0, start_result.stderr
 
         sender_start = json.loads(
-            (demo_output_dir / "sender_start.json").read_text(encoding="utf-8")
+            (layout.control_dir / "sender_start.json").read_text(encoding="utf-8")
         )
         receiver_start = json.loads(
-            (demo_output_dir / "receiver_start.json").read_text(encoding="utf-8")
+            (layout.control_dir / "receiver_start.json").read_text(encoding="utf-8")
         )
         assert sender_start["agent_identity"] == sender_identity
         assert receiver_start["agent_identity"] == receiver_identity
         assert sender_start["backend"] == "cao_rest"
         assert receiver_start["backend"] == "cao_rest"
-        demo_state = json.loads((demo_output_dir / "demo_state.json").read_text(encoding="utf-8"))
+        demo_state = json.loads(layout.state_path.read_text(encoding="utf-8"))
         sender_manifest = json.loads(
             Path(sender_start["session_manifest"]).read_text(encoding="utf-8")
         )
@@ -1015,20 +1017,29 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
         assert stop_payload["stopped"] is True
 
         inspection = HELPERS.inspect_roundtrip_mailbox(
-            mailbox_root=demo_output_dir / "shared-mailbox",
+            mailbox_root=layout.mailbox_root,
             sender_address=sender_start["mailbox"]["address"],
             receiver_address=receiver_start["mailbox"]["address"],
-            send_message_id=HELPERS.extract_message_id(demo_output_dir / "mail_send.json"),
-            reply_message_id=HELPERS.extract_message_id(demo_output_dir / "mail_reply.json"),
+            send_message_id=HELPERS.extract_message_id(layout.control_dir / "mail_send.json"),
+            reply_message_id=HELPERS.extract_message_id(layout.control_dir / "mail_reply.json"),
             initial_body_path=_pack_dir() / "inputs" / "initial_message.md",
-            reply_body_path=_pack_dir() / "inputs" / "reply_message.md",
+        )
+        chat_log = HELPERS.inspect_chat_log(
+            chats_path=layout.chats_path,
+            send_message_id=inspection["send_message_id"],
+            reply_message_id=inspection["reply_message_id"],
+            sender_address=sender_start["mailbox"]["address"],
+            receiver_address=receiver_start["mailbox"]["address"],
+            initial_body_path=_pack_dir() / "inputs" / "initial_message.md",
+            reply_body_markdown=inspection["reply_body_markdown"],
         )
 
-        assert (demo_output_dir / "shared-mailbox" / "mailboxes").is_dir()
+        assert (layout.mailbox_root / "mailboxes").is_dir()
+        assert layout.chats_path.is_file()
         assert Path(inspection["send_message_path"]).is_file()
         assert Path(inspection["reply_message_path"]).is_file()
         assert inspection["send_body_matches_input"] is True
-        assert inspection["reply_body_matches_input"] is True
+        assert inspection["reply_body_present"] is True
         assert inspection["sender_sent_projection_targets_send"] is True
         assert inspection["receiver_inbox_projection_targets_send"] is True
         assert inspection["receiver_sent_projection_targets_reply"] is True
@@ -1038,21 +1049,19 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
         assert inspection["reply_references_send"] is True
         assert inspection["sender_unread_count"] == 1
         assert inspection["receiver_unread_count"] == 1
+        assert chat_log["send_event_present"] is True
+        assert chat_log["reply_event_present"] is True
+        assert chat_log["send_event_matches_input"] is True
+        assert chat_log["reply_event_matches_mailbox_reply"] is True
+        assert chat_log["reply_event_parent_matches_send"] is True
 
-        sanitized_report_text = (demo_output_dir / "report.sanitized.json").read_text(
-            encoding="utf-8"
-        )
+        sanitized_report_text = layout.sanitized_report_path.read_text(encoding="utf-8")
         canonical_send_text = Path(inspection["send_message_path"]).read_text(encoding="utf-8")
         canonical_reply_text = Path(inspection["reply_message_path"]).read_text(encoding="utf-8")
         assert "Please confirm that the shared mailbox is reachable" not in sanitized_report_text
-        assert (
-            "The mailbox roundtrip is active and this reply should stay in the same thread"
-            not in (sanitized_report_text)
-        )
+        assert "Reply authored from the tracked tutorial instructions" not in sanitized_report_text
         assert "Please confirm that the shared mailbox is reachable" in canonical_send_text
-        assert "The mailbox roundtrip is active and this reply should stay in the same thread" in (
-            canonical_reply_text
-        )
+        assert "Reply authored from the tracked tutorial instructions" in canonical_reply_text
         assert not _tmux_session_exists(sender_identity)
         assert not _tmux_session_exists(receiver_identity)
 
@@ -1063,9 +1072,7 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
             env=env,
         )
         assert restart_start_result.returncode == 0, restart_start_result.stderr
-        restart_state = json.loads(
-            (restart_demo_output_dir / "demo_state.json").read_text(encoding="utf-8")
-        )
+        restart_state = json.loads(restart_layout.state_path.read_text(encoding="utf-8"))
         assert restart_state["cao_parsing_mode"] == "shadow_only"
 
         restart_stop_result = _run_demo_command(
@@ -1143,19 +1150,32 @@ def test_mailbox_roundtrip_live_workflow_surfaces_direct_mail_failures(tmp_path:
             assert expected_error in roundtrip_result.stderr
 
             sender_start = json.loads(
-                (demo_output_dir / "sender_start.json").read_text(encoding="utf-8")
+                (
+                    HELPERS.build_demo_layout(demo_output_dir=demo_output_dir).control_dir
+                    / "sender_start.json"
+                ).read_text(encoding="utf-8")
             )
             receiver_start = json.loads(
-                (demo_output_dir / "receiver_start.json").read_text(encoding="utf-8")
+                (
+                    HELPERS.build_demo_layout(demo_output_dir=demo_output_dir).control_dir
+                    / "receiver_start.json"
+                ).read_text(encoding="utf-8")
             )
             demo_state = json.loads(
-                (demo_output_dir / "demo_state.json").read_text(encoding="utf-8")
+                HELPERS.build_demo_layout(demo_output_dir=demo_output_dir).state_path.read_text(
+                    encoding="utf-8"
+                )
             )
             assert sender_start["agent_identity"] == sender_identity
             assert receiver_start["agent_identity"] == receiver_identity
             assert demo_state["cao_parsing_mode"] == "shadow_only"
 
-            message_paths = sorted((demo_output_dir / "shared-mailbox" / "messages").glob("*/*.md"))
+            message_paths = sorted(
+                (
+                    HELPERS.build_demo_layout(demo_output_dir=demo_output_dir).mailbox_root
+                    / "messages"
+                ).glob("*/*.md")
+            )
             assert message_paths == []
         finally:
             _best_effort_stop_demo(
@@ -1167,10 +1187,10 @@ def test_mailbox_roundtrip_live_workflow_surfaces_direct_mail_failures(tmp_path:
             assert not _tmux_session_exists(receiver_identity)
 
 
-def test_mailbox_roundtrip_live_workflow_rejects_cao_only_without_debug_opt_in(
+def test_mailbox_roundtrip_live_workflow_rejects_cao_only(
     tmp_path: Path,
 ) -> None:
-    """Fresh automatic runs should reject `cao_only` unless the debug opt-in is enabled."""
+    """The tutorial pack should reject `cao_only` for the live workflow."""
 
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
@@ -1205,5 +1225,5 @@ def test_mailbox_roundtrip_live_workflow_rejects_cao_only_without_debug_opt_in(
     )
 
     assert start_result.returncode == 1
-    assert "requires `shadow_only`" in start_result.stderr
-    assert not (demo_output_dir / "demo_state.json").exists()
+    assert "only supports `shadow_only`" in start_result.stderr
+    assert not HELPERS.build_demo_layout(demo_output_dir=demo_output_dir).state_path.exists()

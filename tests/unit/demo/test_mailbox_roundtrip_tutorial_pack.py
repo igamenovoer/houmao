@@ -152,7 +152,12 @@ def _deliver_roundtrip_mailbox_messages(
         sender=receiver,
         recipient=sender,
         subject="Mailbox tutorial roundtrip",
-        body_markdown=(PACK_DIR / "inputs" / "reply_message.md").read_text(encoding="utf-8"),
+        body_markdown=HELPERS._compose_reply_body(
+            reply_instructions_path=PACK_DIR / "inputs" / "reply_instructions.md",
+            reply_parent_message_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sender_address=sender.address,
+            receiver_address=receiver.address,
+        ),
     )
     return sender, receiver
 
@@ -166,11 +171,12 @@ def test_tracked_demo_parameters_parse_and_render_demo_output_mailbox_root() -> 
     assert parameters.sender.blueprint == "blueprints/gpu-kernel-coder-claude.yaml"
     assert parameters.receiver.blueprint == "blueprints/gpu-kernel-coder-codex.yaml"
     assert parameters.message.initial_body_file == "inputs/initial_message.md"
+    assert parameters.message.reply_instructions_file == "inputs/reply_instructions.md"
     assert HELPERS.render_mailbox_root(
         parameters,
         demo_output_dir=Path("/tmp/tutorial-pack"),
-    ) == Path("/tmp/tutorial-pack/shared-mailbox")
-    assert parameters.shared_mailbox_root_template == "{demo_output_dir}/shared-mailbox"
+    ) == Path("/tmp/tutorial-pack/mailbox")
+    assert parameters.shared_mailbox_root_template == "{demo_output_dir}/mailbox"
 
 
 def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
@@ -181,7 +187,7 @@ def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
     default_output = HELPERS.resolve_repo_relative_path(
         None,
         repo_root=repo_root,
-        default_relative="tmp/demo/mailbox-roundtrip-tutorial-pack",
+        default_relative="scripts/demo/mailbox-roundtrip-tutorial-pack/outputs",
     )
     explicit_output = HELPERS.resolve_repo_relative_path(
         "demos/manual-mailbox-run",
@@ -189,66 +195,61 @@ def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
     )
     layout = HELPERS.build_demo_layout(demo_output_dir=explicit_output)
 
-    assert default_output == Path("/repo-root/tmp/demo/mailbox-roundtrip-tutorial-pack")
+    assert default_output == Path("/repo-root/scripts/demo/mailbox-roundtrip-tutorial-pack/outputs")
     assert explicit_output == Path("/repo-root/demos/manual-mailbox-run")
+    assert layout.control_dir == explicit_output / "control"
     assert layout.project_workdir == explicit_output / "project"
     assert layout.runtime_root == explicit_output / "runtime"
     assert layout.cao_dir == explicit_output / "cao"
     assert layout.cao_launcher_config_path == explicit_output / "cao" / "launcher.toml"
     assert layout.cao_runtime_root == explicit_output / "cao" / "runtime"
-    assert layout.cao_start_path == explicit_output / "cao_start.json"
-    assert layout.mailbox_root == explicit_output / "shared-mailbox"
-    assert layout.report_path == explicit_output / "report.json"
+    assert layout.cao_start_path == explicit_output / "control" / "cao_start.json"
+    assert layout.chats_path == explicit_output / "chats.jsonl"
+    assert layout.mailbox_root == explicit_output / "mailbox"
+    assert layout.report_path == explicit_output / "control" / "report.json"
 
 
-def test_resolve_demo_cao_parsing_mode_defaults_to_shadow_only(monkeypatch) -> None:
-    """Fresh automatic runs should default to `shadow_only` and reuse persisted state."""
-
-    monkeypatch.delenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, raising=False)
+def test_resolve_demo_cao_parsing_mode_defaults_to_shadow_only() -> None:
+    """The tutorial pack should resolve and reuse only `shadow_only`."""
 
     assert (
         HELPERS._resolve_demo_cao_parsing_mode(requested_mode=None, persisted_mode=None)
         == "shadow_only"
     )
     assert (
-        HELPERS._resolve_demo_cao_parsing_mode(requested_mode=None, persisted_mode="cao_only")
-        == "cao_only"
+        HELPERS._resolve_demo_cao_parsing_mode(
+            requested_mode=None,
+            persisted_mode="shadow_only",
+        )
+        == "shadow_only"
     )
     assert (
         HELPERS._resolve_demo_cao_parsing_mode(
             requested_mode="shadow_only",
-            persisted_mode="cao_only",
+            persisted_mode="shadow_only",
         )
         == "shadow_only"
     )
 
 
-def test_resolve_demo_cao_parsing_mode_rejects_cao_only_without_debug_opt_in(
-    monkeypatch,
-) -> None:
-    """Fresh `cao_only` requests should fail unless the debug override is enabled."""
+def test_resolve_demo_cao_parsing_mode_rejects_cao_only_requests() -> None:
+    """The tutorial pack should reject explicit `cao_only` requests."""
 
-    monkeypatch.delenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, raising=False)
-
-    with pytest.raises(ValueError, match="requires `shadow_only`"):
+    with pytest.raises(ValueError, match="only supports `shadow_only`"):
         HELPERS._resolve_demo_cao_parsing_mode(
             requested_mode="cao_only",
             persisted_mode=None,
         )
 
 
-def test_resolve_demo_cao_parsing_mode_allows_debug_cao_only_with_opt_in(monkeypatch) -> None:
-    """The explicit debug environment variable should allow `cao_only` overrides."""
+def test_resolve_demo_cao_parsing_mode_rejects_persisted_cao_only_state() -> None:
+    """The tutorial pack should reject stale demo roots that persisted `cao_only`."""
 
-    monkeypatch.setenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, "1")
-
-    assert (
+    with pytest.raises(ValueError, match="persisted demo state with unsupported"):
         HELPERS._resolve_demo_cao_parsing_mode(
-            requested_mode="cao_only",
-            persisted_mode=None,
+            requested_mode=None,
+            persisted_mode="cao_only",
         )
-        == "cao_only"
-    )
 
 
 def test_detect_cao_profile_store_prefers_launcher_ownership_home_dir(tmp_path: Path) -> None:
@@ -604,26 +605,42 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     """The raw report should capture checks, and sanitization should mask unstable values."""
 
     demo_output_dir = tmp_path / "demo-output"
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_output_dir)
     project_workdir = demo_output_dir / "project"
     runtime_root = demo_output_dir / "runtime"
-    mailbox_root = demo_output_dir / "shared-mailbox"
+    mailbox_root = layout.mailbox_root
     agent_def_dir = tmp_path / "repo" / "tests" / "fixtures" / "agents"
-    report_path = demo_output_dir / "report.json"
+    report_path = layout.report_path
     parameters_path = PACK_DIR / "inputs" / "demo_parameters.json"
     message_id = "msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    bootstrap_filesystem_mailbox(
-        mailbox_root,
-        principal=MailboxPrincipal(
-            principal_id="AGENTSYS-mailbox-sender",
-            address="AGENTSYS-mailbox-sender@agents.localhost",
-        ),
+    HELPERS._copy_inputs(pack_dir=PACK_DIR, layout=layout)
+    sender, receiver = _deliver_roundtrip_mailbox_messages(mailbox_root)
+    layout.control_dir.mkdir(parents=True, exist_ok=True)
+    HELPERS._append_chat_event(
+        layout,
+        kind="send",
+        sender=sender.address,
+        recipient=receiver.address,
+        content=(PACK_DIR / "inputs" / "initial_message.md").read_text(encoding="utf-8"),
+        message_id=message_id,
+        thread_id=message_id,
+        subject="Mailbox tutorial roundtrip",
     )
-    bootstrap_filesystem_mailbox(
-        mailbox_root,
-        principal=MailboxPrincipal(
-            principal_id="AGENTSYS-mailbox-receiver",
-            address="AGENTSYS-mailbox-receiver@agents.localhost",
+    HELPERS._append_chat_event(
+        layout,
+        kind="reply",
+        sender=receiver.address,
+        recipient=sender.address,
+        content=HELPERS._compose_reply_body(
+            reply_instructions_path=PACK_DIR / "inputs" / "reply_instructions.md",
+            reply_parent_message_id=message_id,
+            sender_address=sender.address,
+            receiver_address=receiver.address,
         ),
+        message_id="msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        thread_id=message_id,
+        in_reply_to=message_id,
+        subject="Mailbox tutorial roundtrip",
     )
 
     artifacts = {
@@ -705,9 +722,9 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     }
 
     for label, payload in artifacts.items():
-        _write_json(demo_output_dir / f"{label}.json", payload)
+        _write_json(layout.control_dir / f"{label}.json", payload)
     _write_json(
-        demo_output_dir / "cao_start.json",
+        layout.cao_start_path,
         {
             "managed": True,
             "base_url": "http://localhost:9889",
@@ -783,13 +800,21 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert report["checks"]["receiver_mailbox_local_sqlite_present"] is True
     assert report["checks"]["shared_mailbox_root"] is True
     assert report["checks"]["reply_parent_matches_send_message_id"] is True
+    assert report["checks"]["mailbox_send_body_matches_input"] is True
+    assert report["checks"]["mailbox_reply_body_present"] is True
+    assert report["checks"]["chat_log_present"] is True
+    assert report["checks"]["chat_log_has_send_event"] is True
+    assert report["checks"]["chat_log_has_reply_event"] is True
+    assert report["checks"]["chat_log_reply_matches_mailbox_reply"] is True
 
     sanitized = HELPERS.sanitize_report(report)
 
     assert sanitized["generated_at_utc"] == "<TIMESTAMP>"
     assert sanitized["demo_output_dir"] == "<DEMO_OUTPUT_DIR>"
+    assert sanitized["control_dir"] == "<CONTROL_DIR>"
     assert sanitized["project_workdir"] == "<PROJECT_WORKDIR>"
     assert sanitized["runtime_root"] == "<RUNTIME_ROOT>"
+    assert sanitized["chat_log_path"] == "<CHAT_LOG_PATH>"
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
     assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
     assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
@@ -803,6 +828,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     )
     assert sanitized["reply_parent_message_id"] == "<MESSAGE_ID>"
     assert sanitized["artifacts"]["mail_send"] == "<ARTIFACT_PATH:mail_send>"
+    assert sanitized["chat_log"]["path"] == "<CHAT_LOG_PATH>"
     assert sanitized["steps"]["sender_build"]["home_id"] == "<BRAIN_HOME_ID>"
     assert sanitized["steps"]["sender_start"]["session_manifest"] == "<SESSION_MANIFEST_PATH>"
     assert (
@@ -818,10 +844,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         "Please confirm that the shared mailbox is reachable from your runtime session."
         not in sanitized_text
     )
-    assert (
-        "Confirmed. The mailbox roundtrip is active and this reply should stay in the same thread."
-        not in sanitized_text
-    )
+    assert "Reply authored from the tracked tutorial instructions" not in sanitized_text
 
 
 def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
@@ -829,7 +852,7 @@ def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
 ) -> None:
     """Roundtrip mailbox inspection should surface canonical content and projection evidence."""
 
-    mailbox_root = tmp_path / "shared-mailbox"
+    mailbox_root = tmp_path / "mailbox"
     sender, receiver = _deliver_roundtrip_mailbox_messages(mailbox_root)
 
     evidence = HELPERS.inspect_roundtrip_mailbox(
@@ -839,11 +862,10 @@ def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
         send_message_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         reply_message_id="msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         initial_body_path=PACK_DIR / "inputs" / "initial_message.md",
-        reply_body_path=PACK_DIR / "inputs" / "reply_message.md",
     )
 
     assert evidence["send_body_matches_input"] is True
-    assert evidence["reply_body_matches_input"] is True
+    assert evidence["reply_body_present"] is True
     assert evidence["send_thread_matches_message_id"] is True
     assert evidence["reply_thread_matches_send"] is True
     assert evidence["reply_parent_matches_send"] is True

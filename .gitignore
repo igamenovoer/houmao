@@ -67,3 +67,5 @@ site/
 .houmao/
 
 .agent-automation/hacktest/
+
+.agent-automation/impl-branches/

@@ -61,20 +61,32 @@ def _inspect_mailbox_roundtrip(*, pack_dir: Path, demo_dir: Path) -> dict[str, A
     """Inspect canonical mailbox artifacts for one completed roundtrip demo root."""
 
     parameters = HELPERS.load_demo_parameters(pack_dir / "inputs" / "demo_parameters.json")
-    sender_start = _read_json(demo_dir / "sender_start.json")
-    receiver_start = _read_json(demo_dir / "receiver_start.json")
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
+    sender_start = _read_json(layout.control_dir / "sender_start.json")
+    receiver_start = _read_json(layout.control_dir / "receiver_start.json")
     initial_body_path = demo_dir / "inputs" / Path(parameters.message.initial_body_file).name
-    reply_body_path = demo_dir / "inputs" / Path(parameters.message.reply_body_file).name
 
-    return HELPERS.inspect_roundtrip_mailbox(
-        mailbox_root=demo_dir / "shared-mailbox",
+    mailbox_inspection = HELPERS.inspect_roundtrip_mailbox(
+        mailbox_root=layout.mailbox_root,
         sender_address=_mailbox_address(sender_start, role="sender"),
         receiver_address=_mailbox_address(receiver_start, role="receiver"),
-        send_message_id=HELPERS.extract_message_id(demo_dir / "mail_send.json"),
-        reply_message_id=HELPERS.extract_message_id(demo_dir / "mail_reply.json"),
+        send_message_id=HELPERS.extract_message_id(layout.control_dir / "mail_send.json"),
+        reply_message_id=HELPERS.extract_message_id(layout.control_dir / "mail_reply.json"),
         initial_body_path=initial_body_path,
-        reply_body_path=reply_body_path,
     )
+    chat_log_inspection = HELPERS.inspect_chat_log(
+        chats_path=layout.chats_path,
+        send_message_id=mailbox_inspection["send_message_id"],
+        reply_message_id=mailbox_inspection["reply_message_id"],
+        sender_address=_mailbox_address(sender_start, role="sender"),
+        receiver_address=_mailbox_address(receiver_start, role="receiver"),
+        initial_body_path=initial_body_path,
+        reply_body_markdown=mailbox_inspection["reply_body_markdown"],
+    )
+    return {
+        **mailbox_inspection,
+        **{f"chat_log_{key}": value for key, value in chat_log_inspection.items()},
+    }
 
 
 def _mailbox_checks_for_result(inspection: dict[str, Any]) -> dict[str, Any]:
@@ -86,7 +98,7 @@ def _mailbox_checks_for_result(inspection: dict[str, Any]) -> dict[str, Any]:
         "send_message_path": inspection["send_message_path"],
         "reply_message_path": inspection["reply_message_path"],
         "send_body_matches_input": inspection["send_body_matches_input"],
-        "reply_body_matches_input": inspection["reply_body_matches_input"],
+        "reply_body_present": inspection["reply_body_present"],
         "reply_thread_matches_send": inspection["reply_thread_matches_send"],
         "reply_parent_matches_send": inspection["reply_parent_matches_send"],
         "reply_references_send": inspection["reply_references_send"],
@@ -102,6 +114,17 @@ def _mailbox_checks_for_result(inspection: dict[str, Any]) -> dict[str, Any]:
         ],
         "sender_unread_count": inspection["sender_unread_count"],
         "receiver_unread_count": inspection["receiver_unread_count"],
+        "chat_log_path": inspection["chat_log_path"],
+        "chat_log_event_count": inspection["chat_log_event_count"],
+        "chat_log_has_send_event": inspection["chat_log_send_event_present"],
+        "chat_log_has_reply_event": inspection["chat_log_reply_event_present"],
+        "chat_log_send_matches_input": inspection["chat_log_send_event_matches_input"],
+        "chat_log_reply_matches_mailbox_reply": inspection[
+            "chat_log_reply_event_matches_mailbox_reply"
+        ],
+        "chat_log_reply_parent_matches_send": inspection[
+            "chat_log_reply_event_parent_matches_send"
+        ],
     }
 
 
@@ -159,7 +182,7 @@ def _run_wrapper(
 def _load_stop_result(demo_dir: Path) -> dict[str, Any]:
     """Load the persisted stop-result payload for one demo root."""
 
-    return _read_json(demo_dir / "stop_result.json")
+    return _read_json(HELPERS.build_demo_layout(demo_output_dir=demo_dir).stop_result_path)
 
 
 def _scenario_auto_implicit_jobs_dir(
@@ -181,8 +204,9 @@ def _scenario_auto_implicit_jobs_dir(
     )
     _assert(command["exit_code"] == 0, "auto scenario should succeed")
 
-    sender_start = _read_json(demo_dir / "sender_start.json")
-    receiver_start = _read_json(demo_dir / "receiver_start.json")
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
+    sender_start = _read_json(layout.control_dir / "sender_start.json")
+    receiver_start = _read_json(layout.control_dir / "receiver_start.json")
     expected_sender_job = demo_dir / "project" / ".houmao" / "jobs" / "AGENTSYS-mailbox-sender"
     expected_receiver_job = demo_dir / "project" / ".houmao" / "jobs" / "AGENTSYS-mailbox-receiver"
 
@@ -200,8 +224,16 @@ def _scenario_auto_implicit_jobs_dir(
         "auto scenario should write the tracked initial message body",
     )
     _assert(
-        bool(mailbox_inspection["reply_body_matches_input"]),
-        "auto scenario should write the tracked reply message body",
+        bool(mailbox_inspection["reply_body_present"]),
+        "auto scenario should write a non-empty reply message body",
+    )
+    _assert(
+        bool(mailbox_inspection["chat_log_send_event_present"]),
+        "auto scenario should append the send event to chats.jsonl",
+    )
+    _assert(
+        bool(mailbox_inspection["chat_log_reply_event_present"]),
+        "auto scenario should append the reply event to chats.jsonl",
     )
     _assert(
         bool(mailbox_inspection["reply_parent_matches_send"]),
@@ -212,7 +244,7 @@ def _scenario_auto_implicit_jobs_dir(
         "checks": {
             "sender_job_dir": sender_start.get("job_dir"),
             "receiver_job_dir": receiver_start.get("job_dir"),
-            "stop_result_path": str((demo_dir / "stop_result.json").resolve()),
+            "stop_result_path": str(layout.stop_result_path.resolve()),
             **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
@@ -239,8 +271,9 @@ def _scenario_auto_explicit_jobs_dir(
     )
     _assert(command["exit_code"] == 0, "auto scenario with explicit jobs dir should succeed")
 
-    sender_start = _read_json(demo_dir / "sender_start.json")
-    receiver_start = _read_json(demo_dir / "receiver_start.json")
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
+    sender_start = _read_json(layout.control_dir / "sender_start.json")
+    receiver_start = _read_json(layout.control_dir / "receiver_start.json")
     _assert(
         sender_start.get("job_dir") == str(jobs_dir / "AGENTSYS-mailbox-sender"),
         "sender explicit job_dir should use the selected jobs root",
@@ -281,17 +314,22 @@ def _scenario_stepwise_start_roundtrip_verify_stop(
         )
         _assert(command["exit_code"] == 0, f"{command_name} should succeed")
 
-    _assert((demo_dir / "verify_result.json").is_file(), "verify should emit verify_result.json")
-    _assert((demo_dir / "sender_stop.json").is_file(), "stop should emit sender_stop.json")
-    _assert((demo_dir / "receiver_stop.json").is_file(), "stop should emit receiver_stop.json")
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
+    _assert(layout.verify_result_path.is_file(), "verify should emit verify_result.json")
+    _assert(
+        (layout.control_dir / "sender_stop.json").is_file(), "stop should emit sender_stop.json"
+    )
+    _assert(
+        (layout.control_dir / "receiver_stop.json").is_file(), "stop should emit receiver_stop.json"
+    )
     stop_result = _load_stop_result(demo_dir)
     _assert(bool(stop_result.get("stopped")), "stepwise stop should report success")
     mailbox_inspection = _inspect_mailbox_roundtrip(pack_dir=pack_dir, demo_dir=demo_dir)
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
-            "verify_result_path": str((demo_dir / "verify_result.json").resolve()),
-            "stop_result_path": str((demo_dir / "stop_result.json").resolve()),
+            "verify_result_path": str(layout.verify_result_path.resolve()),
+            "stop_result_path": str(layout.stop_result_path.resolve()),
             **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
@@ -366,7 +404,9 @@ def _scenario_incompatible_project_dir(
         "failure should explain worktree mismatch",
     )
     _assert(
-        not (demo_dir / "sender_start.json").exists(),
+        not (
+            HELPERS.build_demo_layout(demo_output_dir=demo_dir).control_dir / "sender_start.json"
+        ).exists(),
         "startup should stop before live session creation",
     )
     return {
@@ -415,7 +455,8 @@ def _scenario_verify_snapshot_refresh(
         )
         _assert(verify_command["exit_code"] == 0, "verify --snapshot-report should succeed")
         updated_expected = expected_report_path.read_text(encoding="utf-8")
-        sanitized_report = (demo_dir / "report.sanitized.json").read_text(encoding="utf-8")
+        layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
+        sanitized_report = layout.sanitized_report_path.read_text(encoding="utf-8")
         _assert(
             updated_expected == sanitized_report,
             "snapshot refresh should write sanitized content only",
@@ -456,7 +497,9 @@ def _scenario_verify_snapshot_refresh(
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
             "snapshot_refreshed": True,
-            "verify_result_path": str((demo_dir / "verify_result.json").resolve()),
+            "verify_result_path": str(
+                HELPERS.build_demo_layout(demo_output_dir=demo_dir).verify_result_path.resolve()
+            ),
             "snapshot_excludes_raw_body_content": True,
         },
     }
@@ -524,12 +567,15 @@ def _scenario_partial_failure_cleanup(
     )
     stop_result = _load_stop_result(demo_dir)
     _assert(bool(stop_result.get("cleanup")), "partial failure should record cleanup mode")
+    control_dir = HELPERS.build_demo_layout(demo_output_dir=demo_dir).control_dir
     for artifact_name in (
         "cleanup_sender_stop.json",
         "cleanup_receiver_stop.json",
         "cleanup_cao_stop.json",
     ):
-        _assert((demo_dir / artifact_name).is_file(), f"missing cleanup artifact: {artifact_name}")
+        _assert(
+            (control_dir / artifact_name).is_file(), f"missing cleanup artifact: {artifact_name}"
+        )
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
@@ -560,18 +606,24 @@ def _scenario_interrupted_run_cleanup(
     _assert(command["exit_code"] == 130, "interrupted scenario should surface exit code 130")
     stop_result = _load_stop_result(demo_dir)
     _assert(bool(stop_result.get("cleanup")), "interrupt should record cleanup mode")
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_dir)
     _assert(
-        (demo_dir / "mail_send.json").is_file(), "interrupt should leave diagnosable send artifacts"
+        (layout.control_dir / "mail_send.json").is_file(),
+        "interrupt should leave diagnosable send artifacts",
     )
     _assert(
-        not (demo_dir / "mail_reply.json").exists(), "interrupt should stop before reply completes"
+        not (layout.control_dir / "mail_reply.json").exists(),
+        "interrupt should stop before reply completes",
     )
     for artifact_name in (
         "cleanup_sender_stop.json",
         "cleanup_receiver_stop.json",
         "cleanup_cao_stop.json",
     ):
-        _assert((demo_dir / artifact_name).is_file(), f"missing cleanup artifact: {artifact_name}")
+        _assert(
+            (layout.control_dir / artifact_name).is_file(),
+            f"missing cleanup artifact: {artifact_name}",
+        )
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
