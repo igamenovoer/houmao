@@ -37,6 +37,7 @@ Selectors are resolved relative to `brains/brain-recipes/` under the active agen
 - Ambiguous basenames fail explicitly and ask the operator to retry with subdirectory context
 
 The demo persists the resolved `tool`, canonical `brain_recipe`, and normalized `variant_id` in `state.json`, and all follow-up commands reuse that persisted variant metadata.
+The persisted demo state also keeps canonical `agent_identity` separate from the actual tmux handle: `session_name` and `tmux_target` track the live tmux session name, while prompt/control/stop flows still address the canonical agent identity.
 
 ## Prompt Turns Versus Control Input
 
@@ -55,6 +56,8 @@ The demo keeps prompt turns and raw control input separate:
 - `variant_id`
 - `brain_recipe`
 - `tool_state`
+- canonical `agent_identity`
+- actual `session_name` / `tmux_target` for tmux attach operations
 
 When `inspect --with-output-text <n>` is requested, the demo fetches CAO `mode=full` output and projects it through the runtime-owned parser stack for the persisted tool. Claude launches use the Claude parser and Codex launches use the Codex parser.
 
@@ -91,6 +94,6 @@ The canonical package is `houmao.demo.cao_interactive_demo`.
 3. The demo package resolves the selected brain recipe under `tests/fixtures/agents/brains/brain-recipes/` (or the overridden agent-definition directory).
 4. The demo delegates brain construction through `houmao.agents.realm_controller build-brain --recipe <resolved-path>`.
 5. The demo uses `houmao.agents.realm_controller` for `start-session`, `send-prompt`, `send-keys`, and `stop-session`.
-6. Build/start still pass the explicit demo-selected agent-definition directory, but prompt/control/stop flows target the persisted agent name and rely on the session's published `AGENTSYS_AGENT_DEF_DIR`.
+6. Build/start still pass the explicit demo-selected agent-definition directory, but prompt/control/stop flows target the persisted canonical agent name and rely on the session's published `AGENTSYS_AGENT_DEF_DIR`, while inspect surfaces and attach commands use the persisted live tmux handle.
 
 For the lower-level runtime contract, see [Realm Controller](./realm_controller.md).

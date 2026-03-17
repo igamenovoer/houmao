@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.backends import cao_rest as cao_rest_backend
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
+    derive_agent_id_from_name,
 )
 from houmao.agents.realm_controller.backends.cao_rest import (
     CaoRestSession,
@@ -2541,7 +2542,8 @@ def test_generate_cao_session_name_adds_conflict_suffix() -> None:
         role_name="gpu-kernel-coder",
         existing_sessions=occupied,
     )
-    assert generated == "AGENTSYS-codex-gpu-kernel-coder-2"
+    expected_agent_id = derive_agent_id_from_name("AGENTSYS-codex-gpu-kernel-coder")
+    assert generated == f"AGENTSYS-codex-gpu-kernel-coder-{expected_agent_id[:6]}"
 
 
 def test_cao_backend_rejects_conflicting_explicit_agent_identity(

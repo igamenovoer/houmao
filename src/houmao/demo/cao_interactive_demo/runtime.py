@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -260,7 +261,7 @@ def _kill_tmux_session(
     session_name: str,
     run_command: CommandRunner,
 ) -> None:
-    """Best-effort kill of a leftover tmux session for the canonical demo identity."""
+    """Best-effort kill of one leftover tmux session."""
 
     has_session_result = run_command(
         ["tmux", "has-session", "-t", session_name],
@@ -283,6 +284,145 @@ def _kill_tmux_session(
         raise DemoWorkflowError(
             f"Failed to kill stale tmux session `{session_name}` (see `{kill_result.stderr_path}`)."
         )
+
+
+def _discover_tmux_sessions_for_agent_identity(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    agent_identity: str,
+    run_command: CommandRunner,
+) -> list[str]:
+    """Discover live tmux sessions whose persisted metadata matches one identity."""
+
+    result = run_command(
+        ["tmux", "list-sessions", "-F", "#{session_name}"],
+        env.repo_root,
+        paths.logs_dir / "tmux-list-sessions.stdout",
+        paths.logs_dir / "tmux-list-sessions.stderr",
+        env.timeout_seconds,
+    )
+    if result.returncode != 0:
+        return _legacy_exact_tmux_session_names(
+            paths=paths,
+            env=env,
+            agent_identity=agent_identity,
+            run_command=run_command,
+        )
+
+    matches: list[str] = []
+    for raw_line in result.stdout.splitlines():
+        session_name = raw_line.strip()
+        if not session_name:
+            continue
+        manifest_path = _read_tmux_manifest_path(
+            paths=paths,
+            env=env,
+            session_name=session_name,
+            run_command=run_command,
+        )
+        if manifest_path is None:
+            continue
+        if _manifest_matches_agent_identity(
+            manifest_path=manifest_path,
+            agent_identity=agent_identity,
+            session_name=session_name,
+        ):
+            matches.append(session_name)
+
+    for session_name in _legacy_exact_tmux_session_names(
+        paths=paths,
+        env=env,
+        agent_identity=agent_identity,
+        run_command=run_command,
+    ):
+        if session_name not in matches:
+            matches.append(session_name)
+    return matches
+
+
+def _legacy_exact_tmux_session_names(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    agent_identity: str,
+    run_command: CommandRunner,
+) -> list[str]:
+    """Return the exact canonical tmux session name when it still exists."""
+
+    result = run_command(
+        ["tmux", "has-session", "-t", agent_identity],
+        env.repo_root,
+        paths.logs_dir / "tmux-has-session-legacy.stdout",
+        paths.logs_dir / "tmux-has-session-legacy.stderr",
+        env.timeout_seconds,
+    )
+    if result.returncode == 0:
+        return [agent_identity]
+    return []
+
+
+def _read_tmux_manifest_path(
+    *,
+    paths: DemoPaths,
+    env: DemoEnvironment,
+    session_name: str,
+    run_command: CommandRunner,
+) -> Path | None:
+    """Read the tmux-published manifest path for one live session."""
+
+    safe_name = session_name.replace("/", "_")
+    result = run_command(
+        ["tmux", "show-environment", "-t", session_name, "AGENTSYS_MANIFEST_PATH"],
+        env.repo_root,
+        paths.logs_dir / f"tmux-show-environment-{safe_name}.stdout",
+        paths.logs_dir / f"tmux-show-environment-{safe_name}.stderr",
+        env.timeout_seconds,
+    )
+    if result.returncode != 0:
+        return None
+
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        prefix = "AGENTSYS_MANIFEST_PATH="
+        if not line.startswith(prefix):
+            continue
+        value = line[len(prefix) :].strip()
+        if not value:
+            return None
+        manifest_path = Path(value)
+        if not manifest_path.is_absolute():
+            return None
+        resolved_manifest_path = manifest_path.resolve()
+        if not resolved_manifest_path.is_file():
+            return None
+        return resolved_manifest_path
+    return None
+
+
+def _manifest_matches_agent_identity(
+    *,
+    manifest_path: Path,
+    agent_identity: str,
+    session_name: str,
+) -> bool:
+    """Return whether one manifest binds the canonical identity to the session."""
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    persisted_agent_identity = str(payload.get("agent_name", "")).strip()
+    persisted_session_name = str(payload.get("tmux_session_name", "")).strip()
+    return (
+        persisted_agent_identity == agent_identity
+        and persisted_session_name == session_name
+    )
 
 
 def _stop_remote_session(

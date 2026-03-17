@@ -19,6 +19,14 @@ from houmao.agents.realm_controller.models import (
 )
 
 
+def _identity_fields(session_name: str) -> dict[str, str]:
+    return {
+        "agent_name": session_name,
+        "agent_id": derive_agent_id_from_name(session_name),
+        "tmux_session_name": session_name,
+    }
+
+
 def _sample_plan(tmp_path: Path) -> LaunchPlan:
     return LaunchPlan(
         backend="claude_headless",
@@ -67,6 +75,7 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
             launch_plan=plan,
             role_name="gpu-kernel-coder",
             brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-claude"),
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 2,
@@ -99,6 +108,7 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
             launch_plan=plan,
             role_name="gpu-kernel-coder",
             brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-claude"),
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 0,
@@ -149,6 +159,7 @@ def test_legacy_cao_manifest_schema_is_rejected(tmp_path: Path) -> None:
             launch_plan=_sample_cao_plan(tmp_path),
             role_name="gpu-kernel-coder",
             brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-gpu"),
             backend_state={
                 "api_base_url": "http://localhost:9889",
                 "session_name": "AGENTSYS-gpu",
@@ -179,6 +190,7 @@ def test_cao_manifest_round_trip_persists_optional_tmux_window_name(
             launch_plan=_sample_cao_plan(tmp_path),
             role_name="gpu-kernel-coder",
             brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-gpu"),
             backend_state={
                 "api_base_url": "http://localhost:9889",
                 "session_name": "AGENTSYS-gpu",

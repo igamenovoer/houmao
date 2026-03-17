@@ -51,6 +51,7 @@ from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 
 
 def _write(path: Path, text: str) -> None:
@@ -313,6 +314,7 @@ def test_attach_gateway_returns_explicit_unsupported_backend_error(
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
         agent_identity="AGENTSYS-gpu",
+        tmux_session_name="AGENTSYS-gpu",
     )
 
     monkeypatch.setattr(
@@ -342,6 +344,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
         agent_identity="AGENTSYS-gpu",
+        tmux_session_name="AGENTSYS-gpu",
     )
 
     captured_unset: dict[str, object] = {}
@@ -449,6 +452,9 @@ def _seed_cao_gateway_root(
             launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="AGENTSYS-gpu",
+            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
+            tmux_session_name="AGENTSYS-gpu",
             backend_state={
                 "api_base_url": "http://localhost:9889",
                 "session_name": "AGENTSYS-gpu",

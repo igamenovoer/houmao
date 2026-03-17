@@ -319,14 +319,10 @@ def _resolve_manifest_identity(
             tmux_session_name = _optional_non_empty_str(
                 request.backend_state.get("tmux_session_name")
             )
-        if agent_name is None:
-            agent_name = tmux_session_name
     elif request.launch_plan.backend == "cao_rest":
         backend_session_name = _optional_non_empty_str(request.backend_state.get("session_name"))
         if tmux_session_name is None:
             tmux_session_name = backend_session_name
-        if agent_name is None and backend_session_name is not None:
-            agent_name = normalize_agent_identity_name(backend_session_name).canonical_name
 
     if tmux_session_name is None:
         tmux_session_name = agent_name

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from .errors import SessionManifestError
@@ -31,6 +32,7 @@ AGENT_RESERVED_TOKEN = "AGENTSYS"
 AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
 AGENT_ID_HEXDIGEST_LENGTH = 32
+DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH = 6
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
@@ -156,6 +158,69 @@ def derive_agent_id_from_name(value: str) -> str:
 
     canonical_name = normalize_agent_identity_name(value).canonical_name
     return hashlib.md5(canonical_name.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def derive_tmux_session_name(
+    *,
+    canonical_agent_name: str,
+    agent_id: str,
+    prefix_length: int = DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH,
+    occupied_session_names: Collection[str] | None = None,
+) -> str:
+    """Derive one tmux session name from canonical identity plus agent-id prefix.
+
+    Parameters
+    ----------
+    canonical_agent_name:
+        Canonical runtime identity in `AGENTSYS-...` form.
+    agent_id:
+        Authoritative agent identifier whose prefix will be embedded in the
+        tmux session name.
+    prefix_length:
+        Initial prefix length to try before collision-driven extension.
+    occupied_session_names:
+        Optional currently occupied tmux session names used to extend the
+        prefix until the candidate becomes unique.
+
+    Returns
+    -------
+    str
+        Tmux session name in `<canonical-agent-name>-<agent-id-prefix>` form.
+
+    Raises
+    ------
+    SessionManifestError
+        If the agent id is blank, the prefix length is invalid, or no unique
+        tmux session name can be derived from the full authoritative agent id.
+    """
+
+    normalized = normalize_agent_identity_name(canonical_agent_name)
+    stripped_agent_id = agent_id.strip()
+    if not stripped_agent_id:
+        raise SessionManifestError("Authoritative agent_id must not be blank.")
+    if prefix_length < 1:
+        raise SessionManifestError("tmux session-name prefix length must be at least 1.")
+
+    occupied = {
+        session_name.strip()
+        for session_name in occupied_session_names or ()
+        if isinstance(session_name, str) and session_name.strip()
+    }
+    candidate_length = min(prefix_length, len(stripped_agent_id))
+
+    while True:
+        candidate = f"{normalized.canonical_name}-{stripped_agent_id[:candidate_length]}"
+        if candidate not in occupied:
+            return candidate
+        if candidate_length >= len(stripped_agent_id):
+            break
+        candidate_length += 1
+
+    raise SessionManifestError(
+        "Failed to derive a unique tmux session name for canonical agent name "
+        f"`{normalized.canonical_name}` using authoritative agent_id "
+        f"`{stripped_agent_id}`."
+    )
 
 
 def is_agent_id(value: str) -> bool:

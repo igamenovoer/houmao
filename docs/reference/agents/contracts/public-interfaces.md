@@ -48,7 +48,7 @@ Rules:
 - Runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH`.
 - For name-based control, the effective agent-definition directory is either explicit `--agent-def-dir` or the addressed tmux session's `AGENTSYS_AGENT_DEF_DIR`.
 - Name-based control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` when the tmux pointer is stale or missing.
-- Tmux-backed names are normalized into the `AGENTSYS-<name>` namespace.
+- Canonical agent identities are normalized into the `AGENTSYS-<name>` namespace, while live tmux session handles persist separately as `tmux_session_name`.
 
 ## Control Surface Intent
 
@@ -86,7 +86,7 @@ Representative `start-session` output for a gateway-capable session:
   "agent_identity": "AGENTSYS-gpu",
   "agent_name": "AGENTSYS-gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
-  "tmux_session_name": "houmao-cao-rest-1",
+  "tmux_session_name": "AGENTSYS-gpu-270b87",
   "job_dir": "/abs/path/workspace/.houmao/jobs/cao-rest-1",
   "parsing_mode": "shadow_only",
   "gateway_root": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway",

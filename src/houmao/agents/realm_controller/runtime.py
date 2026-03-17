@@ -24,6 +24,7 @@ from .agent_identity import (
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_auto_agent_name_base,
     derive_agent_id_from_name,
+    derive_tmux_session_name,
     is_path_like_agent_identity,
     normalize_agent_identity_name,
 )
@@ -602,7 +603,6 @@ def start_runtime_session(
             role_name=role_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
-            session_id=session_id,
         )
         agent_identity_warnings = resolved_runtime_identity.warnings
         existing_record = resolve_live_agent_record_by_agent_id(resolved_runtime_identity.agent_id)
@@ -1245,7 +1245,6 @@ def _resolve_start_session_identity(
     role_name: str,
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
-    session_id: str,
 ) -> ResolvedRuntimeIdentity:
     """Resolve canonical name, authoritative id, and tmux handle for session start."""
 
@@ -1268,9 +1267,17 @@ def _resolve_start_session_identity(
     else:
         canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
 
+    stripped_requested_agent_id = None
+    if requested_agent_id is not None:
+        stripped_requested_agent_id = requested_agent_id.strip()
+        if not stripped_requested_agent_id:
+            raise SessionManifestError("start-session --agent-id must not be blank.")
+
     persisted_agent_id = built_identity[1]
     agent_id = (
-        requested_agent_id or persisted_agent_id or derive_agent_id_from_name(canonical_agent_name)
+        stripped_requested_agent_id
+        or persisted_agent_id
+        or derive_agent_id_from_name(canonical_agent_name)
     )
 
     persisted_agent_name = built_identity[0]
@@ -1286,10 +1293,21 @@ def _resolve_start_session_identity(
             f"`{persisted_agent_name}`"
         )
 
+    try:
+        occupied_session_names = list_tmux_sessions_shared()
+    except TmuxCommandError as exc:
+        raise SessionManifestError(
+            "start-session requires `tmux` on PATH for tmux-backed backends."
+        ) from exc
+
     return ResolvedRuntimeIdentity(
         canonical_agent_name=canonical_agent_name,
         agent_id=agent_id,
-        tmux_session_name=f"houmao-{session_id}",
+        tmux_session_name=derive_tmux_session_name(
+            canonical_agent_name=canonical_agent_name,
+            agent_id=agent_id,
+            occupied_session_names=occupied_session_names,
+        ),
         warnings=tuple(warnings),
     )
 
@@ -1869,8 +1887,6 @@ def _tmux_session_name_for_controller(controller: RuntimeSessionController) -> s
         return controller.backend_session.state.session_name
     if isinstance(controller.backend_session, HeadlessInteractiveSession):
         return controller.backend_session.state.tmux_session_name
-    if controller._is_tmux_backed() and controller.agent_identity is not None:
-        return controller.agent_identity
     return None
 
 

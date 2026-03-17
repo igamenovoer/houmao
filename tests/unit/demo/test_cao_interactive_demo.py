@@ -86,6 +86,8 @@ def _seed_state(
     *,
     active: bool,
     agent_identity: str = "AGENTSYS-demo",
+    session_name: str | None = None,
+    tmux_target: str | None = None,
     launcher_home_dir: Path | None = None,
     terminal_log_path: str | None = None,
     turn_count: int = 0,
@@ -100,8 +102,8 @@ def _seed_state(
         variant_id=brain_recipe.replace("/", "-"),
         brain_recipe=brain_recipe,
         session_manifest=str(paths.runtime_root / "sessions" / "cao_rest" / "session.json"),
-        session_name=agent_identity,
-        tmux_target=agent_identity,
+        session_name=session_name or agent_identity,
+        tmux_target=tmux_target or session_name or agent_identity,
         terminal_id="term-001",
         terminal_log_path=terminal_log_path
         or str(
@@ -597,6 +599,41 @@ def test_main_start_json_preserves_machine_readable_output(
     assert "[interactive-demo:start]" in captured.err
 
 
+def test_inspect_demo_surfaces_actual_tmux_handle_when_it_differs_from_canonical_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = _make_paths(tmp_path)
+    _seed_state(
+        paths,
+        active=True,
+        agent_identity="AGENTSYS-alice",
+        session_name="AGENTSYS-alice-270b87",
+        tmux_target="AGENTSYS-alice-270b87",
+    )
+
+    class FailingCaoRestClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.m_base_url = base_url
+            self.m_timeout_seconds = timeout_seconds
+
+        def get_terminal(self, terminal_id: str) -> SimpleNamespace:
+            raise RuntimeError(f"terminal lookup failed for {terminal_id}")
+
+        def get_terminal_output(self, terminal_id: str, mode: str = "last") -> SimpleNamespace:
+            raise RuntimeError(f"output lookup failed for {terminal_id} ({mode})")
+
+    monkeypatch.setattr(demo_commands, "CaoRestClient", FailingCaoRestClient)
+
+    inspect_demo(paths=paths, as_json=False, output_text_tail_chars=None)
+
+    output = capsys.readouterr().out
+    assert "agent_identity: AGENTSYS-alice" in output
+    assert "session_name: AGENTSYS-alice-270b87" in output
+    assert "tmux_attach: tmux attach -t AGENTSYS-alice-270b87" in output
+
+
 def test_main_start_accepts_explicit_codex_recipe_selector(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -709,6 +746,92 @@ def test_start_demo_resets_previous_run_artifacts_and_stale_tmux(
     assert list(previous_paths.turns_dir.glob("*.json")) == []
     assert any(call[:2] == ("tmux", "has-session") for call in runner.calls)
     assert any(call[:2] == ("tmux", "kill-session") for call in runner.calls)
+
+
+def test_reset_demo_startup_state_cleans_only_metadata_matched_suffixed_tmux_sessions(
+    tmp_path: Path,
+) -> None:
+    paths = _make_paths(tmp_path)
+    env = _make_env(tmp_path)
+    manifest_path = paths.runtime_root / "sessions" / "cao_rest" / "interactive-session.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "agent_name": "AGENTSYS-alice",
+                "tmux_session_name": "AGENTSYS-alice-270b87",
+            }
+        ),
+        encoding="utf-8",
+    )
+    other_manifest_path = paths.runtime_root / "sessions" / "cao_rest" / "other-session.json"
+    other_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    other_manifest_path.write_text(
+        json.dumps(
+            {
+                "agent_name": "AGENTSYS-bob",
+                "tmux_session_name": "AGENTSYS-alice-extended-270b87",
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def _runner(
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        timeout_seconds: float,
+    ) -> CommandResult:
+        del cwd, timeout_seconds
+        calls.append(tuple(command))
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        stderr_path.parent.mkdir(parents=True, exist_ok=True)
+        stdout = ""
+        stderr = ""
+        returncode = 0
+        if command[:2] == ["tmux", "list-sessions"]:
+            stdout = "AGENTSYS-alice-270b87\nAGENTSYS-alice-extended-270b87\n"
+        elif command[:2] == ["tmux", "show-environment"]:
+            if command[3] == "AGENTSYS-alice-270b87":
+                stdout = f"AGENTSYS_MANIFEST_PATH={manifest_path}\n"
+            else:
+                stdout = f"AGENTSYS_MANIFEST_PATH={other_manifest_path}\n"
+        elif command[:2] == ["tmux", "has-session"]:
+            if command[3] == "AGENTSYS-alice-270b87":
+                returncode = 0
+            else:
+                returncode = 1
+                stderr = "can't find session"
+        elif command[:2] == ["tmux", "kill-session"]:
+            stdout = ""
+        elif "stop-session" in command:
+            returncode = 1
+            stdout = json.dumps({"detail": "agent not found"})
+        else:
+            raise AssertionError(f"Unexpected command: {command}")
+        stdout_path.write_text(stdout, encoding="utf-8")
+        stderr_path.write_text(stderr, encoding="utf-8")
+        return CommandResult(
+            args=tuple(str(part) for part in command),
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
+
+    replaced = demo_commands._reset_demo_startup_state(
+        paths=paths,
+        env=env,
+        requested_agent_identity="AGENTSYS-alice",
+        run_command=_runner,
+    )
+
+    assert replaced is None
+    assert ("tmux", "kill-session", "-t", "AGENTSYS-alice-270b87") in calls
+    assert ("tmux", "kill-session", "-t", "AGENTSYS-alice-extended-270b87") not in calls
 
 
 def test_start_demo_replaces_verified_cao_server_automatically(
