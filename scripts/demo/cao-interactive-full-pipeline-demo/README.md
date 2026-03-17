@@ -28,6 +28,7 @@ Important notes:
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
 - The demo still passes `AGENT_DEF_DIR` explicitly for brain build and session start, but follow-up prompt/control/stop flows target the persisted runtime name and let `realm_controller` recover the effective agent-definition root from the live tmux session.
+- The persisted `agent_identity` stays canonical (`AGENTSYS-<name>`), while `session_name`, `tmux_target`, and surfaced attach commands use the actual live tmux handle (`AGENTSYS-<name>-<agent-id-prefix>`).
 
 ## Supported Startup Recipes
 
@@ -93,6 +94,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/launch_alice.sh
 ```
 
 The wrapper forwards through `run_demo.sh start --agent-name alice`. With no explicit recipe selector, that means the session is backed by `claude/gpu-kernel-coder-default`, but the persisted identity is still `AGENTSYS-alice`.
+The live tmux handle is distinct and will typically look like `AGENTSYS-alice-<agent-id-prefix>`.
 
 Direct recipe-backed path:
 
@@ -122,6 +124,7 @@ tool: claude
 variant_id: claude-gpu-kernel-coder-default
 brain_recipe: claude/gpu-kernel-coder-default
 agent_identity: AGENTSYS-alice
+tmux_attach: tmux attach -t AGENTSYS-alice-<agent-id-prefix>
 terminal_id: <terminal-id>
 ```
 
@@ -145,6 +148,7 @@ variant_id: claude-gpu-kernel-coder-default
 brain_recipe: claude/gpu-kernel-coder-default
 tool_state: idle
 agent_identity: AGENTSYS-alice
+session_name: AGENTSYS-alice-<agent-id-prefix>
 ```
 
 `tool_state` is the live CAO terminal status for the persisted session and may be `idle`, `processing`, `waiting_user_answer`, `completed`, `error`, or `unknown`.
@@ -167,6 +171,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/send_prompt.sh \
 Each prompt writes a turn artifact under `turns/turn-*.json` plus the captured stdout and stderr logs for the underlying runtime command.
 
 Because the follow-up runtime call targets the persisted `AGENTSYS-...` name, the demo does not pass an explicit `--agent-def-dir` on this path; runtime recovers it from the session's tmux environment.
+Use the surfaced `tmux_attach` command or `session_name` from `inspect` when you need to attach manually; do not assume the live tmux handle is exactly the canonical `agent_identity`.
 
 ## Step 4: Send Control Input Manually
 

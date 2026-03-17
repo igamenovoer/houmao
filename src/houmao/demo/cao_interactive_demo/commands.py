@@ -49,6 +49,7 @@ from houmao.demo.cao_interactive_demo.runtime import (
     _best_effort_output_text_tail,
     _build_brain,
     _cao_profile_store,
+    _discover_tmux_sessions_for_agent_identity,
     _kill_tmux_session,
     _resolved_terminal_log_path_for_state,
     _runtime_cli_command,
@@ -601,7 +602,12 @@ def _reset_demo_startup_state(
     current_state, current_is_stale = _load_demo_state_for_startup(paths.state_path)
 
     cleanup_agent_identities = [requested_agent_identity]
-    cleanup_session_names = [requested_agent_identity]
+    cleanup_session_names = _discover_tmux_sessions_for_agent_identity(
+        paths=paths,
+        env=env,
+        agent_identity=requested_agent_identity,
+        run_command=run_command,
+    )
     replaced_agent_identity: str | None = None
 
     for candidate_state in (previous_state, current_state):

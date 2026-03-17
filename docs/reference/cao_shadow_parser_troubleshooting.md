@@ -56,7 +56,7 @@ The runtime pre-creates a bootstrap tmux window during CAO session startup and t
 Quick checks:
 
 - `start-session` prints window-hygiene problems as stderr `warning:` lines and keeps JSON stdout unchanged.
-- Success path: `tmux attach -t AGENTSYS-...` lands on the agent terminal, and `tmux list-windows -t AGENTSYS-...` shows only the agent window.
+- Success path: attach using the returned `tmux_session_name` (for example `tmux attach -t AGENTSYS-gpu-270b87`), and `tmux list-windows -t <tmux_session_name>` shows only the agent window.
 - Warning path: attach may land on the bootstrap shell window and/or a second window may remain (bootstrap pruning skipped/failed). Shadow parsing is unaffected; this is window selection/pruning hygiene only.
 
 See: [Realm Controller window-hygiene checklist](./realm_controller.md#manual-verification-checklist-cao-startup-window-hygiene).

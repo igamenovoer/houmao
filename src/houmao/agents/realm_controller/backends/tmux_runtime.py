@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-from ..agent_identity import AGENT_NAMESPACE_PREFIX, derive_auto_agent_name_base
+from ..agent_identity import (
+    derive_agent_id_from_name,
+    derive_auto_agent_name_base,
+    derive_tmux_session_name,
+    normalize_agent_identity_name,
+)
+from ..errors import SessionManifestError
 
 
 class TmuxCommandError(RuntimeError):
@@ -265,22 +271,21 @@ def generate_tmux_session_name(
     role_name: str,
     existing_sessions: set[str] | None = None,
 ) -> str:
-    """Generate a canonical `AGENTSYS-...` tmux session name."""
+    """Generate one default tmux session name for a tool/role identity."""
 
     occupied = existing_sessions if existing_sessions is not None else list_tmux_sessions()
-    base = derive_auto_agent_name_base(tool=tool, role_name=role_name)
-    primary = f"{AGENT_NAMESPACE_PREFIX}{base}"
-    if primary not in occupied:
-        return primary
-
-    for suffix in range(2, 10_000):
-        candidate = f"{primary}-{suffix}"
-        if candidate not in occupied:
-            return candidate
-
-    raise TmuxCommandError(
-        "Failed to auto-generate a unique AGENTSYS session name after 9999 attempts."
-    )
+    canonical_agent_name = normalize_agent_identity_name(
+        derive_auto_agent_name_base(tool=tool, role_name=role_name)
+    ).canonical_name
+    agent_id = derive_agent_id_from_name(canonical_agent_name)
+    try:
+        return derive_tmux_session_name(
+            canonical_agent_name=canonical_agent_name,
+            agent_id=agent_id,
+            occupied_session_names=occupied,
+        )
+    except SessionManifestError as exc:
+        raise TmuxCommandError(str(exc)) from exc
 
 
 def run_tmux(

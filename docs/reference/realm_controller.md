@@ -450,13 +450,16 @@ when they are missing from `PATH`.
   verify `command -v cao-server`.
 - Missing tool executable (`codex`, `claude`, `gemini`): install the tool CLI and
   verify with `command -v <tool>`.
-- If no tmux-backed name is provided, runtime auto-generates a short
-  `AGENTSYS-<tool-role>` identity and adds a suffix on conflicts.
+- If no tmux-backed name is provided, runtime auto-generates a canonical
+  `AGENTSYS-<tool-role>` identity and derives the live tmux handle as
+  `<canonical-agent-name>-<agent-id-prefix>`, extending the prefix one
+  character at a time on collisions.
 - For tmux-backed sessions runtime sets
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
   `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
-- To discover active agent identities, run `tmux ls` and use returned
-  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `mail` / `stop-session`.
+- To discover the live tmux handle, inspect the returned `tmux_session_name`,
+  the persisted manifest, or shared-registry metadata. Name-addressed runtime
+  control still uses the canonical `AGENTSYS-<name>` identity.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:
@@ -539,14 +542,15 @@ headless-only. Follow-up design work is tracked in
 ### Manual Verification Checklist (CAO Startup Window Hygiene)
 
 1. Start a CAO-backed session (`backend=cao_rest`) and capture returned
-   `agent_identity` (for example `AGENTSYS-gpu`).
+   `agent_identity` plus `tmux_session_name` (for example `AGENTSYS-gpu` and
+   `AGENTSYS-gpu-270b87`).
 2. Verify tmux windows:
-   `tmux list-windows -t AGENTSYS-gpu -F '#{window_id} #{window_index} #{window_name}'`.
+   `tmux list-windows -t <tmux_session_name> -F '#{window_id} #{window_index} #{window_name}'`.
 3. Expected success path:
    only the CAO terminal window is listed (bootstrap shell window is not
    expected after startup completes).
 4. Attach and confirm first view:
-   `tmux attach -t AGENTSYS-gpu` should land on the agent terminal window.
+   `tmux attach -t <tmux_session_name>` should land on the agent terminal window.
 5. Warning-path expectation:
    if cleanup cannot resolve/select/prune windows, `start-session` still returns
    success JSON and stderr includes one or more `warning:` lines describing the
