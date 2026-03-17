@@ -6,11 +6,9 @@
     "receiver_build": "<ARTIFACT_PATH:receiver_build>",
     "receiver_check": "<ARTIFACT_PATH:receiver_check>",
     "receiver_start": "<ARTIFACT_PATH:receiver_start>",
-    "receiver_stop": "<ARTIFACT_PATH:receiver_stop>",
     "sender_build": "<ARTIFACT_PATH:sender_build>",
     "sender_check": "<ARTIFACT_PATH:sender_check>",
-    "sender_start": "<ARTIFACT_PATH:sender_start>",
-    "sender_stop": "<ARTIFACT_PATH:sender_stop>"
+    "sender_start": "<ARTIFACT_PATH:sender_start>"
   },
   "cao": {
     "artifact_dir": "<CAO_ARTIFACT_DIR>",
@@ -35,13 +33,11 @@
     "receiver_build_manifest_present": true,
     "receiver_mailbox_local_sqlite_present": true,
     "receiver_start_mailbox_enabled": true,
-    "receiver_stop_ok": true,
     "reply_parent_matches_send_message_id": true,
     "send_message_id_present": true,
     "sender_build_manifest_present": true,
     "sender_mailbox_local_sqlite_present": true,
     "sender_start_mailbox_enabled": true,
-    "sender_stop_ok": true,
     "shared_mailbox_index_present": true,
     "shared_mailbox_root": true
   },
@@ -55,9 +51,7 @@
     "mail_send",
     "receiver_check",
     "mail_reply",
-    "sender_check",
-    "sender_stop",
-    "receiver_stop"
+    "sender_check"
   ],
   "generated_at_utc": "<TIMESTAMP>",
   "mailbox_root": "<MAILBOX_ROOT>",
@@ -146,11 +140,6 @@
       "tmux_session_name": "AGENTSYS-mailbox-receiver",
       "tool": "codex"
     },
-    "receiver_stop": {
-      "action": "terminate",
-      "detail": "stopped",
-      "status": "ok"
-    },
     "sender_build": {
       "home_id": "<BRAIN_HOME_ID>",
       "home_path": "<BRAIN_HOME_PATH>",
@@ -180,11 +169,6 @@
       "session_manifest": "<SESSION_MANIFEST_PATH>",
       "tmux_session_name": "AGENTSYS-mailbox-sender",
       "tool": "claude"
-    },
-    "sender_stop": {
-      "action": "terminate",
-      "detail": "stopped",
-      "status": "ok"
     }
   }
 }

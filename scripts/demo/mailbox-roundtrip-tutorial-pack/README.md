@@ -1,386 +1,162 @@
-# How Do I Run A Two-Agent Mailbox Roundtrip Through CAO In A Real Project Worktree And Verify It?
+# Mailbox Roundtrip Tutorial Pack
 
 Default agent-definition directory: `tests/fixtures/agents` (override with `AGENT_DEF_DIR=/path/to/agents`).
 
-This tutorial pack answers one concrete question:
+This pack answers one maintainer-friendly question:
 
-> "How can I launch two blueprint-backed CAO sessions into a real git worktree, keep mailbox/runtime/report state under one demo-owned output directory, run `mail send -> mail check -> mail reply -> mail check`, and verify the final sanitized report against a tracked contract?"
+> How do I provision a demo-owned project worktree, launch two CAO-backed mailbox sessions, run the roundtrip, verify the sanitized report contract, and automate regression scenarios from the pack directory itself?
 
-Success means you can run the mailbox roundtrip from a clean checkout, inspect one explicit demo output directory, see both agents working inside `<demo-output-dir>/project`, and confirm the sanitized report still matches `expected_report/report.json`.
+The pack now exposes two automation layers:
 
-## Prerequisites Checklist
+- `run_demo.sh` for the operator and stepwise maintainer command surface.
+- `scripts/run_automation_scenarios.py` for named maintainer regression scenarios that archive machine-readable results under one automation root.
 
-- [ ] `pixi` is installed.
-- [ ] The repo environment is installed (`pixi install` once).
-- [ ] `tmux` is installed and on `PATH`.
-- [ ] You are comfortable letting the wrapper manage a loopback CAO endpoint such as `http://localhost:9889` or `http://127.0.0.1:9991`.
-- [ ] The default Claude Code and Codex credential profiles selected by the tracked blueprints are available under `tests/fixtures/agents/brains/api-creds/`.
-- [ ] You are running from this repository checkout.
+## Prerequisites
 
-The default verified path is launcher-managed loopback CAO. The wrapper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `--cao-profile-store` automatically, and stops that CAO again during cleanup when this run started it.
+- `pixi` is installed and `pixi install` has been run at least once.
+- `tmux` is installed and on `PATH`.
+- The tracked Claude Code and Codex credential profiles selected by the demo blueprints are available under `tests/fixtures/agents/brains/api-creds/`.
+- You are running from this repository checkout or from a valid git worktree of it.
 
-If you point `CAO_BASE_URL` at a non-loopback or intentionally external CAO service, the wrapper does not guess ownership or profile-store state. Instead it exits `0` with a `SKIP:` message that tells you to use the manual `realm_controller` walkthrough with an explicit `CAO_PROFILE_STORE`.
+The default verified path is still launcher-managed loopback CAO. When `CAO_BASE_URL` points at a supported loopback URL such as `http://localhost:9889`, the helper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `--cao-profile-store`, and only stops that CAO later if the current demo run started it.
 
-If a prerequisite is missing or a runtime command clearly fails for credential/connectivity reasons, the wrapper also exits `0` with a `SKIP:` message instead of mutating tracked files.
+If `CAO_BASE_URL` points at an external CAO, the default automation path still exits with `SKIP:` guidance instead of guessing ownership or profile-store state.
 
-## Filesystem Layout
+## Command Surface
 
-The wrapper now distinguishes the demo-owned output directory from the agent-visible workdir:
+The pack wrapper now supports explicit commands:
+
+```bash
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] \
+  [--demo-output-dir <path>] \
+  [--jobs-dir <path>] \
+  [--snapshot-report]
+```
+
+Commands:
+
+- `auto`: start, roundtrip, verify, then stop. This remains the default command when no explicit command is supplied.
+- `start`: provision the demo root, validate or create `<demo-output-dir>/project`, start both mailbox sessions, and persist reusable demo state.
+- `roundtrip`: reuse the existing demo root and run `mail send -> mail check -> mail reply -> mail check`.
+- `verify`: rebuild `report.json`, refresh `report.sanitized.json`, compare against `expected_report/report.json`, and optionally refresh the tracked snapshot with `--snapshot-report`.
+- `stop`: stop demo-owned live sessions and any demo-managed CAO started by the current run.
+
+Examples:
+
+```bash
+# One-shot operator path.
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh
+
+# Stepwise maintainer path.
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh start --demo-output-dir tmp/demo/mailbox-stepwise
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh roundtrip --demo-output-dir tmp/demo/mailbox-stepwise
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh verify --demo-output-dir tmp/demo/mailbox-stepwise
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh stop --demo-output-dir tmp/demo/mailbox-stepwise
+
+# Snapshot refresh from sanitized content only.
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh verify \
+  --demo-output-dir tmp/demo/mailbox-stepwise \
+  --snapshot-report
+```
+
+## Demo Output Layout
+
+The pack now keeps reusable orchestration state inside the selected demo output directory:
 
 ```text
 <demo-output-dir>/
-├── cao/                  # demo-local CAO launcher config and runtime state
-├── project/              # git worktree of this repository; actual agent workdir
-├── runtime/              # build-brain outputs and session manifests
-├── shared-mailbox/       # shared filesystem mailbox root
-├── inputs/               # copied tutorial inputs
-├── cao_start.json        # managed-CAO startup result
-├── sender_*.json         # captured command outputs
-├── receiver_*.json
-├── mail_*.json
+├── cao/                        # demo-local CAO launcher config and runtime artifacts
+├── project/                    # git worktree used as the agents' workdir
+├── runtime/                    # build-brain outputs and session manifests
+├── shared-mailbox/             # shared filesystem mailbox root
+├── inputs/                     # copied tracked inputs for the selected run
+├── demo_state.json             # helper-owned reusable automation state
+├── cao_start.json              # managed-CAO startup result
+├── sender_build.json
+├── receiver_build.json
+├── sender_start.json
+├── receiver_start.json
+├── mail_send.json
+├── receiver_check.json
+├── mail_reply.json
+├── sender_check.json
 ├── report.json
-└── report.sanitized.json
+├── report.sanitized.json
+├── verify_result.json
+├── sender_stop.json            # emitted by explicit `stop` or successful `auto`
+├── receiver_stop.json
+├── stop_result.json
+└── cleanup_*.json              # emitted when cleanup runs after failure or interruption
 ```
 
-By default, the wrapper uses the repo-local output directory `tmp/demo/mailbox-roundtrip-tutorial-pack`. You can override it with `--demo-output-dir <abs-or-rel-path>`. Relative paths are resolved from the repository root.
+Notes:
 
-Important note: `project/` is provisioned with `git worktree add --detach ... HEAD`. That means agents see committed repository state at `HEAD`, not your uncommitted local edits in the source checkout.
+- Relative `--demo-output-dir` and `--jobs-dir` values resolve from the repository root.
+- When `--jobs-dir` is omitted, per-session jobs stay under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
+- The demo root is refreshed between runs, but a valid existing `<demo-output-dir>/project` worktree is preserved and reused.
+- If `<demo-output-dir>/project` already exists but is not a valid git worktree of this repository, the automation fails before any live runtime work starts.
 
-Mailbox state now has two layers:
+## Scenario Automation
 
-- `shared-mailbox/index.sqlite` is the shared delivery/index database for the mailbox root.
-- `shared-mailbox/mailboxes/<address>/mailbox.sqlite` is the mailbox-local state database for one address.
-
-The runtime binds mailbox-local paths per session, so the tutorial verifies both the shared index and each participant's mailbox-local `mailbox.sqlite`. Gateway attach and gateway notifier enablement remain optional; this roundtrip still succeeds through runtime `mail` commands alone.
-
-## Wrapper Options
-
-- `--demo-output-dir <path>`: select the demo-owned output directory. Relative values resolve from the repository root.
-- `--jobs-dir <path>`: optional wrapper-level jobs-root override. Relative values resolve from the repository root. When omitted, Houmao keeps its default per-session job directories under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
-- `--snapshot-report`: refresh `expected_report/report.json` from the new sanitized report.
-
-## Implementation Idea
-
-1. Resolve one demo-owned output directory.
-2. Provision `<demo-output-dir>/project` as a git worktree of the main repository.
-3. Copy tracked inputs into `<demo-output-dir>/inputs`.
-4. Write `<demo-output-dir>/cao/launcher.toml`, start or reuse loopback CAO through the Python helper layer, and derive the matching profile store from that same demo-local launcher context.
-5. Build one Claude Code brain and one Codex brain through `build-brain --blueprint`.
-6. Start both sessions through `start-session --blueprint --backend cao_rest`, using `<demo-output-dir>/project` as `--workdir`, `<demo-output-dir>/shared-mailbox` as the shared mailbox root, and optional `AGENTSYS_LOCAL_JOBS_DIR` only when `--jobs-dir` is supplied.
-7. Use name-based follow-up control for `mail send`, `mail check`, `mail reply`, and `stop-session`, while preserving captured startup payloads for reporting and cleanup.
-8. Build a raw report from the command artifacts, sanitize non-deterministic fields, and compare the sanitized output against `expected_report/report.json`.
-
-The wrapper is a convenience layer. The real operator workflow is still the explicit runtime command sequence documented below.
-
-## Critical Input Snippets
-
-`inputs/demo_parameters.json`:
-
-```json
-{
-  "schema_version": 1,
-  "demo_id": "mailbox-roundtrip-tutorial-pack",
-  "agent_def_dir": "tests/fixtures/agents",
-  "backend": "cao_rest",
-  "cao_base_url": "http://localhost:9889",
-  "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
-  "sender": {
-    "blueprint": "blueprints/gpu-kernel-coder-claude.yaml",
-    "agent_identity": "AGENTSYS-mailbox-sender",
-    "mailbox_principal_id": "AGENTSYS-mailbox-sender",
-    "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost"
-  },
-  "receiver": {
-    "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
-    "agent_identity": "AGENTSYS-mailbox-receiver",
-    "mailbox_principal_id": "AGENTSYS-mailbox-receiver",
-    "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost"
-  },
-  "message": {
-    "subject": "Mailbox tutorial roundtrip",
-    "initial_body_file": "inputs/initial_message.md",
-    "reply_body_file": "inputs/reply_message.md"
-  }
-}
-```
-
-`inputs/initial_message.md`:
-
-```md
-# Mailbox Tutorial: First Message
-
-Please confirm that the shared mailbox is reachable from your runtime session.
-```
-
-`inputs/reply_message.md`:
-
-```md
-# Mailbox Tutorial: Reply Message
-
-Confirmed. The mailbox roundtrip is active and this reply should stay in the same thread.
-```
-
-## Critical Example Code (Build, Start, Send, Check, Reply, Stop)
+The maintainer scenario runner lives inside the pack:
 
 ```bash
-# 1) Pick one demo-owned output directory and derive the nested project workdir.
-DEMO_OUTPUT_DIR="$REPO_ROOT/tmp/demo/mailbox-roundtrip-tutorial-pack"
-PROJECT_DIR="$DEMO_OUTPUT_DIR/project"
-RUNTIME_ROOT="$DEMO_OUTPUT_DIR/runtime"
-MAILBOX_ROOT="$DEMO_OUTPUT_DIR/shared-mailbox"
-
-# 2) Optional: relocate per-session jobs away from the project worktree.
-export AGENTSYS_LOCAL_JOBS_DIR="$REPO_ROOT/tmp/demo/mailbox-jobs"
-
-# 3) Start or reuse loopback CAO through the demo-local launcher config.
-pixi run python scripts/demo/mailbox-roundtrip-tutorial-pack/scripts/tutorial_pack_helpers.py \
-  start-demo-cao \
-  --repo-root "$REPO_ROOT" \
-  --demo-output-dir "$DEMO_OUTPUT_DIR" \
-  --cao-base-url "$CAO_BASE_URL"
-
-# 4) Build the sender brain from the tracked Claude blueprint.
-pixi run python -m houmao.agents.realm_controller build-brain \
-  --agent-def-dir tests/fixtures/agents \
-  --runtime-root "$RUNTIME_ROOT" \
-  --blueprint blueprints/gpu-kernel-coder-claude.yaml
-
-# 5) Start the sender with mailbox overrides and the nested project workdir.
-pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
-  --runtime-root "$RUNTIME_ROOT" \
-  --brain-manifest "$SENDER_MANIFEST" \
-  --blueprint blueprints/gpu-kernel-coder-claude.yaml \
-  --backend cao_rest \
-  --cao-base-url "$CAO_BASE_URL" \
-  --workdir "$PROJECT_DIR" \
-  --agent-identity AGENTSYS-mailbox-sender \
-  --mailbox-transport filesystem \
-  --mailbox-root "$MAILBOX_ROOT" \
-  --mailbox-principal-id AGENTSYS-mailbox-sender \
-  --mailbox-address AGENTSYS-mailbox-sender@agents.localhost
-
-# 6) Send the initial message from the sender to the receiver.
-pixi run python -m houmao.agents.realm_controller mail send \
-  --agent-def-dir tests/fixtures/agents \
-  --agent-identity AGENTSYS-mailbox-sender \
-  --to AGENTSYS-mailbox-receiver@agents.localhost \
-  --subject "Mailbox tutorial roundtrip" \
-  --body-file "$DEMO_OUTPUT_DIR/inputs/initial_message.md"
+pixi run python scripts/demo/mailbox-roundtrip-tutorial-pack/scripts/run_automation_scenarios.py \
+  --automation-root tmp/demo/mailbox-automation
 ```
 
-Credentials still come from the blueprint-selected brain recipes. Mailbox transport, root, principal, and address stay explicit on `start-session`. The wrapper-only `--jobs-dir` flag simply maps to `AGENTSYS_LOCAL_JOBS_DIR` before the two `start-session` calls; direct `realm_controller` commands still use the env var rather than a new runtime CLI flag.
-
-On the default path, `CAO_PROFILE_STORE` does not need to be set by hand. The wrapper derives it from the demo-local launcher-managed CAO state under `<demo-output-dir>/cao/runtime/.../home/.aws/cli-agent-orchestrator/agent-store` and passes that value to both `start-session` calls. If you set `CAO_PROFILE_STORE` anyway, it must match the demo-managed value or the wrapper fails fast.
-
-If `CAO_BASE_URL` points at a non-loopback or intentionally external CAO service, the wrapper does not try to infer ownership or profile-store state. It exits with `SKIP:` guidance instead, and the supported path is the manual command-by-command walkthrough with an explicit `CAO_PROFILE_STORE`.
-
-## Critical Output Snippet
-
-Sanitized report shape:
-
-```json
-{
-  "cao": {
-    "base_url": "http://localhost:9889",
-    "managed": true,
-    "profile_store": "<CAO_PROFILE_STORE>"
-  },
-  "checks": {
-    "cao_managed": true,
-    "receiver_start_mailbox_enabled": true,
-    "receiver_mailbox_local_sqlite_present": true,
-    "receiver_stop_ok": true,
-    "reply_parent_matches_send_message_id": true,
-    "sender_start_mailbox_enabled": true,
-    "sender_mailbox_local_sqlite_present": true,
-    "sender_stop_ok": true,
-    "shared_mailbox_index_present": true,
-    "shared_mailbox_root": true
-  },
-  "demo": "mailbox-roundtrip-tutorial-pack",
-  "demo_output_dir": "<DEMO_OUTPUT_DIR>",
-  "mailbox_state": {
-    "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
-    "sender_local_sqlite_path": "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>",
-    "receiver_local_sqlite_path": "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>"
-  },
-  "project_workdir": "<PROJECT_WORKDIR>",
-  "reply_parent_message_id": "<MESSAGE_ID>"
-}
-```
-
-The full tracked contract lives in `expected_report/report.json`. The placeholders above show the important masking behavior, not the complete report.
-
-## Run + Verify Workflow
-
-1. Run the one-click wrapper.
-
-   ```bash
-   scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh
-   ```
-
-   Or pick explicit locations:
-
-   ```bash
-   scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh \
-     --demo-output-dir demos/manual-mailbox-run \
-     --jobs-dir tmp/demo/mailbox-jobs
-   ```
-
-   Expected terminal lines:
-
-   ```text
-   [demo][mailbox-roundtrip] demo output dir: ...
-   [demo][mailbox-roundtrip] project workdir: ...
-   [demo][mailbox-roundtrip] cao_start: ok
-   [demo][mailbox-roundtrip] CAO mode: launcher-managed loopback
-   [demo][mailbox-roundtrip] sender_build: ok
-   [demo][mailbox-roundtrip] receiver_start: ok
-   verification passed
-   [demo][mailbox-roundtrip] demo complete
-   ```
-
-2. Inspect the generated artifacts.
-
-   ```bash
-   ls -1 "$DEMO_OUTPUT_DIR" | rg 'sender_|receiver_|mail_|report'
-   ```
-
-   Expected key files:
-
-   ```text
-   cao/
-   cao_start.json
-   sender_build.json
-   sender_start.json
-   mail_send.json
-   receiver_check.json
-   mail_reply.json
-   sender_check.json
-   sender_stop.json
-   receiver_stop.json
-   report.json
-   report.sanitized.json
-   ```
-
-3. Compare the sanitized report manually if you want a direct diff.
-
-   ```bash
-   diff -u \
-     "$DEMO_OUTPUT_DIR/report.sanitized.json" \
-     scripts/demo/mailbox-roundtrip-tutorial-pack/expected_report/report.json
-   ```
-
-   Expected output:
-
-   ```text
-   # no output means the files match
-   ```
-
-## Manual Command-By-Command Walkthrough
-
-The wrapper documents the same steps it runs:
-
-1. Set `DEMO_OUTPUT_DIR`, provision `PROJECT_DIR="$DEMO_OUTPUT_DIR/project"` as a git worktree, and copy `inputs/` into `$DEMO_OUTPUT_DIR/inputs`.
-2. Set `RUNTIME_ROOT="$DEMO_OUTPUT_DIR/runtime"` and `MAILBOX_ROOT="$DEMO_OUTPUT_DIR/shared-mailbox"`.
-3. Optionally export `AGENTSYS_LOCAL_JOBS_DIR` if you want the same jobs-root override that `--jobs-dir` provides.
-4. Build the Claude sender brain with `--blueprint blueprints/gpu-kernel-coder-claude.yaml`.
-5. Build the Codex receiver brain with `--blueprint blueprints/gpu-kernel-coder-codex.yaml`.
-6. Start or reuse loopback CAO from the helper-owned launcher config, and use the matching demo-local profile store on both `start-session` calls.
-7. Start both sessions with `--backend cao_rest`, `--workdir "$PROJECT_DIR"`, and explicit `--mailbox-transport`, `--mailbox-root`, `--mailbox-principal-id`, and `--mailbox-address`.
-8. Save the `message_id` from `mail send`, and fail if it is blank.
-9. Run receiver `mail check`, receiver `mail reply --message-id "$SEND_MESSAGE_ID"`, sender `mail check`, and then both `stop-session` calls.
-
-Nothing in the runner depends on a tutorial-owned `state.json`. Follow-up commands target the two sessions by their name-based `--agent-identity` values, and cleanup uses the same identities if the second startup or a later command fails.
-
-## Refresh Snapshot Contract
-
-Use this only when mailbox behavior changes intentionally:
+Select individual scenarios with repeated `--scenario` flags:
 
 ```bash
-scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh --snapshot-report
+pixi run python scripts/demo/mailbox-roundtrip-tutorial-pack/scripts/run_automation_scenarios.py \
+  --automation-root tmp/demo/mailbox-automation \
+  --scenario auto-implicit-jobs-dir \
+  --scenario stepwise-start-roundtrip-verify-stop \
+  --scenario partial-failure-cleanup
 ```
 
-Snapshot mode rewrites `expected_report/report.json` from `report.sanitized.json` only. The runner does not update tracked inputs or any other tracked files.
+Current built-in scenarios:
 
-## Troubleshooting
+- `auto-implicit-jobs-dir`
+- `auto-explicit-jobs-dir`
+- `stepwise-start-roundtrip-verify-stop`
+- `rerun-valid-project-reuse`
+- `incompatible-project-dir`
+- `verify-snapshot-refresh`
+- `cleanup-ownership-reused-managed-cao`
+- `partial-failure-cleanup`
+- `interrupted-run-cleanup`
 
-- `SKIP: pixi not found on PATH`
-  Install Pixi and retry.
-- `SKIP: tmux not found on PATH`
-  Install tmux and retry because CAO-backed sessions still depend on tmux-managed runtime recovery.
-- `SKIP: missing credentials`
-  Create the credential env files referenced by the tracked Claude and Codex recipes under `tests/fixtures/agents/brains/api-creds/`.
-- `SKIP: external CAO requires explicit CAO_PROFILE_STORE=/abs/path/.../agent-store`
-  The wrapper only verifies launcher-managed loopback CAO. Use the manual walkthrough if you want to target a non-loopback or otherwise external CAO service.
-- `SKIP: external CAO is not part of the default verified tutorial contract`
-  The wrapper intentionally stops here instead of guessing external launcher ownership or profile-store state.
-- `SKIP: connectivity unavailable`
-  Start or repair the CAO service at `CAO_BASE_URL`, then retry.
-- `FAIL: demo project directory exists but is not a git worktree of the repository`
-  Remove or relocate the incompatible `<demo-output-dir>/project` directory, then rerun.
-- `FAIL: command failed during cao_start`
-  Inspect `cao_start.err` and `cao_start.json`. Ownership-mismatch recovery or launcher startup failed before the agent sessions began.
-- `FAIL: command failed during receiver_start`
-  Inspect `receiver_start.err`. The wrapper should still stop the already-started sender during trap cleanup.
-- `sanitized report mismatch`
-  Re-run in snapshot mode if the behavior change is intentional; otherwise inspect the raw report and the captured per-step JSON outputs for regressions.
+Scenario outputs are written under the selected automation root:
 
-## Appendix: Key Parameters
+```text
+<automation-root>/
+├── suite-summary.json
+└── <scenario-id>/
+    ├── commands/
+    │   ├── 01-*.stdout.txt
+    │   └── 01-*.stderr.txt
+    ├── demo/                  # the per-scenario demo-output-dir when the scenario uses one
+    └── scenario-result.json
+```
 
-| Name | Value | Explanation |
-|---|---|---|
-| `backend` | `cao_rest` | Forces the tutorial through the CAO-backed runtime path. |
-| Sender blueprint | `blueprints/gpu-kernel-coder-claude.yaml` | Selects the default Claude Code recipe and `gpu-kernel-coder` role. |
-| Receiver blueprint | `blueprints/gpu-kernel-coder-codex.yaml` | Selects the default Codex recipe and `gpu-kernel-coder` role. |
-| `--demo-output-dir` | `tmp/demo/mailbox-roundtrip-tutorial-pack` by default | Demo-owned output root for the nested project worktree, mailbox root, runtime root, copied inputs, and reports. |
-| Agent workdir | `<demo-output-dir>/project` | Git worktree used as the actual `start-session --workdir` for both agents. |
-| `shared_mailbox_root_template` | `{demo_output_dir}/shared-mailbox` | Keeps the mailbox root shared inside the selected demo output directory. |
-| `--jobs-dir` | optional wrapper override | Redirects per-session job dirs through `AGENTSYS_LOCAL_JOBS_DIR`; omit it to keep Houmao's default under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`. |
-| Sender identity | `AGENTSYS-mailbox-sender` | Name-based recovery target used for send, check, and stop. |
-| Receiver identity | `AGENTSYS-mailbox-receiver` | Name-based recovery target used for check, reply, and stop. |
-| `CAO_BASE_URL` | `http://localhost:9889` by default | Override when you want the wrapper to manage a different supported loopback endpoint such as `http://127.0.0.1:9991`. Non-loopback values are treated as external/manual mode and the wrapper skips with guidance. |
-| `CAO_PROFILE_STORE` | optional env override | On the default managed path this is derived automatically from the demo-local launcher state; set it only if you need to assert the exact managed store value. |
+`suite-summary.json` and each `scenario-result.json` are machine-readable and designed for both maintainers and integration tests.
 
-## Appendix: File Inventory
+## Verification Contract
 
-Tracked inputs:
+`verify` and `auto` both build `report.json`, sanitize the result to `report.sanitized.json`, and compare only the sanitized content against `expected_report/report.json`.
 
-- `inputs/demo_parameters.json`
-- `inputs/initial_message.md`
-- `inputs/reply_message.md`
+The sanitized contract still masks path-, timestamp-, mailbox-, and request-dependent values. Stepwise verification uses the same contract as the one-shot `auto` flow, so maintainers can compare or refresh the snapshot after either path without needing a second unrelated run.
 
-Tracked expected output:
+## Manual Realm-Controller Walkthrough
 
-- `expected_report/report.json`
+The pack still mirrors the same underlying runtime flow:
 
-Scripts:
+1. Start or reuse demo-local CAO.
+2. Build sender and receiver brains.
+3. Start both sessions against `<demo-output-dir>/project` and `<demo-output-dir>/shared-mailbox`.
+4. Send the initial message, check it from the receiver, reply, and check the reply from the sender.
+5. Build and sanitize the report.
+6. Stop the demo-owned resources.
 
-- `run_demo.sh`
-- `scripts/tutorial_pack_helpers.py`
-- `scripts/sanitize_report.py`
-- `scripts/verify_report.py`
-
-Generated demo-output-dir artifacts:
-
-- `cao/`
-- `cao_start.json`, `cao_start.err`
-- `project/`
-- `runtime/`
-- `shared-mailbox/`
-- `inputs/`
-- `sender_build.json`, `sender_build.err`
-- `receiver_build.json`, `receiver_build.err`
-- `sender_start.json`, `sender_start.err`
-- `receiver_start.json`, `receiver_start.err`
-- `mail_send.json`, `mail_send.err`
-- `receiver_check.json`, `receiver_check.err`
-- `mail_reply.json`, `mail_reply.err`
-- `sender_check.json`, `sender_check.err`
-- `sender_stop.json`, `sender_stop.err`
-- `receiver_stop.json`, `receiver_stop.err`
-- `report.json`
-- `report.sanitized.json`
-- `cleanup_cao_stop.json` when trap cleanup had to stop demo-managed CAO
-- `cleanup_sender_stop.json` / `cleanup_receiver_stop.json` only when trap cleanup had to intervene
+The wrapper and scenario runner are just pack-owned automation layers around that sequence so maintainers do not need a separate test-only harness.

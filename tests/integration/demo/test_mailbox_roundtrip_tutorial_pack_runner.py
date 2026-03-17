@@ -9,6 +9,7 @@ import stat
 import subprocess
 import textwrap
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -243,13 +244,14 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
 
                 if command == "start":
                     state["cao"] = {"healthy": True}
+                    reused_existing = os.environ.get("FAKE_CAO_REUSE") == "1"
                     print(
                         json.dumps(
                             {
                                 "healthy": True,
-                                "started_new_process": True,
-                                "reused_existing_process": False,
-                                "message": "started fake CAO",
+                                "started_new_process": not reused_existing,
+                                "reused_existing_process": reused_existing,
+                                "message": "reused fake CAO" if reused_existing else "started fake CAO",
                                 "ownership": ownership,
                             }
                         )
@@ -505,8 +507,74 @@ def _launcher_calls(command_log: list[dict[str, object]]) -> list[list[str]]:
     return calls
 
 
-def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: Path) -> None:
-    """The shell runner should honor the revised output-dir and jobs-dir contract."""
+def _base_env(
+    *,
+    fake_bin_dir: Path,
+    repo_root: Path,
+    state_path: Path,
+    log_path: Path,
+) -> dict[str, str]:
+    """Build one shared fake-tool environment for mailbox demo tests."""
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
+    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
+    env["FAKE_PIXI_STATE"] = str(state_path)
+    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    for key in (
+        "CAO_PROFILE_STORE",
+        "DEMO_EXTERNAL_CAO",
+        "FAKE_CAO_REUSE",
+        "FAKE_RECEIVER_START_FAIL",
+        "MAILBOX_ROUNDTRIP_DEMO_FAULT",
+    ):
+        env.pop(key, None)
+    return env
+
+
+def _run_scenario_runner(
+    *,
+    repo_root: Path,
+    demo_pack_dir: Path,
+    automation_root: Path,
+    env: dict[str, str],
+    scenarios: list[str],
+) -> subprocess.CompletedProcess[str]:
+    """Run the pack-local scenario runner for one selected scenario set."""
+
+    argv = [
+        "pixi",
+        "run",
+        "python",
+        str(demo_pack_dir / "scripts" / "run_automation_scenarios.py"),
+        "--automation-root",
+        str(automation_root),
+    ]
+    for scenario_id in scenarios:
+        argv.extend(["--scenario", scenario_id])
+    return subprocess.run(
+        argv,
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _scenario_result(automation_root: Path, scenario_id: str) -> dict[str, Any]:
+    """Load one persisted scenario result payload."""
+
+    return json.loads(
+        (automation_root / scenario_id / "scenario-result.json").read_text(encoding="utf-8")
+    )
+
+
+def test_mailbox_roundtrip_scenario_runner_covers_contract_and_ownership_cases(
+    tmp_path: Path,
+) -> None:
+    """The pack-local scenario runner should cover the core success and ownership cases."""
 
     repo_root = tmp_path / "repo"
     (repo_root / "scripts" / "demo").mkdir(parents=True)
@@ -520,102 +588,108 @@ def test_mailbox_roundtrip_runner_honors_demo_output_dir_and_jobs_dir(tmp_path: 
 
     state_path = tmp_path / "pixi-state.json"
     log_path = tmp_path / "pixi-command-log.jsonl"
-    output_relative = "demos/manual-mailbox-run"
-    jobs_relative = "tmp/demo/mailbox-jobs"
+    automation_root = tmp_path / "automation"
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
+    )
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
-    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
-    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
-    env["FAKE_PIXI_STATE"] = str(state_path)
-    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
-    env.pop("CAO_PROFILE_STORE", None)
-    env.pop("DEMO_EXTERNAL_CAO", None)
-
-    result = subprocess.run(
-        [
-            str(demo_pack_dir / "run_demo.sh"),
-            "--demo-output-dir",
-            output_relative,
-            "--jobs-dir",
-            jobs_relative,
-        ],
-        cwd=repo_root,
+    result = _run_scenario_runner(
+        repo_root=repo_root,
+        demo_pack_dir=demo_pack_dir,
+        automation_root=automation_root,
         env=env,
-        check=False,
-        capture_output=True,
-        text=True,
+        scenarios=[
+            "auto-implicit-jobs-dir",
+            "auto-explicit-jobs-dir",
+            "rerun-valid-project-reuse",
+            "incompatible-project-dir",
+            "cleanup-ownership-reused-managed-cao",
+        ],
     )
 
     assert result.returncode == 0, result.stderr
-    assert "verification passed" in result.stdout
+    suite_summary = json.loads((automation_root / "suite-summary.json").read_text(encoding="utf-8"))
+    assert suite_summary["failed"] == 0
 
-    demo_output_dir = _demo_output_dir(repo_root, output_relative)
-    jobs_root = _demo_output_dir(repo_root, jobs_relative)
-    assert (demo_output_dir / "project" / ".git").is_file()
-    actual_sanitized = json.loads(
-        (demo_output_dir / "report.sanitized.json").read_text(encoding="utf-8")
+    implicit = _scenario_result(automation_root, "auto-implicit-jobs-dir")
+    explicit = _scenario_result(automation_root, "auto-explicit-jobs-dir")
+    rerun = _scenario_result(automation_root, "rerun-valid-project-reuse")
+    incompatible = _scenario_result(automation_root, "incompatible-project-dir")
+    ownership = _scenario_result(automation_root, "cleanup-ownership-reused-managed-cao")
+
+    assert implicit["ok"] is True
+    assert explicit["ok"] is True
+    assert rerun["ok"] is True
+    assert incompatible["ok"] is True
+    assert ownership["ok"] is True
+    assert implicit["checks"]["sender_job_dir"].endswith(
+        "/project/.houmao/jobs/AGENTSYS-mailbox-sender"
     )
-    expected_sanitized = json.loads(
-        (demo_pack_dir / "expected_report" / "report.json").read_text(encoding="utf-8")
+    assert explicit["checks"]["sender_job_dir"].endswith("/jobs-root/AGENTSYS-mailbox-sender")
+    assert rerun["checks"]["reuse_marker_preserved"] is True
+    assert incompatible["checks"]["sender_start_created"] is False
+    assert ownership["checks"]["cao_ownership"] == "reused-existing-process"
+
+
+def test_mailbox_roundtrip_scenario_runner_covers_stepwise_snapshot_and_cleanup_cases(
+    tmp_path: Path,
+) -> None:
+    """The scenario runner should cover stepwise verify and failure cleanup paths."""
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts" / "demo").mkdir(parents=True)
+    (repo_root / "tests" / "fixtures").mkdir(parents=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    _copy_agent_defs(repo_root)
+
+    fake_bin_dir = tmp_path / "fake-bin"
+    fake_bin_dir.mkdir()
+    _write_fake_tools(fake_bin_dir)
+
+    state_path = tmp_path / "pixi-state.json"
+    log_path = tmp_path / "pixi-command-log.jsonl"
+    automation_root = tmp_path / "automation"
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
     )
-    assert actual_sanitized == expected_sanitized
 
-    command_log = _load_command_log(log_path)
-    calls = _realm_controller_calls(command_log)
-    launcher_calls = _launcher_calls(command_log)
-    build_calls = [call for call in calls if call[4] == "build-brain"]
-    start_calls = [call for call in calls if call[4] == "start-session"]
-    mail_calls = [call for call in calls if call[4:6] == ["mail", "send"]]
-    mail_calls += [call for call in calls if call[4:6] == ["mail", "check"]]
-    mail_calls += [call for call in calls if call[4:6] == ["mail", "reply"]]
-    stop_calls = [call for call in calls if call[4] == "stop-session"]
+    result = _run_scenario_runner(
+        repo_root=repo_root,
+        demo_pack_dir=demo_pack_dir,
+        automation_root=automation_root,
+        env=env,
+        scenarios=[
+            "stepwise-start-roundtrip-verify-stop",
+            "verify-snapshot-refresh",
+            "partial-failure-cleanup",
+            "interrupted-run-cleanup",
+        ],
+    )
 
-    assert len(build_calls) == 2
-    assert all("--blueprint" in call for call in build_calls)
+    assert result.returncode == 0, result.stderr
+    suite_summary = json.loads((automation_root / "suite-summary.json").read_text(encoding="utf-8"))
+    assert suite_summary["failed"] == 0
 
-    assert len(start_calls) == 2
-    for call in start_calls:
-        assert "--backend" in call
-        assert call[call.index("--backend") + 1] == "cao_rest"
-        assert "--blueprint" in call
-        assert "--workdir" in call
-        assert call[call.index("--workdir") + 1] == str(demo_output_dir / "project")
-        assert "--mailbox-transport" in call
-        assert call[call.index("--mailbox-transport") + 1] == "filesystem"
-        assert "--mailbox-root" in call
-        assert call[call.index("--mailbox-root") + 1] == str(demo_output_dir / "shared-mailbox")
-        assert "--mailbox-principal-id" in call
-        assert "--mailbox-address" in call
-        assert "--cao-profile-store" in call
-        assert (
-            call[call.index("--cao-profile-store") + 1]
-            == str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "home"
-                / ".aws"
-                / "cli-agent-orchestrator"
-                / "agent-store"
-            )
-        )
+    stepwise = _scenario_result(automation_root, "stepwise-start-roundtrip-verify-stop")
+    snapshot = _scenario_result(automation_root, "verify-snapshot-refresh")
+    failure = _scenario_result(automation_root, "partial-failure-cleanup")
+    interrupted = _scenario_result(automation_root, "interrupted-run-cleanup")
 
-    assert [call[4] for call in launcher_calls] == ["start", "stop"]
-
-    sender_start = json.loads((demo_output_dir / "sender_start.json").read_text(encoding="utf-8"))
-    receiver_start = json.loads((demo_output_dir / "receiver_start.json").read_text(encoding="utf-8"))
-    assert sender_start["job_dir"] == str(jobs_root / "AGENTSYS-mailbox-sender")
-    assert receiver_start["job_dir"] == str(jobs_root / "AGENTSYS-mailbox-receiver")
-
-    assert [call[5] for call in calls if call[4] == "mail"] == ["send", "check", "reply", "check"]
-    assert len(mail_calls) == 4
-
-    assert len(stop_calls) == 2
-    stop_identities = {call[call.index("--agent-identity") + 1] for call in stop_calls}
-    assert stop_identities == {"AGENTSYS-mailbox-sender", "AGENTSYS-mailbox-receiver"}
+    assert stepwise["ok"] is True
+    assert snapshot["ok"] is True
+    assert failure["ok"] is True
+    assert interrupted["ok"] is True
+    assert stepwise["checks"]["verify_result_path"].endswith("/verify_result.json")
+    assert snapshot["checks"]["snapshot_refreshed"] is True
+    assert failure["checks"]["cleanup_mode"] is True
+    assert interrupted["checks"]["cleanup_mode"] is True
+    assert interrupted["checks"]["mail_reply_present"] is False
 
 
 def test_mailbox_roundtrip_runner_honors_agent_def_dir_env_override(tmp_path: Path) -> None:
@@ -638,15 +712,13 @@ def test_mailbox_roundtrip_runner_honors_agent_def_dir_env_override(tmp_path: Pa
     state_path = tmp_path / "pixi-state.json"
     log_path = tmp_path / "pixi-command-log.jsonl"
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
-    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
-    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
-    env["FAKE_PIXI_STATE"] = str(state_path)
-    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
+    )
     env["AGENT_DEF_DIR"] = str(custom_agent_def_dir)
-    env.pop("CAO_PROFILE_STORE", None)
-    env.pop("DEMO_EXTERNAL_CAO", None)
 
     result = subprocess.run(
         [str(demo_pack_dir / "run_demo.sh")],
@@ -663,58 +735,9 @@ def test_mailbox_roundtrip_runner_honors_agent_def_dir_env_override(tmp_path: Pa
     calls = _realm_controller_calls(_load_command_log(log_path))
     assert calls
     assert all("--agent-def-dir" in call for call in calls)
-    assert all(call[call.index("--agent-def-dir") + 1] == str(custom_agent_def_dir) for call in calls)
-
-
-def test_mailbox_roundtrip_runner_cleans_up_sender_when_receiver_start_fails(tmp_path: Path) -> None:
-    """Trap cleanup should stop the already-started sender if receiver startup fails."""
-
-    repo_root = tmp_path / "repo"
-    (repo_root / "scripts" / "demo").mkdir(parents=True)
-    (repo_root / "tests" / "fixtures").mkdir(parents=True)
-    demo_pack_dir = _copy_demo_pack(repo_root)
-    _copy_agent_defs(repo_root)
-
-    fake_bin_dir = tmp_path / "fake-bin"
-    fake_bin_dir.mkdir()
-    _write_fake_tools(fake_bin_dir)
-
-    state_path = tmp_path / "pixi-state.json"
-    log_path = tmp_path / "pixi-command-log.jsonl"
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
-    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
-    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
-    env["FAKE_PIXI_STATE"] = str(state_path)
-    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
-    env["FAKE_RECEIVER_START_FAIL"] = "1"
-    env.pop("CAO_PROFILE_STORE", None)
-    env.pop("DEMO_EXTERNAL_CAO", None)
-
-    result = subprocess.run(
-        [str(demo_pack_dir / "run_demo.sh")],
-        cwd=repo_root,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
+    assert all(
+        call[call.index("--agent-def-dir") + 1] == str(custom_agent_def_dir) for call in calls
     )
-
-    assert result.returncode == 1
-    assert "receiver_start" in result.stdout
-
-    command_log = _load_command_log(log_path)
-    calls = _realm_controller_calls(command_log)
-    launcher_calls = _launcher_calls(command_log)
-    stop_calls = [call for call in calls if call[4] == "stop-session"]
-    assert len(stop_calls) == 1
-    assert stop_calls[0][stop_calls[0].index("--agent-identity") + 1] == "AGENTSYS-mailbox-sender"
-    assert [call[4] for call in launcher_calls] == ["start", "stop"]
-
-    demo_output_dir = _demo_output_dir(repo_root)
-    assert (demo_output_dir / "cleanup_sender_stop.json").is_file()
-    assert (demo_output_dir / "cleanup_cao_stop.json").is_file()
 
 
 def test_mailbox_roundtrip_runner_skips_external_cao_without_explicit_profile_store(
@@ -735,15 +758,13 @@ def test_mailbox_roundtrip_runner_skips_external_cao_without_explicit_profile_st
     state_path = tmp_path / "pixi-state.json"
     log_path = tmp_path / "pixi-command-log.jsonl"
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
-    env["PYTHONPATH"] = f"{_source_repo_root() / 'src'}:{env.get('PYTHONPATH', '')}"
-    env["FAKE_GIT_TOPLEVEL"] = str(repo_root)
-    env["FAKE_PIXI_STATE"] = str(state_path)
-    env["FAKE_PIXI_COMMAND_LOG"] = str(log_path)
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
+    )
     env["CAO_BASE_URL"] = "http://cao.example.com:9889"
-    env.pop("CAO_PROFILE_STORE", None)
-    env.pop("DEMO_EXTERNAL_CAO", None)
 
     result = subprocess.run(
         [str(demo_pack_dir / "run_demo.sh")],

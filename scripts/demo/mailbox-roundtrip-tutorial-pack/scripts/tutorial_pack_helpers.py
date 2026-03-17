@@ -5,15 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
@@ -26,11 +27,9 @@ from houmao.mailbox.filesystem import (
     resolve_active_mailbox_local_sqlite_path,
 )
 
-_TIMESTAMP_PATTERN = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$"
-)
+_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
-_FLOW = [
+_REPORT_FLOW = [
     "sender_build",
     "receiver_build",
     "sender_start",
@@ -39,10 +38,13 @@ _FLOW = [
     "receiver_check",
     "mail_reply",
     "sender_check",
+]
+_STOP_FLOW = [
     "sender_stop",
     "receiver_stop",
 ]
-_ARTIFACT_FILENAMES = {label: f"{label}.json" for label in _FLOW}
+_COMMAND_FLOW = [*_REPORT_FLOW, *_STOP_FLOW]
+_ARTIFACT_FILENAMES = {label: f"{label}.json" for label in _COMMAND_FLOW}
 _PATH_PLACEHOLDERS = {
     "demo_output_dir": "<DEMO_OUTPUT_DIR>",
     "project_workdir": "<PROJECT_WORKDIR>",
@@ -92,6 +94,10 @@ _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/mailbox-roundtrip-tutorial-pack")
 
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 LauncherRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+
+
+class DemoSkipError(RuntimeError):
+    """Error used when the demo should exit with a tracked skip message."""
 
 
 @dataclass(frozen=True)
@@ -150,8 +156,11 @@ class DemoLayout:
     cao_start_path: Path
     inputs_dir: Path
     mailbox_root: Path
+    state_path: Path
     report_path: Path
     sanitized_report_path: Path
+    verify_result_path: Path
+    stop_result_path: Path
 
 
 def _read_json(path: Path) -> Any:
@@ -330,7 +339,9 @@ def _participant_from_payload(payload: Any, *, context: str) -> DemoParticipant:
 
     mapping = _require_mapping(payload, context=context)
     return DemoParticipant(
-        blueprint=_require_non_empty_string(mapping.get("blueprint"), context=f"{context}.blueprint"),
+        blueprint=_require_non_empty_string(
+            mapping.get("blueprint"), context=f"{context}.blueprint"
+        ),
         agent_identity=_require_non_empty_string(
             mapping.get("agent_identity"), context=f"{context}.agent_identity"
         ),
@@ -370,7 +381,9 @@ def load_demo_parameters(path: Path) -> DemoParameters:
     parameters = DemoParameters(
         schema_version=int(schema_version),
         demo_id=_require_non_empty_string(payload.get("demo_id"), context="demo_id"),
-        agent_def_dir=_require_non_empty_string(payload.get("agent_def_dir"), context="agent_def_dir"),
+        agent_def_dir=_require_non_empty_string(
+            payload.get("agent_def_dir"), context="agent_def_dir"
+        ),
         backend=_require_non_empty_string(payload.get("backend"), context="backend"),
         cao_base_url=_require_non_empty_string(payload.get("cao_base_url"), context="cao_base_url"),
         shared_mailbox_root_template=_require_non_empty_string(
@@ -432,8 +445,11 @@ def build_demo_layout(*, demo_output_dir: Path) -> DemoLayout:
         cao_start_path=resolved_output_dir / "cao_start.json",
         inputs_dir=resolved_output_dir / "inputs",
         mailbox_root=resolved_output_dir / "shared-mailbox",
+        state_path=resolved_output_dir / "demo_state.json",
         report_path=resolved_output_dir / "report.json",
         sanitized_report_path=resolved_output_dir / "report.sanitized.json",
+        verify_result_path=resolved_output_dir / "verify_result.json",
+        stop_result_path=resolved_output_dir / "stop_result.json",
     )
 
 
@@ -468,16 +484,20 @@ def extract_message_id(path: Path) -> str:
 def _artifact_paths(demo_output_dir: Path) -> dict[str, Path]:
     """Return the expected demo-output-dir-local artifact paths."""
 
-    return {
-        label: demo_output_dir / filename for label, filename in _ARTIFACT_FILENAMES.items()
-    }
+    return {label: demo_output_dir / filename for label, filename in _ARTIFACT_FILENAMES.items()}
+
+
+def _report_artifact_paths(demo_output_dir: Path) -> dict[str, Path]:
+    """Return the report-building artifact set for one demo output directory."""
+
+    return {label: demo_output_dir / _ARTIFACT_FILENAMES[label] for label in _REPORT_FLOW}
 
 
 def _load_artifacts(demo_output_dir: Path) -> dict[str, dict[str, Any]]:
     """Load all required JSON artifacts from the demo output directory."""
 
     artifacts: dict[str, dict[str, Any]] = {}
-    for label, path in _artifact_paths(demo_output_dir).items():
+    for label, path in _report_artifact_paths(demo_output_dir).items():
         artifacts[label] = _require_mapping(_read_json(path), context=str(path))
     return artifacts
 
@@ -554,11 +574,11 @@ def is_repo_project_worktree(
     if project_top is None or repo_common is None or project_common is None:
         return False
 
-    return (
-        _resolved_git_reported_path(project_top, cwd=project_workdir) == project_workdir.resolve()
-        and _resolved_git_reported_path(project_common, cwd=project_workdir)
-        == _resolved_git_reported_path(repo_common, cwd=repo_root)
-    )
+    return _resolved_git_reported_path(
+        project_top, cwd=project_workdir
+    ) == project_workdir.resolve() and _resolved_git_reported_path(
+        project_common, cwd=project_workdir
+    ) == _resolved_git_reported_path(repo_common, cwd=repo_root)
 
 
 def ensure_project_worktree(
@@ -802,6 +822,912 @@ def stop_demo_cao(
     )
 
 
+def _resolve_cao_context(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+    cao_base_url: str,
+    cao_profile_store: str | None,
+) -> dict[str, Any]:
+    """Resolve the supported CAO execution context for one demo run."""
+
+    normalized_base_url = _normalize_cao_base_url(cao_base_url)
+    if supports_loopback_cao_launcher_management(normalized_base_url):
+        payload = start_demo_cao(
+            repo_root=repo_root,
+            demo_output_dir=demo_output_dir,
+            cao_base_url=normalized_base_url,
+        )
+        if cao_profile_store is not None and cao_profile_store.strip():
+            requested_profile_store = str(Path(cao_profile_store).expanduser().resolve())
+            actual_profile_store = _require_non_empty_string(
+                payload.get("profile_store"),
+                context="cao.profile_store",
+            )
+            if requested_profile_store != actual_profile_store:
+                raise ValueError(
+                    "CAO_PROFILE_STORE override does not match the demo-managed CAO profile store"
+                )
+        return payload
+    if cao_profile_store is None or not cao_profile_store.strip():
+        raise DemoSkipError(
+            "external CAO requires explicit CAO_PROFILE_STORE=/abs/path/.../agent-store"
+        )
+    raise DemoSkipError(
+        "external CAO is not part of the default verified tutorial contract; use the "
+        "manual realm_controller walkthrough with explicit CAO_PROFILE_STORE"
+    )
+
+
+def _stderr_path_for(path: Path) -> Path:
+    """Return the stderr artifact path paired with one stdout artifact path."""
+
+    if path.suffix:
+        return path.with_suffix(".err")
+    return Path(f"{path}.err")
+
+
+def _load_state(state_path: Path) -> dict[str, Any]:
+    """Load one persisted demo state payload."""
+
+    return _require_mapping(_read_json(state_path), context=str(state_path))
+
+
+def _write_state(path: Path, payload: dict[str, Any]) -> None:
+    """Persist one demo state payload."""
+
+    _write_json(path, payload)
+
+
+def _copy_inputs(*, pack_dir: Path, layout: DemoLayout) -> None:
+    """Refresh the demo-local copied input files."""
+
+    source_dir = pack_dir / "inputs"
+    if not source_dir.is_dir():
+        raise ValueError(f"missing tracked input directory: {source_dir}")
+    if layout.inputs_dir.exists():
+        shutil.rmtree(layout.inputs_dir)
+    shutil.copytree(source_dir, layout.inputs_dir)
+
+
+def _command_environment(*, jobs_dir: Path | None) -> dict[str, str]:
+    """Return subprocess environment overrides for demo commands."""
+
+    env = dict(os.environ)
+    if jobs_dir is not None:
+        env["AGENTSYS_LOCAL_JOBS_DIR"] = str(jobs_dir.resolve())
+    else:
+        env.pop("AGENTSYS_LOCAL_JOBS_DIR", None)
+    return env
+
+
+def _run_json_command(
+    *,
+    command: list[str],
+    cwd: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    accepted_exit_codes: set[int] | None = None,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run one command, persist raw output, and parse a JSON stdout payload."""
+
+    result = subprocess.run(
+        command,
+        cwd=str(cwd.resolve()),
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    stdout_path.write_text(result.stdout, encoding="utf-8")
+    stderr_path.write_text(result.stderr, encoding="utf-8")
+
+    allowed = accepted_exit_codes if accepted_exit_codes is not None else {0}
+    if result.returncode not in allowed:
+        detail = result.stderr.strip() or result.stdout.strip() or "command failed"
+        raise RuntimeError(f"{detail} (exit={result.returncode})")
+
+    payload_text = result.stdout.strip()
+    if not payload_text:
+        return {}
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"command returned malformed JSON: {exc}") from exc
+    return _require_mapping(payload, context="command output")
+
+
+def _run_realm_controller_json(
+    *,
+    repo_root: Path,
+    args: list[str],
+    stdout_path: Path,
+    env: dict[str, str] | None = None,
+    accepted_exit_codes: set[int] | None = None,
+) -> dict[str, Any]:
+    """Run one `houmao.agents.realm_controller` command and parse JSON output."""
+
+    return _run_json_command(
+        command=["pixi", "run", "python", "-m", "houmao.agents.realm_controller", *args],
+        cwd=repo_root,
+        stdout_path=stdout_path,
+        stderr_path=_stderr_path_for(stdout_path),
+        env=env,
+        accepted_exit_codes=accepted_exit_codes,
+    )
+
+
+def _agent_def_dir(*, parameters: DemoParameters, repo_root: Path) -> Path:
+    """Resolve the active agent-definition directory for one demo run."""
+
+    return resolve_repo_relative_path(
+        os.environ.get("AGENT_DEF_DIR"),
+        repo_root=repo_root,
+        default_relative=parameters.agent_def_dir,
+    )
+
+
+def _participant_state(participant: DemoParticipant) -> dict[str, Any]:
+    """Build the mutable per-participant state payload."""
+
+    return {
+        "blueprint": participant.blueprint,
+        "requested_identity": participant.agent_identity,
+        "mailbox_principal_id": participant.mailbox_principal_id,
+        "mailbox_address": participant.mailbox_address,
+        "build": None,
+        "start": None,
+        "started_current_run": False,
+        "stopped": False,
+    }
+
+
+def _initial_state(
+    *,
+    parameters: DemoParameters,
+    parameters_path: Path,
+    layout: DemoLayout,
+    agent_def_dir: Path,
+    jobs_dir: Path | None,
+) -> dict[str, Any]:
+    """Build the initial persisted state payload for one demo root."""
+
+    initial_body_path = layout.inputs_dir / Path(parameters.message.initial_body_file).name
+    reply_body_path = layout.inputs_dir / Path(parameters.message.reply_body_file).name
+    return {
+        "schema_version": 2,
+        "demo_id": parameters.demo_id,
+        "parameters_path": str(parameters_path.resolve()),
+        "demo_output_dir": str(layout.demo_output_dir),
+        "project_workdir": str(layout.project_workdir),
+        "runtime_root": str(layout.runtime_root),
+        "mailbox_root": str(
+            render_mailbox_root(parameters, demo_output_dir=layout.demo_output_dir)
+        ),
+        "agent_def_dir": str(agent_def_dir.resolve()),
+        "jobs_dir": None if jobs_dir is None else str(jobs_dir.resolve()),
+        "cao": {},
+        "sender": _participant_state(parameters.sender),
+        "receiver": _participant_state(parameters.receiver),
+        "message": {
+            "subject": parameters.message.subject,
+            "initial_body_file": str(initial_body_path.resolve()),
+            "reply_body_file": str(reply_body_path.resolve()),
+            "send_message_id": None,
+            "reply_message_id": None,
+        },
+        "steps": {
+            "start_complete": False,
+            "roundtrip_complete": False,
+            "verify_complete": False,
+            "stop_complete": False,
+        },
+    }
+
+
+def _state_jobs_dir(state: dict[str, Any]) -> Path | None:
+    """Return the persisted jobs-root override when present."""
+
+    raw_jobs_dir = state.get("jobs_dir")
+    if raw_jobs_dir is None:
+        return None
+    return Path(_require_non_empty_string(raw_jobs_dir, context="jobs_dir")).resolve()
+
+
+def _participant_identity(participant_state: dict[str, Any], *, context: str) -> str:
+    """Resolve the control identity for one participant from persisted state."""
+
+    start_payload = participant_state.get("start")
+    if isinstance(start_payload, dict):
+        identity = start_payload.get("agent_identity")
+        if isinstance(identity, str) and identity.strip():
+            return identity
+    return _require_non_empty_string(
+        participant_state.get("requested_identity"),
+        context=f"{context}.requested_identity",
+    )
+
+
+def _freshen_demo_output(*, pack_dir: Path, layout: DemoLayout) -> None:
+    """Reset one demo root while preserving the durable project worktree."""
+
+    layout.demo_output_dir.mkdir(parents=True, exist_ok=True)
+    for path in (layout.runtime_root, layout.mailbox_root, layout.cao_dir):
+        if path.exists():
+            shutil.rmtree(path)
+
+    removable_files = [
+        layout.cao_start_path,
+        layout.state_path,
+        layout.report_path,
+        layout.sanitized_report_path,
+        layout.verify_result_path,
+        layout.stop_result_path,
+        *_artifact_paths(layout.demo_output_dir).values(),
+    ]
+    for path in removable_files:
+        if path.exists():
+            path.unlink()
+        stderr_path = _stderr_path_for(path)
+        if stderr_path.exists():
+            stderr_path.unlink()
+
+    for pattern in ("cleanup_*.json", "cleanup_*.err"):
+        for path in layout.demo_output_dir.glob(pattern):
+            path.unlink()
+
+    _copy_inputs(pack_dir=pack_dir, layout=layout)
+
+
+def _require_state_mapping(state: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return one required mapping field from a persisted state payload."""
+
+    return _require_mapping(state.get(key), context=key)
+
+
+def _maybe_inject_fault(trigger: str) -> None:
+    """Raise a synthetic failure or interrupt for a named test trigger."""
+
+    raw_fault = os.environ.get("MAILBOX_ROUNDTRIP_DEMO_FAULT")
+    if raw_fault is None or not raw_fault.strip():
+        return
+    normalized_fault = raw_fault.strip().lower().replace("_", "-")
+    if normalized_fault == f"fail-after-{trigger}":
+        raise RuntimeError(f"synthetic mailbox demo fault after {trigger}")
+    if normalized_fault == f"interrupt-after-{trigger}":
+        raise KeyboardInterrupt(f"synthetic mailbox demo interrupt after {trigger}")
+
+
+def start_demo(
+    *,
+    repo_root: Path,
+    pack_dir: Path,
+    demo_output_dir: Path,
+    parameters_path: Path,
+    jobs_dir: Path | None,
+) -> dict[str, Any]:
+    """Provision the demo root and start both mailbox participants."""
+
+    parameters = load_demo_parameters(parameters_path)
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+
+    if layout.state_path.exists():
+        existing_state = _load_state(layout.state_path)
+        existing_steps = _require_state_mapping(existing_state, "steps")
+        if not bool(existing_steps.get("stop_complete")):
+            raise ValueError(
+                "demo state already exists for this output directory and has not been stopped; "
+                "run `run_demo.sh stop` first"
+            )
+
+    _freshen_demo_output(pack_dir=pack_dir, layout=layout)
+    ensure_project_worktree(repo_root=repo_root, project_workdir=layout.project_workdir)
+    layout.runtime_root.mkdir(parents=True, exist_ok=True)
+
+    agent_def_dir = _agent_def_dir(parameters=parameters, repo_root=repo_root)
+    if not agent_def_dir.is_dir():
+        raise ValueError(f"agent definition directory not found: {agent_def_dir}")
+
+    state = _initial_state(
+        parameters=parameters,
+        parameters_path=parameters_path,
+        layout=layout,
+        agent_def_dir=agent_def_dir,
+        jobs_dir=jobs_dir,
+    )
+    _write_state(layout.state_path, state)
+
+    try:
+        cao_context = _resolve_cao_context(
+            repo_root=repo_root,
+            demo_output_dir=layout.demo_output_dir,
+            cao_base_url=os.environ.get("CAO_BASE_URL", parameters.cao_base_url),
+            cao_profile_store=os.environ.get("CAO_PROFILE_STORE"),
+        )
+        _write_json(layout.cao_start_path, cao_context)
+        state["cao"] = {**cao_context, "stopped": False}
+        _write_state(layout.state_path, state)
+
+        env = _command_environment(jobs_dir=jobs_dir)
+        sender_state = _require_state_mapping(state, "sender")
+        sender_build = _run_realm_controller_json(
+            repo_root=repo_root,
+            args=[
+                "build-brain",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(layout.runtime_root),
+                "--blueprint",
+                _require_non_empty_string(
+                    sender_state.get("blueprint"), context="sender.blueprint"
+                ),
+            ],
+            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_build"],
+            env=env,
+        )
+        sender_state["build"] = sender_build
+        _write_state(layout.state_path, state)
+
+        receiver_state = _require_state_mapping(state, "receiver")
+        receiver_build = _run_realm_controller_json(
+            repo_root=repo_root,
+            args=[
+                "build-brain",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(layout.runtime_root),
+                "--blueprint",
+                _require_non_empty_string(
+                    receiver_state.get("blueprint"),
+                    context="receiver.blueprint",
+                ),
+            ],
+            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_build"],
+            env=env,
+        )
+        receiver_state["build"] = receiver_build
+        _write_state(layout.state_path, state)
+
+        sender_start = _run_realm_controller_json(
+            repo_root=repo_root,
+            args=[
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(layout.runtime_root),
+                "--brain-manifest",
+                _require_non_empty_string(
+                    sender_build.get("manifest_path"),
+                    context="sender_build.manifest_path",
+                ),
+                "--blueprint",
+                _require_non_empty_string(
+                    sender_state.get("blueprint"), context="sender.blueprint"
+                ),
+                "--backend",
+                parameters.backend,
+                "--cao-base-url",
+                _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
+                "--cao-profile-store",
+                _require_non_empty_string(
+                    cao_context.get("profile_store"),
+                    context="cao.profile_store",
+                ),
+                "--workdir",
+                str(layout.project_workdir),
+                "--agent-identity",
+                _require_non_empty_string(
+                    sender_state.get("requested_identity"),
+                    context="sender.requested_identity",
+                ),
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(layout.mailbox_root),
+                "--mailbox-principal-id",
+                _require_non_empty_string(
+                    sender_state.get("mailbox_principal_id"),
+                    context="sender.mailbox_principal_id",
+                ),
+                "--mailbox-address",
+                _require_non_empty_string(
+                    sender_state.get("mailbox_address"),
+                    context="sender.mailbox_address",
+                ),
+            ],
+            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_start"],
+            env=env,
+        )
+        sender_state["start"] = sender_start
+        sender_state["started_current_run"] = True
+        sender_state["stopped"] = False
+        _write_state(layout.state_path, state)
+        _maybe_inject_fault("sender-start")
+
+        receiver_start = _run_realm_controller_json(
+            repo_root=repo_root,
+            args=[
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(layout.runtime_root),
+                "--brain-manifest",
+                _require_non_empty_string(
+                    receiver_build.get("manifest_path"),
+                    context="receiver_build.manifest_path",
+                ),
+                "--blueprint",
+                _require_non_empty_string(
+                    receiver_state.get("blueprint"),
+                    context="receiver.blueprint",
+                ),
+                "--backend",
+                parameters.backend,
+                "--cao-base-url",
+                _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
+                "--cao-profile-store",
+                _require_non_empty_string(
+                    cao_context.get("profile_store"),
+                    context="cao.profile_store",
+                ),
+                "--workdir",
+                str(layout.project_workdir),
+                "--agent-identity",
+                _require_non_empty_string(
+                    receiver_state.get("requested_identity"),
+                    context="receiver.requested_identity",
+                ),
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(layout.mailbox_root),
+                "--mailbox-principal-id",
+                _require_non_empty_string(
+                    receiver_state.get("mailbox_principal_id"),
+                    context="receiver.mailbox_principal_id",
+                ),
+                "--mailbox-address",
+                _require_non_empty_string(
+                    receiver_state.get("mailbox_address"),
+                    context="receiver.mailbox_address",
+                ),
+            ],
+            stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_start"],
+            env=env,
+        )
+        receiver_state["start"] = receiver_start
+        receiver_state["started_current_run"] = True
+        receiver_state["stopped"] = False
+        _write_state(layout.state_path, state)
+        _maybe_inject_fault("receiver-start")
+    except KeyboardInterrupt:
+        _write_state(layout.state_path, state)
+        try:
+            stop_demo(
+                repo_root=repo_root,
+                demo_output_dir=layout.demo_output_dir,
+                cleanup=True,
+                reason="start interrupted",
+            )
+        except Exception:
+            pass
+        raise
+    except Exception:
+        _write_state(layout.state_path, state)
+        try:
+            stop_demo(
+                repo_root=repo_root,
+                demo_output_dir=layout.demo_output_dir,
+                cleanup=True,
+                reason="start failed",
+            )
+        except Exception:
+            pass
+        raise
+
+    steps = _require_state_mapping(state, "steps")
+    steps["start_complete"] = True
+    _write_state(layout.state_path, state)
+    return state
+
+
+def roundtrip_demo(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+) -> dict[str, Any]:
+    """Run the mailbox send/check/reply/check phase against an existing demo root."""
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    state = _load_state(layout.state_path)
+    steps = _require_state_mapping(state, "steps")
+    if not bool(steps.get("start_complete")):
+        raise ValueError("demo start phase has not completed for this output directory")
+
+    message_state = _require_state_mapping(state, "message")
+    initial_body_file = Path(
+        _require_non_empty_string(message_state.get("initial_body_file"), context="message.initial")
+    )
+    reply_body_file = Path(
+        _require_non_empty_string(message_state.get("reply_body_file"), context="message.reply")
+    )
+    if not initial_body_file.is_file() or not reply_body_file.is_file():
+        raise ValueError("copied message body inputs are missing from the demo output directory")
+
+    env = _command_environment(jobs_dir=_state_jobs_dir(state))
+    sender_state = _require_state_mapping(state, "sender")
+    receiver_state = _require_state_mapping(state, "receiver")
+    agent_def_dir = Path(
+        _require_non_empty_string(state.get("agent_def_dir"), context="agent_def_dir")
+    ).resolve()
+
+    mail_send = _run_realm_controller_json(
+        repo_root=repo_root,
+        args=[
+            "mail",
+            "send",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            _participant_identity(sender_state, context="sender"),
+            "--to",
+            _require_non_empty_string(
+                receiver_state.get("mailbox_address"),
+                context="receiver.mailbox_address",
+            ),
+            "--subject",
+            _require_non_empty_string(message_state.get("subject"), context="message.subject"),
+            "--body-file",
+            str(initial_body_file),
+        ],
+        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"],
+        env=env,
+    )
+    message_state["send_message_id"] = _require_non_empty_string(
+        mail_send.get("message_id"),
+        context="mail_send.message_id",
+    )
+    _write_state(layout.state_path, state)
+    _maybe_inject_fault("mail-send")
+
+    _run_realm_controller_json(
+        repo_root=repo_root,
+        args=[
+            "mail",
+            "check",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            _participant_identity(receiver_state, context="receiver"),
+            "--unread-only",
+            "--limit",
+            "10",
+        ],
+        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_check"],
+        env=env,
+    )
+    _maybe_inject_fault("receiver-check")
+
+    mail_reply = _run_realm_controller_json(
+        repo_root=repo_root,
+        args=[
+            "mail",
+            "reply",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            _participant_identity(receiver_state, context="receiver"),
+            "--message-id",
+            _require_non_empty_string(
+                message_state.get("send_message_id"),
+                context="message.send_message_id",
+            ),
+            "--body-file",
+            str(reply_body_file),
+        ],
+        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_reply"],
+        env=env,
+    )
+    message_state["reply_message_id"] = _require_non_empty_string(
+        mail_reply.get("message_id"),
+        context="mail_reply.message_id",
+    )
+    _write_state(layout.state_path, state)
+    _maybe_inject_fault("mail-reply")
+
+    _run_realm_controller_json(
+        repo_root=repo_root,
+        args=[
+            "mail",
+            "check",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            _participant_identity(sender_state, context="sender"),
+            "--unread-only",
+            "--limit",
+            "10",
+        ],
+        stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_check"],
+        env=env,
+    )
+    _maybe_inject_fault("sender-check")
+
+    steps["roundtrip_complete"] = True
+    _write_state(layout.state_path, state)
+    return {
+        "send_message_id": message_state["send_message_id"],
+        "reply_message_id": message_state["reply_message_id"],
+    }
+
+
+def verify_demo(
+    *,
+    demo_output_dir: Path,
+    expected_report_path: Path,
+    snapshot: bool,
+) -> dict[str, Any]:
+    """Build, sanitize, and verify the report contract for one demo root."""
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    state = _load_state(layout.state_path)
+    steps = _require_state_mapping(state, "steps")
+    if (
+        not bool(steps.get("roundtrip_complete"))
+        and not (layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"]).exists()
+    ):
+        raise ValueError("roundtrip artifacts are not available for verification")
+
+    message_state = _require_state_mapping(state, "message")
+    reply_parent_message_id = message_state.get("send_message_id")
+    if not isinstance(reply_parent_message_id, str) or not reply_parent_message_id.strip():
+        reply_parent_message_id = extract_message_id(
+            layout.demo_output_dir / _ARTIFACT_FILENAMES["mail_send"]
+        )
+        message_state["send_message_id"] = reply_parent_message_id
+
+    report = build_report(
+        output_path=layout.report_path,
+        parameters_path=Path(
+            _require_non_empty_string(state.get("parameters_path"), context="parameters_path")
+        ),
+        demo_output_dir=layout.demo_output_dir,
+        project_workdir=Path(
+            _require_non_empty_string(state.get("project_workdir"), context="project_workdir")
+        ),
+        runtime_root=Path(
+            _require_non_empty_string(state.get("runtime_root"), context="runtime_root")
+        ),
+        mailbox_root=Path(
+            _require_non_empty_string(state.get("mailbox_root"), context="mailbox_root")
+        ),
+        agent_def_dir=Path(
+            _require_non_empty_string(state.get("agent_def_dir"), context="agent_def_dir")
+        ),
+        reply_parent_message_id=reply_parent_message_id,
+    )
+    sanitized = sanitize_report(report)
+    _write_json(layout.sanitized_report_path, sanitized)
+
+    if snapshot:
+        expected_report_path.parent.mkdir(parents=True, exist_ok=True)
+        expected_report_path.write_text(
+            json.dumps(sanitized, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        verify_sanitized_report(
+            sanitized,
+            _require_mapping(_read_json(expected_report_path), context=str(expected_report_path)),
+        )
+
+    result = {
+        "ok": True,
+        "snapshot_updated": snapshot,
+        "expected_report_path": str(expected_report_path.resolve()),
+        "report_path": str(layout.report_path),
+        "sanitized_report_path": str(layout.sanitized_report_path),
+    }
+    _write_json(layout.verify_result_path, result)
+    steps["verify_complete"] = True
+    state["last_verify_result"] = result
+    _write_state(layout.state_path, state)
+    return result
+
+
+def stop_demo(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+    cleanup: bool = False,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Stop demo-owned live resources while preserving ownership boundaries."""
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    if not layout.state_path.exists():
+        payload = {
+            "stopped": False,
+            "already_stopped": True,
+            "cleanup": cleanup,
+            "message": f"demo state not found: {layout.state_path}",
+        }
+        _write_json(layout.stop_result_path, payload)
+        return payload
+
+    state = _load_state(layout.state_path)
+    jobs_dir = _state_jobs_dir(state)
+    agent_def_dir = Path(
+        _require_non_empty_string(state.get("agent_def_dir"), context="agent_def_dir")
+    ).resolve()
+    result: dict[str, Any] = {
+        "stopped": True,
+        "cleanup": cleanup,
+        "reason": reason,
+        "participants": {},
+    }
+
+    for role in ("sender", "receiver"):
+        participant_state = _require_state_mapping(state, role)
+        participant_result: dict[str, Any]
+        if not bool(participant_state.get("started_current_run")):
+            participant_result = {
+                "attempted": False,
+                "ownership": "not-started-current-run",
+            }
+        elif bool(participant_state.get("stopped")):
+            participant_result = {
+                "attempted": False,
+                "ownership": "already-stopped",
+            }
+        else:
+            artifact_name = (
+                f"cleanup_{role}_stop.json" if cleanup else _ARTIFACT_FILENAMES[f"{role}_stop"]
+            )
+            artifact_path = layout.demo_output_dir / artifact_name
+            try:
+                stop_payload = _run_realm_controller_json(
+                    repo_root=repo_root,
+                    args=[
+                        "stop-session",
+                        "--agent-def-dir",
+                        str(agent_def_dir),
+                        "--agent-identity",
+                        _participant_identity(participant_state, context=role),
+                    ],
+                    stdout_path=artifact_path,
+                    env=_command_environment(jobs_dir=jobs_dir),
+                )
+                participant_state["stopped"] = True
+                participant_result = {
+                    "attempted": True,
+                    "artifact_path": str(artifact_path.resolve()),
+                    "payload": stop_payload,
+                }
+            except Exception as exc:
+                participant_result = {
+                    "attempted": True,
+                    "error": str(exc),
+                }
+                result["stopped"] = False
+        result["participants"][role] = participant_result
+
+    cao_state = _require_state_mapping(state, "cao")
+    if not bool(cao_state.get("managed")):
+        result["cao_stop"] = {
+            "attempted": False,
+            "ownership": "not-demo-managed",
+        }
+    elif not bool(cao_state.get("started_current_run")):
+        result["cao_stop"] = {
+            "attempted": False,
+            "ownership": "reused-existing-process",
+            "message": "managed CAO was reused and left running",
+        }
+    elif bool(cao_state.get("stopped")):
+        result["cao_stop"] = {
+            "attempted": False,
+            "ownership": "already-stopped",
+        }
+    else:
+        try:
+            cao_payload = stop_demo_cao(
+                repo_root=repo_root,
+                demo_output_dir=layout.demo_output_dir,
+                cao_base_url=_require_non_empty_string(
+                    cao_state.get("base_url"),
+                    context="cao.base_url",
+                ),
+            )
+            cao_state["stopped"] = True
+            result["cao_stop"] = {
+                "attempted": True,
+                "payload": cao_payload,
+            }
+            if cleanup:
+                _write_json(layout.demo_output_dir / "cleanup_cao_stop.json", cao_payload)
+        except Exception as exc:
+            result["cao_stop"] = {
+                "attempted": True,
+                "error": str(exc),
+            }
+            result["stopped"] = False
+
+    steps = _require_state_mapping(state, "steps")
+    steps["stop_complete"] = True
+    state["last_stop_result"] = result
+    _write_state(layout.state_path, state)
+    _write_json(layout.stop_result_path, result)
+    return result
+
+
+def auto_run(
+    *,
+    repo_root: Path,
+    pack_dir: Path,
+    demo_output_dir: Path,
+    parameters_path: Path,
+    expected_report_path: Path,
+    jobs_dir: Path | None,
+    snapshot: bool,
+) -> dict[str, Any]:
+    """Run the mailbox roundtrip demo end to end with cleanup on exit."""
+
+    start_demo(
+        repo_root=repo_root,
+        pack_dir=pack_dir,
+        demo_output_dir=demo_output_dir,
+        parameters_path=parameters_path,
+        jobs_dir=jobs_dir,
+    )
+    try:
+        roundtrip_demo(
+            repo_root=repo_root,
+            demo_output_dir=demo_output_dir,
+        )
+        verify_result = verify_demo(
+            demo_output_dir=demo_output_dir,
+            expected_report_path=expected_report_path,
+            snapshot=snapshot,
+        )
+    except KeyboardInterrupt:
+        try:
+            stop_demo(
+                repo_root=repo_root,
+                demo_output_dir=demo_output_dir,
+                cleanup=True,
+                reason="auto interrupted",
+            )
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            stop_demo(
+                repo_root=repo_root,
+                demo_output_dir=demo_output_dir,
+                cleanup=True,
+                reason="auto failed",
+            )
+        except Exception:
+            pass
+        raise
+
+    stop_demo(
+        repo_root=repo_root,
+        demo_output_dir=demo_output_dir,
+        cleanup=False,
+        reason="auto complete",
+    )
+    return verify_result
+
+
 def build_report(
     *,
     output_path: Path,
@@ -824,7 +1750,9 @@ def build_report(
     receiver_mailbox = _require_mapping(
         receiver_start.get("mailbox"), context="receiver_start.mailbox"
     )
-    sender_address = _require_non_empty_string(sender_mailbox.get("address"), context="sender address")
+    sender_address = _require_non_empty_string(
+        sender_mailbox.get("address"), context="sender address"
+    )
     receiver_address = _require_non_empty_string(
         receiver_mailbox.get("address"),
         context="receiver address",
@@ -855,10 +1783,11 @@ def build_report(
         "agent_def_dir": str(agent_def_dir.resolve()),
         "parameters": parameters_to_payload(parameters),
         "artifacts": {
-            label: str(path.resolve()) for label, path in _artifact_paths(demo_output_dir).items()
+            label: str(path.resolve())
+            for label, path in _report_artifact_paths(demo_output_dir).items()
         },
         "cao": cao_payload,
-        "flow": list(_FLOW),
+        "flow": list(_REPORT_FLOW),
         "mailbox_state": mailbox_state,
         "reply_parent_message_id": reply_parent_message_id,
         "steps": artifacts,
@@ -873,7 +1802,9 @@ def build_report(
             "shared_mailbox_root": sender_mailbox.get("filesystem_root")
             == receiver_mailbox.get("filesystem_root")
             == str(mailbox_root.resolve()),
-            "shared_mailbox_index_present": Path(mailbox_state["shared_index_sqlite_path"]).is_file(),
+            "shared_mailbox_index_present": Path(
+                mailbox_state["shared_index_sqlite_path"]
+            ).is_file(),
             "sender_mailbox_local_sqlite_present": Path(
                 mailbox_state["sender_local_sqlite_path"]
             ).is_file(),
@@ -882,8 +1813,6 @@ def build_report(
             ).is_file(),
             "send_message_id_present": bool(send_message_id),
             "reply_parent_matches_send_message_id": reply_parent_message_id == send_message_id,
-            "sender_stop_ok": artifacts["sender_stop"].get("status") == "ok",
-            "receiver_stop_ok": artifacts["receiver_stop"].get("status") == "ok",
         },
     }
     _write_json(output_path, report)
@@ -1078,6 +2007,88 @@ def _cmd_detect_cao_profile_store(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_start(args: argparse.Namespace) -> int:
+    """Start the stepwise mailbox demo flow."""
+
+    try:
+        payload = start_demo(
+            repo_root=args.repo_root,
+            pack_dir=args.pack_dir,
+            demo_output_dir=args.demo_output_dir,
+            parameters_path=args.parameters,
+            jobs_dir=args.jobs_dir,
+        )
+    except DemoSkipError as exc:
+        print(f"SKIP: {exc}")
+        return 0
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_roundtrip(args: argparse.Namespace) -> int:
+    """Run the roundtrip phase for an existing demo root."""
+
+    payload = roundtrip_demo(
+        repo_root=args.repo_root,
+        demo_output_dir=args.demo_output_dir,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """Verify or snapshot the sanitized demo report contract."""
+
+    payload = verify_demo(
+        demo_output_dir=args.demo_output_dir,
+        expected_report_path=args.expected_report,
+        snapshot=args.snapshot,
+    )
+    if args.snapshot:
+        print(f"snapshot updated: {args.expected_report}")
+        return 0
+    print("verification passed")
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_auto(args: argparse.Namespace) -> int:
+    """Run the mailbox demo end to end."""
+
+    try:
+        payload = auto_run(
+            repo_root=args.repo_root,
+            pack_dir=args.pack_dir,
+            demo_output_dir=args.demo_output_dir,
+            parameters_path=args.parameters,
+            expected_report_path=args.expected_report,
+            jobs_dir=args.jobs_dir,
+            snapshot=args.snapshot,
+        )
+    except DemoSkipError as exc:
+        print(f"SKIP: {exc}")
+        return 0
+    if args.snapshot:
+        print(f"snapshot updated: {args.expected_report}")
+    else:
+        print("verification passed")
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    """Stop live mailbox demo resources for one demo root."""
+
+    payload = stop_demo(
+        repo_root=args.repo_root,
+        demo_output_dir=args.demo_output_dir,
+        cleanup=False,
+        reason="explicit stop",
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the helper CLI parser."""
 
@@ -1148,6 +2159,29 @@ def _build_parser() -> argparse.ArgumentParser:
     detect_profile_store_parser.add_argument("--launcher-config-path")
     detect_profile_store_parser.set_defaults(func=_cmd_detect_cao_profile_store)
 
+    for command_name, func in (
+        ("start", _cmd_start),
+        ("roundtrip", _cmd_roundtrip),
+        ("verify", _cmd_verify),
+        ("auto", _cmd_auto),
+        ("stop", _cmd_stop),
+    ):
+        subparser = subparsers.add_parser(command_name)
+        subparser.add_argument("--repo-root", type=Path, required=True)
+        subparser.add_argument("--pack-dir", type=Path, required=True)
+        subparser.add_argument("--parameters", type=Path, required=True)
+        subparser.add_argument(
+            "--demo-output-dir",
+            type=Path,
+            default=_DEFAULT_DEMO_OUTPUT_DIR,
+        )
+        if command_name in {"start", "auto"}:
+            subparser.add_argument("--jobs-dir", type=Path)
+        if command_name in {"verify", "auto"}:
+            subparser.add_argument("--expected-report", type=Path, required=True)
+            subparser.add_argument("--snapshot", action="store_true")
+        subparser.set_defaults(func=func)
+
     return parser
 
 
@@ -1158,6 +2192,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
+    except KeyboardInterrupt:  # pragma: no cover - CLI guard
+        print("error: interrupted", file=sys.stderr)
+        return 130
     except Exception as exc:  # pragma: no cover - CLI guard
         print(f"error: {exc}", file=sys.stderr)
         return 1
