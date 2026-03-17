@@ -194,6 +194,112 @@ def test_stop_session_forwards_force_cleanup(
     assert payload["status"] == "ok"
 
 
+def test_stop_session_forwards_cao_parsing_mode_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class _FakeController:
+        def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
+            del force_cleanup
+            return SessionControlResult(
+                status="ok",
+                action="terminate",
+                detail="stopped",
+            )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+
+    def _fake_resume_runtime_session(**kwargs: object) -> _FakeController:
+        captured_kwargs.update(kwargs)
+        return _FakeController()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
+        _fake_resume_runtime_session,
+    )
+
+    exit_code = cli.main(
+        [
+            "stop-session",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--cao-parsing-mode",
+            "cao_only",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["cao_parsing_mode"] == "cao_only"
+
+
+def test_mail_command_forwards_cao_parsing_mode_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class _FakeController:
+        def __init__(self) -> None:
+            self.launch_plan = SimpleNamespace(mailbox=object())
+
+        def send_prompt(self, prompt: str) -> list[object]:
+            del prompt
+            return []
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+
+    def _fake_resume_runtime_session(**kwargs: object) -> _FakeController:
+        captured_kwargs.update(kwargs)
+        return _FakeController()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
+        _fake_resume_runtime_session,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.ensure_mailbox_command_ready",
+        lambda launch_plan: object(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.prepare_mail_prompt",
+        lambda **kwargs: {"request_id": "req-123", "operation": "check"},
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.run_mail_prompt",
+        lambda **kwargs: {"ok": True, "operation": "check", "request_id": "req-123"},
+    )
+
+    exit_code = cli.main(
+        [
+            "mail",
+            "check",
+            "--agent-identity",
+            "AGENTSYS-gpu",
+            "--cao-parsing-mode",
+            "cao_only",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["cao_parsing_mode"] == "cao_only"
+
+
 def test_start_session_prefers_cli_agent_def_dir_over_env(
     monkeypatch,
     tmp_path: Path,

@@ -8,7 +8,7 @@ The user requirement is narrower and stricter than "make the demo less fake." Th
 - the mail operations were executed through the direct live-agent path, not through gateway transport commands and not through fake mailbox injection;
 - the completed demo root contains two inspectable per-agent mailbox directories plus canonical Markdown messages that a maintainer can open and read.
 
-The design therefore needs an automatic test that owns its state, avoids ambient local collisions, and still exercises the real tutorial-pack code path.
+The design therefore needs an automatic test workflow that owns its state, avoids ambient local collisions, and still exercises the real tutorial-pack code path. That workflow may be implemented as a dedicated live integration test, a scripted runner, or another multi-step automatic sequence over the demo directory; it does not need to collapse into a single command-line program.
 
 ## Goals / Non-Goals
 
@@ -29,11 +29,11 @@ The design therefore needs an automatic test that owns its state, avoids ambient
 
 ## Decisions
 
-### 1. Add a separate live integration suite for the tutorial pack
+### 1. Add a separate live automatic workflow target for the tutorial pack
 
-The new requirement should be satisfied by a dedicated live integration test, separate from the current fake-tool scenario runner test. The fake-harness suite remains useful for fast contract coverage, but it cannot satisfy the new requirement because it can fabricate successful mailbox mutations without proving that live agent startup and direct prompt execution actually work.
+The new requirement should be satisfied by a separate live automatic workflow target, distinct from the current fake-tool scenario runner test. That target may be implemented as a dedicated live integration test, a scripted maintainer runner, or another owned multi-step sequence. The fake-harness suite remains useful for fast contract coverage, but it cannot satisfy the new requirement because it can fabricate successful mailbox mutations without proving that live agent startup and direct prompt execution actually work.
 
-The live suite should run the real pack commands against a fresh temp-root demo output directory and treat the resulting directory as the inspection target.
+The live automation target should run the real pack commands against a fresh temp-root demo output directory and treat the resulting directory as the inspection target.
 
 Alternatives considered:
 
@@ -112,9 +112,9 @@ Alternatives considered:
 
 ## Migration Plan
 
-No user-facing migration is required. Introduce the new live integration coverage alongside the existing fake-harness suite, then iterate on the demo/runtime implementation until the live suite passes reliably. The fake-harness suite remains as a fast regression layer but no longer satisfies the stronger "real direct-path automatic test" requirement by itself.
+No user-facing migration is required. Introduce the new live automatic workflow target alongside the existing fake-harness suite, then iterate on the demo/runtime implementation until the live path passes reliably. The fake-harness suite remains as a fast regression layer but no longer satisfies the stronger "real direct-path automatic test" requirement by itself.
 
 ## Open Questions
 
 - Should the live suite use a dedicated test-owned agent-definition fixture distinct from `tests/fixtures/agents`, or should it extend the existing fixture tree with deterministic live-test recipes?
-- Should the new live suite be part of the default integration target, or should it live under a dedicated slower integration command that still runs in routine CI?
+- Should the new live automatic workflow target be part of the default integration target, or should it live under a dedicated slower command that still runs in routine CI?

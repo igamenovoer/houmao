@@ -11,12 +11,15 @@ COMMAND="auto"
 SNAPSHOT=0
 RAW_DEMO_OUTPUT_DIR=""
 RAW_JOBS_DIR=""
+RAW_PARAMETERS_PATH=""
+RAW_EXPECTED_REPORT=""
+RAW_CAO_PARSING_MODE=""
 POSITIONAL_ARGS=()
 
 print_help() {
   cat <<'EOF'
 Usage:
-  scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>]
+  scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>] [--parameters <path>] [--expected-report <path>] [--cao-parsing-mode <cao_only|shadow_only>]
 EOF
 }
 
@@ -44,6 +47,30 @@ while [[ $# -gt 0 ]]; do
         exit 1
       }
       RAW_JOBS_DIR="$2"
+      shift 2
+      ;;
+    --parameters)
+      [[ $# -ge 2 ]] || {
+        echo "--parameters requires a value" >&2
+        exit 1
+      }
+      RAW_PARAMETERS_PATH="$2"
+      shift 2
+      ;;
+    --expected-report)
+      [[ $# -ge 2 ]] || {
+        echo "--expected-report requires a value" >&2
+        exit 1
+      }
+      RAW_EXPECTED_REPORT="$2"
+      shift 2
+      ;;
+    --cao-parsing-mode)
+      [[ $# -ge 2 ]] || {
+        echo "--cao-parsing-mode requires a value" >&2
+        exit 1
+      }
+      RAW_CAO_PARSING_MODE="$2"
       shift 2
       ;;
     -h|--help)
@@ -76,6 +103,14 @@ if ! command -v pixi >/dev/null 2>&1; then
 fi
 
 DEMO_OUTPUT_DIR="$(resolve_path "$RAW_DEMO_OUTPUT_DIR" "tmp/demo/mailbox-roundtrip-tutorial-pack")"
+if [[ -n "$RAW_PARAMETERS_PATH" ]]; then
+  PARAMETERS_PATH="$(resolve_path "$RAW_PARAMETERS_PATH")"
+else
+  PARAMETERS_PATH="$SCRIPT_DIR/inputs/demo_parameters.json"
+fi
+if [[ -n "$RAW_EXPECTED_REPORT" ]]; then
+  EXPECTED_REPORT="$(resolve_path "$RAW_EXPECTED_REPORT")"
+fi
 BASE_ARGS=(
   --repo-root "$REPO_ROOT"
   --pack-dir "$SCRIPT_DIR"
@@ -86,6 +121,9 @@ BASE_ARGS=(
 if [[ -n "$RAW_JOBS_DIR" && ( "$COMMAND" == "auto" || "$COMMAND" == "start" ) ]]; then
   JOBS_DIR="$(resolve_path "$RAW_JOBS_DIR")"
   BASE_ARGS+=(--jobs-dir "$JOBS_DIR")
+fi
+if [[ -n "$RAW_CAO_PARSING_MODE" && ( "$COMMAND" == "auto" || "$COMMAND" == "start" || "$COMMAND" == "roundtrip" || "$COMMAND" == "stop" ) ]]; then
+  BASE_ARGS+=(--cao-parsing-mode "$RAW_CAO_PARSING_MODE")
 fi
 
 case "$COMMAND" in

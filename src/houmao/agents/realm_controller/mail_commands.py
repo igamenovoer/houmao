@@ -72,9 +72,7 @@ def prepare_mail_prompt(
                 "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
             ),
             "Follow the mailbox env bindings for the current session. Do not guess paths or sender identity.",
-            (
-                "Only mark messages read after the message has actually been processed successfully."
-            ),
+            ("Only mark messages read after the message has actually been processed successfully."),
             (
                 "Return exactly one JSON result between "
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."
@@ -135,14 +133,42 @@ def parse_mail_result(
 ) -> dict[str, Any]:
     """Extract and validate one mailbox result payload from session events."""
 
-    output_text = "\n".join(
+    non_done_text = "\n".join(
         event.message for event in events if event.message and event.kind != "done"
     )
-    return _parse_mail_result_text(
-        output_text,
-        request_id=request_id,
-        operation=operation,
-        mailbox=mailbox,
+    done_text = "\n".join(
+        event.message for event in events if event.message and event.kind == "done"
+    )
+
+    attempted_inputs: list[str] = []
+    seen_inputs: set[str] = set()
+    for candidate in (
+        non_done_text,
+        done_text,
+        "\n".join(filter(None, (non_done_text, done_text))),
+    ):
+        normalized = candidate.strip()
+        if not normalized or normalized in seen_inputs:
+            continue
+        attempted_inputs.append(candidate)
+        seen_inputs.add(normalized)
+
+    last_error: MailboxResultParseError | None = None
+    for candidate in attempted_inputs:
+        try:
+            return _parse_mail_result_text(
+                candidate,
+                request_id=request_id,
+                operation=operation,
+                mailbox=mailbox,
+            )
+        except MailboxResultParseError as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise MailboxResultParseError(
+        "Mailbox result parsing failed: no event output was available for sentinel extraction."
     )
 
 

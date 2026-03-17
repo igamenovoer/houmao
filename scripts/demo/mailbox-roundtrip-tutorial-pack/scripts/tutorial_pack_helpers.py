@@ -1080,6 +1080,7 @@ def _initial_state(
     layout: DemoLayout,
     agent_def_dir: Path,
     jobs_dir: Path | None,
+    cao_parsing_mode: str | None,
 ) -> dict[str, Any]:
     """Build the initial persisted state payload for one demo root."""
 
@@ -1097,6 +1098,7 @@ def _initial_state(
         ),
         "agent_def_dir": str(agent_def_dir.resolve()),
         "jobs_dir": None if jobs_dir is None else str(jobs_dir.resolve()),
+        "cao_parsing_mode": cao_parsing_mode,
         "cao": {},
         "sender": _participant_state(parameters.sender),
         "receiver": _participant_state(parameters.receiver),
@@ -1123,6 +1125,15 @@ def _state_jobs_dir(state: dict[str, Any]) -> Path | None:
     if raw_jobs_dir is None:
         return None
     return Path(_require_non_empty_string(raw_jobs_dir, context="jobs_dir")).resolve()
+
+
+def _state_cao_parsing_mode(state: dict[str, Any]) -> str | None:
+    """Return the persisted CAO parsing mode override when present."""
+
+    raw_mode = state.get("cao_parsing_mode")
+    if raw_mode is None:
+        return None
+    return _require_non_empty_string(raw_mode, context="cao_parsing_mode")
 
 
 def _participant_identity(participant_state: dict[str, Any], *, context: str) -> str:
@@ -1196,6 +1207,7 @@ def start_demo(
     demo_output_dir: Path,
     parameters_path: Path,
     jobs_dir: Path | None,
+    cao_parsing_mode: str | None = None,
 ) -> dict[str, Any]:
     """Provision the demo root and start both mailbox participants."""
 
@@ -1225,6 +1237,7 @@ def start_demo(
         layout=layout,
         agent_def_dir=agent_def_dir,
         jobs_dir=jobs_dir,
+        cao_parsing_mode=cao_parsing_mode,
     )
     _write_state(layout.state_path, state)
 
@@ -1328,6 +1341,7 @@ def start_demo(
                     sender_state.get("mailbox_address"),
                     context="sender.mailbox_address",
                 ),
+                *(["--cao-parsing-mode", cao_parsing_mode] if cao_parsing_mode is not None else []),
             ],
             stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_start"],
             env=env,
@@ -1386,6 +1400,7 @@ def start_demo(
                     receiver_state.get("mailbox_address"),
                     context="receiver.mailbox_address",
                 ),
+                *(["--cao-parsing-mode", cao_parsing_mode] if cao_parsing_mode is not None else []),
             ],
             stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_start"],
             env=env,
@@ -1403,6 +1418,7 @@ def start_demo(
                 demo_output_dir=layout.demo_output_dir,
                 cleanup=True,
                 reason="start interrupted",
+                cao_parsing_mode=cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1415,6 +1431,7 @@ def start_demo(
                 demo_output_dir=layout.demo_output_dir,
                 cleanup=True,
                 reason="start failed",
+                cao_parsing_mode=cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1430,6 +1447,7 @@ def roundtrip_demo(
     *,
     repo_root: Path,
     demo_output_dir: Path,
+    cao_parsing_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the mailbox send/check/reply/check phase against an existing demo root."""
 
@@ -1449,6 +1467,7 @@ def roundtrip_demo(
     if not initial_body_file.is_file() or not reply_body_file.is_file():
         raise ValueError("copied message body inputs are missing from the demo output directory")
 
+    resolved_cao_parsing_mode = cao_parsing_mode or _state_cao_parsing_mode(state)
     env = _command_environment(jobs_dir=_state_jobs_dir(state))
     sender_state = _require_state_mapping(state, "sender")
     receiver_state = _require_state_mapping(state, "receiver")
@@ -1465,6 +1484,11 @@ def roundtrip_demo(
             str(agent_def_dir),
             "--agent-identity",
             _participant_identity(sender_state, context="sender"),
+            *(
+                ["--cao-parsing-mode", resolved_cao_parsing_mode]
+                if resolved_cao_parsing_mode is not None
+                else []
+            ),
             "--to",
             _require_non_empty_string(
                 receiver_state.get("mailbox_address"),
@@ -1494,6 +1518,11 @@ def roundtrip_demo(
             str(agent_def_dir),
             "--agent-identity",
             _participant_identity(receiver_state, context="receiver"),
+            *(
+                ["--cao-parsing-mode", resolved_cao_parsing_mode]
+                if resolved_cao_parsing_mode is not None
+                else []
+            ),
             "--unread-only",
             "--limit",
             "10",
@@ -1512,6 +1541,11 @@ def roundtrip_demo(
             str(agent_def_dir),
             "--agent-identity",
             _participant_identity(receiver_state, context="receiver"),
+            *(
+                ["--cao-parsing-mode", resolved_cao_parsing_mode]
+                if resolved_cao_parsing_mode is not None
+                else []
+            ),
             "--message-id",
             _require_non_empty_string(
                 message_state.get("send_message_id"),
@@ -1539,6 +1573,11 @@ def roundtrip_demo(
             str(agent_def_dir),
             "--agent-identity",
             _participant_identity(sender_state, context="sender"),
+            *(
+                ["--cao-parsing-mode", resolved_cao_parsing_mode]
+                if resolved_cao_parsing_mode is not None
+                else []
+            ),
             "--unread-only",
             "--limit",
             "10",
@@ -1636,6 +1675,7 @@ def stop_demo(
     demo_output_dir: Path,
     cleanup: bool = False,
     reason: str | None = None,
+    cao_parsing_mode: str | None = None,
 ) -> dict[str, Any]:
     """Stop demo-owned live resources while preserving ownership boundaries."""
 
@@ -1652,6 +1692,7 @@ def stop_demo(
 
     state = _load_state(layout.state_path)
     jobs_dir = _state_jobs_dir(state)
+    resolved_cao_parsing_mode = cao_parsing_mode or _state_cao_parsing_mode(state)
     agent_def_dir = Path(
         _require_non_empty_string(state.get("agent_def_dir"), context="agent_def_dir")
     ).resolve()
@@ -1689,6 +1730,11 @@ def stop_demo(
                         str(agent_def_dir),
                         "--agent-identity",
                         _participant_identity(participant_state, context=role),
+                        *(
+                            ["--cao-parsing-mode", resolved_cao_parsing_mode]
+                            if resolved_cao_parsing_mode is not None
+                            else []
+                        ),
                     ],
                     stdout_path=artifact_path,
                     env=_command_environment(jobs_dir=jobs_dir),
@@ -1765,6 +1811,7 @@ def auto_run(
     expected_report_path: Path,
     jobs_dir: Path | None,
     snapshot: bool,
+    cao_parsing_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the mailbox roundtrip demo end to end with cleanup on exit."""
 
@@ -1774,11 +1821,13 @@ def auto_run(
         demo_output_dir=demo_output_dir,
         parameters_path=parameters_path,
         jobs_dir=jobs_dir,
+        cao_parsing_mode=cao_parsing_mode,
     )
     try:
         roundtrip_demo(
             repo_root=repo_root,
             demo_output_dir=demo_output_dir,
+            cao_parsing_mode=cao_parsing_mode,
         )
         verify_result = verify_demo(
             demo_output_dir=demo_output_dir,
@@ -1792,6 +1841,7 @@ def auto_run(
                 demo_output_dir=demo_output_dir,
                 cleanup=True,
                 reason="auto interrupted",
+                cao_parsing_mode=cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1803,6 +1853,7 @@ def auto_run(
                 demo_output_dir=demo_output_dir,
                 cleanup=True,
                 reason="auto failed",
+                cao_parsing_mode=cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1813,6 +1864,7 @@ def auto_run(
         demo_output_dir=demo_output_dir,
         cleanup=False,
         reason="auto complete",
+        cao_parsing_mode=cao_parsing_mode,
     )
     return verify_result
 
@@ -2106,6 +2158,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
             demo_output_dir=args.demo_output_dir,
             parameters_path=args.parameters,
             jobs_dir=args.jobs_dir,
+            cao_parsing_mode=args.cao_parsing_mode,
         )
     except DemoSkipError as exc:
         print(f"SKIP: {exc}")
@@ -2120,6 +2173,7 @@ def _cmd_roundtrip(args: argparse.Namespace) -> int:
     payload = roundtrip_demo(
         repo_root=args.repo_root,
         demo_output_dir=args.demo_output_dir,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
@@ -2153,6 +2207,7 @@ def _cmd_auto(args: argparse.Namespace) -> int:
             expected_report_path=args.expected_report,
             jobs_dir=args.jobs_dir,
             snapshot=args.snapshot,
+            cao_parsing_mode=args.cao_parsing_mode,
         )
     except DemoSkipError as exc:
         print(f"SKIP: {exc}")
@@ -2173,6 +2228,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         demo_output_dir=args.demo_output_dir,
         cleanup=False,
         reason="explicit stop",
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
@@ -2264,6 +2320,11 @@ def _build_parser() -> argparse.ArgumentParser:
             type=Path,
             default=_DEFAULT_DEMO_OUTPUT_DIR,
         )
+        if command_name in {"start", "roundtrip", "auto", "stop"}:
+            subparser.add_argument(
+                "--cao-parsing-mode",
+                choices=["cao_only", "shadow_only"],
+            )
         if command_name in {"start", "auto"}:
             subparser.add_argument("--jobs-dir", type=Path)
         if command_name in {"verify", "auto"}:

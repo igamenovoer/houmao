@@ -105,6 +105,37 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
         )
 
 
+def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="submitted",
+                message="Prompt submitted to CAO terminal",
+                turn_index=1,
+            ),
+            SessionEvent(
+                kind="done",
+                message=(
+                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":1}\n'
+                    "AGENTSYS_MAIL_RESULT_END"
+                ),
+                turn_index=1,
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 1
+
+
 def test_mail_check_cli_prints_structured_result(
     monkeypatch,
     capsys,

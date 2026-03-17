@@ -14,7 +14,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from houmao.owned_paths import AGENTSYS_JOB_DIR_ENV_VAR, resolve_runtime_root, resolve_session_job_dir
+from houmao.owned_paths import (
+    AGENTSYS_JOB_DIR_ENV_VAR,
+    resolve_runtime_root,
+    resolve_session_job_dir,
+)
 from .agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -710,7 +714,9 @@ def start_runtime_session(
             if resolved_runtime_identity is not None
             else None
         ),
-        agent_id=resolved_runtime_identity.agent_id if resolved_runtime_identity is not None else None,
+        agent_id=resolved_runtime_identity.agent_id
+        if resolved_runtime_identity is not None
+        else None,
         tmux_session_name=resolved_tmux_session_name,
         job_dir=job_dir,
         agent_identity_warnings=agent_identity_warnings,
@@ -810,6 +816,7 @@ def resume_runtime_session(
     agent_def_dir: Path,
     session_manifest_path: Path,
     cao_profile_store_dir: Path | None = None,
+    cao_parsing_mode: CaoParsingMode | None = None,
 ) -> RuntimeSessionController:
     """Resume a runtime session from a persisted manifest."""
 
@@ -850,6 +857,7 @@ def resume_runtime_session(
         resume_state=manifest_payload,
         session_manifest_path=session_manifest_path.resolve(),
         agent_identity=manifest_payload.tmux_session_name,
+        cao_parsing_mode=cao_parsing_mode,
     )
 
     resolved_tmux_session_name: str | None = None
@@ -1244,7 +1252,9 @@ def _resolve_start_session_identity(
     built_identity = _built_manifest_identity(manifest)
     warnings: list[str] = []
 
-    if requested_agent_identity is not None and is_path_like_agent_identity(requested_agent_identity):
+    if requested_agent_identity is not None and is_path_like_agent_identity(
+        requested_agent_identity
+    ):
         raise SessionManifestError(
             "start-session --agent-identity must be a canonical agent name, not a manifest path."
         )
@@ -1259,7 +1269,9 @@ def _resolve_start_session_identity(
         canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
 
     persisted_agent_id = built_identity[1]
-    agent_id = requested_agent_id or persisted_agent_id or derive_agent_id_from_name(canonical_agent_name)
+    agent_id = (
+        requested_agent_id or persisted_agent_id or derive_agent_id_from_name(canonical_agent_name)
+    )
 
     persisted_agent_name = built_identity[0]
     if (
@@ -1295,7 +1307,9 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
         agent_name = normalize_agent_identity_name(raw_agent_name).canonical_name
 
     raw_agent_id = raw_identity.get("agent_id")
-    agent_id = raw_agent_id.strip() if isinstance(raw_agent_id, str) and raw_agent_id.strip() else None
+    agent_id = (
+        raw_agent_id.strip() if isinstance(raw_agent_id, str) and raw_agent_id.strip() else None
+    )
     return agent_name, agent_id
 
 

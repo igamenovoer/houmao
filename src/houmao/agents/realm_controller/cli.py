@@ -196,6 +196,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(prompt)
     prompt.add_argument("--prompt", required=True, help="Prompt text")
 
     gateway_prompt = subparsers.add_parser(
@@ -212,6 +213,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_prompt)
     gateway_prompt.add_argument("--prompt", required=True, help="Prompt text")
 
     send_keys = subparsers.add_parser(
@@ -228,6 +230,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(send_keys)
     send_keys.add_argument(
         "--sequence",
         required=True,
@@ -253,6 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_interrupt)
 
     cleanup_registry = subparsers.add_parser(
         "cleanup-registry",
@@ -276,6 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(stop)
     stop.add_argument(
         "--force-cleanup",
         action="store_true",
@@ -296,6 +301,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(attach_gateway)
     attach_gateway.add_argument(
         "--gateway-host",
         choices=["127.0.0.1", "0.0.0.0"],
@@ -321,6 +327,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(detach_gateway)
 
     gateway_status = subparsers.add_parser(
         "gateway-status",
@@ -336,6 +343,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_status)
 
     mail = subparsers.add_parser("mail", help="Run mailbox operations against a resumed session")
     mail_subparsers = mail.add_subparsers(dest="mail_command")
@@ -521,6 +529,7 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     events = controller.send_prompt(args.prompt)
@@ -543,6 +552,7 @@ def _cmd_gateway_send_prompt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.send_prompt_via_gateway(args.prompt)
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
@@ -562,6 +572,7 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     result = controller.send_input_ex(
@@ -586,6 +597,7 @@ def _cmd_gateway_interrupt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.interrupt_via_gateway()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
@@ -605,6 +617,7 @@ def _cmd_stop_session(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     result = controller.stop(force_cleanup=bool(args.force_cleanup))
@@ -626,6 +639,7 @@ def _cmd_attach_gateway(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     result = controller.attach_gateway(
         host_override=args.gateway_host,
@@ -648,6 +662,7 @@ def _cmd_detach_gateway(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     result = controller.detach_gateway()
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
@@ -667,6 +682,7 @@ def _cmd_gateway_status(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.gateway_status()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
@@ -720,6 +736,7 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     mailbox = ensure_mailbox_command_ready(controller.launch_plan)
     prompt_request = prepare_mail_prompt(
@@ -827,6 +844,17 @@ def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:
         "--agent-identity",
         required=True,
         help="Agent name or manifest path",
+    )
+    _add_cao_parsing_mode_arg(parser)
+
+
+def _add_cao_parsing_mode_arg(parser: argparse.ArgumentParser) -> None:
+    """Add one optional CAO parsing-mode override for resumed session control."""
+
+    parser.add_argument(
+        "--cao-parsing-mode",
+        choices=["cao_only", "shadow_only"],
+        help="CAO parsing mode override for resumed control commands.",
     )
 
 

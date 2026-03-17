@@ -30,6 +30,9 @@ The pack wrapper now supports explicit commands:
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] \
   [--demo-output-dir <path>] \
   [--jobs-dir <path>] \
+  [--parameters <path>] \
+  [--expected-report <path>] \
+  [--cao-parsing-mode <cao_only|shadow_only>] \
   [--snapshot-report]
 ```
 
@@ -92,9 +95,30 @@ The pack now keeps reusable orchestration state inside the selected demo output 
 Notes:
 
 - Relative `--demo-output-dir` and `--jobs-dir` values resolve from the repository root.
+- `--parameters` and `--expected-report` let maintainers swap in test-owned fixtures without editing the tracked pack inputs or snapshot.
+- When `start` records a non-default `--cao-parsing-mode`, later `roundtrip` and `stop` commands reuse that persisted mode from `demo_state.json` unless an explicit override is supplied again.
 - When `--jobs-dir` is omitted, per-session jobs stay under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
 - The demo root is refreshed between runs, but a valid existing `<demo-output-dir>/project` worktree is preserved and reused.
 - If `<demo-output-dir>/project` already exists but is not a valid git worktree of this repository, the automation fails before any live runtime work starts.
+
+## Live Automatic Coverage
+
+The pack also has a dedicated live integration target that exercises the real direct-session mail path without using gateway transport or fake mailbox injection:
+
+```bash
+pixi run pytest tests/integration/demo/test_mailbox_roundtrip_tutorial_pack_live.py
+```
+
+That test:
+
+- provisions a fresh temp-root `<demo-output-dir>` plus an isolated `AGENTSYS_GLOBAL_REGISTRY_DIR`
+- starts a test-owned loopback CAO on a picked free port
+- runs `run_demo.sh start -> roundtrip -> verify -> stop` against two real runtime sessions
+- asserts that `<demo-output-dir>/shared-mailbox/mailboxes/<sender-address>/` and `<demo-output-dir>/shared-mailbox/mailboxes/<receiver-address>/` both exist after `stop`
+- opens the canonical send and reply Markdown documents under `<demo-output-dir>/shared-mailbox/messages/` and checks them against the tracked `inputs/*.md` files
+- confirms the sanitized report still excludes the raw message bodies even though the canonical mailbox Markdown remains readable on disk
+
+The existing `scripts/run_automation_scenarios.py` coverage remains the fast hermetic regression layer. It is not the only automatic mailbox check anymore; the live pytest target is the direct-codepath gate.
 
 ## Scenario Automation
 
