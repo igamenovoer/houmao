@@ -201,6 +201,56 @@ def test_demo_layout_helpers_resolve_repo_relative_paths() -> None:
     assert layout.report_path == explicit_output / "report.json"
 
 
+def test_resolve_demo_cao_parsing_mode_defaults_to_shadow_only(monkeypatch) -> None:
+    """Fresh automatic runs should default to `shadow_only` and reuse persisted state."""
+
+    monkeypatch.delenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, raising=False)
+
+    assert (
+        HELPERS._resolve_demo_cao_parsing_mode(requested_mode=None, persisted_mode=None)
+        == "shadow_only"
+    )
+    assert (
+        HELPERS._resolve_demo_cao_parsing_mode(requested_mode=None, persisted_mode="cao_only")
+        == "cao_only"
+    )
+    assert (
+        HELPERS._resolve_demo_cao_parsing_mode(
+            requested_mode="shadow_only",
+            persisted_mode="cao_only",
+        )
+        == "shadow_only"
+    )
+
+
+def test_resolve_demo_cao_parsing_mode_rejects_cao_only_without_debug_opt_in(
+    monkeypatch,
+) -> None:
+    """Fresh `cao_only` requests should fail unless the debug override is enabled."""
+
+    monkeypatch.delenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, raising=False)
+
+    with pytest.raises(ValueError, match="requires `shadow_only`"):
+        HELPERS._resolve_demo_cao_parsing_mode(
+            requested_mode="cao_only",
+            persisted_mode=None,
+        )
+
+
+def test_resolve_demo_cao_parsing_mode_allows_debug_cao_only_with_opt_in(monkeypatch) -> None:
+    """The explicit debug environment variable should allow `cao_only` overrides."""
+
+    monkeypatch.setenv(HELPERS._DEBUG_ALLOW_CAO_ONLY_ENV_VAR, "1")
+
+    assert (
+        HELPERS._resolve_demo_cao_parsing_mode(
+            requested_mode="cao_only",
+            persisted_mode=None,
+        )
+        == "cao_only"
+    )
+
+
 def test_detect_cao_profile_store_prefers_launcher_ownership_home_dir(tmp_path: Path) -> None:
     """Profile-store detection should prefer the launcher ownership artifact when present."""
 

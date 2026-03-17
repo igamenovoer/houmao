@@ -257,6 +257,44 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                 )
 
 
+            def _prompt_excerpt(prompt: str) -> str:
+                for raw_line in prompt.splitlines():
+                    line = raw_line.strip()
+                    if line:
+                        return line[:120]
+                return "mail operation"
+
+
+            def _idle_output(provider: str) -> str:
+                lowered = provider.strip().lower()
+                if "claude" in lowered:
+                    return "Claude Code v2.1.62\\n❯ \\n"
+                return "OpenAI Codex (v0.98.0)\\n❯ \\n? for shortcuts\\n"
+
+
+            def _completed_output(provider: str, *, prompt: str, response_text: str) -> str:
+                lowered = provider.strip().lower()
+                response_lines = response_text.splitlines() or [""]
+                if "claude" in lowered:
+                    lines = [
+                        "Claude Code v2.1.62",
+                        f"❯ {_prompt_excerpt(prompt)}",
+                        f"● {response_lines[0]}",
+                        *response_lines[1:],
+                        "❯ ",
+                    ]
+                    return "\\n".join(lines) + "\\n"
+                lines = [
+                    "OpenAI Codex (v0.98.0)",
+                    f"You {_prompt_excerpt(prompt)}",
+                    f"assistant: {response_lines[0]}",
+                    *response_lines[1:],
+                    "❯ ",
+                    "? for shortcuts",
+                ]
+                return "\\n".join(lines) + "\\n"
+
+
             def _deliver_message(
                 *,
                 mailbox_root: Path,
@@ -299,6 +337,7 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
 
             def _mail_result(
                 *,
+                provider: str,
                 session_name: str,
                 prompt: str,
             ) -> tuple[bool, str]:
@@ -315,7 +354,11 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                 if operation == "send" and mail_mode == "reject_send":
                     return False, ""
                 if operation == "send" and mail_mode == "malformed_send":
-                    return True, "no sentinels here"
+                    return True, _completed_output(
+                        provider,
+                        prompt=prompt,
+                        response_text="no sentinels here",
+                    )
 
                 if operation == "check":
                     payload = {
@@ -326,8 +369,12 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                         "principal_id": principal_id,
                         "unread_count": _unread_count(mailbox_root, address=address),
                     }
-                    return True, (
-                        f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                    return True, _completed_output(
+                        provider,
+                        prompt=prompt,
+                        response_text=(
+                            f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                        ),
                     )
 
                 created_at_utc = _now_utc()
@@ -366,8 +413,12 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                         "thread_id": message.thread_id,
                         "subject": message.subject,
                     }
-                    return True, (
-                        f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                    return True, _completed_output(
+                        provider,
+                        prompt=prompt,
+                        response_text=(
+                            f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                        ),
                     )
 
                 if operation == "reply":
@@ -399,8 +450,12 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                         "message_id": message.message_id,
                         "thread_id": message.thread_id,
                     }
-                    return True, (
-                        f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                    return True, _completed_output(
+                        provider,
+                        prompt=prompt,
+                        response_text=(
+                            f"{MAIL_BEGIN}\\n{json.dumps(payload, sort_keys=True)}\\n{MAIL_END}"
+                        ),
                     )
 
                 raise RuntimeError(f"unsupported fake CAO mail operation: {operation!r}")
@@ -479,7 +534,7 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                             "session_name": session_name,
                             "agent_profile": agent_profile,
                             "status": "idle",
-                            "output": "",
+                            "output": _idle_output(provider),
                         }
                         self.server.state["terminals"][terminal_id] = terminal
                         self.server.state["sessions"][session_name] = terminal_id
@@ -495,6 +550,7 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
                         terminal = self.server.state["terminals"][path_parts[1]]
                         message = query.get("message", [""])[0]
                         success, output = _mail_result(
+                            provider=str(terminal["provider"]),
                             session_name=terminal["session_name"],
                             prompt=message,
                         )
@@ -895,7 +951,6 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
             demo_output_dir=demo_output_dir,
             parameters_path=parameters_path,
             env=env,
-            cao_parsing_mode="cao_only",
         )
         assert start_result.returncode == 0, start_result.stderr
 
@@ -909,6 +964,18 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
         assert receiver_start["agent_identity"] == receiver_identity
         assert sender_start["backend"] == "cao_rest"
         assert receiver_start["backend"] == "cao_rest"
+        demo_state = json.loads((demo_output_dir / "demo_state.json").read_text(encoding="utf-8"))
+        sender_manifest = json.loads(
+            Path(sender_start["session_manifest"]).read_text(encoding="utf-8")
+        )
+        receiver_manifest = json.loads(
+            Path(receiver_start["session_manifest"]).read_text(encoding="utf-8")
+        )
+        assert demo_state["cao_parsing_mode"] == "shadow_only"
+        assert sender_manifest["cao"]["parsing_mode"] == "shadow_only"
+        assert sender_manifest["backend_state"]["parsing_mode"] == "shadow_only"
+        assert receiver_manifest["cao"]["parsing_mode"] == "shadow_only"
+        assert receiver_manifest["backend_state"]["parsing_mode"] == "shadow_only"
 
         roundtrip_result = _run_demo_command(
             command="roundtrip",
@@ -994,9 +1061,12 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
             demo_output_dir=restart_demo_output_dir,
             parameters_path=parameters_path,
             env=env,
-            cao_parsing_mode="cao_only",
         )
         assert restart_start_result.returncode == 0, restart_start_result.stderr
+        restart_state = json.loads(
+            (restart_demo_output_dir / "demo_state.json").read_text(encoding="utf-8")
+        )
+        assert restart_state["cao_parsing_mode"] == "shadow_only"
 
         restart_stop_result = _run_demo_command(
             command="stop",
@@ -1060,7 +1130,6 @@ def test_mailbox_roundtrip_live_workflow_surfaces_direct_mail_failures(tmp_path:
                 demo_output_dir=demo_output_dir,
                 parameters_path=parameters_path,
                 env=env,
-                cao_parsing_mode="cao_only",
             )
             assert start_result.returncode == 0, start_result.stderr
 
@@ -1079,8 +1148,12 @@ def test_mailbox_roundtrip_live_workflow_surfaces_direct_mail_failures(tmp_path:
             receiver_start = json.loads(
                 (demo_output_dir / "receiver_start.json").read_text(encoding="utf-8")
             )
+            demo_state = json.loads(
+                (demo_output_dir / "demo_state.json").read_text(encoding="utf-8")
+            )
             assert sender_start["agent_identity"] == sender_identity
             assert receiver_start["agent_identity"] == receiver_identity
+            assert demo_state["cao_parsing_mode"] == "shadow_only"
 
             message_paths = sorted((demo_output_dir / "shared-mailbox" / "messages").glob("*/*.md"))
             assert message_paths == []
@@ -1092,3 +1165,45 @@ def test_mailbox_roundtrip_live_workflow_surfaces_direct_mail_failures(tmp_path:
             )
             assert not _tmux_session_exists(sender_identity)
             assert not _tmux_session_exists(receiver_identity)
+
+
+def test_mailbox_roundtrip_live_workflow_rejects_cao_only_without_debug_opt_in(
+    tmp_path: Path,
+) -> None:
+    """Fresh automatic runs should reject `cao_only` unless the debug opt-in is enabled."""
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir(parents=True, exist_ok=True)
+    _write_fake_git(fake_bin_dir)
+    _write_fake_cli_executables(fake_bin_dir)
+    _write_fake_cao_server(fake_bin_dir)
+
+    agent_def_dir = tmp_path / "agents"
+    _seed_live_agent_def_dir(agent_def_dir)
+
+    suffix = uuid.uuid4().hex[:8]
+    sender_identity = f"AGENTSYS-live-mailbox-sender-{suffix}"
+    receiver_identity = f"AGENTSYS-live-mailbox-receiver-{suffix}"
+    base_url = f"http://127.0.0.1:{_pick_unused_loopback_port()}"
+    parameters_path = tmp_path / "demo_parameters.json"
+    _write_parameters(
+        parameters_path,
+        agent_def_dir=agent_def_dir,
+        cao_base_url=base_url,
+        sender_identity=sender_identity,
+        receiver_identity=receiver_identity,
+    )
+    env = _build_env(tmp_path=tmp_path, fake_bin_dir=fake_bin_dir, base_url=base_url)
+    demo_output_dir = tmp_path / "demo"
+
+    start_result = _run_demo_command(
+        command="start",
+        demo_output_dir=demo_output_dir,
+        parameters_path=parameters_path,
+        env=env,
+        cao_parsing_mode="cao_only",
+    )
+
+    assert start_result.returncode == 1
+    assert "requires `shadow_only`" in start_result.stderr
+    assert not (demo_output_dir / "demo_state.json").exists()

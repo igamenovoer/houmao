@@ -36,6 +36,8 @@ scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|v
   [--snapshot-report]
 ```
 
+For this mailbox roundtrip workflow, fresh automatic CAO-backed runs now resolve `shadow_only` for both Claude and Codex by default. `--cao-parsing-mode cao_only` is treated as a debug-only override for this pack and requires `AGENTSYS_MAILBOX_ROUNDTRIP_ALLOW_CAO_ONLY_DEBUG=1`.
+
 Commands:
 
 - `auto`: start, roundtrip, verify, then stop. This remains the default command when no explicit command is supplied.
@@ -96,7 +98,8 @@ Notes:
 
 - Relative `--demo-output-dir` and `--jobs-dir` values resolve from the repository root.
 - `--parameters` and `--expected-report` let maintainers swap in test-owned fixtures without editing the tracked pack inputs or snapshot.
-- When `start` records a non-default `--cao-parsing-mode`, later `roundtrip` and `stop` commands reuse that persisted mode from `demo_state.json` unless an explicit override is supplied again.
+- Fresh automatic `start` runs persist `shadow_only` in `demo_state.json`, and later `roundtrip` and `stop` commands reuse that persisted mode for the same demo root unless an explicit override is supplied again.
+- Persisted older demo roots that already recorded `cao_only` can still be stopped or resumed intentionally, but new automatic coverage is expected to stay on `shadow_only`.
 - When `--jobs-dir` is omitted, per-session jobs stay under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
 - The demo root is refreshed between runs, but a valid existing `<demo-output-dir>/project` worktree is preserved and reused.
 - If `<demo-output-dir>/project` already exists but is not a valid git worktree of this repository, the automation fails before any live runtime work starts.
@@ -113,7 +116,8 @@ That test:
 
 - provisions a fresh temp-root `<demo-output-dir>` plus an isolated `AGENTSYS_GLOBAL_REGISTRY_DIR`
 - starts a test-owned loopback CAO on a picked free port
-- runs `run_demo.sh start -> roundtrip -> verify -> stop` against two real runtime sessions
+- runs `run_demo.sh start -> roundtrip -> verify -> stop` against two real runtime sessions, with both agents using `shadow_only`
+- treats Codex shadow parsing as the supported receiver path instead of a fallback or downgrade target
 - asserts that `<demo-output-dir>/shared-mailbox/mailboxes/<sender-address>/` and `<demo-output-dir>/shared-mailbox/mailboxes/<receiver-address>/` both exist after `stop`
 - opens the canonical send and reply Markdown documents under `<demo-output-dir>/shared-mailbox/messages/` and checks them against the tracked `inputs/*.md` files
 - confirms the sanitized report still excludes the raw message bodies even though the canonical mailbox Markdown remains readable on disk

@@ -92,6 +92,8 @@ _TIMESTAMP_KEYS = {
     "updated_at",
 }
 _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/mailbox-roundtrip-tutorial-pack")
+_DEFAULT_AUTOMATION_CAO_PARSING_MODE = "shadow_only"
+_DEBUG_ALLOW_CAO_ONLY_ENV_VAR = "AGENTSYS_MAILBOX_ROUNDTRIP_ALLOW_CAO_ONLY_DEBUG"
 
 
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
@@ -1136,6 +1138,39 @@ def _state_cao_parsing_mode(state: dict[str, Any]) -> str | None:
     return _require_non_empty_string(raw_mode, context="cao_parsing_mode")
 
 
+def _debug_cao_only_allowed() -> bool:
+    """Return whether the debug-only `cao_only` override is enabled."""
+
+    return os.environ.get(_DEBUG_ALLOW_CAO_ONLY_ENV_VAR, "").strip() == "1"
+
+
+def _resolve_demo_cao_parsing_mode(
+    *,
+    requested_mode: str | None,
+    persisted_mode: str | None,
+) -> str:
+    """Resolve the effective demo CAO parsing mode for automatic workflow steps."""
+
+    if requested_mode is not None:
+        normalized_requested = requested_mode.strip()
+        if normalized_requested == "shadow_only":
+            return normalized_requested
+        if normalized_requested == "cao_only":
+            if _debug_cao_only_allowed():
+                return normalized_requested
+            raise ValueError(
+                "automatic mailbox roundtrip coverage requires `shadow_only`; "
+                f"set `{_DEBUG_ALLOW_CAO_ONLY_ENV_VAR}=1` to allow debug-only `cao_only` runs"
+            )
+        raise ValueError(
+            f"Unsupported CAO parsing mode for mailbox tutorial pack: {normalized_requested!r}"
+        )
+
+    if persisted_mode is not None:
+        return persisted_mode.strip()
+    return _DEFAULT_AUTOMATION_CAO_PARSING_MODE
+
+
 def _participant_identity(participant_state: dict[str, Any], *, context: str) -> str:
     """Resolve the control identity for one participant from persisted state."""
 
@@ -1213,6 +1248,10 @@ def start_demo(
 
     parameters = load_demo_parameters(parameters_path)
     layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    resolved_cao_parsing_mode = _resolve_demo_cao_parsing_mode(
+        requested_mode=cao_parsing_mode,
+        persisted_mode=None,
+    )
 
     if layout.state_path.exists():
         existing_state = _load_state(layout.state_path)
@@ -1237,7 +1276,7 @@ def start_demo(
         layout=layout,
         agent_def_dir=agent_def_dir,
         jobs_dir=jobs_dir,
-        cao_parsing_mode=cao_parsing_mode,
+        cao_parsing_mode=resolved_cao_parsing_mode,
     )
     _write_state(layout.state_path, state)
 
@@ -1341,7 +1380,8 @@ def start_demo(
                     sender_state.get("mailbox_address"),
                     context="sender.mailbox_address",
                 ),
-                *(["--cao-parsing-mode", cao_parsing_mode] if cao_parsing_mode is not None else []),
+                "--cao-parsing-mode",
+                resolved_cao_parsing_mode,
             ],
             stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["sender_start"],
             env=env,
@@ -1400,7 +1440,8 @@ def start_demo(
                     receiver_state.get("mailbox_address"),
                     context="receiver.mailbox_address",
                 ),
-                *(["--cao-parsing-mode", cao_parsing_mode] if cao_parsing_mode is not None else []),
+                "--cao-parsing-mode",
+                resolved_cao_parsing_mode,
             ],
             stdout_path=layout.demo_output_dir / _ARTIFACT_FILENAMES["receiver_start"],
             env=env,
@@ -1418,7 +1459,7 @@ def start_demo(
                 demo_output_dir=layout.demo_output_dir,
                 cleanup=True,
                 reason="start interrupted",
-                cao_parsing_mode=cao_parsing_mode,
+                cao_parsing_mode=resolved_cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1431,7 +1472,7 @@ def start_demo(
                 demo_output_dir=layout.demo_output_dir,
                 cleanup=True,
                 reason="start failed",
-                cao_parsing_mode=cao_parsing_mode,
+                cao_parsing_mode=resolved_cao_parsing_mode,
             )
         except Exception:
             pass
@@ -1467,7 +1508,10 @@ def roundtrip_demo(
     if not initial_body_file.is_file() or not reply_body_file.is_file():
         raise ValueError("copied message body inputs are missing from the demo output directory")
 
-    resolved_cao_parsing_mode = cao_parsing_mode or _state_cao_parsing_mode(state)
+    resolved_cao_parsing_mode = _resolve_demo_cao_parsing_mode(
+        requested_mode=cao_parsing_mode,
+        persisted_mode=_state_cao_parsing_mode(state),
+    )
     env = _command_environment(jobs_dir=_state_jobs_dir(state))
     sender_state = _require_state_mapping(state, "sender")
     receiver_state = _require_state_mapping(state, "receiver")
@@ -1692,7 +1736,10 @@ def stop_demo(
 
     state = _load_state(layout.state_path)
     jobs_dir = _state_jobs_dir(state)
-    resolved_cao_parsing_mode = cao_parsing_mode or _state_cao_parsing_mode(state)
+    resolved_cao_parsing_mode = _resolve_demo_cao_parsing_mode(
+        requested_mode=cao_parsing_mode,
+        persisted_mode=_state_cao_parsing_mode(state),
+    )
     agent_def_dir = Path(
         _require_non_empty_string(state.get("agent_def_dir"), context="agent_def_dir")
     ).resolve()

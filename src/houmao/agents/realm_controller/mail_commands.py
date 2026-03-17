@@ -146,6 +146,11 @@ def parse_mail_result(
         non_done_text,
         done_text,
         "\n".join(filter(None, (non_done_text, done_text))),
+        *(
+            payload_text
+            for event in events
+            for payload_text in _event_payload_text_candidates(event)
+        ),
     ):
         normalized = candidate.strip()
         if not normalized or normalized in seen_inputs:
@@ -191,6 +196,27 @@ def run_mail_prompt(
         operation=prompt_request.operation,
         mailbox=mailbox,
     )
+
+
+def _event_payload_text_candidates(event: SessionEvent) -> tuple[str, ...]:
+    """Return payload-derived text surfaces that may contain the mail sentinel block."""
+
+    payload = event.payload
+    if not isinstance(payload, dict):
+        return ()
+
+    candidates: list[str] = []
+    output_text = payload.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        candidates.append(output_text)
+
+    dialog_projection = payload.get("dialog_projection")
+    if isinstance(dialog_projection, dict):
+        dialog_text = dialog_projection.get("dialog_text")
+        if isinstance(dialog_text, str) and dialog_text.strip():
+            candidates.append(dialog_text)
+
+    return tuple(candidates)
 
 
 def generate_mail_request_id() -> str:

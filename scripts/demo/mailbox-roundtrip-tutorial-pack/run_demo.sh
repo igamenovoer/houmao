@@ -20,6 +20,9 @@ print_help() {
   cat <<'EOF'
 Usage:
   scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>] [--parameters <path>] [--expected-report <path>] [--cao-parsing-mode <cao_only|shadow_only>]
+
+Fresh automatic mailbox coverage defaults to shadow_only for both agents.
+Use AGENTSYS_MAILBOX_ROUNDTRIP_ALLOW_CAO_ONLY_DEBUG=1 to allow a debug-only cao_only override.
 EOF
 }
 

@@ -245,3 +245,18 @@ When tmux-backed backend code later resumes control of the same live session wit
 - **WHEN** the runtime resumes control of gateway-capable tmux session `AGENTSYS-gpu-270b87`
 - **AND WHEN** resume has already determined the effective attach metadata for that control operation
 - **THEN** the tmux session environment contains `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
+
+### Requirement: Repository documentation SHALL reflect the implemented tmux naming contract
+Once this change is implemented, repository documentation under `docs/` that describes runtime agent identity, tmux attach targets, or tmux-oriented troubleshooting SHALL reflect the implemented tmux naming contract.
+
+That documentation SHALL:
+
+- describe live tmux session handles as the actual persisted tmux handle rather than assuming they equal the canonical `AGENTSYS-<name>` identity,
+- explain that canonical `agent_name` and live `tmux_session_name` remain distinct fields, and
+- direct operators to the surfaced attach command or persisted runtime metadata when they need the exact tmux target.
+
+#### Scenario: Runtime and troubleshooting docs no longer assume canonical identity equals tmux session name
+- **WHEN** this change has been implemented
+- **AND WHEN** a developer reads the relevant repository docs under `docs/` for runtime session control, tmux attach flows, or troubleshooting
+- **THEN** those docs describe live tmux session handles using the new persisted tmux-handle contract
+- **AND THEN** they do not instruct the developer to assume the live tmux session name is exactly `AGENTSYS-<name>`

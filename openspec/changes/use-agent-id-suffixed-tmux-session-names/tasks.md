@@ -14,5 +14,5 @@
 
 - [ ] 3.1 Update interactive demo persisted state and inspect rendering so `agent_identity` remains canonical while `session_name`, `tmux_target`, and attach commands use the actual tmux handle.
 - [ ] 3.2 Update interactive demo startup recovery and stale-session cleanup to remove leftover tmux sessions associated with the canonical tutorial identity even when the live tmux handle includes an agent-id suffix, using persisted or discovered session metadata keyed by canonical identity plus exact-name legacy fallback rather than prefix-only tmux-name guesses.
-- [ ] 3.3 Refresh runtime/demo docs, troubleshooting guidance, and manual helper scripts that currently assume `tmux attach -t AGENTSYS-<name>`.
+- [ ] 3.3 Refresh the affected `docs/` runtime/demo reference pages, troubleshooting guidance, and manual helper scripts so they reflect the implemented tmux naming contract instead of assuming `tmux attach -t AGENTSYS-<name>`.
 - [ ] 3.4 Run targeted tests for tmux identity resolution, manifest persistence, and interactive demo inspect/startup flows, including conservative cleanup behavior when similarly prefixed tmux names exist.
