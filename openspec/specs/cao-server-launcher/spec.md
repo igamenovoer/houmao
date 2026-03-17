@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change cao-server-launcher. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Launcher is configured via a server config file
 The launcher SHALL accept a server config file as its primary configuration
 input.
@@ -40,23 +41,23 @@ At minimum, the launcher SHALL support CLI overrides for:
 - **AND THEN** the config file on disk remains unchanged
 
 ### Requirement: Launcher config files are schema-validated
-The launcher SHALL validate the config file against a schema and fail fast with
-actionable errors when the config is invalid.
+The launcher SHALL validate the config file against a schema and fail fast with actionable errors when the config is invalid.
 
 The launcher SHALL reject:
 - unknown keys (typo protection),
 - invalid enum values (for example proxy policy not in `{clear, inherit}`), and
-- structurally invalid values (for example malformed base URLs or non-positive
-  timeouts).
+- structurally invalid values (for example malformed base URLs or non-positive timeouts).
 
-The launcher SHALL accept loopback `base_url` values only when all of the
-following are true:
+The launcher SHALL accept loopback `base_url` values only when all of the following are true:
 - the URL uses the `http` scheme,
 - the host is `localhost` or `127.0.0.1`, and
 - the URL includes an explicit port.
 
-The launcher SHALL reject non-loopback hosts, missing ports, and malformed CAO
-base URLs.
+The launcher SHALL reject non-loopback hosts, missing ports, and malformed CAO base URLs.
+
+The launcher SHALL treat an omitted `home_dir` or a blank-string `home_dir` as "use the launcher-derived system-defined home" rather than rejecting that config.
+
+Repository-owned checked-in configs MAY express that portable default explicitly as `home_dir = ""`.
 
 #### Scenario: Unknown config keys are rejected
 - **WHEN** the launcher loads a config file that contains an unknown key
@@ -69,6 +70,16 @@ base URLs.
 #### Scenario: Non-default loopback port values are accepted
 - **WHEN** the launcher loads a config file whose `base_url` is `http://127.0.0.1:9991`
 - **THEN** the launcher accepts that config as a supported loopback CAO target
+
+#### Scenario: Empty home_dir selects the launcher-derived default home
+- **WHEN** the launcher loads a config file whose `home_dir` is the empty string
+- **THEN** the launcher normalizes that config to the same effective behavior as an omitted `home_dir`
+- **AND THEN** it does not fail solely because the checked-in config expressed the default home selection explicitly
+
+#### Scenario: Checked-in local config can express the portable default explicitly
+- **WHEN** a repository-owned launcher config uses `home_dir = ""` as its checked-in default
+- **THEN** the launcher accepts that config and derives the effective CAO home from `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** developers do not need to edit a machine-specific absolute launcher-home path before using that config
 
 #### Scenario: Invalid CLI override values are rejected
 - **WHEN** the launcher is invoked with a CLI override whose effective `base_url` uses a non-loopback host or omits an explicit port
@@ -259,47 +270,18 @@ The launcher SHALL support an optional `home_dir` setting that is applied to the
 
 When launcher config and CLI overrides do not provide an explicit `runtime_root`, and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the launcher SHALL use that env-var value as the effective runtime root before deriving launcher artifacts or a default `home_dir`.
 
-When launcher config does not provide an explicit `home_dir`, the launcher SHALL derive a default CAO home for that base URL under the effective runtime root as:
-- `<runtime_root>/cao_servers/<host>-<port>/home/`
+When launcher config or CLI overrides omit `home_dir`, or provide it as a blank string, the launcher SHALL derive the effective CAO home from the launcher-managed server root for the selected host and port rather than requiring a host-specific absolute path in checked-in config.
 
-When launcher config provides an explicit `home_dir`, the launcher SHALL use that explicit path instead of the derived default.
+#### Scenario: Omitted home_dir derives the launcher-managed default home
+- **WHEN** a developer starts launcher-managed CAO with no explicit `home_dir`
+- **THEN** the launcher derives the effective CAO home under `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** the launched `cao-server` process uses that derived home as its `HOME`
 
-The chosen `home_dir` exists to choose the CAO state/profile-store root under `HOME/.aws/cli-agent-orchestrator/`.
-
-The effective CAO home SHALL remain writable because CAO writes its own state there.
-
-The launcher SHALL NOT define or document a repo-owned rule that CAO session workdirs must live under `home_dir` or the user home tree. Workdir acceptance for later CAO-backed sessions belongs to the installed CAO server behavior, while the launcher owns only the launched process `HOME` and state-root configuration.
-
-#### Scenario: Launcher start derives a default CAO home from the runtime root
-- **WHEN** the launcher starts `cao-server` for base URL `http://localhost:9889`
-- **AND WHEN** launcher config omits `home_dir`
-- **THEN** the launcher uses `<runtime_root>/cao_servers/localhost-9889/home/` as the effective CAO `HOME`
-
-#### Scenario: Explicit home_dir override is preserved
-- **WHEN** the launcher starts `cao-server` for base URL `http://localhost:9889`
-- **AND WHEN** launcher config explicitly provides `home_dir = "/data/custom/cao-home"`
-- **THEN** the launcher uses `/data/custom/cao-home` as the effective CAO `HOME`
-- **AND THEN** it does not replace that explicit path with the derived default
-
-#### Scenario: Runtime-root env-var override relocates launcher artifacts and default home
-- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
-- **AND WHEN** launcher config and CLI overrides do not provide an explicit `runtime_root`
-- **AND WHEN** launcher config omits `home_dir`
-- **THEN** the launcher uses `/tmp/houmao-runtime` as the effective runtime root
-- **AND THEN** it derives the default CAO `HOME` under `/tmp/houmao-runtime/cao_servers/<host>-<port>/home/`
-
-#### Scenario: Launcher overrides HOME when home_dir is configured
-- **WHEN** the launcher starts `cao-server` with a configured `home_dir` value `H`
-- **THEN** the launched process environment sets `HOME=H`
-
-#### Scenario: Missing home_dir is rejected
-- **WHEN** the launcher is asked to start `cao-server` with a configured `home_dir` that does not exist
-- **THEN** the launcher fails fast with an explicit configuration error
-
-#### Scenario: Launcher guidance does not require session workdirs under home_dir
-- **WHEN** a developer follows repo-owned launcher docs or examples
-- **THEN** those docs describe `home_dir` as the CAO state/profile-store anchor
-- **AND THEN** they do not instruct the developer to place session workdirs under `home_dir` solely because of a repo-owned launcher rule
+#### Scenario: Blank home_dir derives the same launcher-managed default home
+- **WHEN** a developer starts launcher-managed CAO with `home_dir = ""`
+- **THEN** the launcher derives the effective CAO home under `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** the launched `cao-server` process uses that derived home as its `HOME`
+- **AND THEN** the checked-in config remains portable across machines that do not share one writable absolute launcher-home path
 
 ### Requirement: User-facing launcher CLI uses the Houmao name
 The repository SHALL publish the supported user-facing CAO launcher CLI under the name `houmao-cao-server`.

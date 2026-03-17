@@ -2,6 +2,8 @@
 
 The current shadow parser stack already separates provider TUI parsing into `raw_text`, `normalized_text`, `dialog_text`, surface assessment, and caller-owned answer association. That separation is directionally correct, but several code paths and docs still make `dialog_text` sound like reliable clean-text extraction rather than what it really is: a best-effort heuristic rendering of a messy interactive surface.
 
+The stack is also too rigid internally. Today each provider parser owns projection through embedded methods such as `_build_dialog_projection()` and per-line cleanup helpers. That means projection changes for one provider/version/output family require editing the parser class itself rather than swapping a targeted processor implementation. Given how much TUI behavior varies across versions, that rigidity makes parser maintenance fragile.
+
 This matters because the current in-tree consumers are not all using the projection for the same reason:
 
 - `_TurnMonitor` only needs a coarse “projection changed” signal for lifecycle completion.
@@ -15,6 +17,7 @@ The existing specs say projection is not the authoritative final answer for the 
 **Goals:**
 
 - Define `dialog_projection` as a best-effort heuristic rendering rather than an exact recovered transcript.
+- Refactor projection logic into modular swappable processor instances so provider/version-specific cleanup can change without rewriting a monolithic parser class.
 - Preserve shadow projection as a useful runtime surface for lifecycle diffing, inspection, and best-effort caller-side pattern matching.
 - Make reliable downstream machine use depend on schema-shaped prompt/result contracts and explicit extractor logic instead of on projection fidelity.
 - Audit and revise affected runtime modules and docs so their wording matches the intended contract.
@@ -25,8 +28,30 @@ The existing specs say projection is not the authoritative final answer for the 
 - Reintroduce parser-owned “final answer extraction” as a shadow-mode runtime guarantee.
 - Add raw tmux scrollback as a new primary caller-facing contract surface.
 - Replace runtime-owned structured protocols such as mailbox with free-form projection parsing.
+- Ship arbitrary plugin discovery or unbounded third-party code loading for projectors; this change only needs a controlled swappable processor architecture.
 
 ## Decisions
+
+### Decision: Refactor provider projection into swappable processor instances
+
+The parser stack should treat dialog projection as a modular provider-owned processor concern rather than as a hardcoded helper method inside each parser class.
+
+The refactor will introduce a shared projector abstraction with these properties:
+
+- one selected processor instance owns projection for one parsed snapshot,
+- processor selection is provider-aware and version-aware, and may also consider output-variant evidence,
+- the selected processor emits the provider-specific `DialogProjection` subtype plus provenance via `projector_id`, and
+- runtime lifecycle code such as `_TurnMonitor` remains unchanged because it still consumes the same `DialogProjection` contract.
+
+Provider parser classes will remain responsible for preset resolution, supported/unsupported detection, and surface assessment, but they will stop owning all projection cleanup logic directly. Instead they will orchestrate selection and invocation of the matching projector.
+
+For maintainability and controlled extensibility, provider parsers or the shared stack should also allow explicit processor injection/override for tests and advanced callers. This is enough to make processor swapping real without committing to a general-purpose plugin-loading system.
+
+**Alternatives considered**
+
+- Keep monolithic parser classes and only add more preset data: rejected because rule churn would still require editing the parser methods themselves and would remain brittle across TUI drift.
+- Fully decompose providers into many tiny independently swappable components for preset detection, surface classification, and projection: rejected for now because it increases scope too much; projection modularity is the pressure point that needs relief first.
+- Add arbitrary runtime plugin loading from user-provided module paths: rejected because it creates safety and deployment complexity beyond the current need.
 
 ### Decision: Keep the current `DialogProjection` payload shape, but redefine its reliability boundary explicitly
 
@@ -42,7 +67,7 @@ The problem is not missing fields; it is missing reliability language. We will t
 - `dialog_text` is a best-effort heuristic projection.
 - Neither field implies prompt-associated answer ownership by itself.
 
-This avoids wire-format churn while making the intended semantics explicit.
+This avoids wire-format churn while making the intended semantics explicit, even while the producer architecture underneath becomes modular.
 
 **Alternatives considered**
 
@@ -95,19 +120,24 @@ That keeps the demo useful without teaching callers the wrong lesson about proje
 ## Risks / Trade-offs
 
 - [Some existing callers may already assume `dialog_text` is exact] -> Mitigation: make the revised contract explicit in specs, developer docs, reference docs, and affected CLI/demo wording; audit in-tree consumers during implementation.
+- [Projector modularity could leak into runtime lifecycle logic] -> Mitigation: keep `DialogProjection` stable and keep `_TurnMonitor` consuming only the shared projection contract.
+- [Provider code could still become rigid if projector selection is hardcoded in one place] -> Mitigation: require explicit processor-selection boundaries and constructor-level override points for tests and controlled advanced use.
 - [Best-effort wording may feel weaker to operators] -> Mitigation: preserve the existing cleaned surfaces and diagnostic value while being explicit about what they are for.
 - [Schema-shaped prompting still runs through messy TUIs] -> Mitigation: require explicit sentinels or compact structured payloads and let caller-owned extractors choose the most suitable text surface (`normalized_text` or `dialog_text`).
-- [Hardened mailbox/result extraction may add some implementation complexity] -> Mitigation: keep the pattern narrow and reusable, centered on explicit sentinel/schema contracts rather than new parser families.
+- [Refactoring projectors and hardened mailbox/result extraction may add implementation complexity] -> Mitigation: keep the projector abstraction narrowly focused on projection only, and keep machine parsing centered on explicit sentinel/schema contracts rather than on new parser families.
 
 ## Migration Plan
 
-1. Revise the affected specs so the contract clearly distinguishes best-effort projection from reliable extraction.
-2. Update runtime/parser docs and module wording to describe `dialog_text` and demo inspect output as best-effort projected text.
-3. Audit in-tree consumers and keep only the usages that fit the intended reliability tier.
-4. For machine-critical flows, preserve or harden schema-shaped prompt/result contracts and explicit extraction helpers.
-5. Update tests so they validate the revised contract language and consumer behavior rather than overclaiming projection exactness.
+1. Revise the affected specs so the contract clearly distinguishes best-effort projection from reliable extraction and requires modular projector selection in the parser stack.
+2. Introduce the shared projector abstraction and provider/version-aware processor selection path while preserving the existing `DialogProjection` payload contract.
+3. Refactor Claude and Codex projection code into swappable processor implementations and route provenance through `projector_id`.
+4. Update runtime/parser docs and module wording to describe `dialog_text` and demo inspect output as best-effort projected text.
+5. Audit in-tree consumers and keep only the usages that fit the intended reliability tier.
+6. For machine-critical flows, preserve or harden schema-shaped prompt/result contracts and explicit extraction helpers.
+7. Update tests so they validate processor swapping, revised contract language, and downstream consumer behavior rather than overclaiming projection exactness.
 
 ## Open Questions
 
+- Should the controlled projector override live at `ShadowParserStack` construction, provider parser construction, or both?
 - Should the runtime add a shared helper for extracting sentinel/schema-shaped payloads from multiple shadow text surfaces, or should each protocol keep its own extractor?
 - Should the interactive demo keep the `output_text_tail` field name for compatibility while changing only its wording, or should a later change rename it to something more obviously diagnostic?

@@ -2,6 +2,7 @@
 Define expected runtime behaviors for brain launch session orchestration,
 CLI session control, backend continuity, and CAO/tmux integrations.
 ## Requirements
+
 ### Requirement: Launch plan composition from `{brain, role}`
 The system SHALL compose a tool launch plan from a resolved brain manifest and a role package.
 
@@ -179,6 +180,10 @@ When no explicit filesystem mailbox content root override is supplied, the runti
 
 When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before publishing `AGENTSYS_MAILBOX_FS_ROOT`.
 
+When active filesystem mailbox env bindings depend on the current session address having an active mailbox registration, the runtime SHALL bootstrap or confirm that session's mailbox registration before deriving those env bindings for `start-session`.
+
+The runtime SHALL satisfy that registration-dependent env-binding contract through bootstrap ordering rather than by synthesizing fallback mailbox paths when the active registration is missing.
+
 #### Scenario: Start session projects mailbox system skills with filesystem bindings
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
@@ -195,6 +200,12 @@ When no explicit filesystem mailbox content root override is supplied and `AGENT
 - **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived path
+
+#### Scenario: Second mailbox-enabled session joins an initialized shared mailbox root without manual pre-registration
+- **WHEN** one mailbox-enabled session has already initialized and registered itself into a shared filesystem mailbox root
+- **AND WHEN** a second mailbox-enabled session starts against that same shared mailbox root with its own mailbox address
+- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before deriving registration-dependent filesystem mailbox env bindings
+- **AND THEN** the second `start-session` succeeds without requiring manual mailbox pre-registration outside the runtime startup path
 
 ### Requirement: Runtime sessions support filesystem mailbox binding refresh
 The runtime SHALL support an explicit control path that refreshes filesystem mailbox binding env vars for an active session without requiring regeneration of the mailbox system skill templates.

@@ -125,9 +125,11 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health inspection, status inspection, and gateway-managed request submission on the resolved listener address for that session.
+The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, and gateway-owned notifier control on the resolved listener address for that session.
 
-In v1, that HTTP API SHALL expose exactly `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+
+When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
 
 `GET /health` SHALL return a structured response suitable for runtime launch-readiness checks and SHALL include gateway protocol-version information.
 
@@ -137,11 +139,15 @@ In v1, that HTTP API SHALL expose exactly `GET /health`, `GET /v1/status`, and `
 
 `POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
 
+The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
+
 That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
 
 Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
-Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health or status.
+Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
+
+Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, or notifier status.
 
 #### Scenario: Health inspection uses default loopback surface
 - **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
@@ -167,6 +173,11 @@ Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely
 - **WHEN** a caller submits a malformed `POST /v1/requests` payload
 - **THEN** the gateway returns HTTP `422`
 - **AND THEN** the malformed request is not accepted into durable queue state
+
+#### Scenario: Notifier control surface is available alongside the base gateway API
+- **WHEN** a caller needs to enable, inspect, or disable gateway mail notification for a mailbox-enabled session
+- **THEN** the gateway exposes the dedicated `/v1/mail-notifier` control routes on the same resolved listener
+- **AND THEN** callers do not need to mutate gateway queue persistence directly to manage notifier behavior
 
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and terminal-surface readiness.
@@ -348,3 +359,83 @@ When the entire tmux session or tmux server hosting the managed agent disappears
 - **WHEN** the tmux session hosting the managed TUI is destroyed while a gateway instance had been attached
 - **THEN** the gateway contract surfaces that loss as an offline or degraded condition when state is next inspected
 - **AND THEN** recovery of the destroyed tmux container is left to an outer launcher or supervisor layer rather than being claimed by the gateway companion alone
+
+### Requirement: Gateway writes a tail-friendly running log to disk
+The gateway SHALL maintain a running log on disk under its gateway-owned root so operators can monitor live behavior by tailing one stable file.
+
+That running log SHALL live under the gateway log directory and SHALL be append-only and line-oriented so common file-tail tools can follow it while the gateway is active.
+
+The running log SHALL cover at minimum:
+
+- gateway process start and stop,
+- attach and detach outcomes,
+- notifier enable, disable, and configuration changes when notifier is supported,
+- notifier poll outcomes such as unread detected, busy deferral, and enqueue success when notifier is supported,
+- request execution start and terminal outcome,
+- explicit gateway-side errors that affect live behavior.
+
+The running log SHALL remain a human-oriented observability surface. Structured artifacts such as `state.json`, `events.jsonl`, and gateway SQLite state remain the authoritative machine-readable contracts for status, history, and recovery.
+
+The gateway SHALL avoid unbounded log spam from high-frequency identical poll outcomes by rate-limiting, coalescing, or periodically summarizing repetitive messages.
+
+#### Scenario: Operator can tail one stable gateway log file
+- **WHEN** an operator wants to watch live gateway behavior for one session
+- **THEN** the gateway writes append-only log lines to one stable file under the gateway root
+- **AND THEN** the operator can follow that file with ordinary tail-style tooling while the gateway is active
+
+#### Scenario: Busy notifier retries are visible without flooding the log
+- **WHEN** unread mail exists but the notifier keeps finding the managed agent busy across multiple polling cycles
+- **THEN** the gateway running log records that notifier work is being deferred for retry
+- **AND THEN** the gateway avoids emitting an unbounded identical busy message on every single short poll forever
+
+### Requirement: Gateway notifier wake-up semantics are unread-set based rather than per-message based
+When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is eligible to receive a reminder prompt.
+
+If a poll cycle finds multiple unread messages, the gateway MAY enqueue a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
+
+The gateway SHALL NOT require one internal reminder prompt per unread message in order to satisfy notifier behavior.
+
+If the unread set has not changed since the last successful reminder and the messages remain unread, the gateway MAY skip emitting a duplicate reminder until the unread set changes or the messages are marked read explicitly.
+
+#### Scenario: Multiple unread messages can be summarized in one reminder prompt
+- **WHEN** one notifier poll cycle observes more than one unread message for the same mailbox-backed session
+- **THEN** the gateway may enqueue one internal reminder prompt that summarizes the unread set observed in that cycle
+- **AND THEN** the gateway does not need to enqueue one reminder per unread message
+
+#### Scenario: Unchanged unread set does not force duplicate reminders
+- **WHEN** the notifier previously delivered or enqueued a reminder for one unread set
+- **AND WHEN** a later poll finds the same unread set still present and still unread
+- **THEN** the gateway may treat that later poll as a duplicate and skip enqueueing a second reminder for the unchanged unread set
+
+### Requirement: Gateway notifier records structured per-poll decision auditing for later review
+When gateway-owned notifier behavior is enabled, the gateway SHALL record one structured notifier-decision audit record for each enabled poll cycle in a queryable SQLite audit table under the gateway state root.
+
+Each record SHALL capture enough detail to explain what the notifier saw and why it enqueued or skipped work, including at minimum:
+
+- poll time,
+- unread-count observation,
+- unread-set identity or equivalent deduplication summary,
+- request-admission state,
+- active-execution state,
+- queue depth,
+- the notifier decision outcome, and
+- enqueue identifiers or skip detail when applicable.
+
+The gateway MAY continue to keep `gateway.log` rate-limited and human-oriented, but that human log SHALL NOT be the only durable source of per-poll notifier decision history.
+
+Detailed per-poll decision history SHALL remain available through that durable audit table even if `GET /v1/mail-notifier` remains a compact status snapshot without last-decision summary fields.
+
+#### Scenario: Busy poll records an explicit skip decision
+- **WHEN** a notifier poll cycle finds unread mail while gateway admission is not open, active execution is running, or queue depth is non-zero
+- **THEN** the gateway records a structured audit record for that poll cycle
+- **AND THEN** that record identifies the decision as a busy or ineligible skip and includes the eligibility inputs that caused the skip
+
+#### Scenario: Enqueue poll records the created reminder request
+- **WHEN** a notifier poll cycle finds unread mail and the gateway enqueues an internal reminder prompt
+- **THEN** the gateway records a structured audit record for that poll cycle
+- **AND THEN** that record includes the reminder decision outcome and the created internal request identifier
+
+#### Scenario: Durable audit history remains the detailed inspection surface
+- **WHEN** an operator or demo helper needs the latest detailed notifier decision data
+- **THEN** it can inspect the durable SQLite notifier audit history under the gateway root
+- **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier` in order to satisfy this requirement

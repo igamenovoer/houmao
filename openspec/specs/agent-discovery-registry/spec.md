@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change add-central-agent-registry. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Shared agent registry uses a fixed per-user root with isolated live-agent directories
 The system SHALL store shared agent registry state under the fixed per-user root `~/.houmao/registry`.
 
@@ -283,3 +284,18 @@ Cleanup results SHALL report failed removals explicitly rather than collapsing t
 - **WHEN** stale-registry cleanup finishes with both a lease-fresh directory and a stale directory whose removal failed
 - **THEN** the cleanup result distinguishes the failed removal from the preserved fresh directory
 - **AND THEN** operators can tell whether a directory was preserved because it was live or because cleanup could not remove it
+
+### Requirement: Agent-discovery registry specs do not describe current canonicalization in terms of retired `agent_key`
+The shared agent discovery registry specification SHALL describe current canonicalization, publication, and lookup behavior in terms of canonical agent names and authoritative `agent_id`, and SHALL NOT describe retired `agent_key` derivation as part of the live post-cutover flow.
+
+Historical references to legacy `agent_key` directories may remain only when they are explicitly marked as pre-cutover cleanup context rather than as the active contract.
+
+#### Scenario: Canonical name input is normalized without implying a current `agent_key` lookup path
+- **WHEN** a caller resolves shared-registry agent input `gpu`
+- **THEN** the spec describes that input as canonicalized to `AGENTSYS-gpu` before publication, duplicate detection, lookup, or record comparison
+- **AND THEN** it does not describe the live canonicalization flow as deriving a current `agent_key`
+
+#### Scenario: Legacy agent-key references remain clearly historical
+- **WHEN** the spec mentions a legacy `live_agents/<agent-key>/` directory
+- **THEN** that mention is explicitly framed as pre-cutover cleanup or historical context
+- **AND THEN** readers are not left to infer that `agent_key` still participates in the active registry identity contract
