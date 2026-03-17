@@ -1,7 +1,10 @@
 # Enhancement Proposal: `agent_id` Should Become a First-Class Cross-Module Identity Contract
 
 ## Status
-Proposed
+Superseded on 2026-03-17.
+
+## Resolution Summary
+Most of the core `agent_id` cutover landed in runtime, manifest, and registry paths. The remaining gaps are narrower than this umbrella proposal and are better tracked through focused follow-up notes instead of keeping this broad enhancement open.
 
 ## Summary
 Houmao currently treats canonical agent name as the main identity surface across runtime control, tmux naming, shared-registry publication, mailbox defaults, and demo/operator state.

@@ -1,5 +1,11 @@
 # Issue: CAO Claude Code `mode=last` Output Fails (Marker Mismatch), Falls Back to ANSI `mode=full`
 
+## Status
+Resolved in this repository on 2026-03-17.
+
+## Resolution Summary
+This repository's runtime no longer depends on CAO Claude `mode=last` extraction. Claude turns now use runtime-owned shadow parsing over `mode=full`, so the original marker mismatch no longer blocks normal Claude operation here.
+
 ## Summary
 
 When using the vendored CAO server (`extern/orphan/cli-agent-orchestrator`) with provider `claude_code`, the endpoint:

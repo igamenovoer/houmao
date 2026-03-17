@@ -1,5 +1,11 @@
 # Issue: Filesystem Mailbox Startup Effectively Requires Pre-Registration On An Initialized Root
 
+## Status
+Resolved on 2026-03-17.
+
+## Resolution Summary
+Runtime startup now bootstraps mailbox registration before launch-plan mailbox env binding depends on active registration lookups, and regression coverage exists for starting a second mailbox-enabled agent on an initialized shared root.
+
 ## Summary
 
 The current runtime mailbox startup order makes filesystem-mailbox sessions behave as if the mailbox address must already be registered before `start-session` can succeed, once the shared mailbox root has already been initialized.

@@ -1,5 +1,11 @@
 # Issue: Orphan Upstream CAO Reference Is Fixed To localhost:9889
 
+## Status
+Historical note on 2026-03-17.
+
+## Resolution Summary
+This is no longer a live repository issue. The supported launcher/runtime path in this repo already supports explicit loopback ports via `CAO_PORT`; the orphan upstream snapshot remains only as reference context.
+
 ## Summary
 
 The orphan upstream CLI Agent Orchestrator (CAO) reference in this repo

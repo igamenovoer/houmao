@@ -1,5 +1,11 @@
 # Issue: Default CAO Launcher Config Hardcodes A Non-Portable `home_dir`
 
+## Status
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The checked-in launcher config now leaves `home_dir` empty, which lets the launcher use its portable built-in home-directory resolution instead of requiring a machine-specific absolute path.
+
 ## Summary
 
 The checked-in launcher config at `config/cao-server-launcher/local.toml` currently hardcodes:

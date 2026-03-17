@@ -1,7 +1,10 @@
 # Enhancement Proposal: Mailbox Join Should Support Explicit Name-Conflict Resolution Modes
 
 ## Status
-Proposed
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The mailbox registration lifecycle now documents and implements explicit `safe`, `force`, and `stash` join modes, with corresponding managed-script and test coverage.
 
 ## Summary
 When an agent tries to join a mailbox group and its target mailbox entry is already taken, the join flow should expose explicit conflict-resolution modes instead of relying on one implicit behavior.

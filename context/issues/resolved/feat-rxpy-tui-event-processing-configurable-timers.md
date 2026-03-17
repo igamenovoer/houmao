@@ -1,7 +1,10 @@
 # Feature Request: RxPY-Based TUI Event Processing With Configurable Timers
 
 ## Status
-Proposed
+Superseded on 2026-03-17.
+
+## Resolution Summary
+This proposal's RxPY framing is no longer the preferred direction. The useful remaining idea is narrower configurable backend timing, which should be revived separately if needed rather than keeping the broader RxPY request open.
 
 ## Summary
 Introduce a reactive TUI event processing pipeline using ReactiveX for Python (`reactivex` / RxPY) so runtime event handling is cleaner, easier to extend, and does not depend on scattered hardcoded timing constants.

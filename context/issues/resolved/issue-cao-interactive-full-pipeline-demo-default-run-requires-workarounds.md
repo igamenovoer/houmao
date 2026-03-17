@@ -1,5 +1,11 @@
 # Issue: `cao-interactive-full-pipeline-demo` Default Run Requires Workarounds
 
+## Status
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The interactive demo now provisions a per-run workspace and nested `wktree`, tracks the current run root for follow-up commands, and automatically replaces a verified fixed-loopback `cao-server` for fresh runs.
+
 ## Summary
 
 On 2026-03-09, trying to run `scripts/demo/cao-interactive-full-pipeline-demo` directly from this repository did not work end to end with the default wrapper behavior. I hit a startup failure caused by a CAO working-directory policy mismatch, then a server reuse problem, then a session-lifecycle problem when invoking the wrappers as one-shot commands from separate non-interactive shells. I was able to complete the demo with an operational workaround, but the default path is still fragile and should be treated as a known issue.

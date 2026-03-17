@@ -1,7 +1,10 @@
 # Feature Request: CAO Runtime tmux `send-keys` Input For Managed Agents
 
 ## Status
-Proposed
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The runtime and demo surfaces now expose first-class tmux-backed `send-keys` control input for resumed CAO sessions, with docs and tests covering successful delivery and explicit failure cases.
 
 ## Summary
 Add a runtime-supported tmux `send-keys` input mechanism for CAO-managed agents so callers can send special keys and control input to the live managed terminal, not just plain prompt text.

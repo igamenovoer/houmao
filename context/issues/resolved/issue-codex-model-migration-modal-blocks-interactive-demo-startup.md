@@ -1,5 +1,11 @@
 # Issue: Codex Model Migration Modal Blocks Interactive Demo Startup
 
+## Status
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The shipped Codex configs now default to `gpt-5.4`, so the specific recorded `gpt-5` migration-modal path that blocked this demo run is no longer the repo default configuration.
+
 ## Summary
 
 On 2026-03-11, starting the interactive CAO demo with the Codex API-key recipe (`codex/gpu-kernel-coder-yunwu-openai`) launched a live Codex TUI session, but the session did not reach the normal ready-for-input prompt. Instead, Codex stopped on a first-run model migration modal that asked the operator to choose between the old configured model and a newer recommended model.

@@ -1,7 +1,10 @@
 # Feature Request: Filesystem Mailbox Principal Deregistration and Leave Cleanup
 
 ## Status
-Proposed (follow-up to `add-agent-mailbox-protocol`)
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The filesystem mailbox lifecycle now includes managed deregistration flows (`deactivate` and `purge`) plus documented active, inactive, and stashed registration states for leave and cleanup handling.
 
 ## Summary
 Add an explicit filesystem-mailbox leave-group and principal-deregistration workflow so agents and operators can remove a participant from a shared mail group in a consistent, protocol-defined way.

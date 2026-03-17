@@ -1,5 +1,11 @@
 # Issue: `agent_id` Cutover Still Has Live `agent_key` Leftovers In Docs, Specs, And One Packaged Schema Artifact
 
+## Status
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The live registry docs and specs are now aligned to the `agent_id` and v2 schema contract, and the obsolete packaged v1 registry schema artifact is no longer shipped in this repository.
+
 ## Summary
 
 The repository has already cut the live runtime and registry implementation over from registry-scoped `agent_key` to authoritative `agent_id`, but a small set of live documentation/spec artifacts still describe the old `agent_key` model as current behavior.

@@ -1,7 +1,10 @@
 # Enhancement Proposal: Mail Subcommands Should Remove `--instruction` and Require Explicit Body Inputs
 
 ## Status
-Proposed
+Resolved on 2026-03-17.
+
+## Resolution Summary
+The mail CLI now requires explicit body inputs through `--body-file` or `--body-content`, and the runtime-owned mailbox request payload no longer depends on `instruction` for send or reply body creation.
 
 ## Summary
 Tighten the runtime mailbox CLI so `mail send` and `mail reply` do not accept `--instruction` and instead require explicit mail content inputs such as:

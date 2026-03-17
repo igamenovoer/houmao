@@ -1,7 +1,10 @@
 # Enhancement Proposal: `mail send --to` Should Require Full Mailbox Addressing
 
 ## Status
-Proposed
+Resolved on 2026-03-17.
+
+## Resolution Summary
+`mail send --to` now requires explicit full mailbox addresses, short names such as `bob` are rejected, and the docs/tests reflect the stricter addressing contract.
 
 ## Summary
 Tighten the runtime mailbox CLI so `mail send --to <who>` does not accept loose agent names and instead requires a full-form mailbox identity, ideally a full mailbox address such as `AGENTSYS-bob@agents.localhost`.
