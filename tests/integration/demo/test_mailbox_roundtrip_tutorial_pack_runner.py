@@ -168,6 +168,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
 
             import json
             import os
+            import sqlite3
             import subprocess
             import sys
             from pathlib import Path
@@ -178,6 +179,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
             else:
                 state = {
+                    "messages": {},
                     "sessions": {},
                     "request_index": 0,
                     "send_message_id": "msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -311,6 +313,96 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
             def save_state() -> None:
                 state_path.write_text(json.dumps(state), encoding="utf-8")
 
+            def find_session_by_address(address: str) -> dict[str, str]:
+                for payload in state["sessions"].values():
+                    if payload["address"] == address:
+                        return payload
+                raise SystemExit(f"unexpected mailbox address: {address}")
+
+            def unread_count(mailbox_root: Path, *, address: str) -> int:
+                from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
+
+                local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+                    mailbox_root,
+                    address=address,
+                )
+                with sqlite3.connect(local_sqlite_path) as connection:
+                    row = connection.execute(
+                        '''
+                        SELECT COUNT(*)
+                        FROM message_state
+                        WHERE is_read = 0
+                        '''
+                    ).fetchone()
+                if row is None:
+                    return 0
+                return int(row[0])
+
+            def deliver_mail_message(
+                *,
+                mailbox_root: Path,
+                message_id: str,
+                thread_id: str,
+                in_reply_to: str | None,
+                references: list[str],
+                created_at_utc: str,
+                sender: dict[str, str],
+                recipients: list[dict[str, str]],
+                subject: str,
+                body_file: Path,
+            ) -> dict[str, object]:
+                from houmao.mailbox.managed import DeliveryRequest, deliver_message
+                from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+
+                staged_message = mailbox_root / "staging" / f"{message_id}.md"
+                request = DeliveryRequest.from_payload(
+                    {
+                        "staged_message_path": str(staged_message),
+                        "message_id": message_id,
+                        "thread_id": thread_id,
+                        "in_reply_to": in_reply_to,
+                        "references": references,
+                        "created_at_utc": created_at_utc,
+                        "sender": {
+                            "principal_id": sender["principal_id"],
+                            "address": sender["address"],
+                        },
+                        "to": [
+                            {
+                                "principal_id": recipient["principal_id"],
+                                "address": recipient["address"],
+                            }
+                            for recipient in recipients
+                        ],
+                        "cc": [],
+                        "reply_to": [],
+                        "subject": subject,
+                        "attachments": [],
+                        "headers": {},
+                    }
+                )
+                message = MailboxMessage(
+                    message_id=request.message_id,
+                    thread_id=request.thread_id,
+                    in_reply_to=request.in_reply_to,
+                    references=list(request.references),
+                    created_at_utc=request.created_at_utc,
+                    sender=request.sender.to_mailbox_principal(),
+                    to=[principal.to_mailbox_principal() for principal in request.to],
+                    cc=[principal.to_mailbox_principal() for principal in request.cc],
+                    reply_to=[principal.to_mailbox_principal() for principal in request.reply_to],
+                    subject=request.subject,
+                    body_markdown=body_file.read_text(encoding="utf-8"),
+                    attachments=[attachment.to_mailbox_attachment() for attachment in request.attachments],
+                    headers=dict(request.headers),
+                )
+                staged_message.parent.mkdir(parents=True, exist_ok=True)
+                staged_message.write_text(
+                    serialize_message_document(message),
+                    encoding="utf-8",
+                )
+                return deliver_message(mailbox_root, request)
+
             if command == "build-brain":
                 blueprint = arg_value("--blueprint")
                 runtime_root = Path(arg_value("--runtime-root"))
@@ -373,6 +465,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     job_dir = workdir / ".houmao" / "jobs" / agent_identity
                 state["sessions"][agent_identity] = {
                     "tool": tool,
+                    "mailbox_root": str(mailbox_root),
                     "principal_id": principal_id,
                     "address": mailbox_address,
                 }
@@ -405,6 +498,28 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 session = state["sessions"][agent_identity]
                 request_id = next_request_id()
                 if operation == "send":
+                    recipient = find_session_by_address(arg_value("--to"))
+                    mailbox_root = Path(session["mailbox_root"])
+                    subject = arg_value("--subject")
+                    deliver_result = deliver_mail_message(
+                        mailbox_root=mailbox_root,
+                        message_id=state["send_message_id"],
+                        thread_id=state["send_message_id"],
+                        in_reply_to=None,
+                        references=[],
+                        created_at_utc="2026-03-16T12:00:00Z",
+                        sender=session,
+                        recipients=[recipient],
+                        subject=subject,
+                        body_file=Path(arg_value("--body-file")).resolve(),
+                    )
+                    state["messages"][state["send_message_id"]] = {
+                        "canonical_path": str(deliver_result["canonical_path"]),
+                        "sender_address": session["address"],
+                        "sender_principal_id": session["principal_id"],
+                        "subject": subject,
+                        "thread_id": state["send_message_id"],
+                    }
                     print(
                         json.dumps(
                             {
@@ -422,6 +537,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                     save_state()
                     raise SystemExit(0)
                 if operation == "check":
+                    mailbox_root = Path(session["mailbox_root"])
                     print(
                         json.dumps(
                             {
@@ -430,7 +546,7 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                                 "transport": "filesystem",
                                 "principal_id": session["principal_id"],
                                 "request_id": request_id,
-                                "unread_count": 1,
+                                "unread_count": unread_count(mailbox_root, address=session["address"]),
                             }
                         )
                     )
@@ -441,6 +557,28 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                         print("reply parent mismatch", file=sys.stderr)
                         save_state()
                         raise SystemExit(2)
+                    parent_message = state["messages"][state["send_message_id"]]
+                    recipient = find_session_by_address(parent_message["sender_address"])
+                    mailbox_root = Path(session["mailbox_root"])
+                    deliver_result = deliver_mail_message(
+                        mailbox_root=mailbox_root,
+                        message_id=state["reply_message_id"],
+                        thread_id=state["send_message_id"],
+                        in_reply_to=state["send_message_id"],
+                        references=[state["send_message_id"]],
+                        created_at_utc="2026-03-16T12:05:00Z",
+                        sender=session,
+                        recipients=[recipient],
+                        subject=parent_message["subject"],
+                        body_file=Path(arg_value("--body-file")).resolve(),
+                    )
+                    state["messages"][state["reply_message_id"]] = {
+                        "canonical_path": str(deliver_result["canonical_path"]),
+                        "sender_address": session["address"],
+                        "sender_principal_id": session["principal_id"],
+                        "subject": parent_message["subject"],
+                        "thread_id": state["send_message_id"],
+                    }
                     print(
                         json.dumps(
                             {
@@ -629,6 +767,21 @@ def test_mailbox_roundtrip_scenario_runner_covers_contract_and_ownership_cases(
         "/project/.houmao/jobs/AGENTSYS-mailbox-sender"
     )
     assert explicit["checks"]["sender_job_dir"].endswith("/jobs-root/AGENTSYS-mailbox-sender")
+    assert implicit["checks"]["send_body_matches_input"] is True
+    assert implicit["checks"]["reply_body_matches_input"] is True
+    assert implicit["checks"]["reply_parent_matches_send"] is True
+    assert implicit["checks"]["sender_sent_projection_targets_send"] is True
+    assert implicit["checks"]["receiver_inbox_projection_targets_send"] is True
+    assert implicit["checks"]["receiver_sent_projection_targets_reply"] is True
+    assert implicit["checks"]["sender_inbox_projection_targets_reply"] is True
+    assert implicit["checks"]["send_message_path"].endswith(
+        "/msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
+    )
+    assert implicit["checks"]["reply_message_path"].endswith(
+        "/msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md"
+    )
+    assert explicit["checks"]["send_body_matches_input"] is True
+    assert explicit["checks"]["reply_body_matches_input"] is True
     assert rerun["checks"]["reuse_marker_preserved"] is True
     assert incompatible["checks"]["sender_start_created"] is False
     assert ownership["checks"]["cao_ownership"] == "reused-existing-process"
@@ -686,7 +839,16 @@ def test_mailbox_roundtrip_scenario_runner_covers_stepwise_snapshot_and_cleanup_
     assert failure["ok"] is True
     assert interrupted["ok"] is True
     assert stepwise["checks"]["verify_result_path"].endswith("/verify_result.json")
+    assert stepwise["checks"]["send_body_matches_input"] is True
+    assert stepwise["checks"]["reply_body_matches_input"] is True
+    assert stepwise["checks"]["reply_thread_matches_send"] is True
+    assert stepwise["checks"]["reply_parent_matches_send"] is True
+    assert stepwise["checks"]["sender_sent_projection_targets_send"] is True
+    assert stepwise["checks"]["receiver_inbox_projection_targets_send"] is True
+    assert stepwise["checks"]["receiver_sent_projection_targets_reply"] is True
+    assert stepwise["checks"]["sender_inbox_projection_targets_reply"] is True
     assert snapshot["checks"]["snapshot_refreshed"] is True
+    assert snapshot["checks"]["snapshot_excludes_raw_body_content"] is True
     assert failure["checks"]["cleanup_mode"] is True
     assert interrupted["checks"]["cleanup_mode"] is True
     assert interrupted["checks"]["mail_reply_present"] is False

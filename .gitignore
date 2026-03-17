@@ -65,3 +65,5 @@ site/
 
 # Houmao jobs dir
 .houmao/
+
+.agent-automation/hacktest/

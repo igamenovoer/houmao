@@ -16,6 +16,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
+import tutorial_pack_helpers as HELPERS
+
 
 ScenarioFunc = Callable[[Path, Path, Path, list[dict[str, Any]]], dict[str, Any]]
 
@@ -41,6 +43,66 @@ def _assert(condition: bool, message: str) -> None:
 
     if not condition:
         raise AssertionError(message)
+
+
+def _mailbox_address(start_payload: dict[str, Any], *, role: str) -> str:
+    """Extract one mailbox address from a start-session payload."""
+
+    mailbox_payload = start_payload.get("mailbox")
+    if not isinstance(mailbox_payload, dict):
+        raise ValueError(f"{role} start payload is missing mailbox config")
+    address = mailbox_payload.get("address")
+    if not isinstance(address, str) or not address.strip():
+        raise ValueError(f"{role} start payload is missing mailbox address")
+    return address
+
+
+def _inspect_mailbox_roundtrip(*, pack_dir: Path, demo_dir: Path) -> dict[str, Any]:
+    """Inspect canonical mailbox artifacts for one completed roundtrip demo root."""
+
+    parameters = HELPERS.load_demo_parameters(pack_dir / "inputs" / "demo_parameters.json")
+    sender_start = _read_json(demo_dir / "sender_start.json")
+    receiver_start = _read_json(demo_dir / "receiver_start.json")
+    initial_body_path = demo_dir / "inputs" / Path(parameters.message.initial_body_file).name
+    reply_body_path = demo_dir / "inputs" / Path(parameters.message.reply_body_file).name
+
+    return HELPERS.inspect_roundtrip_mailbox(
+        mailbox_root=demo_dir / "shared-mailbox",
+        sender_address=_mailbox_address(sender_start, role="sender"),
+        receiver_address=_mailbox_address(receiver_start, role="receiver"),
+        send_message_id=HELPERS.extract_message_id(demo_dir / "mail_send.json"),
+        reply_message_id=HELPERS.extract_message_id(demo_dir / "mail_reply.json"),
+        initial_body_path=initial_body_path,
+        reply_body_path=reply_body_path,
+    )
+
+
+def _mailbox_checks_for_result(inspection: dict[str, Any]) -> dict[str, Any]:
+    """Select stable mailbox-inspection evidence for scenario-result payloads."""
+
+    return {
+        "send_message_id": inspection["send_message_id"],
+        "reply_message_id": inspection["reply_message_id"],
+        "send_message_path": inspection["send_message_path"],
+        "reply_message_path": inspection["reply_message_path"],
+        "send_body_matches_input": inspection["send_body_matches_input"],
+        "reply_body_matches_input": inspection["reply_body_matches_input"],
+        "reply_thread_matches_send": inspection["reply_thread_matches_send"],
+        "reply_parent_matches_send": inspection["reply_parent_matches_send"],
+        "reply_references_send": inspection["reply_references_send"],
+        "sender_sent_projection_targets_send": inspection["sender_sent_projection_targets_send"],
+        "receiver_inbox_projection_targets_send": inspection[
+            "receiver_inbox_projection_targets_send"
+        ],
+        "receiver_sent_projection_targets_reply": inspection[
+            "receiver_sent_projection_targets_reply"
+        ],
+        "sender_inbox_projection_targets_reply": inspection[
+            "sender_inbox_projection_targets_reply"
+        ],
+        "sender_unread_count": inspection["sender_unread_count"],
+        "receiver_unread_count": inspection["receiver_unread_count"],
+    }
 
 
 def _run_wrapper(
@@ -132,12 +194,26 @@ def _scenario_auto_implicit_jobs_dir(
         receiver_start.get("job_dir") == str(expected_receiver_job),
         "receiver default job_dir should stay under the project worktree",
     )
+    mailbox_inspection = _inspect_mailbox_roundtrip(pack_dir=pack_dir, demo_dir=demo_dir)
+    _assert(
+        bool(mailbox_inspection["send_body_matches_input"]),
+        "auto scenario should write the tracked initial message body",
+    )
+    _assert(
+        bool(mailbox_inspection["reply_body_matches_input"]),
+        "auto scenario should write the tracked reply message body",
+    )
+    _assert(
+        bool(mailbox_inspection["reply_parent_matches_send"]),
+        "reply should reference the original send message id",
+    )
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
             "sender_job_dir": sender_start.get("job_dir"),
             "receiver_job_dir": receiver_start.get("job_dir"),
             "stop_result_path": str((demo_dir / "stop_result.json").resolve()),
+            **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
 
@@ -173,12 +249,14 @@ def _scenario_auto_explicit_jobs_dir(
         receiver_start.get("job_dir") == str(jobs_dir / "AGENTSYS-mailbox-receiver"),
         "receiver explicit job_dir should use the selected jobs root",
     )
+    mailbox_inspection = _inspect_mailbox_roundtrip(pack_dir=pack_dir, demo_dir=demo_dir)
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "jobs_dir": str(jobs_dir.resolve()),
         "checks": {
             "sender_job_dir": sender_start.get("job_dir"),
             "receiver_job_dir": receiver_start.get("job_dir"),
+            **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
 
@@ -208,11 +286,13 @@ def _scenario_stepwise_start_roundtrip_verify_stop(
     _assert((demo_dir / "receiver_stop.json").is_file(), "stop should emit receiver_stop.json")
     stop_result = _load_stop_result(demo_dir)
     _assert(bool(stop_result.get("stopped")), "stepwise stop should report success")
+    mailbox_inspection = _inspect_mailbox_roundtrip(pack_dir=pack_dir, demo_dir=demo_dir)
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
             "verify_result_path": str((demo_dir / "verify_result.json").resolve()),
             "stop_result_path": str((demo_dir / "stop_result.json").resolve()),
+            **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
 
@@ -340,6 +420,26 @@ def _scenario_verify_snapshot_refresh(
             updated_expected == sanitized_report,
             "snapshot refresh should write sanitized content only",
         )
+        _assert(
+            "Please confirm that the shared mailbox is reachable from your runtime session."
+            not in sanitized_report,
+            "sanitized report should not embed the initial mailbox body",
+        )
+        _assert(
+            "Confirmed. The mailbox roundtrip is active and this reply should stay in the same thread."
+            not in sanitized_report,
+            "sanitized report should not embed the reply mailbox body",
+        )
+        _assert(
+            "Please confirm that the shared mailbox is reachable from your runtime session."
+            not in updated_expected,
+            "snapshot refresh should not copy raw initial mailbox body content",
+        )
+        _assert(
+            "Confirmed. The mailbox roundtrip is active and this reply should stay in the same thread."
+            not in updated_expected,
+            "snapshot refresh should not copy raw reply mailbox body content",
+        )
     finally:
         expected_report_path.write_text(original_expected, encoding="utf-8")
 
@@ -357,6 +457,7 @@ def _scenario_verify_snapshot_refresh(
         "checks": {
             "snapshot_refreshed": True,
             "verify_result_path": str((demo_dir / "verify_result.json").resolve()),
+            "snapshot_excludes_raw_body_content": True,
         },
     }
 
@@ -381,7 +482,9 @@ def _scenario_cleanup_ownership_reused_managed_cao(
             demo_output_dir=demo_dir,
             env_updates=env_updates,
         )
-        _assert(command["exit_code"] == 0, f"{command_name} should succeed when reusing a managed CAO")
+        _assert(
+            command["exit_code"] == 0, f"{command_name} should succeed when reusing a managed CAO"
+        )
     stop_result = _load_stop_result(demo_dir)
     cao_stop = stop_result.get("cao_stop")
     _assert(isinstance(cao_stop, dict), "stop_result should record CAO ownership details")

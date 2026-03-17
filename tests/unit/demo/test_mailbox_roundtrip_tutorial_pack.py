@@ -11,7 +11,8 @@ from types import ModuleType
 
 import pytest
 from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
-from houmao.mailbox.protocol import MailboxPrincipal
+from houmao.mailbox.managed import DeliveryRequest, deliver_message
+from houmao.mailbox.protocol import MailboxMessage, MailboxPrincipal, serialize_message_document
 
 
 def _repo_root() -> Path:
@@ -50,6 +51,110 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _deliver_mailbox_message(
+    mailbox_root: Path,
+    *,
+    message_id: str,
+    thread_id: str,
+    in_reply_to: str | None,
+    references: list[str],
+    created_at_utc: str,
+    sender: MailboxPrincipal,
+    recipient: MailboxPrincipal,
+    subject: str,
+    body_markdown: str,
+) -> None:
+    """Deliver one canonical mailbox message into the shared filesystem mailbox."""
+
+    staged_message = mailbox_root / "staging" / f"{message_id}.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": message_id,
+            "thread_id": thread_id,
+            "in_reply_to": in_reply_to,
+            "references": references,
+            "created_at_utc": created_at_utc,
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": subject,
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    message = MailboxMessage(
+        message_id=message_id,
+        thread_id=thread_id,
+        in_reply_to=in_reply_to,
+        references=references,
+        created_at_utc=created_at_utc,
+        sender=sender,
+        to=[recipient],
+        cc=[],
+        reply_to=[],
+        subject=subject,
+        body_markdown=body_markdown,
+        attachments=[],
+        headers={},
+    )
+    staged_message.parent.mkdir(parents=True, exist_ok=True)
+    staged_message.write_text(serialize_message_document(message), encoding="utf-8")
+    deliver_message(mailbox_root, request)
+
+
+def _deliver_roundtrip_mailbox_messages(
+    mailbox_root: Path,
+) -> tuple[MailboxPrincipal, MailboxPrincipal]:
+    """Deliver one initial message plus one reply into the test mailbox root."""
+
+    sender = MailboxPrincipal(
+        principal_id="AGENTSYS-mailbox-sender",
+        address="AGENTSYS-mailbox-sender@agents.localhost",
+    )
+    receiver = MailboxPrincipal(
+        principal_id="AGENTSYS-mailbox-receiver",
+        address="AGENTSYS-mailbox-receiver@agents.localhost",
+    )
+    bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+    bootstrap_filesystem_mailbox(mailbox_root, principal=receiver)
+
+    _deliver_mailbox_message(
+        mailbox_root,
+        message_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        thread_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        in_reply_to=None,
+        references=[],
+        created_at_utc="2026-03-16T12:00:00Z",
+        sender=sender,
+        recipient=receiver,
+        subject="Mailbox tutorial roundtrip",
+        body_markdown=(PACK_DIR / "inputs" / "initial_message.md").read_text(encoding="utf-8"),
+    )
+    _deliver_mailbox_message(
+        mailbox_root,
+        message_id="msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        thread_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        in_reply_to="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        references=["msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        created_at_utc="2026-03-16T12:05:00Z",
+        sender=receiver,
+        recipient=sender,
+        subject="Mailbox tutorial roundtrip",
+        body_markdown=(PACK_DIR / "inputs" / "reply_message.md").read_text(encoding="utf-8"),
+    )
+    return sender, receiver
 
 
 def test_tracked_demo_parameters_parse_and_render_demo_output_mailbox_root() -> None:
@@ -107,7 +212,7 @@ def test_detect_cao_profile_store_prefers_launcher_ownership_home_dir(tmp_path: 
     config_dir.mkdir(parents=True)
     ownership_path.parent.mkdir(parents=True, exist_ok=True)
     (config_dir / "local.toml").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'base_url = "http://localhost:9889"',
                 f'runtime_root = "{runtime_root}"',
@@ -160,7 +265,7 @@ def test_detect_cao_profile_store_falls_back_to_matching_launcher_config_home_di
     launcher_home = tmp_path / "launcher-home"
     config_dir.mkdir(parents=True)
     (config_dir / "local.toml").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'base_url = "http://localhost:9889"',
                 f'runtime_root = "{repo_root / "tmp" / "agents-runtime"}"',
@@ -190,7 +295,7 @@ def test_detect_cao_profile_store_returns_none_for_unrelated_base_url_without_ow
     config_dir = repo_root / "config" / "cao-server-launcher"
     config_dir.mkdir(parents=True)
     (config_dir / "local.toml").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'base_url = "http://localhost:9889"',
                 f'runtime_root = "{repo_root / "tmp" / "agents-runtime"}"',
@@ -410,7 +515,9 @@ def test_ensure_project_worktree_rejects_incompatible_existing_directory(tmp_pat
     project_workdir.mkdir(parents=True)
 
     def fake_run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="not a worktree")
+        return subprocess.CompletedProcess(
+            args=args, returncode=1, stdout="", stderr="not a worktree"
+        )
 
     with pytest.raises(ValueError, match="not a git worktree"):
         HELPERS.ensure_project_worktree(
@@ -474,13 +581,17 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
             "home_id": "home-sender",
             "home_path": str(runtime_root / "homes" / "claude" / "home-sender"),
             "manifest_path": str(runtime_root / "manifests" / "sender.yaml"),
-            "launch_helper_path": str(runtime_root / "homes" / "claude" / "home-sender" / "launch.sh"),
+            "launch_helper_path": str(
+                runtime_root / "homes" / "claude" / "home-sender" / "launch.sh"
+            ),
         },
         "receiver_build": {
             "home_id": "home-receiver",
             "home_path": str(runtime_root / "homes" / "codex" / "home-receiver"),
             "manifest_path": str(runtime_root / "manifests" / "receiver.yaml"),
-            "launch_helper_path": str(runtime_root / "homes" / "codex" / "home-receiver" / "launch.sh"),
+            "launch_helper_path": str(
+                runtime_root / "homes" / "codex" / "home-receiver" / "launch.sh"
+            ),
         },
         "sender_start": {
             "session_manifest": str(runtime_root / "sessions" / "sender.json"),
@@ -552,7 +663,9 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
             "base_url": "http://localhost:9889",
             "launcher_config_path": str(demo_output_dir / "cao" / "launcher.toml"),
             "runtime_root": str(demo_output_dir / "cao" / "runtime"),
-            "home_dir": str(demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "home"),
+            "home_dir": str(
+                demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "home"
+            ),
             "profile_store": str(
                 demo_output_dir
                 / "cao"
@@ -565,12 +678,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
                 / "agent-store"
             ),
             "artifact_dir": str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "launcher"
+                demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "launcher"
             ),
             "log_file": str(
                 demo_output_dir
@@ -635,17 +743,73 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
     assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
     assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
-    assert sanitized["mailbox_state"]["sender_local_sqlite_path"] == "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>"
-    assert sanitized["mailbox_state"]["receiver_local_sqlite_path"] == "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>"
+    assert (
+        sanitized["mailbox_state"]["sender_local_sqlite_path"]
+        == "<SENDER_MAILBOX_LOCAL_SQLITE_PATH>"
+    )
+    assert (
+        sanitized["mailbox_state"]["receiver_local_sqlite_path"]
+        == "<RECEIVER_MAILBOX_LOCAL_SQLITE_PATH>"
+    )
     assert sanitized["reply_parent_message_id"] == "<MESSAGE_ID>"
     assert sanitized["artifacts"]["mail_send"] == "<ARTIFACT_PATH:mail_send>"
     assert sanitized["steps"]["sender_build"]["home_id"] == "<BRAIN_HOME_ID>"
     assert sanitized["steps"]["sender_start"]["session_manifest"] == "<SESSION_MANIFEST_PATH>"
-    assert sanitized["steps"]["sender_start"]["mailbox"]["filesystem_root"] == "<MAILBOX_FILESYSTEM_ROOT>"
+    assert (
+        sanitized["steps"]["sender_start"]["mailbox"]["filesystem_root"]
+        == "<MAILBOX_FILESYSTEM_ROOT>"
+    )
     assert sanitized["steps"]["sender_start"]["job_dir"] == "<JOB_DIR>"
     assert sanitized["steps"]["mail_send"]["message_id"] == "<MESSAGE_ID>"
     assert sanitized["steps"]["mail_send"]["thread_id"] == "<THREAD_ID>"
     assert sanitized["steps"]["mail_reply"]["request_id"] == "<REQUEST_ID>"
+    sanitized_text = json.dumps(sanitized, indent=2, sort_keys=True)
+    assert (
+        "Please confirm that the shared mailbox is reachable from your runtime session."
+        not in sanitized_text
+    )
+    assert (
+        "Confirmed. The mailbox roundtrip is active and this reply should stay in the same thread."
+        not in sanitized_text
+    )
+
+
+def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
+    tmp_path: Path,
+) -> None:
+    """Roundtrip mailbox inspection should surface canonical content and projection evidence."""
+
+    mailbox_root = tmp_path / "shared-mailbox"
+    sender, receiver = _deliver_roundtrip_mailbox_messages(mailbox_root)
+
+    evidence = HELPERS.inspect_roundtrip_mailbox(
+        mailbox_root=mailbox_root,
+        sender_address=sender.address,
+        receiver_address=receiver.address,
+        send_message_id="msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        reply_message_id="msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        initial_body_path=PACK_DIR / "inputs" / "initial_message.md",
+        reply_body_path=PACK_DIR / "inputs" / "reply_message.md",
+    )
+
+    assert evidence["send_body_matches_input"] is True
+    assert evidence["reply_body_matches_input"] is True
+    assert evidence["send_thread_matches_message_id"] is True
+    assert evidence["reply_thread_matches_send"] is True
+    assert evidence["reply_parent_matches_send"] is True
+    assert evidence["reply_references_send"] is True
+    assert evidence["sender_sent_projection_targets_send"] is True
+    assert evidence["receiver_inbox_projection_targets_send"] is True
+    assert evidence["receiver_sent_projection_targets_reply"] is True
+    assert evidence["sender_inbox_projection_targets_reply"] is True
+    assert evidence["sender_unread_count"] == 1
+    assert evidence["receiver_unread_count"] == 1
+    assert evidence["send_message_path"].endswith(
+        "/msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
+    )
+    assert evidence["reply_message_path"].endswith(
+        "/msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md"
+    )
 
 
 def test_verify_sanitized_report_detects_mismatch() -> None:

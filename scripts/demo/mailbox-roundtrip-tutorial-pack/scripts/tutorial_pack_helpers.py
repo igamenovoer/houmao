@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tomllib
@@ -26,6 +27,7 @@ from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_local_sqlite_path,
 )
+from houmao.mailbox.protocol import parse_message_document
 
 _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
@@ -479,6 +481,93 @@ def extract_message_id(path: Path) -> str:
 
     payload = _require_mapping(_read_json(path), context=str(path))
     return _require_non_empty_string(payload.get("message_id"), context="message_id")
+
+
+def _resolve_canonical_message_path(mailbox_root: Path, *, message_id: str) -> Path:
+    """Resolve one canonical mailbox message path by message id."""
+
+    matches = sorted((mailbox_root.resolve() / "messages").glob(f"*/{message_id}.md"))
+    if not matches:
+        raise ValueError(f"missing canonical mailbox message `{message_id}` under {mailbox_root}")
+    if len(matches) > 1:
+        raise ValueError(
+            f"multiple canonical mailbox messages found for `{message_id}` under {mailbox_root}"
+        )
+    return matches[0].resolve()
+
+
+def _read_mailbox_unread_count(mailbox_root: Path, *, address: str) -> int:
+    """Return the unread-message count from mailbox-local SQLite state."""
+
+    local_sqlite_path = resolve_active_mailbox_local_sqlite_path(mailbox_root, address=address)
+    with sqlite3.connect(local_sqlite_path) as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM message_state
+            WHERE is_read = 0
+            """
+        ).fetchone()
+    if row is None:
+        return 0
+    return int(row[0])
+
+
+def inspect_roundtrip_mailbox(
+    *,
+    mailbox_root: Path,
+    sender_address: str,
+    receiver_address: str,
+    send_message_id: str,
+    reply_message_id: str,
+    initial_body_path: Path,
+    reply_body_path: Path,
+) -> dict[str, Any]:
+    """Inspect canonical roundtrip mailbox artifacts for one completed demo run."""
+
+    send_message_path = _resolve_canonical_message_path(mailbox_root, message_id=send_message_id)
+    reply_message_path = _resolve_canonical_message_path(mailbox_root, message_id=reply_message_id)
+    send_message = parse_message_document(send_message_path.read_text(encoding="utf-8"))
+    reply_message = parse_message_document(reply_message_path.read_text(encoding="utf-8"))
+    initial_body = initial_body_path.read_text(encoding="utf-8")
+    reply_body = reply_body_path.read_text(encoding="utf-8")
+
+    sender_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=sender_address)
+    receiver_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=receiver_address)
+    sender_sent_projection = sender_mailbox_dir / "sent" / f"{send_message_id}.md"
+    receiver_inbox_projection = receiver_mailbox_dir / "inbox" / f"{send_message_id}.md"
+    receiver_sent_projection = receiver_mailbox_dir / "sent" / f"{reply_message_id}.md"
+    sender_inbox_projection = sender_mailbox_dir / "inbox" / f"{reply_message_id}.md"
+
+    return {
+        "send_message_id": send_message.message_id,
+        "reply_message_id": reply_message.message_id,
+        "send_message_path": str(send_message_path),
+        "reply_message_path": str(reply_message_path),
+        "send_body_markdown": send_message.body_markdown,
+        "reply_body_markdown": reply_message.body_markdown,
+        "send_body_matches_input": send_message.body_markdown == initial_body,
+        "reply_body_matches_input": reply_message.body_markdown == reply_body,
+        "send_thread_matches_message_id": send_message.thread_id == send_message_id,
+        "reply_thread_matches_send": reply_message.thread_id == send_message_id,
+        "reply_parent_matches_send": reply_message.in_reply_to == send_message_id,
+        "reply_references_send": bool(reply_message.references)
+        and reply_message.references[-1] == send_message_id,
+        "sender_sent_projection_path": str(sender_sent_projection),
+        "sender_sent_projection_targets_send": sender_sent_projection.is_symlink()
+        and sender_sent_projection.resolve() == send_message_path,
+        "receiver_inbox_projection_path": str(receiver_inbox_projection),
+        "receiver_inbox_projection_targets_send": receiver_inbox_projection.is_symlink()
+        and receiver_inbox_projection.resolve() == send_message_path,
+        "receiver_sent_projection_path": str(receiver_sent_projection),
+        "receiver_sent_projection_targets_reply": receiver_sent_projection.is_symlink()
+        and receiver_sent_projection.resolve() == reply_message_path,
+        "sender_inbox_projection_path": str(sender_inbox_projection),
+        "sender_inbox_projection_targets_reply": sender_inbox_projection.is_symlink()
+        and sender_inbox_projection.resolve() == reply_message_path,
+        "sender_unread_count": _read_mailbox_unread_count(mailbox_root, address=sender_address),
+        "receiver_unread_count": _read_mailbox_unread_count(mailbox_root, address=receiver_address),
+    }
 
 
 def _artifact_paths(demo_output_dir: Path) -> dict[str, Path]:
