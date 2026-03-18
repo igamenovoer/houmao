@@ -6,7 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `Houmao` is a framework + CLI toolkit for building and running teams of loosely-coupled, CLI-based agents (codex, claude, gemini) as real tmux-backed processes — not in-process object graphs.
 
+## Development Status
+
+This system is under active and unstable development. Prioritize clarity and forward progress over backward compatibility.
+
+Breaking changes are allowed. Do not spend effort preserving legacy interfaces, call patterns, or stored data formats unless the user explicitly asks for compatibility or migration support.
+
+If a design or refactoring change breaks functionality, identify the breakage clearly and propose a direct fix in the updated design or implementation plan. Prefer repairing the repository around the new design over adding backward-compatibility shims.
+
 ## Development Commands
+
+When invoking Python or Python-based tools, prefer `pixi run ...` so commands execute in the managed environment; do not rely on `pixi shell`, `python`, or other system-level interpreters being active.
 
 ```bash
 pixi install && pixi shell   # install deps and enter dev shell
@@ -76,9 +86,27 @@ blueprints/*.yaml                # recipe+role bindings (recommended)
 - **Python ≥ 3.11**, type hints on all public APIs, `mypy --strict`.
 - **Pydantic v2** for validated models; `@dataclass(frozen=True)` for internal value objects.
 - **Ruff** for formatting and linting (line length 100). Run `pixi run format && pixi run lint` before committing.
-- **Conventional Commits**: `feat:`, `fix:`, `docs:`, `chore:` prefixes.
+- **Conventional Commits**: `feat:`, `fix:`, `docs:`, `chore:` prefixes. Keep commits focused and imperative.
 - Credential files (`api-creds/`, `*.env`, `auth.json`, `credentials.json`) must never be committed — excluded in `pyproject.toml` and `.gitignore`.
-- Tests: `tests/unit/**/test_*.py`, `tests/integration/**/test_*.py`, `tests/manual/manual_*.py`.
+- Tests: `tests/unit/**/test_*.py`, `tests/integration/**/test_*.py`, `tests/manual/manual_*.py`. Add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
+- PRs should include: concise problem/solution summary, linked issue/spec (for behavior changes), test evidence (commands run + results), docs updates when CLI behavior or workflows change.
+
+### Python Style
+
+Follow [`magic-context/instructions/python-coding-guide.md`](magic-context/instructions/python-coding-guide.md) for Python implementation details:
+
+- Prefer absolute imports; group imports as standard library, third-party, then local modules.
+- Use NumPy-style docstrings for modules, classes, and functions; private helpers (`_name`) still require a brief docstring.
+- Add module-level docstrings for non-trivial modules.
+- For stateful service/helper/controller classes, prefix instance members with `m_`, declare them in `__init__`, and type them explicitly.
+- Do not use `m_` on `pydantic` or `attrs` data model fields.
+- Expose read-only data via `@property`; use explicit `set_xxx()` methods for mutation with validation.
+- Prefer zero-arg constructors plus `@classmethod` factories like `from_config()` or `from_file()` for complex initialization.
+
+### Markdown Style
+
+Do not hard-wrap lines purely for width; keep paragraphs as natural long lines and only add line breaks for semantic structure (headings, lists, tables, quotes, or code blocks).
+For UML-style diagrams in Markdown, prefer Mermaid fenced code blocks that render inline; avoid plain-text ASCII art and PlantUML unless the user explicitly requests a different format.
 
 ## Supporting Directories
 
