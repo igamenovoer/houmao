@@ -13,3 +13,5 @@ credential_profile: <cred-profile-name>
 ```
 
 Recipes must reference credential profiles by name only.
+
+For narrow mailbox/demo coverage, use the tracked `claude/mailbox-demo-default.yaml` and `codex/mailbox-demo-default.yaml` recipes instead of the heavyweight GPU-oriented defaults.

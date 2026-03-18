@@ -1,10 +1,11 @@
-"""Live integration coverage for the mailbox roundtrip tutorial pack."""
+"""Deterministic direct-path integration coverage for the mailbox roundtrip tutorial pack."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -76,7 +77,7 @@ def _pick_unused_loopback_port() -> int:
 
 
 def _write_fake_git(fake_bin_dir: Path) -> None:
-    """Install a fake git binary for demo worktree management."""
+    """Install a fake git binary for demo dummy-project provisioning."""
 
     _write_executable(
         fake_bin_dir / "git",
@@ -96,38 +97,51 @@ def _write_fake_git(fake_bin_dir: Path) -> None:
                 raw_args = raw_args[2:]
 
             repo_root = Path(os.environ["FAKE_GIT_TOPLEVEL"]).resolve()
-            common_dir = repo_root / ".git"
-            in_repo_root = cwd == repo_root or repo_root in cwd.parents
-            in_worktree = (cwd / ".git").exists()
+            source_repo = cwd == repo_root or repo_root in cwd.parents
+
+            def find_git_root(start: Path) -> Path | None:
+                for candidate in (start, *start.parents):
+                    git_path = candidate / ".git"
+                    if git_path.is_dir() or git_path.is_file():
+                        return candidate
+                return None
+
+            active_repo = find_git_root(cwd)
 
             if raw_args == ["rev-parse", "--show-toplevel"]:
-                if in_worktree:
-                    print(str(cwd))
+                if active_repo is not None:
+                    print(str(active_repo))
                     raise SystemExit(0)
-                if in_repo_root:
+                if source_repo:
                     print(str(repo_root))
                     raise SystemExit(0)
                 raise SystemExit(1)
 
             if raw_args == ["rev-parse", "--is-inside-work-tree"]:
-                if in_repo_root or in_worktree:
+                if active_repo is not None or source_repo:
                     print("true")
                     raise SystemExit(0)
                 raise SystemExit(1)
 
             if raw_args == ["rev-parse", "--git-common-dir"]:
-                if in_repo_root or in_worktree:
-                    print(str(common_dir))
+                if active_repo is not None:
+                    print(str((active_repo / ".git").resolve()))
+                    raise SystemExit(0)
+                if source_repo:
+                    print(str((repo_root / ".git").resolve()))
                     raise SystemExit(0)
                 raise SystemExit(1)
 
-            if len(raw_args) == 5 and raw_args[:3] == ["worktree", "add", "--detach"] and raw_args[4] == "HEAD":
-                target = Path(raw_args[3]).expanduser()
-                if not target.is_absolute():
-                    target = (cwd / target).resolve()
-                target.mkdir(parents=True, exist_ok=True)
-                (target / ".git").write_text("gitdir: fake\\n", encoding="utf-8")
-                print(f"Preparing worktree (detached HEAD) at '{target}'")
+            if raw_args == ["init", "--initial-branch", "main"]:
+                (cwd / ".git").mkdir(parents=True, exist_ok=True)
+                print(f"Initialized empty Git repository in {cwd / '.git'}")
+                raise SystemExit(0)
+
+            if raw_args == ["add", "--all"]:
+                raise SystemExit(0)
+
+            if len(raw_args) == 5 and raw_args[:4] == ["commit", "--allow-empty", "--no-gpg-sign", "-m"]:
+                print(f"[main (root-commit) 0000000] {raw_args[4]}")
                 raise SystemExit(0)
 
             raise SystemExit(f"unexpected git args: {raw_args!r} (cwd={cwd})")
@@ -631,152 +645,38 @@ def _write_fake_cao_server(fake_bin_dir: Path) -> None:
 
 
 def _seed_live_agent_def_dir(agent_def_dir: Path) -> None:
-    """Create one deterministic live-test agent definition tree."""
+    """Copy tracked fixtures and inject deterministic test credential profiles."""
 
-    _write(
-        agent_def_dir / "brains" / "tool-adapters" / "claude.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            tool: claude
-            home_selector:
-              env_var: CLAUDE_CONFIG_DIR
-            launch:
-              executable: claude
-              args:
-                - -p
-              env_injection:
-                mode: export_from_env_file
-            config_projection:
-              destination: .
-            skills_projection:
-              destination: skills
-              mode: copy
-            credential_projection:
-              files_dir: files
-              file_mappings:
-                - source: claude_state.template.json
-                  destination: claude_state.template.json
-                  mode: copy
-              env:
-                source: env/vars.env
-                allowlist:
-                  - ANTHROPIC_API_KEY
-            """
-        ),
-    )
-    _write(
-        agent_def_dir / "brains" / "tool-adapters" / "codex.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            tool: codex
-            home_selector:
-              env_var: CODEX_HOME
-            launch:
-              executable: codex
-              args: []
-              env_injection:
-                mode: home_dotenv
-                env_file_in_home: .env
-            config_projection:
-              destination: .
-            skills_projection:
-              destination: skills
-              mode: copy
-            credential_projection:
-              files_dir: files
-              file_mappings: []
-              env:
-                source: env/vars.env
-                allowlist:
-                  - OPENAI_API_KEY
-            """
-        ),
-    )
-    _write(agent_def_dir / "brains" / "cli-configs" / "claude" / "default" / "config.toml", "")
-    _write(
-        agent_def_dir / "brains" / "cli-configs" / "claude" / "default" / "settings.json",
-        '{"skipDangerousModePermissionPrompt": true}\n',
-    )
-    _write(agent_def_dir / "brains" / "cli-configs" / "codex" / "default" / "config.toml", "")
+    shutil.copytree(_repo_root() / "tests" / "fixtures" / "agents", agent_def_dir)
     _write(
         agent_def_dir
         / "brains"
         / "api-creds"
         / "claude"
-        / "fixture"
+        / "personal-a-default"
         / "files"
         / "claude_state.template.json",
         "{}\n",
     )
     _write(
-        agent_def_dir / "brains" / "api-creds" / "claude" / "fixture" / "env" / "vars.env",
+        agent_def_dir
+        / "brains"
+        / "api-creds"
+        / "claude"
+        / "personal-a-default"
+        / "env"
+        / "vars.env",
         "ANTHROPIC_API_KEY=fixture-anthropic-key\n",
     )
     _write(
-        agent_def_dir / "brains" / "api-creds" / "codex" / "fixture" / "env" / "vars.env",
+        agent_def_dir
+        / "brains"
+        / "api-creds"
+        / "codex"
+        / "personal-a-default"
+        / "env"
+        / "vars.env",
         "OPENAI_API_KEY=fixture-openai-key\n",
-    )
-    _write(
-        agent_def_dir / "brains" / "skills" / "mailbox-live" / "SKILL.md",
-        "# mailbox-live\n",
-    )
-    _write(
-        agent_def_dir / "roles" / "mailbox-live" / "system-prompt.md",
-        "You are a mailbox integration test agent.\n",
-    )
-    _write(
-        agent_def_dir / "brains" / "brain-recipes" / "claude" / "mailbox-live.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            name: mailbox-live-claude
-            tool: claude
-            default_agent_name: mailbox-live-sender
-            skills:
-              - mailbox-live
-            config_profile: default
-            credential_profile: fixture
-            """
-        ),
-    )
-    _write(
-        agent_def_dir / "brains" / "brain-recipes" / "codex" / "mailbox-live.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            name: mailbox-live-codex
-            tool: codex
-            default_agent_name: mailbox-live-receiver
-            skills:
-              - mailbox-live
-            config_profile: default
-            credential_profile: fixture
-            """
-        ),
-    )
-    _write(
-        agent_def_dir / "blueprints" / "mailbox-live-sender.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            name: mailbox-live-sender
-            brain_recipe: ../brains/brain-recipes/claude/mailbox-live.yaml
-            role: mailbox-live
-            """
-        ),
-    )
-    _write(
-        agent_def_dir / "blueprints" / "mailbox-live-receiver.yaml",
-        textwrap.dedent(
-            """\
-            schema_version: 1
-            name: mailbox-live-receiver
-            brain_recipe: ../brains/brain-recipes/codex/mailbox-live.yaml
-            role: mailbox-live
-            """
-        ),
     )
 
 
@@ -796,17 +696,18 @@ def _write_parameters(
             "schema_version": 1,
             "demo_id": "mailbox-roundtrip-tutorial-pack",
             "agent_def_dir": str(agent_def_dir.resolve()),
+            "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
             "backend": "cao_rest",
             "cao_base_url": cao_base_url,
             "shared_mailbox_root_template": "{demo_output_dir}/mailbox",
             "sender": {
-                "blueprint": "blueprints/mailbox-live-sender.yaml",
+                "blueprint": "blueprints/mailbox-demo-claude.yaml",
                 "agent_identity": sender_identity,
                 "mailbox_principal_id": sender_identity,
                 "mailbox_address": f"{sender_identity}@agents.localhost",
             },
             "receiver": {
-                "blueprint": "blueprints/mailbox-live-receiver.yaml",
+                "blueprint": "blueprints/mailbox-demo-codex.yaml",
                 "agent_identity": receiver_identity,
                 "mailbox_principal_id": receiver_identity,
                 "mailbox_address": f"{receiver_identity}@agents.localhost",
@@ -851,6 +752,7 @@ def _run_demo_command(
     expected_report_path: Path | None = None,
     snapshot: bool = False,
     cao_parsing_mode: str | None = None,
+    extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one `run_demo.sh` command with explicit live-test overrides."""
 
@@ -868,6 +770,8 @@ def _run_demo_command(
         argv.append("--snapshot-report")
     if cao_parsing_mode is not None:
         argv.extend(["--cao-parsing-mode", cao_parsing_mode])
+    if extra_args is not None:
+        argv.extend(extra_args)
     return subprocess.run(
         argv,
         check=False,
@@ -978,6 +882,34 @@ def test_mailbox_roundtrip_live_workflow_leaves_readable_mail_after_stop(tmp_pat
         assert sender_manifest["backend_state"]["parsing_mode"] == "shadow_only"
         assert receiver_manifest["cao"]["parsing_mode"] == "shadow_only"
         assert receiver_manifest["backend_state"]["parsing_mode"] == "shadow_only"
+
+        sender_inspect_result = _run_demo_command(
+            command="inspect",
+            demo_output_dir=demo_output_dir,
+            parameters_path=parameters_path,
+            env=env,
+            extra_args=["--agent", "sender", "--json"],
+        )
+        assert sender_inspect_result.returncode == 0, sender_inspect_result.stderr
+        sender_inspect = json.loads(sender_inspect_result.stdout)
+        assert sender_inspect["agent_identity"] == sender_identity
+        assert sender_inspect["tool_state"] == "idle"
+        assert sender_inspect["project_workdir"] == str(layout.project_workdir)
+        assert sender_inspect["runtime_root"] == str(layout.runtime_root)
+        assert sender_inspect["terminal_log_path"].endswith(".log")
+
+        receiver_inspect_result = _run_demo_command(
+            command="inspect",
+            demo_output_dir=demo_output_dir,
+            parameters_path=parameters_path,
+            env=env,
+            extra_args=["--agent", "receiver", "--json", "--with-output-text", "120"],
+        )
+        assert receiver_inspect_result.returncode == 0, receiver_inspect_result.stderr
+        receiver_inspect = json.loads(receiver_inspect_result.stdout)
+        assert receiver_inspect["agent_identity"] == receiver_identity
+        assert receiver_inspect["tool_state"] == "idle"
+        assert receiver_inspect["output_text_tail_chars_requested"] == 120
 
         roundtrip_result = _run_demo_command(
             command="roundtrip",

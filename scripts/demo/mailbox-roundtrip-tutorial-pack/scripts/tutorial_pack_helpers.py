@@ -19,9 +19,18 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
+from houmao.cao.rest_client import CaoRestClient
 from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
+)
+from houmao.demo.cao_interactive_demo.models import (
+    DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
+    DEFAULT_TERMINAL_LOG_RELATIVE_DIR,
+)
+from houmao.demo.cao_interactive_demo.runtime import (
+    _best_effort_output_text_tail,
+    _best_effort_tool_state,
 )
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
@@ -96,9 +105,14 @@ _TIMESTAMP_KEYS = {
 }
 _DEFAULT_DEMO_OUTPUT_DIR = Path("scripts/demo/mailbox-roundtrip-tutorial-pack/outputs")
 _DEFAULT_AUTOMATION_CAO_PARSING_MODE = "shadow_only"
+_FIXED_DEMO_PROJECT_COMMIT_UTC = "2026-03-16T12:00:00Z"
+_FIXED_DEMO_PROJECT_COMMIT_MESSAGE = "Initial dummy project snapshot"
+_FIXED_DEMO_PROJECT_AUTHOR_NAME = "Houmao Demo Fixture"
+_FIXED_DEMO_PROJECT_AUTHOR_EMAIL = "houmao-demo-fixture@example.invalid"
+_MANAGED_PROJECT_METADATA_NAME = ".houmao-demo-project.json"
 
 
-GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+GitRunner = Callable[[list[str], Path, dict[str, str] | None], subprocess.CompletedProcess[str]]
 LauncherRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 
 
@@ -141,6 +155,7 @@ class DemoParameters:
     schema_version: int
     demo_id: str
     agent_def_dir: str
+    project_fixture: str
     backend: str
     cao_base_url: str
     shared_mailbox_root_template: str
@@ -391,6 +406,9 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         demo_id=_require_non_empty_string(payload.get("demo_id"), context="demo_id"),
         agent_def_dir=_require_non_empty_string(
             payload.get("agent_def_dir"), context="agent_def_dir"
+        ),
+        project_fixture=_require_non_empty_string(
+            payload.get("project_fixture"), context="project_fixture"
         ),
         backend=_require_non_empty_string(payload.get("backend"), context="backend"),
         cao_base_url=_require_non_empty_string(payload.get("cao_base_url"), context="cao_base_url"),
@@ -709,8 +727,12 @@ def _load_artifacts(layout: DemoLayout) -> dict[str, dict[str, Any]]:
     return artifacts
 
 
-def _default_git_runner(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Run one git command for demo worktree management."""
+def _default_git_runner(
+    args: list[str],
+    cwd: Path,
+    env: dict[str, str] | None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one git command for demo project provisioning."""
 
     return subprocess.run(
         args,
@@ -718,6 +740,7 @@ def _default_git_runner(args: list[str], cwd: Path) -> subprocess.CompletedProce
         check=False,
         capture_output=True,
         text=True,
+        env=None if env is None else {**os.environ, **env},
     )
 
 
@@ -735,22 +758,22 @@ def _git_output(
     args: list[str],
     cwd: Path,
     run_git: GitRunner,
+    env: dict[str, str] | None = None,
 ) -> str | None:
     """Run one git command and return stripped stdout on success."""
 
-    result = run_git(args, cwd)
+    result = run_git(args, cwd, env)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
-def is_repo_project_worktree(
+def is_standalone_git_repo(
     *,
-    repo_root: Path,
     project_workdir: Path,
     run_git: GitRunner = _default_git_runner,
 ) -> bool:
-    """Return whether the path is a git worktree attached to the main repository."""
+    """Return whether the path is a standalone git repository rooted at itself."""
 
     if not project_workdir.exists():
         return False
@@ -768,67 +791,186 @@ def is_repo_project_worktree(
         cwd=project_workdir,
         run_git=run_git,
     )
-    repo_common = _git_output(
-        args=["git", "rev-parse", "--git-common-dir"],
-        cwd=repo_root,
-        run_git=run_git,
-    )
     project_common = _git_output(
         args=["git", "rev-parse", "--git-common-dir"],
         cwd=project_workdir,
         run_git=run_git,
     )
-    if project_top is None or repo_common is None or project_common is None:
+    if project_top is None or project_common is None:
         return False
 
     return _resolved_git_reported_path(
-        project_top, cwd=project_workdir
+        project_top,
+        cwd=project_workdir,
     ) == project_workdir.resolve() and _resolved_git_reported_path(
-        project_common, cwd=project_workdir
-    ) == _resolved_git_reported_path(repo_common, cwd=repo_root)
+        project_common,
+        cwd=project_workdir,
+    ) == (project_workdir.resolve() / ".git")
 
 
-def ensure_project_worktree(
+def _managed_project_metadata_path(project_workdir: Path) -> Path:
+    """Return the metadata path used to mark demo-managed dummy project repos."""
+
+    return project_workdir / _MANAGED_PROJECT_METADATA_NAME
+
+
+def _is_managed_dummy_project_repo(
     *,
-    repo_root: Path,
     project_workdir: Path,
     run_git: GitRunner = _default_git_runner,
-) -> Path:
-    """Ensure the demo project workdir exists as a git worktree of the repository."""
+) -> bool:
+    """Return whether the existing project directory is a managed dummy-project repo."""
 
-    resolved_repo_root = repo_root.resolve()
-    resolved_project_workdir = project_workdir.resolve()
-
-    if is_repo_project_worktree(
-        repo_root=resolved_repo_root,
-        project_workdir=resolved_project_workdir,
+    return _managed_project_metadata_path(project_workdir).is_file() and is_standalone_git_repo(
+        project_workdir=project_workdir,
         run_git=run_git,
-    ):
-        return resolved_project_workdir
+    )
 
-    if resolved_project_workdir.exists():
+
+def _project_fixture_dir(*, parameters: DemoParameters, repo_root: Path) -> Path:
+    """Resolve the selected tracked dummy-project fixture directory."""
+
+    return resolve_repo_relative_path(parameters.project_fixture, repo_root=repo_root)
+
+
+def _terminal_log_path_for_cao_home(*, cao_home_dir: Path, terminal_id: str) -> str:
+    """Return the CAO terminal log path for one terminal id."""
+
+    return str(
+        (
+            cao_home_dir.expanduser().resolve()
+            / DEFAULT_TERMINAL_LOG_RELATIVE_DIR
+            / f"{terminal_id}.log"
+        ).resolve()
+    )
+
+
+def _write_managed_project_metadata(*, project_workdir: Path, fixture_dir: Path) -> None:
+    """Write one marker payload for a managed copied dummy-project workdir."""
+
+    _write_json(
+        _managed_project_metadata_path(project_workdir),
+        {
+            "schema_version": 1,
+            "managed_by": "mailbox-roundtrip-tutorial-pack",
+            "fixture_dir": str(fixture_dir.resolve()),
+            "prepared_at": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+        },
+    )
+
+
+def _run_required_git_command(
+    *,
+    args: list[str],
+    cwd: Path,
+    run_git: GitRunner,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Run one required git command or raise with a clear detail string."""
+
+    result = run_git(args, cwd, env)
+    if result.returncode == 0:
+        return
+    detail = result.stderr.strip() or result.stdout.strip() or "git command failed"
+    raise RuntimeError(f"`{' '.join(args)}` failed: {detail}")
+
+
+def _initialize_demo_git_repo(
+    *,
+    project_workdir: Path,
+    run_git: GitRunner = _default_git_runner,
+) -> None:
+    """Initialize one copied dummy project as a fresh pinned-metadata git repo."""
+
+    fixed_identity_env = {
+        "GIT_AUTHOR_NAME": _FIXED_DEMO_PROJECT_AUTHOR_NAME,
+        "GIT_AUTHOR_EMAIL": _FIXED_DEMO_PROJECT_AUTHOR_EMAIL,
+        "GIT_COMMITTER_NAME": _FIXED_DEMO_PROJECT_AUTHOR_NAME,
+        "GIT_COMMITTER_EMAIL": _FIXED_DEMO_PROJECT_AUTHOR_EMAIL,
+        "GIT_AUTHOR_DATE": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+        "GIT_COMMITTER_DATE": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+    }
+
+    _run_required_git_command(
+        args=["git", "init", "--initial-branch", "main"],
+        cwd=project_workdir,
+        run_git=run_git,
+    )
+    _run_required_git_command(
+        args=["git", "add", "--all"],
+        cwd=project_workdir,
+        run_git=run_git,
+    )
+    _run_required_git_command(
+        args=[
+            "git",
+            "commit",
+            "--allow-empty",
+            "--no-gpg-sign",
+            "-m",
+            _FIXED_DEMO_PROJECT_COMMIT_MESSAGE,
+        ],
+        cwd=project_workdir,
+        run_git=run_git,
+        env=fixed_identity_env,
+    )
+
+
+def ensure_project_workdir_from_fixture(
+    *,
+    repo_root: Path,
+    project_fixture: Path,
+    project_workdir: Path,
+    allow_reprovision: bool,
+    run_git: GitRunner = _default_git_runner,
+) -> Path:
+    """Copy one tracked dummy project fixture and initialize a fresh git-backed workdir."""
+
+    del repo_root
+    resolved_fixture = project_fixture.resolve()
+    resolved_project_workdir = project_workdir.resolve()
+    if not resolved_fixture.is_dir():
+        raise ValueError(f"dummy project fixture directory not found: {resolved_fixture}")
+    if (resolved_fixture / ".git").exists():
         raise ValueError(
-            "demo project directory exists but is not a git worktree of the repository: "
-            f"{resolved_project_workdir}"
+            "dummy project fixture must remain source-only and may not include tracked `.git`: "
+            f"{resolved_fixture}"
         )
 
-    resolved_project_workdir.parent.mkdir(parents=True, exist_ok=True)
-    result = run_git(
-        ["git", "worktree", "add", "--detach", str(resolved_project_workdir), "HEAD"],
-        resolved_repo_root,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "git worktree add failed"
-        raise RuntimeError(f"failed to provision demo project worktree: {detail}")
+    if resolved_project_workdir.exists():
+        if not allow_reprovision:
+            raise ValueError(
+                "demo project directory already exists before a stopped demo state was found: "
+                f"{resolved_project_workdir}"
+            )
+        if not _is_managed_dummy_project_repo(
+            project_workdir=resolved_project_workdir,
+            run_git=run_git,
+        ):
+            raise ValueError(
+                "demo project directory exists but is not a demo-managed dummy-project repo: "
+                f"{resolved_project_workdir}"
+            )
+        shutil.rmtree(resolved_project_workdir)
 
-    if not is_repo_project_worktree(
-        repo_root=resolved_repo_root,
+    resolved_project_workdir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(resolved_fixture, resolved_project_workdir)
+    _write_managed_project_metadata(
+        project_workdir=resolved_project_workdir,
+        fixture_dir=resolved_fixture,
+    )
+    _initialize_demo_git_repo(
+        project_workdir=resolved_project_workdir,
+        run_git=run_git,
+    )
+
+    if not is_standalone_git_repo(
         project_workdir=resolved_project_workdir,
         run_git=run_git,
     ):
         raise RuntimeError(
-            "git worktree provisioning finished but the resulting project directory did not "
-            f"validate as a repository worktree: {resolved_project_workdir}"
+            "dummy project provisioning finished but the resulting project directory did not "
+            f"validate as a standalone git repository: {resolved_project_workdir}"
         )
     return resolved_project_workdir
 
@@ -1186,6 +1328,7 @@ def _participant_state(participant: DemoParticipant) -> dict[str, Any]:
         "mailbox_address": participant.mailbox_address,
         "build": None,
         "start": None,
+        "inspect": None,
         "started_current_run": False,
         "stopped": False,
     }
@@ -1197,6 +1340,7 @@ def _initial_state(
     parameters_path: Path,
     layout: DemoLayout,
     agent_def_dir: Path,
+    project_fixture: Path,
     jobs_dir: Path | None,
     cao_parsing_mode: str | None,
 ) -> dict[str, Any]:
@@ -1207,12 +1351,13 @@ def _initial_state(
         layout.inputs_dir / Path(parameters.message.reply_instructions_file).name
     )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "demo_id": parameters.demo_id,
         "parameters_path": str(parameters_path.resolve()),
         "demo_output_dir": str(layout.demo_output_dir),
         "control_dir": str(layout.control_dir),
         "project_workdir": str(layout.project_workdir),
+        "project_fixture": str(project_fixture.resolve()),
         "runtime_root": str(layout.runtime_root),
         "mailbox_root": str(
             render_mailbox_root(parameters, demo_output_dir=layout.demo_output_dir)
@@ -1300,8 +1445,130 @@ def _participant_identity(participant_state: dict[str, Any], *, context: str) ->
     )
 
 
+def _fallback_participant_inspect_state(
+    *,
+    participant_state: dict[str, Any],
+    state: dict[str, Any],
+    context: str,
+) -> dict[str, Any]:
+    """Build inspect metadata from persisted start/session artifacts when needed."""
+
+    start_payload = _require_mapping(participant_state.get("start"), context=f"{context}.start")
+    session_manifest_path = Path(
+        _require_non_empty_string(
+            start_payload.get("session_manifest"),
+            context=f"{context}.start.session_manifest",
+        )
+    ).resolve()
+    manifest_payload = _require_mapping(
+        _read_json(session_manifest_path),
+        context=str(session_manifest_path),
+    )
+    cao_payload = _require_mapping(
+        manifest_payload.get("cao"),
+        context=f"{session_manifest_path}.cao",
+    )
+    cao_state = _require_state_mapping(state, "cao")
+    cao_home_dir = Path(
+        _require_non_empty_string(cao_state.get("home_dir"), context="cao.home_dir")
+    ).resolve()
+    terminal_id = _require_non_empty_string(
+        cao_payload.get("terminal_id"),
+        context=f"{session_manifest_path}.cao.terminal_id",
+    )
+    session_name = _require_non_empty_string(
+        cao_payload.get("session_name"),
+        context=f"{session_manifest_path}.cao.session_name",
+    )
+    return {
+        "agent_identity": _participant_identity(participant_state, context=context),
+        "tool": _require_non_empty_string(start_payload.get("tool"), context=f"{context}.tool"),
+        "session_name": session_name,
+        "tmux_target": session_name,
+        "terminal_id": terminal_id,
+        "terminal_log_path": _terminal_log_path_for_cao_home(
+            cao_home_dir=cao_home_dir,
+            terminal_id=terminal_id,
+        ),
+        "session_manifest": str(session_manifest_path),
+        "updated_at": datetime.fromtimestamp(
+            session_manifest_path.stat().st_mtime,
+            tz=UTC,
+        ).isoformat(timespec="seconds"),
+    }
+
+
+def _resolved_participant_inspect_state(
+    *,
+    participant_state: dict[str, Any],
+    state: dict[str, Any],
+    context: str,
+) -> dict[str, Any]:
+    """Resolve one participant inspect mapping from persisted state."""
+
+    inspect_state = participant_state.get("inspect")
+    if isinstance(inspect_state, dict):
+        return inspect_state
+    return _fallback_participant_inspect_state(
+        participant_state=participant_state,
+        state=state,
+        context=context,
+    )
+
+
+def _record_participant_inspect_state(
+    *,
+    participant_state: dict[str, Any],
+    start_payload: dict[str, Any],
+    cao_context: dict[str, Any],
+) -> None:
+    """Persist inspect metadata for one started participant."""
+
+    session_manifest_path = Path(
+        _require_non_empty_string(
+            start_payload.get("session_manifest"),
+            context="start.session_manifest",
+        )
+    ).resolve()
+    manifest_payload = _require_mapping(
+        _read_json(session_manifest_path),
+        context=str(session_manifest_path),
+    )
+    cao_payload = _require_mapping(
+        manifest_payload.get("cao"),
+        context=f"{session_manifest_path}.cao",
+    )
+    terminal_id = _require_non_empty_string(
+        cao_payload.get("terminal_id"),
+        context=f"{session_manifest_path}.cao.terminal_id",
+    )
+    cao_home_dir = Path(
+        _require_non_empty_string(cao_context.get("home_dir"), context="cao.home_dir")
+    ).resolve()
+    session_name = _require_non_empty_string(
+        cao_payload.get("session_name"),
+        context=f"{session_manifest_path}.cao.session_name",
+    )
+    participant_state["inspect"] = {
+        "agent_identity": _require_non_empty_string(
+            start_payload.get("agent_identity"),
+            context="start.agent_identity",
+        ),
+        "tool": _require_non_empty_string(start_payload.get("tool"), context="start.tool"),
+        "session_name": session_name,
+        "tmux_target": session_name,
+        "terminal_id": terminal_id,
+        "terminal_log_path": _terminal_log_path_for_cao_home(
+            cao_home_dir=cao_home_dir,
+            terminal_id=terminal_id,
+        ),
+        "session_manifest": str(session_manifest_path),
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
 def _freshen_demo_output(*, pack_dir: Path, layout: DemoLayout) -> None:
-    """Reset one demo root while preserving the durable project worktree."""
+    """Reset one demo root before reprovisioning a fresh dummy-project copy."""
 
     layout.demo_output_dir.mkdir(parents=True, exist_ok=True)
     for path in (layout.runtime_root, layout.mailbox_root, layout.cao_dir, layout.control_dir):
@@ -1381,6 +1648,8 @@ def start_demo(
         requested_mode=cao_parsing_mode,
         persisted_mode=None,
     )
+    project_fixture = _project_fixture_dir(parameters=parameters, repo_root=repo_root)
+    allow_project_reprovision = False
 
     if layout.state_path.exists():
         existing_state = _load_state(layout.state_path)
@@ -1390,9 +1659,21 @@ def start_demo(
                 "demo state already exists for this output directory and has not been stopped; "
                 "run `run_demo.sh stop` first"
             )
+        allow_project_reprovision = True
+
+    if layout.project_workdir.exists() and not allow_project_reprovision:
+        raise ValueError(
+            "demo project directory already exists before a stopped demo state was found: "
+            f"{layout.project_workdir.resolve()}"
+        )
 
     _freshen_demo_output(pack_dir=pack_dir, layout=layout)
-    ensure_project_worktree(repo_root=repo_root, project_workdir=layout.project_workdir)
+    ensure_project_workdir_from_fixture(
+        repo_root=repo_root,
+        project_fixture=project_fixture,
+        project_workdir=layout.project_workdir,
+        allow_reprovision=allow_project_reprovision,
+    )
     layout.runtime_root.mkdir(parents=True, exist_ok=True)
 
     agent_def_dir = _agent_def_dir(parameters=parameters, repo_root=repo_root)
@@ -1404,6 +1685,7 @@ def start_demo(
         parameters_path=parameters_path,
         layout=layout,
         agent_def_dir=agent_def_dir,
+        project_fixture=project_fixture,
         jobs_dir=jobs_dir,
         cao_parsing_mode=resolved_cao_parsing_mode,
     )
@@ -1516,6 +1798,11 @@ def start_demo(
             env=env,
         )
         sender_state["start"] = sender_start
+        _record_participant_inspect_state(
+            participant_state=sender_state,
+            start_payload=sender_start,
+            cao_context=cao_context,
+        )
         sender_state["started_current_run"] = True
         sender_state["stopped"] = False
         _write_state(layout.state_path, state)
@@ -1576,6 +1863,11 @@ def start_demo(
             env=env,
         )
         receiver_state["start"] = receiver_start
+        _record_participant_inspect_state(
+            participant_state=receiver_state,
+            start_payload=receiver_start,
+            cao_context=cao_context,
+        )
         receiver_state["started_current_run"] = True
         receiver_state["stopped"] = False
         _write_state(layout.state_path, state)
@@ -1817,6 +2109,135 @@ def roundtrip_demo(
         "send_message_id": message_state["send_message_id"],
         "reply_message_id": message_state["reply_message_id"],
     }
+
+
+def inspect_demo_agent(
+    *,
+    demo_output_dir: Path,
+    agent: str,
+    output_text_tail_chars: int | None = None,
+) -> dict[str, Any]:
+    """Build one inspect payload for the selected tutorial participant."""
+
+    if agent not in {"sender", "receiver"}:
+        raise ValueError("inspect requires `--agent sender` or `--agent receiver`")
+    if output_text_tail_chars is not None and output_text_tail_chars <= 0:
+        raise ValueError("--with-output-text must be a positive integer")
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    state = _load_state(layout.state_path)
+    participant_state = _require_state_mapping(state, agent)
+    inspect_state = _resolved_participant_inspect_state(
+        participant_state=participant_state,
+        state=state,
+        context=agent,
+    )
+    cao_state = _require_state_mapping(state, "cao")
+    base_url = _require_non_empty_string(cao_state.get("base_url"), context="cao.base_url")
+    terminal_id = _require_non_empty_string(
+        inspect_state.get("terminal_id"),
+        context=f"{agent}.inspect.terminal_id",
+    )
+    tmux_target = _require_non_empty_string(
+        inspect_state.get("tmux_target"),
+        context=f"{agent}.inspect.tmux_target",
+    )
+    terminal_log_path = _require_non_empty_string(
+        inspect_state.get("terminal_log_path"),
+        context=f"{agent}.inspect.terminal_log_path",
+    )
+    client = CaoRestClient(base_url, timeout_seconds=DEFAULT_LIVE_CAO_TIMEOUT_SECONDS)
+    payload: dict[str, Any] = {
+        "agent": agent,
+        "agent_identity": _require_non_empty_string(
+            inspect_state.get("agent_identity"),
+            context=f"{agent}.inspect.agent_identity",
+        ),
+        "session_name": _require_non_empty_string(
+            inspect_state.get("session_name"),
+            context=f"{agent}.inspect.session_name",
+        ),
+        "tool": _require_non_empty_string(
+            inspect_state.get("tool"),
+            context=f"{agent}.inspect.tool",
+        ),
+        "tool_state": _best_effort_tool_state(terminal_id=terminal_id, client=client),
+        "tmux_target": tmux_target,
+        "tmux_attach_command": f"tmux attach -t {tmux_target}",
+        "terminal_id": terminal_id,
+        "terminal_log_path": terminal_log_path,
+        "terminal_log_tail_command": f"tail -f {terminal_log_path}",
+        "session_manifest": _require_non_empty_string(
+            inspect_state.get("session_manifest"),
+            context=f"{agent}.inspect.session_manifest",
+        ),
+        "project_workdir": _require_non_empty_string(
+            state.get("project_workdir"),
+            context="project_workdir",
+        ),
+        "runtime_root": _require_non_empty_string(
+            state.get("runtime_root"),
+            context="runtime_root",
+        ),
+        "updated_at": _require_non_empty_string(
+            inspect_state.get("updated_at"),
+            context=f"{agent}.inspect.updated_at",
+        ),
+    }
+    if output_text_tail_chars is not None:
+        output_text_tail = _best_effort_output_text_tail(
+            tool=payload["tool"],
+            terminal_id=terminal_id,
+            output_text_tail_chars=output_text_tail_chars,
+            client=client,
+        )
+        payload["output_text_tail_chars_requested"] = output_text_tail_chars
+        payload["output_text_tail"] = output_text_tail.output_text_tail
+        if output_text_tail.note is not None:
+            payload["output_text_tail_note"] = output_text_tail.note
+    return payload
+
+
+def _render_human_inspect_output(*, payload: dict[str, Any]) -> str:
+    """Render the tutorial-pack inspect payload in a human-readable form."""
+
+    lines = [
+        "Mailbox Roundtrip Tutorial Pack Inspect",
+        "",
+        "Session Summary",
+        f"agent: {payload['agent']}",
+        f"tool: {payload['tool']}",
+        f"tool_state: {payload['tool_state']}",
+        f"agent_identity: {payload['agent_identity']}",
+        f"session_name: {payload['session_name']}",
+        f"terminal_id: {payload['terminal_id']}",
+        f"last_updated: {payload['updated_at']}",
+        "",
+        "Commands",
+        f"tmux_attach: {payload['tmux_attach_command']}",
+        f"terminal_log_tail: {payload['terminal_log_tail_command']}",
+        "",
+        "Artifacts",
+        f"session_manifest: {payload['session_manifest']}",
+        f"terminal_log_path: {payload['terminal_log_path']}",
+        f"project_workdir: {payload['project_workdir']}",
+        f"runtime_root: {payload['runtime_root']}",
+    ]
+
+    output_text_tail_chars = payload.get("output_text_tail_chars_requested")
+    if isinstance(output_text_tail_chars, int):
+        lines.extend(["", f"Output Text Tail (last {output_text_tail_chars} chars)"])
+        note = payload.get("output_text_tail_note")
+        if isinstance(note, str) and note.strip():
+            lines.append(note)
+        else:
+            output_text_tail = payload.get("output_text_tail")
+            if isinstance(output_text_tail, str) and output_text_tail:
+                lines.extend(f"  {line}" for line in output_text_tail.splitlines())
+            else:
+                lines.append("  <empty>")
+
+    return "\n".join(lines)
 
 
 def verify_demo(
@@ -2340,10 +2761,17 @@ def _cmd_resolve_path(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_ensure_project_worktree(args: argparse.Namespace) -> int:
-    """Provision or validate the demo project worktree."""
+def _cmd_ensure_project_workdir(args: argparse.Namespace) -> int:
+    """Provision one copied dummy-project workdir from a tracked fixture."""
 
-    print(ensure_project_worktree(repo_root=args.repo_root, project_workdir=args.project_workdir))
+    print(
+        ensure_project_workdir_from_fixture(
+            repo_root=args.repo_root,
+            project_fixture=args.project_fixture,
+            project_workdir=args.project_workdir,
+            allow_reprovision=args.allow_reprovision,
+        )
+    )
     return 0
 
 
@@ -2469,6 +2897,21 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    """Inspect one selected tutorial participant."""
+
+    payload = inspect_demo_agent(
+        demo_output_dir=args.demo_output_dir,
+        agent=args.agent,
+        output_text_tail_chars=args.with_output_text,
+    )
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    print(_render_human_inspect_output(payload=payload))
+    return 0
+
+
 def _cmd_auto(args: argparse.Namespace) -> int:
     """Run the mailbox demo end to end."""
 
@@ -2534,10 +2977,12 @@ def _build_parser() -> argparse.ArgumentParser:
     mailbox_root_parser.add_argument("demo_output_dir", type=Path)
     mailbox_root_parser.set_defaults(func=_cmd_render_mailbox_root)
 
-    worktree_parser = subparsers.add_parser("ensure-project-worktree")
+    worktree_parser = subparsers.add_parser("ensure-project-workdir")
     worktree_parser.add_argument("--repo-root", type=Path, required=True)
+    worktree_parser.add_argument("--project-fixture", type=Path, required=True)
     worktree_parser.add_argument("--project-workdir", type=Path, required=True)
-    worktree_parser.set_defaults(func=_cmd_ensure_project_worktree)
+    worktree_parser.add_argument("--allow-reprovision", action="store_true")
+    worktree_parser.set_defaults(func=_cmd_ensure_project_workdir)
 
     loopback_parser = subparsers.add_parser("supports-loopback-cao")
     loopback_parser.add_argument("--cao-base-url", required=True)
@@ -2582,25 +3027,32 @@ def _build_parser() -> argparse.ArgumentParser:
         ("start", _cmd_start),
         ("roundtrip", _cmd_roundtrip),
         ("verify", _cmd_verify),
+        ("inspect", _cmd_inspect),
         ("auto", _cmd_auto),
         ("stop", _cmd_stop),
     ):
         subparser = subparsers.add_parser(command_name)
-        subparser.add_argument("--repo-root", type=Path, required=True)
-        subparser.add_argument("--pack-dir", type=Path, required=True)
-        subparser.add_argument("--parameters", type=Path, required=True)
         subparser.add_argument(
             "--demo-output-dir",
             type=Path,
             default=_DEFAULT_DEMO_OUTPUT_DIR,
         )
         if command_name in {"start", "roundtrip", "auto", "stop"}:
+            subparser.add_argument("--repo-root", type=Path, required=True)
+        if command_name in {"start", "roundtrip", "auto", "stop"}:
             subparser.add_argument(
                 "--cao-parsing-mode",
                 choices=["shadow_only"],
             )
         if command_name in {"start", "auto"}:
+            subparser.add_argument("--pack-dir", type=Path, required=True)
+            subparser.add_argument("--parameters", type=Path, required=True)
+        if command_name in {"start", "auto"}:
             subparser.add_argument("--jobs-dir", type=Path)
+        if command_name == "inspect":
+            subparser.add_argument("--agent", choices=["sender", "receiver"], required=True)
+            subparser.add_argument("--json", action="store_true")
+            subparser.add_argument("--with-output-text", type=int)
         if command_name in {"verify", "auto"}:
             subparser.add_argument("--expected-report", type=Path, required=True)
             subparser.add_argument("--snapshot", action="store_true")

@@ -92,16 +92,17 @@
       "reply_instructions_file": "inputs/reply_instructions.md",
       "subject": "Mailbox tutorial roundtrip"
     },
+    "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
     "receiver": {
       "agent_identity": "AGENTSYS-mailbox-receiver",
-      "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
+      "blueprint": "blueprints/mailbox-demo-codex.yaml",
       "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-receiver"
     },
     "schema_version": 1,
     "sender": {
       "agent_identity": "AGENTSYS-mailbox-sender",
-      "blueprint": "blueprints/gpu-kernel-coder-claude.yaml",
+      "blueprint": "blueprints/mailbox-demo-claude.yaml",
       "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-sender"
     },

@@ -4,7 +4,7 @@ Default agent-definition directory: `tests/fixtures/agents` (override with `AGEN
 
 This pack answers one maintainer-friendly question:
 
-> How do I provision a demo-owned project worktree, launch two CAO-backed mailbox sessions, run the roundtrip, verify the sanitized report contract, and automate regression scenarios from the pack directory itself?
+> How do I provision a demo-owned dummy project, launch two CAO-backed mailbox sessions, run the roundtrip, inspect slow turns, verify the sanitized report contract, and automate regression scenarios from the pack directory itself?
 
 The pack now exposes two automation layers:
 
@@ -16,7 +16,7 @@ The pack now exposes two automation layers:
 - `pixi` is installed and `pixi install` has been run at least once.
 - `tmux` is installed and on `PATH`.
 - The tracked Claude Code and Codex credential profiles selected by the demo blueprints are available under `tests/fixtures/agents/brains/api-creds/`.
-- You are running from this repository checkout or from a valid git worktree of it.
+- You are running from this repository checkout so the pack can copy the tracked dummy-project fixture into the selected demo output directory.
 
 The default verified path is still launcher-managed loopback CAO. When `CAO_BASE_URL` points at a supported loopback URL such as `http://localhost:9889`, the helper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `--cao-profile-store`, and only stops that CAO later if the current demo run started it.
 
@@ -27,12 +27,15 @@ If `CAO_BASE_URL` points at an external CAO, the default automation path still e
 The pack wrapper now supports explicit commands:
 
 ```bash
-scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] \
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|inspect|verify|stop] \
   [--demo-output-dir <path>] \
   [--jobs-dir <path>] \
   [--parameters <path>] \
   [--expected-report <path>] \
   [--cao-parsing-mode <shadow_only>] \
+  [--agent <sender|receiver>] \
+  [--json] \
+  [--with-output-text <chars>] \
   [--snapshot-report]
 ```
 
@@ -41,8 +44,9 @@ For this mailbox roundtrip workflow, the pack uses `shadow_only` for both Claude
 Commands:
 
 - `auto`: start, roundtrip, verify, then stop. This remains the default command when no explicit command is supplied.
-- `start`: provision the demo root, validate or create `<demo-output-dir>/project`, start both mailbox sessions, and persist reusable demo state.
+- `start`: provision the demo root, copy the tracked dummy-project fixture into `<demo-output-dir>/project`, initialize a fresh pinned-metadata git repo there, start both mailbox sessions, and persist reusable demo state.
 - `roundtrip`: reuse the existing demo root and run `mail send -> mail check -> mail reply -> mail check`.
+- `inspect`: show persisted tmux/log coordinates for `sender` or `receiver`, plus live CAO `tool_state` and optional projected output tail when available.
 - `verify`: rebuild `report.json`, refresh `report.sanitized.json`, compare against `expected_report/report.json`, and optionally refresh the tracked snapshot with `--snapshot-report`.
 - `stop`: stop demo-owned live sessions and any demo-managed CAO started by the current run.
 
@@ -54,6 +58,8 @@ scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh
 
 # Stepwise maintainer path against one reusable output root.
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh start --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh inspect --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise --agent sender
+scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh inspect --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise --agent receiver --json --with-output-text 400
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh roundtrip --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh verify --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh stop --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise
@@ -94,7 +100,7 @@ The pack now separates maintainer-facing outputs from generated orchestration st
 │   ├── stop_result.json
 │   └── cleanup_*.json          # emitted when cleanup runs after failure or interruption
 ├── cao/                        # demo-local CAO launcher config and runtime artifacts
-├── project/                    # git worktree used as the agents' workdir
+├── project/                    # copied dummy-project fixture initialized as a fresh git repo
 ├── runtime/                    # build-brain outputs and session manifests
 ```
 
@@ -105,13 +111,21 @@ Notes:
 - Fresh automatic `start` runs persist `shadow_only` in `<output-root>/control/demo_state.json`, and later `roundtrip` and `stop` commands reuse that persisted mode for the same demo root unless an explicit `shadow_only` override is supplied again.
 - Demo roots that still persist `cao_only` are stale for this pack and should be discarded and recreated so the workflow restarts in `shadow_only`.
 - When `--jobs-dir` is omitted, per-session jobs stay under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
-- Full runs refresh `<output-root>/` between runs, but a valid existing `<demo-output-dir>/project` worktree is preserved and reused.
-- If `<demo-output-dir>/project` already exists but is not a valid git worktree of this repository, the automation fails before any live runtime work starts.
+- The default tracked fixture is `tests/fixtures/dummy-projects/mailbox-demo-python`.
+- The default tracked blueprints are `blueprints/mailbox-demo-claude.yaml` and `blueprints/mailbox-demo-codex.yaml`.
+- Fresh `start` runs copy the source-only dummy project into `<demo-output-dir>/project`, write `.houmao-demo-project.json`, initialize a new git repo, and create one pinned initial commit.
+- Full reruns against the same stopped demo root re-provision that managed dummy project deterministically instead of preserving ad hoc edits inside `project/`.
+- If `<demo-output-dir>/project` already exists before a stopped demo state is present, the automation fails before any live runtime work starts.
 - The pack-local `.gitignore` ignores `outputs/` because that tree is disposable generated state.
 
-## Live Automatic Coverage
+## Automatic Coverage
 
-The pack also has a dedicated live integration target that exercises the real direct-session mail path without using gateway transport or fake mailbox injection:
+The pack has two deterministic automatic lanes:
+
+- `pixi run pytest tests/integration/demo/test_mailbox_roundtrip_tutorial_pack_live.py`
+- `pixi run python scripts/demo/mailbox-roundtrip-tutorial-pack/scripts/run_automation_scenarios.py --automation-root <path>`
+
+The live pytest target exercises the real direct-session mail path without using gateway transport or fake mailbox injection:
 
 ```bash
 pixi run pytest tests/integration/demo/test_mailbox_roundtrip_tutorial_pack_live.py
@@ -121,14 +135,27 @@ That test:
 
 - provisions a fresh temp-root `<demo-output-dir>` plus an isolated `AGENTSYS_GLOBAL_REGISTRY_DIR`
 - starts a test-owned loopback CAO on a picked free port
-- runs `run_demo.sh start -> roundtrip -> verify -> stop` against two real runtime sessions, with both agents using `shadow_only`
+- runs `run_demo.sh start -> inspect -> roundtrip -> verify -> stop` against two real runtime sessions, with both agents using `shadow_only`
+- uses the tracked `mailbox-demo` role family and copied dummy-project fixture shape while replacing the external `claude` and `codex` binaries with deterministic test-owned stand-ins
 - treats Codex shadow parsing as the supported receiver path instead of a fallback or downgrade target
 - asserts that `<demo-output-dir>/mailbox/mailboxes/<sender-address>/` and `<demo-output-dir>/mailbox/mailboxes/<receiver-address>/` both exist after `stop`
 - opens the canonical send and reply Markdown documents under `<demo-output-dir>/mailbox/messages/`
 - verifies that `<demo-output-dir>/chats.jsonl` records the semantic send and reply events without relying on CAO transcript scraping
 - confirms the sanitized report still excludes the raw message bodies and raw chat content even though the canonical mailbox Markdown and `chats.jsonl` remain readable on disk
 
-The existing `scripts/run_automation_scenarios.py` coverage remains the fast hermetic regression layer. It is not the only automatic mailbox check anymore; the live pytest target is the direct-codepath gate.
+The scenario runner remains the fast hermetic regression layer. Together, the scenario runner and live pytest target are deterministic automatic coverage; neither one claims to exercise the operator's real local Claude/Codex CLIs.
+
+## Real-Agent Smoke
+
+Opt-in local CLI smoke lives under `tests/manual/manual_mailbox_roundtrip_real_agent_smoke.py`.
+
+That manual entrypoint:
+
+- uses the tracked dummy-project plus `mailbox-demo` blueprint defaults
+- fails explicitly when `pixi`, `tmux`, `claude`, `codex`, or the selected tracked credential profiles are unavailable
+- prints `run_demo.sh inspect --agent sender|receiver ...` commands before the live roundtrip so maintainers can inspect slow sessions from a second terminal
+
+Treat that manual script as the real-agent promise. The automatic regression lanes remain deterministic stand-in coverage of the direct runtime mail path.
 
 ## Scenario Automation
 
@@ -189,9 +216,10 @@ The pack still mirrors the same underlying runtime flow:
 1. Start or reuse demo-local CAO.
 2. Build sender and receiver brains.
 3. Start both sessions against `<demo-output-dir>/project` and `<demo-output-dir>/mailbox`.
-4. Send the initial message, check it from the receiver, reply with helper-generated content derived from the tracked reply instructions, and check the reply from the sender.
-5. Append the semantic tutorial exchange to `<demo-output-dir>/chats.jsonl`.
-6. Build and sanitize the report.
-7. Stop the demo-owned resources.
+4. Use `run_demo.sh inspect --agent sender|receiver` whenever you need tmux attach, terminal-log tail, live `tool_state`, or best-effort projected output tail for one session.
+5. Send the initial message, check it from the receiver, reply with helper-generated content derived from the tracked reply instructions, and check the reply from the sender.
+6. Append the semantic tutorial exchange to `<demo-output-dir>/chats.jsonl`.
+7. Build and sanitize the report.
+8. Stop the demo-owned resources.
 
 The wrapper and scenario runner are just pack-owned automation layers around that sequence so maintainers do not need a separate test-only harness.

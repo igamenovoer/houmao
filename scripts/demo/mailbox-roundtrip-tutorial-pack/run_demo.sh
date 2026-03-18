@@ -19,7 +19,7 @@ POSITIONAL_ARGS=()
 print_help() {
   cat <<'EOF'
 Usage:
-  scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>] [--parameters <path>] [--expected-report <path>] [--cao-parsing-mode <shadow_only>]
+  scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|inspect|verify|stop] [--snapshot-report] [--demo-output-dir <path>] [--jobs-dir <path>] [--parameters <path>] [--expected-report <path>] [--cao-parsing-mode <shadow_only>] [--agent <sender|receiver>] [--json] [--with-output-text <chars>]
 
 The default output root is `scripts/demo/mailbox-roundtrip-tutorial-pack/outputs/`.
 Fresh full runs recreate that output root from scratch; stepwise commands reuse the same selected root.
@@ -30,7 +30,7 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    auto|start|roundtrip|verify|stop)
+    auto|start|roundtrip|inspect|verify|stop)
       COMMAND="$1"
       shift
       ;;
@@ -137,16 +137,35 @@ if [[ -n "$RAW_CAO_PARSING_MODE" && ( "$COMMAND" == "auto" || "$COMMAND" == "sta
 fi
 
 case "$COMMAND" in
-  auto|verify)
-    CMD=(pixi run python "$HELPER_SCRIPT" "$COMMAND" "${BASE_ARGS[@]}" --expected-report "$EXPECTED_REPORT")
+  auto)
+    CMD=(pixi run python "$HELPER_SCRIPT" auto "${BASE_ARGS[@]}" --expected-report "$EXPECTED_REPORT")
     if [[ "$SNAPSHOT" -eq 1 ]]; then
       CMD+=(--snapshot)
     fi
     CMD+=("${POSITIONAL_ARGS[@]}")
     "${CMD[@]}"
     ;;
-  start|roundtrip|stop)
+  verify)
+    CMD=(pixi run python "$HELPER_SCRIPT" verify --demo-output-dir "$DEMO_OUTPUT_DIR" --expected-report "$EXPECTED_REPORT")
+    if [[ "$SNAPSHOT" -eq 1 ]]; then
+      CMD+=(--snapshot)
+    fi
+    CMD+=("${POSITIONAL_ARGS[@]}")
+    "${CMD[@]}"
+    ;;
+  inspect)
+    pixi run python "$HELPER_SCRIPT" inspect --demo-output-dir "$DEMO_OUTPUT_DIR" "${POSITIONAL_ARGS[@]}"
+    ;;
+  start)
     pixi run python "$HELPER_SCRIPT" "$COMMAND" "${BASE_ARGS[@]}" "${POSITIONAL_ARGS[@]}"
+    ;;
+  roundtrip|stop)
+    CMD=(pixi run python "$HELPER_SCRIPT" "$COMMAND" --repo-root "$REPO_ROOT" --demo-output-dir "$DEMO_OUTPUT_DIR")
+    if [[ -n "$RAW_CAO_PARSING_MODE" ]]; then
+      CMD+=(--cao-parsing-mode "$RAW_CAO_PARSING_MODE")
+    fi
+    CMD+=("${POSITIONAL_ARGS[@]}")
+    "${CMD[@]}"
     ;;
   *)
     echo "unknown command: $COMMAND" >&2

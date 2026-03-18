@@ -1,0 +1,4 @@
+schema_version: 1
+name: mailbox-demo-claude
+brain_recipe: ../brains/brain-recipes/claude/mailbox-demo-default.yaml
+role: mailbox-demo
