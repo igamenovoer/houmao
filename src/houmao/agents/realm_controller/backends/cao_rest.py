@@ -467,6 +467,11 @@ class _TurnMonitor:
             return None
         return max(now_monotonic - self.m_stalled_started_at, 0.0)
 
+    def saw_post_submit_activity(self) -> bool:
+        """Return whether the monitor observed any post-submit activity."""
+
+        return self.m_saw_projection_change_after_submit or self.m_saw_working_after_submit
+
     def _observe_unknown(
         self,
         *,
@@ -1294,6 +1299,15 @@ class CaoRestSession:
                         time.sleep(self._poll_interval_seconds)
                         continue
                 return output, snapshot, tuple(monitor.m_anomalies), completion_payload
+            if completion_observer is not None and monitor.saw_post_submit_activity():
+                completion_payload = completion_observer(
+                    output.output,
+                    snapshot,
+                    baseline_output_text,
+                    baseline_projection,
+                )
+                if completion_payload is not None:
+                    return output, snapshot, tuple(monitor.m_anomalies), completion_payload
             if runtime_state == "blocked_operator":
                 raise BackendExecutionError(
                     self._format_shadow_operator_blocked_error(

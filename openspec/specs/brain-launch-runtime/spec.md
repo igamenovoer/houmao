@@ -249,6 +249,10 @@ For `shadow_only` mailbox commands, the runtime SHALL continue polling post-subm
 
 For `shadow_only` mailbox commands, a submit-ready surface without a complete sentinel-delimited mailbox result for the active request SHALL be treated as provisional only. The runtime SHALL NOT return mailbox success or a missing-sentinel parse failure solely because the generic shadow lifecycle gate became satisfied before the sentinel contract was observed.
 
+For `shadow_only` mailbox commands, prompt-echo mentions of `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT satisfy mailbox completion gating or mailbox result validation by themselves.
+
+For `shadow_only` mailbox commands, mailbox completion gating and mailbox result validation SHALL use the same active-request result-selection contract so that surfaces ignored as prompt-echo noise during provisional completion are not later treated as malformed mailbox results.
+
 #### Scenario: Mail command uses skill-directed prompt with appended mailbox metadata
 - **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
@@ -272,8 +276,13 @@ For `shadow_only` mailbox commands, a submit-ready surface without a complete se
 - **THEN** the runtime keeps polling post-submit shadow text instead of returning mailbox success or a missing-sentinel parse failure
 - **AND THEN** the runtime surfaces the mailbox result only after exactly one sentinel-delimited payload for that request is observed or the existing bounded turn failure policy fires
 
+#### Scenario: Shadow-mode mailbox ignores echoed request sentinel names
+- **WHEN** a mailbox-enabled `shadow_only` session echoes the runtime-owned mailbox prompt or response-contract metadata so that the sentinel names appear in projected text before any real mailbox result block is emitted
+- **THEN** the runtime treats those echoed sentinel mentions as provisional noise rather than mailbox-result evidence
+- **AND THEN** the runtime keeps polling until a real active-request mailbox result payload is observed or the existing bounded turn failure policy fires
+
 #### Scenario: Mail command fails on malformed sentinel payload
-- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON, or returns more than one sentinel-delimited mailbox result payload
+- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON inside a real sentinel-delimited result block, or returns more than one sentinel-delimited mailbox result payload for the active request
 - **THEN** the runtime returns an explicit mailbox-result parsing error for that `mail` command
 - **AND THEN** the runtime does not send an automatic retry prompt in v1
 

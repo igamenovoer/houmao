@@ -123,7 +123,11 @@ That choice should be deliberate and capability-driven, not an incidental effect
 
 ### 5) Tighten the mailbox control contract
 
-Mailbox completion and final extraction should use the same exact contract, ideally over a post-submit delta or another stricter machine-readable surface, so prompt echo cannot satisfy completion while still failing final parse.
+~~Mailbox completion and final extraction should use the same exact contract, ideally over a post-submit delta or another stricter machine-readable surface, so prompt echo cannot satisfy completion while still failing final parse.~~
+
+**Resolved (2026-03-18).** Issue-001 (prompt-echo false positive) and issue-007 (observer gated behind generic completion) together close this layer:
+- Sentinel extraction now uses standalone-line matching shared between observer and parser (issue-001, fixed on `devel`).
+- Mailbox observer now runs on every post-submit poll independent of generic shadow lifecycle (issue-007, fixed in HTT worktree, merge pending).
 
 ## Relevant Stable References
 
@@ -142,4 +146,4 @@ Mailbox completion and final extraction should use the same exact contract, idea
 - Introduce a durable "external prerequisites" contract for real-agent runs.
 - Add a CAO compatibility probe and layout-selection step before live start.
 - Decide whether repo-local `api-creds/` should remain a convenience for local development only rather than a dependency of portable HTT runs.
-- Harden the mailbox completion/extraction contract so downstream live-agent failures are not amplified by prompt echo.
+- ~~Harden the mailbox completion/extraction contract so downstream live-agent failures are not amplified by prompt echo.~~ → Resolved by issue-001 + issue-007.

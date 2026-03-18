@@ -4,16 +4,16 @@
 P0 — Mailbox turns fail intermittently in production.
 
 ## Status
-Known. OpenSpec change exists: `openspec/changes/fix-shadow-mailbox-sentinel-prompt-echo/`.
+Fixed on `devel` as of 2026-03-18. Archived OpenSpec change: `openspec/changes/archive/2026-03-18-fix-shadow-mailbox-sentinel-prompt-echo/`.
 
 ## Review Reference
 Code review sections: 2.3, 4.4
 
 ## Summary
 
-The mailbox-specific shadow completion observer and the final mailbox result parser use different detection logic for sentinel-delimited result blocks. The provisional gate treats arbitrary `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` substrings anywhere in the surface as sufficient evidence, while the final parser expects standalone delimiter lines around valid JSON.
+The mailbox-specific shadow completion observer and the final mailbox result parser used different detection logic for sentinel-delimited result blocks. The provisional gate treated arbitrary `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` substrings anywhere in the surface as sufficient evidence, while the final parser expected standalone delimiter lines around valid JSON.
 
-When the runtime-owned mailbox prompt echoes sentinel names in prose and in the appended `response_contract` JSON fields, the observer declares "contract reached" prematurely. The final parser then rejects the surface because it contains multiple sentinel-name occurrences rather than one actual sentinel-delimited result block.
+When the runtime-owned mailbox prompt echoed sentinel names in prose and in the appended `response_contract` JSON fields, the observer declared "contract reached" prematurely. The final parser then rejected the surface because it contained multiple sentinel-name occurrences rather than one actual sentinel-delimited result block.
 
 ## Root Cause
 
@@ -21,20 +21,23 @@ Two independent detection paths (loose `str.find()` substring gate vs. strict bl
 
 ## Affected Code
 
-- `src/houmao/agents/realm_controller/mail_commands.py` — `_contains_complete_mail_result_payload()`, `shadow_mail_result_contract_reached()`, `parse_mail_result()` / `_parse_mail_result_text()`
+- `src/houmao/agents/realm_controller/mail_commands.py` — `extract_sentinel_blocks()`, `shadow_mail_result_contract_reached()`, `parse_mail_result()` / `_parse_mail_result_text()`
 - `src/houmao/agents/realm_controller/backends/cao_rest.py` — `_build_mail_shadow_completion_observer()`
 
-## Fix Direction
+## Fix Applied
 
-Replace the dual-path sentinel detection with a single `extract_sentinel_blocks()` function:
-1. Scan for sentinel-on-own-line patterns (not substrings)
-2. Return zero or more `SentinelBlock(begin_line, end_line, payload_text)` candidates
-3. Share this function between BOTH the provisional completion observer AND the final parser
+Replaced the dual-path sentinel detection with a single `extract_sentinel_blocks()` function:
+1. Scans for sentinel-on-own-line patterns (not substrings)
+2. Returns zero or more `SentinelBlock(begin_line, end_line, payload_text)` candidates
+3. Shared between BOTH the provisional completion observer AND the final parser
 
 The provisional gate becomes: "Does `extract_sentinel_blocks()` return at least one candidate?" The final parser validates the candidate(s) against the active request contract.
+
+Regression coverage added in `tests/unit/agents/realm_controller/test_mail_commands.py`.
 
 ## Connections
 
 - Amplified by problem 2.6 (fresh-environment TUI noise adds extra text that contains echoed sentinels)
-- HTT worktree cascade layer 4 (see issue-005)
-- Already tracked in `openspec/changes/fix-shadow-mailbox-sentinel-prompt-echo/`
+- Companion fix to issue-007 (observer gated behind generic completion). Together these two fixes close the mailbox shadow completion reliability gap:
+  - issue-001 fixed the false positive (observer too loose)
+  - issue-007 fixed the false negative (observer gated too late)

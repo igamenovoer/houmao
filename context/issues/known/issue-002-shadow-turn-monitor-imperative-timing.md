@@ -6,6 +6,8 @@ P1 — False completion on transient idle; stall false positives; projector chan
 ## Status
 Known.
 
+**Note (2026-03-18):** Issue-007's fix adds `saw_post_submit_activity()` to `_TurnMonitor` — one more mutable field in the hand-rolled state machine. The future Rx rewrite needs to incorporate "run mailbox observer on every post-submit emission" as a stream operator. This slightly expands the migration scope but further justifies the Rx approach.
+
 ## Review Reference
 Code review sections: 2.2, 3.2, 3.3, 4.1, 4.3, 4.3.1
 
