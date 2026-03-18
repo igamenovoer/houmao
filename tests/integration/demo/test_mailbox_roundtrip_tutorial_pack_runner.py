@@ -41,11 +41,15 @@ def _copy_demo_pack(repo_root: Path) -> Path:
 
 
 def _copy_agent_defs(repo_root: Path) -> None:
-    """Copy the tracked fixture agent definitions into the isolated repo."""
+    """Copy tracked agent and dummy-project fixtures into the isolated repo."""
 
     shutil.copytree(
         _source_repo_root() / "tests" / "fixtures" / "agents",
         repo_root / "tests" / "fixtures" / "agents",
+    )
+    shutil.copytree(
+        _source_repo_root() / "tests" / "fixtures" / "dummy-projects",
+        repo_root / "tests" / "fixtures" / "dummy-projects",
     )
 
 
@@ -120,38 +124,51 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 raw_args = raw_args[2:]
 
             repo_root = Path(os.environ["FAKE_GIT_TOPLEVEL"]).resolve()
-            common_dir = repo_root / ".git"
-            in_repo_root = cwd == repo_root or repo_root in cwd.parents
-            in_worktree = (cwd / ".git").exists()
+            source_repo = cwd == repo_root or repo_root in cwd.parents
+
+            def find_git_root(start: Path) -> Path | None:
+                for candidate in (start, *start.parents):
+                    git_path = candidate / ".git"
+                    if git_path.is_dir() or git_path.is_file():
+                        return candidate
+                return None
+
+            active_repo = find_git_root(cwd)
 
             if raw_args == ["rev-parse", "--show-toplevel"]:
-                if in_worktree:
-                    print(str(cwd))
+                if active_repo is not None:
+                    print(str(active_repo))
                     raise SystemExit(0)
-                if in_repo_root:
+                if source_repo:
                     print(str(repo_root))
                     raise SystemExit(0)
                 raise SystemExit(1)
 
             if raw_args == ["rev-parse", "--is-inside-work-tree"]:
-                if in_repo_root or in_worktree:
+                if active_repo is not None or source_repo:
                     print("true")
                     raise SystemExit(0)
                 raise SystemExit(1)
 
             if raw_args == ["rev-parse", "--git-common-dir"]:
-                if in_repo_root or in_worktree:
-                    print(str(common_dir))
+                if active_repo is not None:
+                    print(str((active_repo / ".git").resolve()))
+                    raise SystemExit(0)
+                if source_repo:
+                    print(str((repo_root / ".git").resolve()))
                     raise SystemExit(0)
                 raise SystemExit(1)
 
-            if len(raw_args) == 5 and raw_args[:3] == ["worktree", "add", "--detach"] and raw_args[4] == "HEAD":
-                target = Path(raw_args[3]).expanduser()
-                if not target.is_absolute():
-                    target = (cwd / target).resolve()
-                target.mkdir(parents=True, exist_ok=True)
-                (target / ".git").write_text("gitdir: fake\\n", encoding="utf-8")
-                print(f"Preparing worktree (detached HEAD) at '{target}'")
+            if raw_args == ["init", "--initial-branch", "main"]:
+                (cwd / ".git").mkdir(parents=True, exist_ok=True)
+                print(f"Initialized empty Git repository in {cwd / '.git'}")
+                raise SystemExit(0)
+
+            if raw_args == ["add", "--all"]:
+                raise SystemExit(0)
+
+            if len(raw_args) == 5 and raw_args[:4] == ["commit", "--allow-empty", "--no-gpg-sign", "-m"]:
+                print(f"[main (root-commit) 0000000] {raw_args[4]}")
                 raise SystemExit(0)
 
             raise SystemExit(f"unexpected git args: {raw_args!r} (cwd={cwd})")
@@ -447,7 +464,28 @@ def _write_fake_tools(fake_bin_dir: Path) -> None:
                 workdir = Path(arg_value("--workdir"))
                 session_manifest = runtime_root / "sessions" / f"{agent_identity}.json"
                 session_manifest.parent.mkdir(parents=True, exist_ok=True)
-                session_manifest.write_text("{}", encoding="utf-8")
+                terminal_id = f"term-{len(state['sessions']) + 1:03d}"
+                session_manifest.write_text(
+                    json.dumps(
+                        {
+                            "tmux_session_name": agent_identity,
+                            "cao": {
+                                "session_name": agent_identity,
+                                "terminal_id": terminal_id,
+                                "parsing_mode": "shadow_only",
+                            },
+                            "backend_state": {
+                                "session_name": agent_identity,
+                                "terminal_id": terminal_id,
+                                "parsing_mode": "shadow_only",
+                            },
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\\n",
+                    encoding="utf-8",
+                )
                 from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
                 from houmao.mailbox.protocol import MailboxPrincipal
 
@@ -792,7 +830,7 @@ def test_mailbox_roundtrip_scenario_runner_covers_contract_and_ownership_cases(
     )
     assert explicit["checks"]["send_body_matches_input"] is True
     assert explicit["checks"]["reply_body_present"] is True
-    assert rerun["checks"]["reuse_marker_preserved"] is True
+    assert rerun["checks"]["reuse_marker_preserved"] is False
     assert incompatible["checks"]["sender_start_created"] is False
     assert ownership["checks"]["cao_ownership"] == "reused-existing-process"
 
@@ -849,6 +887,8 @@ def test_mailbox_roundtrip_scenario_runner_covers_stepwise_snapshot_and_cleanup_
     assert failure["ok"] is True
     assert interrupted["ok"] is True
     assert stepwise["checks"]["verify_result_path"].endswith("/control/verify_result.json")
+    assert stepwise["checks"]["sender_inspect_tool_state"] == "unknown"
+    assert stepwise["checks"]["receiver_inspect_has_tail_request"] is True
     assert stepwise["checks"]["send_body_matches_input"] is True
     assert stepwise["checks"]["reply_body_present"] is True
     assert stepwise["checks"]["reply_thread_matches_send"] is True
@@ -877,6 +917,10 @@ def test_mailbox_roundtrip_runner_honors_agent_def_dir_env_override(tmp_path: Pa
     shutil.copytree(
         _source_repo_root() / "tests" / "fixtures" / "agents",
         custom_agent_def_dir,
+    )
+    shutil.copytree(
+        _source_repo_root() / "tests" / "fixtures" / "dummy-projects",
+        repo_root / "tests" / "fixtures" / "dummy-projects",
     )
 
     fake_bin_dir = tmp_path / "fake-bin"

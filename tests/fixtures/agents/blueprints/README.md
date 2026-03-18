@@ -10,3 +10,5 @@ Blueprints make named agent presets easy to share without embedding credentials.
 The selected brain recipe still determines the tool, config profile, and credential profile. This lets multiple blueprints intentionally point at the same credential profile, or at different ones, without storing secrets in the blueprint itself.
 
 The realm-controller CLI can source blueprints directly with `build-brain --blueprint ...` and `start-session --blueprint ...`, so blueprints are the native way to launch named agents while keeping credential choice inside the recipe layer.
+
+For narrow runtime/mailbox coverage, prefer the tracked `mailbox-demo-claude.yaml` and `mailbox-demo-codex.yaml` blueprints together with a copied dummy project. Keep the `gpu-kernel-coder-*` blueprints for repository-scale engineering flows.

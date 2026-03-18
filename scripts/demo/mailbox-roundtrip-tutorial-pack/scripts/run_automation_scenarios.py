@@ -138,6 +138,7 @@ def _run_wrapper(
     demo_output_dir: Path,
     jobs_dir: Path | None = None,
     snapshot: bool = False,
+    extra_args: list[str] | None = None,
     env_updates: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run one `run_demo.sh` command and persist stdout/stderr logs."""
@@ -152,6 +153,8 @@ def _run_wrapper(
         argv.extend(["--jobs-dir", str(jobs_dir)])
     if snapshot:
         argv.append("--snapshot-report")
+    if extra_args is not None:
+        argv.extend(extra_args)
 
     env = dict(os.environ)
     if env_updates is not None:
@@ -212,11 +215,11 @@ def _scenario_auto_implicit_jobs_dir(
 
     _assert(
         sender_start.get("job_dir") == str(expected_sender_job),
-        "sender default job_dir should stay under the project worktree",
+        "sender default job_dir should stay under the copied project repo",
     )
     _assert(
         receiver_start.get("job_dir") == str(expected_receiver_job),
-        "receiver default job_dir should stay under the project worktree",
+        "receiver default job_dir should stay under the copied project repo",
     )
     mailbox_inspection = _inspect_mailbox_roundtrip(pack_dir=pack_dir, demo_dir=demo_dir)
     _assert(
@@ -303,7 +306,36 @@ def _scenario_stepwise_start_roundtrip_verify_stop(
     """Validate the stepwise command surface."""
 
     demo_dir = scenario_dir / "demo"
-    for command_name in ("start", "roundtrip", "verify", "stop"):
+    start_command = _run_wrapper(
+        repo_root=repo_root,
+        pack_dir=pack_dir,
+        scenario_dir=scenario_dir,
+        commands=commands,
+        command="start",
+        demo_output_dir=demo_dir,
+    )
+    _assert(start_command["exit_code"] == 0, "start should succeed")
+
+    inspect_payloads: dict[str, dict[str, Any]] = {}
+    for agent_name, extra_args in (
+        ("sender", ["--agent", "sender", "--json"]),
+        ("receiver", ["--agent", "receiver", "--json", "--with-output-text", "64"]),
+    ):
+        command = _run_wrapper(
+            repo_root=repo_root,
+            pack_dir=pack_dir,
+            scenario_dir=scenario_dir,
+            commands=commands,
+            command="inspect",
+            demo_output_dir=demo_dir,
+            extra_args=extra_args,
+        )
+        _assert(command["exit_code"] == 0, f"inspect {agent_name} should succeed")
+        inspect_payloads[agent_name] = json.loads(
+            Path(command["stdout_path"]).read_text(encoding="utf-8")
+        )
+
+    for command_name in ("roundtrip", "verify", "stop"):
         command = _run_wrapper(
             repo_root=repo_root,
             pack_dir=pack_dir,
@@ -330,6 +362,10 @@ def _scenario_stepwise_start_roundtrip_verify_stop(
         "checks": {
             "verify_result_path": str(layout.verify_result_path.resolve()),
             "stop_result_path": str(layout.stop_result_path.resolve()),
+            "sender_inspect_tool_state": inspect_payloads["sender"]["tool_state"],
+            "receiver_inspect_has_tail_request": (
+                inspect_payloads["receiver"].get("output_text_tail_chars_requested") == 64
+            ),
             **_mailbox_checks_for_result(mailbox_inspection),
         },
     }
@@ -341,7 +377,7 @@ def _scenario_rerun_valid_project_reuse(
     scenario_dir: Path,
     commands: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Validate rerun behavior against an existing compatible project worktree."""
+    """Validate rerun behavior against an existing managed dummy-project workdir."""
 
     demo_dir = scenario_dir / "demo"
     first_run = _run_wrapper(
@@ -366,12 +402,15 @@ def _scenario_rerun_valid_project_reuse(
         demo_output_dir=demo_dir,
     )
     _assert(second_run["exit_code"] == 0, "second auto rerun scenario should succeed")
-    _assert(reuse_marker.is_file(), "valid project worktree should be reused across reruns")
+    _assert(
+        not reuse_marker.exists(),
+        "managed dummy-project reprovision should reset ad hoc files across reruns",
+    )
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
             "reuse_marker_path": str(reuse_marker.resolve()),
-            "reuse_marker_preserved": True,
+            "reuse_marker_preserved": False,
         },
     }
 
@@ -382,7 +421,7 @@ def _scenario_incompatible_project_dir(
     scenario_dir: Path,
     commands: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Validate failure when `project/` already exists incompatibly."""
+    """Validate failure when `project/` already exists before a managed rerun."""
 
     demo_dir = scenario_dir / "demo"
     incompatible_project = demo_dir / "project"
@@ -400,8 +439,8 @@ def _scenario_incompatible_project_dir(
     _assert(command["exit_code"] == 1, "incompatible project dir should fail clearly")
     stderr_text = Path(command["stderr_path"]).read_text(encoding="utf-8")
     _assert(
-        "not a git worktree of the repository" in stderr_text,
-        "failure should explain worktree mismatch",
+        "already exists before a stopped demo state was found" in stderr_text,
+        "failure should explain unmanaged project-dir reuse",
     )
     _assert(
         not (
@@ -412,7 +451,7 @@ def _scenario_incompatible_project_dir(
     return {
         "demo_output_dir": str(demo_dir.resolve()),
         "checks": {
-            "error_contains_worktree_mismatch": True,
+            "error_contains_unmanaged_project_reuse": True,
             "sender_start_created": False,
         },
     }

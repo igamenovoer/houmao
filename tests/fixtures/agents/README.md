@@ -5,6 +5,8 @@ This directory follows a brain-first + role-first composition model.
 ## Canonical Layout
 
 ```text
+tests/fixtures/
+  dummy-projects/                    # Small tracked source-only workdir fixtures
 agents/
   brains/                           # Reusable brain components
     tool-adapters/                  # Per-tool home layout and launch rules
@@ -19,6 +21,29 @@ agents/
 ```
 
 ## How To Use Each Part
+
+## Fixture Selection
+
+Choose `tests/fixtures/dummy-projects/` plus a lightweight role such as `mailbox-demo` when:
+
+- the scenario is a narrow mailbox/runtime-contract turn
+- the launched workdir should stay small and deterministic
+- you want the demo or test to copy a tracked source tree into its own isolated output directory
+
+Choose a repo worktree plus a heavyweight role such as `gpu-kernel-coder` when:
+
+- the workflow intentionally exercises broad repository discovery
+- the agent should inspect real repository context before acting
+- the scenario is about repo-scale engineering behavior rather than one bounded mailbox action
+
+Quick decision tree:
+
+1. Does the agent need the real repository checkout as its workdir?
+   If `yes`, use a repo worktree.
+   If `no`, use a copied dummy project.
+2. Is the task a narrow mailbox/demo/runtime-contract action?
+   If `yes`, prefer `mailbox-demo`.
+   If `no`, select the role family that matches the broader workflow.
 
 ### `agents/brains/tool-adapters/`
 

@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
@@ -168,8 +168,9 @@ def test_tracked_demo_parameters_parse_and_render_demo_output_mailbox_root() -> 
     parameters = HELPERS.load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
 
     assert parameters.backend == "cao_rest"
-    assert parameters.sender.blueprint == "blueprints/gpu-kernel-coder-claude.yaml"
-    assert parameters.receiver.blueprint == "blueprints/gpu-kernel-coder-codex.yaml"
+    assert parameters.project_fixture == "tests/fixtures/dummy-projects/mailbox-demo-python"
+    assert parameters.sender.blueprint == "blueprints/mailbox-demo-claude.yaml"
+    assert parameters.receiver.blueprint == "blueprints/mailbox-demo-codex.yaml"
     assert parameters.message.initial_body_file == "inputs/initial_message.md"
     assert parameters.message.reply_instructions_file == "inputs/reply_instructions.md"
     assert HELPERS.render_mailbox_root(
@@ -511,25 +512,37 @@ def test_start_demo_cao_attempts_recovery_for_unverified_healthy_reuse(tmp_path:
     assert payload["ownership_verified"] is True
 
 
-def test_ensure_project_worktree_provisions_missing_project_directory(tmp_path: Path) -> None:
-    """Missing project directories should be provisioned through git worktree add."""
+def test_ensure_project_workdir_from_fixture_copies_source_and_initializes_git_repo(
+    tmp_path: Path,
+) -> None:
+    """Missing project directories should be copied from the fixture and git-initialized."""
 
     repo_root = tmp_path / "repo"
+    project_fixture = tmp_path / "fixtures" / "mailbox-demo-python"
     project_workdir = tmp_path / "demo-output" / "project"
-    calls: list[tuple[list[str], Path]] = []
+    project_fixture.mkdir(parents=True)
+    (project_fixture / "README.md").write_text("fixture\n", encoding="utf-8")
+    calls: list[tuple[list[str], Path, dict[str, str] | None]] = []
 
-    def fake_run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        calls.append((args, cwd))
-        if args == ["git", "worktree", "add", "--detach", str(project_workdir.resolve()), "HEAD"]:
-            project_workdir.mkdir(parents=True, exist_ok=True)
+    def fake_run_git(
+        args: list[str],
+        cwd: Path,
+        env: dict[str, str] | None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, cwd, env))
+        if cwd == project_workdir and args == ["git", "init", "--initial-branch", "main"]:
+            (project_workdir / ".git").mkdir(parents=True, exist_ok=True)
             return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
-        if cwd == repo_root and args == ["git", "rev-parse", "--git-common-dir"]:
-            return subprocess.CompletedProcess(
-                args=args,
-                returncode=0,
-                stdout=str((repo_root / ".git").resolve()) + "\n",
-                stderr="",
-            )
+        if cwd == project_workdir and args == ["git", "add", "--all"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if cwd == project_workdir and args[:5] == [
+            "git",
+            "commit",
+            "--allow-empty",
+            "--no-gpg-sign",
+            "-m",
+        ]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
         if cwd == project_workdir and args == ["git", "rev-parse", "--is-inside-work-tree"]:
             return subprocess.CompletedProcess(args=args, returncode=0, stdout="true\n", stderr="")
         if cwd == project_workdir and args == ["git", "rev-parse", "--show-toplevel"]:
@@ -543,38 +556,46 @@ def test_ensure_project_worktree_provisions_missing_project_directory(tmp_path: 
             return subprocess.CompletedProcess(
                 args=args,
                 returncode=0,
-                stdout=str((repo_root / ".git").resolve()) + "\n",
+                stdout=str((project_workdir / ".git").resolve()) + "\n",
                 stderr="",
             )
         return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="unexpected")
 
-    resolved = HELPERS.ensure_project_worktree(
+    resolved = HELPERS.ensure_project_workdir_from_fixture(
         repo_root=repo_root,
+        project_fixture=project_fixture,
         project_workdir=project_workdir,
+        allow_reprovision=False,
         run_git=fake_run_git,
     )
 
     assert resolved == project_workdir.resolve()
-    assert any(call[0][:4] == ["git", "worktree", "add", "--detach"] for call in calls)
+    assert (project_workdir / "README.md").read_text(encoding="utf-8") == "fixture\n"
+    assert (project_workdir / ".houmao-demo-project.json").is_file()
+    assert any(call[0] == ["git", "init", "--initial-branch", "main"] for call in calls)
+    commit_call = next(call for call in calls if call[0][:2] == ["git", "commit"])
+    assert commit_call[2] is not None
+    assert commit_call[2]["GIT_AUTHOR_DATE"] == "2026-03-16T12:00:00Z"
 
 
-def test_ensure_project_worktree_rejects_incompatible_existing_directory(tmp_path: Path) -> None:
-    """Existing non-worktree project directories should fail clearly."""
+def test_ensure_project_workdir_rejects_existing_directory_without_stopped_state(
+    tmp_path: Path,
+) -> None:
+    """Existing project directories should fail clearly before a managed rerun is allowed."""
 
     repo_root = tmp_path / "repo"
+    project_fixture = tmp_path / "fixtures" / "mailbox-demo-python"
     project_workdir = tmp_path / "demo-output" / "project"
+    project_fixture.mkdir(parents=True)
     project_workdir.mkdir(parents=True)
+    (project_workdir / "README.txt").write_text("not managed\n", encoding="utf-8")
 
-    def fake_run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(
-            args=args, returncode=1, stdout="", stderr="not a worktree"
-        )
-
-    with pytest.raises(ValueError, match="not a git worktree"):
-        HELPERS.ensure_project_worktree(
+    with pytest.raises(ValueError, match="already exists before a stopped demo state was found"):
+        HELPERS.ensure_project_workdir_from_fixture(
             repo_root=repo_root,
+            project_fixture=project_fixture,
             project_workdir=project_workdir,
-            run_git=fake_run_git,
+            allow_reprovision=False,
         )
 
 
@@ -816,6 +837,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["runtime_root"] == "<RUNTIME_ROOT>"
     assert sanitized["chat_log_path"] == "<CHAT_LOG_PATH>"
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
+    assert sanitized["parameters"]["project_fixture"] == "tests/fixtures/dummy-projects/mailbox-demo-python"
     assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
     assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
     assert (
@@ -845,6 +867,117 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         not in sanitized_text
     )
     assert "Reply authored from the tracked tutorial instructions" not in sanitized_text
+
+
+def test_inspect_demo_agent_tolerates_unavailable_live_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inspect should still return persisted metadata when live CAO lookups fail."""
+
+    demo_output_dir = tmp_path / "demo-output"
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_output_dir)
+    session_manifest = layout.runtime_root / "sessions" / "sender.json"
+    layout.control_dir.mkdir(parents=True, exist_ok=True)
+    session_manifest.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        session_manifest,
+        {
+            "cao": {
+                "session_name": "AGENTSYS-mailbox-sender-270b87",
+                "terminal_id": "term-001",
+                "parsing_mode": "shadow_only",
+            }
+        },
+    )
+    _write_json(
+        layout.state_path,
+        {
+            "schema_version": 3,
+            "project_workdir": str(layout.project_workdir),
+            "runtime_root": str(layout.runtime_root),
+            "cao": {
+                "base_url": "http://localhost:9889",
+                "home_dir": str(
+                    demo_output_dir
+                    / "cao"
+                    / "runtime"
+                    / "cao_servers"
+                    / "localhost-9889"
+                    / "home"
+                ),
+            },
+            "sender": {
+                "requested_identity": "AGENTSYS-mailbox-sender",
+                "start": {
+                    "agent_identity": "AGENTSYS-mailbox-sender",
+                    "tool": "claude",
+                    "session_manifest": str(session_manifest),
+                },
+                "inspect": {
+                    "agent_identity": "AGENTSYS-mailbox-sender",
+                    "tool": "claude",
+                    "session_name": "AGENTSYS-mailbox-sender-270b87",
+                    "tmux_target": "AGENTSYS-mailbox-sender-270b87",
+                    "terminal_id": "term-001",
+                    "terminal_log_path": str(
+                        demo_output_dir
+                        / "cao"
+                        / "runtime"
+                        / "cao_servers"
+                        / "localhost-9889"
+                        / "home"
+                        / ".aws"
+                        / "cli-agent-orchestrator"
+                        / "logs"
+                        / "terminal"
+                        / "term-001.log"
+                    ),
+                    "session_manifest": str(session_manifest),
+                    "updated_at": "2026-03-18T00:00:00+00:00",
+                },
+            },
+        },
+    )
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float) -> None:
+            assert base_url == "http://localhost:9889"
+            assert timeout_seconds == HELPERS.DEFAULT_LIVE_CAO_TIMEOUT_SECONDS
+
+    monkeypatch.setattr(HELPERS, "CaoRestClient", FakeClient)
+    monkeypatch.setattr(
+        HELPERS,
+        "_best_effort_tool_state",
+        lambda *, terminal_id, client: "unknown",
+    )
+    monkeypatch.setattr(
+        HELPERS,
+        "_best_effort_output_text_tail",
+        lambda *, tool, terminal_id, output_text_tail_chars, client: SimpleNamespace(
+            output_text_tail=None,
+            note=(
+                "clean projected Claude dialog tail unavailable: "
+                "live CAO output could not be fetched"
+            ),
+        ),
+    )
+
+    payload = HELPERS.inspect_demo_agent(
+        demo_output_dir=demo_output_dir,
+        agent="sender",
+        output_text_tail_chars=80,
+    )
+
+    assert payload["tool_state"] == "unknown"
+    assert payload["tmux_attach_command"] == "tmux attach -t AGENTSYS-mailbox-sender-270b87"
+    assert payload["terminal_log_tail_command"].endswith("term-001.log")
+    assert payload["output_text_tail_chars_requested"] == 80
+    assert "unavailable" in payload["output_text_tail_note"]
+
+    human = HELPERS._render_human_inspect_output(payload=payload)
+    assert "tool_state: unknown" in human
+    assert "tmux_attach: tmux attach -t AGENTSYS-mailbox-sender-270b87" in human
 
 
 def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
