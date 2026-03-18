@@ -112,6 +112,7 @@ from .launch_plan import (
     resolve_cao_parsing_mode,
 )
 from .loaders import load_brain_manifest, load_role_package
+from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     MAILBOX_TRANSPORT_FILESYSTEM,
     bootstrap_resolved_mailbox,
@@ -234,6 +235,18 @@ class RuntimeSessionController:
 
         self._reset_operation_warnings()
         events = self.backend_session.send_prompt(prompt)
+        self.persist_manifest()
+        return events
+
+    def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
+        """Send one runtime-owned mailbox prompt and persist updated session state."""
+
+        self._reset_operation_warnings()
+        backend_send_mail_prompt = getattr(self.backend_session, "send_mail_prompt", None)
+        if callable(backend_send_mail_prompt):
+            events = backend_send_mail_prompt(prompt_request)
+        else:
+            events = self.backend_session.send_prompt(prompt_request.prompt)
         self.persist_manifest()
         return events
 

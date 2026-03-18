@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.errors import (
     MailboxResultParseError,
 )
 from houmao.agents.realm_controller.mail_commands import (
+    MAIL_RESULT_SURFACES_PAYLOAD_KEY,
     parse_mail_result,
     prepare_mail_prompt,
 )
@@ -204,6 +205,43 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
 
     assert payload["ok"] is True
     assert payload["unread_count"] == 7
+
+
+def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    MAIL_RESULT_SURFACES_PAYLOAD_KEY: [
+                        {
+                            "surface_id": "shadow_post_submit.raw_text",
+                            "text": (
+                                "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                                '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":9}\n'
+                                "AGENTSYS_MAIL_RESULT_END"
+                            ),
+                        }
+                    ],
+                    "dialog_projection": {
+                        "normalized_text": "prompt resumed without any sentinels",
+                    },
+                },
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 9
 
 
 def test_mail_check_cli_prints_structured_result(

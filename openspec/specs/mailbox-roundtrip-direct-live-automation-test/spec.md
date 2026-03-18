@@ -25,32 +25,22 @@ The automatic test SHALL validate the resulting mailbox artifacts by opening and
 - **AND THEN** a maintainer can locate and read the completed roundtrip mail without re-running the demo
 
 ### Requirement: Automatic mailbox roundtrip testing SHALL use the direct live-agent mail path
-Automatic testing SHALL validate the mailbox tutorial pack through the direct runtime-owned `start-session` and `mail` control path rather than through mailbox file injection or gateway transport commands.
+Automatic testing that claims to satisfy the direct live-agent mailbox contract SHALL start two actual local agents and perform mailbox send, check, and reply operations through the direct live-agent mail path, not through fake mailbox injection, not through gateway transport commands, and not through fake CLI stand-ins.
 
-The automatic lane MAY replace external `claude`, `codex`, or `cao-server` executables with test-owned deterministic stand-ins, but it SHALL still drive the tutorial pack through the supported runtime/session surfaces and SHALL still require the direct mailbox result contract to succeed.
+The qualifying automatic path SHALL resolve the actual local `claude` and `codex` executables together with real credential profiles selected by the tutorial-pack blueprints or explicit autotest-harness overrides.
 
-The automatic lane SHALL NOT use `attach-gateway`, `gateway-send-prompt`, or fake mailbox delivery helpers to satisfy the mailbox roundtrip requirement.
+Fake executables, deterministic stand-ins, or synthetic credential stores MAY remain useful for regression coverage, but they SHALL NOT satisfy this requirement even when they reuse the same underlying tutorial-pack flow.
 
-The automatic lane SHALL fail if the direct mail path returns a sentinel parse error, prompt execution failure, or any other direct-path mailbox failure.
+#### Scenario: Real-agent harness uses actual local tools and credential profiles
+- **WHEN** the tutorial pack executes its canonical `autotest/run_autotest.sh` case
+- **THEN** it starts the sender and receiver through the normal `start-session` path using the actual local `claude` and `codex` tools
+- **AND THEN** it resolves real credential material for both participants before the live roundtrip begins
+- **AND THEN** it performs mailbox operations through the direct runtime mail path without gateway or fake-mail shortcuts
 
-Success of this deterministic automatic lane SHALL NOT be presented as proof that actual local Claude/Codex CLIs were exercised; that external-agent validation belongs to the separate opt-in real-agent smoke capability.
-
-#### Scenario: Deterministic direct-path harness is required for a passing automatic test
-- **WHEN** the automatic test executes the tutorial pack roundtrip
-- **THEN** it starts two sessions through the supported `start-session` path
-- **AND THEN** it performs mailbox operations through `run_demo.sh roundtrip`, `realm_controller mail ...`, or an equivalent direct runtime mail path
-- **AND THEN** it MAY use test-owned fake CLI or CAO stand-ins to keep the run deterministic
-- **AND THEN** it SHALL NOT use `attach-gateway`, `gateway-send-prompt`, or fake mailbox delivery helpers to satisfy the mailbox roundtrip requirement
-
-#### Scenario: Deterministic harness fails on direct-path mailbox errors
-- **WHEN** the deterministic automatic lane encounters a missing sentinel block, malformed mailbox result payload, prompt execution failure, or other direct-path mailbox failure
-- **THEN** the automatic test fails on that direct-path error
-- **AND THEN** it does not synthesize a successful mailbox roundtrip from mailbox-side effects alone
-
-#### Scenario: Automatic direct-path success is not the same as actual local CLI coverage
-- **WHEN** the deterministic automatic lane passes by using test-owned stand-ins for `claude`, `codex`, or `cao-server`
-- **THEN** that result satisfies the automatic direct-path regression requirement
-- **AND THEN** the repository still relies on the separate opt-in real-agent smoke lane for actual local Claude/Codex CLI validation
+#### Scenario: Stand-in live coverage is not sufficient for the direct-live contract
+- **WHEN** a deterministic harness reports a successful mailbox roundtrip while using fake `claude`, fake `codex`, fake credential material, or any other stand-in agent surface
+- **THEN** that result does not satisfy the direct-live automation requirement
+- **AND THEN** the real-agent harness requirement remains failing until the actual local tools produce the inspectable mailbox artifacts
 
 ### Requirement: Automatic mailbox roundtrip testing SHALL own isolated runtime state
 Automatic testing SHALL use fresh and test-owned runtime state so that it can safely stop and restart its CAO server and avoid collisions with unrelated local agents.

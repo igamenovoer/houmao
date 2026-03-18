@@ -12,15 +12,30 @@ The tutorial pack SHALL include, at minimum:
 
 - `README.md`
 - `run_demo.sh`
+- `autotest/run_autotest.sh`
 - `inputs/demo_parameters.json`
 - tracked input files for the initial message body and the reply body
 - `scripts/sanitize_report.py`
 - `scripts/verify_report.py`
 - `expected_report/report.json`
+- `autotest/case-real-agent-roundtrip.md`
+- `autotest/case-real-agent-roundtrip.sh`
+- `autotest/case-real-agent-preflight.md`
+- `autotest/case-real-agent-preflight.sh`
+- `autotest/case-real-agent-mailbox-persistence.md`
+- `autotest/case-real-agent-mailbox-persistence.sh`
+- `autotest/helpers/`
 
 #### Scenario: Tutorial-pack layout exists
 - **WHEN** a developer inspects the mailbox tutorial-pack directory under `scripts/demo/`
 - **THEN** all required files and subdirectories are present
+
+#### Scenario: Tutorial-pack layout includes pack-local autotest assets
+- **WHEN** a developer inspects the mailbox tutorial-pack directory under `scripts/demo/`
+- **THEN** the required runner, inputs, verification helpers, and expected-report files are present
+- **AND THEN** `run_demo.sh` remains the tutorial/demo wrapper while `autotest/run_autotest.sh` is the dedicated HTT harness
+- **AND THEN** the `autotest/` directory contains one `case-*.sh` script and one same-basename companion `case-*.md` document for each supported real-agent autotest case
+- **AND THEN** shared autotest shell libraries and helper functions live under `autotest/helpers/`
 
 ### Requirement: Tutorial-pack runner SHALL follow self-contained execution mechanics
 The tutorial-pack `run_demo.sh` SHALL:
@@ -122,7 +137,11 @@ The tutorial README SHALL document:
 - inline critical input and output content,
 - an explicit step-by-step walkthrough of the underlying runtime commands used for start, send, check, reply, inspect, check, and stop,
 - verification instructions against `expected_report/report.json`,
-- snapshot refresh workflow, and
+- snapshot refresh workflow,
+- the canonical real-agent HTT/autotest path and how it differs from deterministic stand-in regression coverage,
+- the separate responsibilities of `run_demo.sh` versus `autotest/run_autotest.sh`,
+- the implemented `autotest/` directory plus the rule that each supported case ships as a same-basename `.sh` executable and `.md` companion document,
+- the existence of `autotest/helpers/` for shared shell helpers used by multiple cases, and
 - an appendix with key parameters plus input/output file inventory.
 
 The README SHALL make the CAO-backed prerequisite, the default mailbox-demo Claude/Codex blueprint pair, and the default dummy-project workdir explicit.
@@ -131,12 +150,20 @@ The README SHALL explain that the tutorial's default fixture shape is intentiona
 
 The README SHALL present `run_demo.sh` as a convenience wrapper rather than as the only documented way to understand the workflow.
 
+The README SHALL link to `autotest/run_autotest.sh`, the pack-local `autotest/case-*.md` files, and explain how each matching `autotest/case-*.sh` script executes that case from the tutorial-pack directory itself.
+
 #### Scenario: Reader can follow the roundtrip and inspect slow turns from the README
 - **WHEN** a new developer follows the README in order
 - **THEN** they can run the mailbox roundtrip through the documented runtime commands without hidden setup steps
 - **AND THEN** they can identify the dummy-project/lightweight-blueprint fixture shape used by the tutorial
 - **AND THEN** they can use the documented inspect/watch workflow to check a slow sender or receiver session
 - **AND THEN** they can compare the final sanitized output against `expected_report/report.json`
+
+#### Scenario: Reader can discover the canonical real-agent autotest path from the tutorial pack
+- **WHEN** a maintainer reads the tutorial-pack README
+- **THEN** the README identifies the real-agent HTT/autotest path as the canonical live roundtrip flow
+- **AND THEN** it distinguishes `autotest/run_autotest.sh` from `run_demo.sh`
+- **AND THEN** it links to the pack-local `autotest/case-*.md` companion docs and matching `autotest/case-*.sh` executables for case-specific steps and evidence
 
 ### Requirement: Tutorial-pack runner SHALL manage loopback CAO lifecycle with aligned launcher state by default
 When the mailbox roundtrip tutorial pack targets a supported loopback CAO base URL, the runner SHALL manage CAO lifecycle through a demo-local launcher config rather than assuming an ambient CAO server is already configured correctly.

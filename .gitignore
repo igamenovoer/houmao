@@ -69,3 +69,4 @@ site/
 .agent-automation/hacktest/
 
 .agent-automation/impl-branches/
+.git/

@@ -21,6 +21,7 @@ from houmao.agents.mailbox_runtime_support import (
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
 
+from .backends.shadow_parser_core import DialogProjection
 from .errors import BackendExecutionError, MailboxCommandError, MailboxResultParseError
 from .models import LaunchPlan, SessionEvent
 
@@ -29,6 +30,7 @@ MailOperation = Literal["check", "send", "reply"]
 MAIL_REQUEST_VERSION = 1
 MAIL_RESULT_BEGIN_SENTINEL = "AGENTSYS_MAIL_RESULT_BEGIN"
 MAIL_RESULT_END_SENTINEL = "AGENTSYS_MAIL_RESULT_END"
+MAIL_RESULT_SURFACES_PAYLOAD_KEY = "mail_result_surfaces"
 
 
 @dataclass(frozen=True)
@@ -174,16 +176,77 @@ def parse_mail_result(
     )
 
 
+def build_shadow_mail_result_surface_payloads(
+    *,
+    raw_output_text: str,
+    current_projection: DialogProjection,
+    baseline_output_text: str,
+    baseline_projection: DialogProjection,
+) -> tuple[dict[str, str], ...]:
+    """Build post-submit shadow text surfaces for mailbox sentinel extraction."""
+
+    surfaces: list[dict[str, str]] = []
+    seen_texts: set[str] = set()
+    candidates = (
+        (
+            "shadow_post_submit.normalized_text",
+            _trim_post_submit_text(
+                current_projection.normalized_text,
+                baseline_projection.normalized_text,
+            ),
+        ),
+        (
+            "shadow_post_submit.raw_text",
+            _trim_post_submit_text(raw_output_text, baseline_output_text),
+        ),
+        (
+            "shadow_post_submit.dialog_text",
+            _trim_post_submit_text(
+                current_projection.dialog_text,
+                baseline_projection.dialog_text,
+            ),
+        ),
+    )
+    for surface_id, text in candidates:
+        normalized = text.strip()
+        if not normalized or normalized in seen_texts:
+            continue
+        seen_texts.add(normalized)
+        surfaces.append(
+            {
+                "surface_id": surface_id,
+                "text": text,
+            }
+        )
+    return tuple(surfaces)
+
+
+def shadow_mail_result_contract_reached(surface_payloads: tuple[dict[str, str], ...]) -> bool:
+    """Return whether post-submit shadow surfaces contain one complete sentinel pair."""
+
+    for surface in surface_payloads:
+        text = surface.get("text")
+        if isinstance(text, str) and _contains_complete_mail_result_payload(text):
+            return True
+    return False
+
+
 def run_mail_prompt(
     *,
-    send_prompt: Callable[[str], list[SessionEvent]],
+    send_prompt: Callable[[str], list[SessionEvent]] | None,
+    send_mail_prompt: Callable[[MailPromptRequest], list[SessionEvent]] | None,
     prompt_request: MailPromptRequest,
     mailbox: MailboxResolvedConfig,
 ) -> dict[str, Any]:
     """Run a mailbox prompt through the existing prompt-turn control path."""
 
     try:
-        events = send_prompt(prompt_request.prompt)
+        if send_mail_prompt is not None:
+            events = send_mail_prompt(prompt_request)
+        elif send_prompt is not None:
+            events = send_prompt(prompt_request.prompt)
+        else:
+            raise RuntimeError("Mailbox prompt execution requires a prompt sender.")
     except BackendExecutionError as exc:
         raise _mailbox_command_error_from_backend(exc) from exc
 
@@ -224,6 +287,32 @@ def _event_payload_text_candidates(event: SessionEvent) -> tuple[str, ...]:
     return tuple(candidates)
 
 
+def _event_mail_result_surface_candidates(event: SessionEvent) -> tuple[_MailResultTextSurface, ...]:
+    """Return explicit completion-contract surfaces embedded in one session event."""
+
+    payload = event.payload
+    if not isinstance(payload, dict):
+        return ()
+
+    raw_surfaces = payload.get(MAIL_RESULT_SURFACES_PAYLOAD_KEY)
+    if not isinstance(raw_surfaces, list):
+        return ()
+
+    surfaces: list[_MailResultTextSurface] = []
+    for index, raw_surface in enumerate(raw_surfaces, start=1):
+        if not isinstance(raw_surface, dict):
+            continue
+        text = raw_surface.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        surface_id = raw_surface.get("surface_id")
+        if not isinstance(surface_id, str) or not surface_id.strip():
+            surface_id = f"event_mail_result_surfaces[{index}]"
+        surfaces.append(_MailResultTextSurface(surface_id=surface_id, text=text))
+
+    return tuple(surfaces)
+
+
 def _mail_result_text_surfaces(events: list[SessionEvent]) -> tuple[_MailResultTextSurface, ...]:
     """Return ordered candidate surfaces for sentinel extraction.
 
@@ -237,6 +326,7 @@ def _mail_result_text_surfaces(events: list[SessionEvent]) -> tuple[_MailResultT
     surfaces: list[_MailResultTextSurface] = []
 
     for index, event in enumerate(events):
+        surfaces.extend(_event_mail_result_surface_candidates(event))
         for payload_index, payload_text in enumerate(_event_payload_text_candidates(event), start=1):
             surfaces.append(
                 _MailResultTextSurface(
@@ -362,6 +452,24 @@ def _parse_mail_result_text(
             "Mailbox result parsing failed: result principal_id did not match the session mailbox binding."
         )
     return payload
+
+
+def _trim_post_submit_text(current_text: str, baseline_text: str) -> str:
+    """Return post-submit text when the current surface preserves the baseline prefix."""
+
+    if baseline_text and current_text.startswith(baseline_text):
+        return current_text[len(baseline_text) :]
+    return current_text
+
+
+def _contains_complete_mail_result_payload(text: str) -> bool:
+    """Return whether the text already contains one complete sentinel-delimited block."""
+
+    begin_index = text.find(MAIL_RESULT_BEGIN_SENTINEL)
+    if begin_index < 0:
+        return False
+    end_index = text.find(MAIL_RESULT_END_SENTINEL, begin_index + len(MAIL_RESULT_BEGIN_SENTINEL))
+    return end_index > begin_index
 
 
 def _mailbox_command_error_from_backend(exc: BackendExecutionError) -> MailboxCommandError:

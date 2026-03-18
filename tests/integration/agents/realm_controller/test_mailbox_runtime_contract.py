@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -27,6 +29,12 @@ from houmao.agents.mailbox_runtime_models import (
 )
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.cao.models import (
+    CaoHealthResponse,
+    CaoSuccessResponse,
+    CaoTerminal,
+    CaoTerminalOutputResponse,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -105,6 +113,11 @@ def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
         metadata={},
         mailbox=mailbox,
     )
+
+
+def _mailbox_cao_launch_plan(tmp_path: Path) -> LaunchPlan:
+    launch_plan = _mailbox_launch_plan(tmp_path)
+    return replace(launch_plan, backend="cao_rest")
 
 
 def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
@@ -191,6 +204,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             launch_plan=resumed_launch_plan,
             role_name="r",
             brain_manifest_path=build_result.manifest_path,
+            agent_name="AGENTSYS-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
@@ -317,3 +331,168 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
     output = capsys.readouterr().out
     assert '"operation": "send"' in output
     assert '"operation": "reply"' in output
+
+
+def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    launch_plan = _mailbox_cao_launch_plan(tmp_path)
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self.output_calls = 0
+            self.submitted_request_id: str | None = None
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="codex",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError("shadow_only mode must not call terminal status API")
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_request_id = message.split('"request_id": "', 1)[1].split('"', 1)[0]
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self,
+            terminal_id: str,
+            mode: str = "full",
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            payload = json.dumps(
+                {
+                    "ok": True,
+                    "request_id": self.submitted_request_id,
+                    "operation": "send",
+                    "transport": "filesystem",
+                    "principal_id": "AGENTSYS-research",
+                    "message_id": "msg-20260318T130000Z-integration",
+                }
+            )
+            output_sequence = [
+                "Codex CLI v0.1.0\n> \n",
+                "Codex CLI v0.1.0\n> mail send request\nassistant> drafting message\n> \n",
+                (
+                    "Codex CLI v0.1.0\n"
+                    "> mail send request\n"
+                    "assistant> drafting message\n"
+                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    f"{payload}\n"
+                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "> \n"
+                ),
+            ]
+            index = min(self.output_calls, len(output_sequence) - 1)
+            self.output_calls += 1
+            return CaoTerminalOutputResponse(output=output_sequence[index], mode="full")
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=launch_plan,
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        poll_interval_seconds=0.0,
+        session_manifest_path=tmp_path / "session-codex-shadow-mail.json",
+    )
+
+    class _FakeController:
+        def __init__(self) -> None:
+            self.launch_plan = launch_plan
+
+        def send_prompt(self, prompt: str) -> list[SessionEvent]:
+            return session.send_prompt(prompt)
+
+        def send_mail_prompt(self, prompt_request) -> list[SessionEvent]:  # type: ignore[no-untyped-def]
+            return session.send_mail_prompt(prompt_request)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resolve_agent_identity",
+        lambda **kwargs: SimpleNamespace(
+            session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
+            warnings=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.resume_runtime_session",
+        lambda **kwargs: _FakeController(),
+    )
+
+    exit_code = cli.main(
+        [
+            "mail",
+            "send",
+            "--agent-identity",
+            "AGENTSYS-research",
+            "--to",
+            "AGENTSYS-orchestrator@agents.localhost",
+            "--subject",
+            "Investigate parser drift",
+            "--body-content",
+            "Hello from integration coverage",
+        ]
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert '"message_id": "msg-20260318T130000Z-integration"' in output
+    assert session._client.output_calls == 3  # noqa: SLF001
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001

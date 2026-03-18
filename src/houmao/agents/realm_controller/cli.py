@@ -746,6 +746,11 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     )
     result = run_mail_prompt(
         send_prompt=controller.send_prompt,
+        send_mail_prompt=(
+            controller.send_mail_prompt
+            if callable(getattr(controller, "send_mail_prompt", None))
+            else None
+        ),
         prompt_request=prompt_request,
         mailbox=mailbox,
     )

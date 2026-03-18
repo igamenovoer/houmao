@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Literal, Protocol, cast
+from typing import Callable, Final, Literal, Protocol, cast
 
 from houmao.cao.models import CaoTerminalOutputResponse, CaoTerminalStatus
 from houmao.cao.no_proxy import (
@@ -27,6 +27,12 @@ from ..agent_identity import (
 from ..errors import BackendExecutionError
 from ..launch_plan import configured_cao_shadow_policy, tool_supports_cao_shadow_parser
 from ..loaders import parse_env_file
+from ..mail_commands import (
+    MAIL_RESULT_SURFACES_PAYLOAD_KEY,
+    MailPromptRequest,
+    build_shadow_mail_result_surface_payloads,
+    shadow_mail_result_contract_reached,
+)
 from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEvent
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .codex_bootstrap import ensure_codex_home_bootstrap
@@ -119,6 +125,13 @@ class _EngineTurnResult:
     surface_assessment: dict[str, object] | None = None
     dialog_projection: dict[str, object] | None = None
     projection_slices: dict[str, str] | None = None
+    extra_payload: dict[str, object] | None = None
+
+
+_ShadowCompletionObserver = Callable[
+    [str, ParsedShadowSnapshot, str, DialogProjection],
+    dict[str, object] | None,
+]
 
 
 class _TurnEngine(Protocol):
@@ -127,6 +140,7 @@ class _TurnEngine(Protocol):
         prompt: str,
         *,
         turn_index: int,
+        completion_observer: _ShadowCompletionObserver | None = None,
     ) -> tuple[list[SessionEvent], _EngineTurnResult]:
         """Run one mode-specific turn."""
 
@@ -142,7 +156,9 @@ class CaoOnlyTurnEngine:
         prompt: str,
         *,
         turn_index: int,
+        completion_observer: _ShadowCompletionObserver | None = None,
     ) -> tuple[list[SessionEvent], _EngineTurnResult]:
+        del completion_observer
         events: list[SessionEvent] = []
 
         self._session._wait_for_cao_ready_status(during_turn=False)
@@ -190,6 +206,7 @@ class ShadowOnlyTurnEngine:
         prompt: str,
         *,
         turn_index: int,
+        completion_observer: _ShadowCompletionObserver | None = None,
     ) -> tuple[list[SessionEvent], _EngineTurnResult]:
         events: list[SessionEvent] = []
 
@@ -221,11 +238,15 @@ class ShadowOnlyTurnEngine:
             )
         )
 
-        output, snapshot, completion_anomalies = self._session._wait_for_shadow_completion(
-            parser=parser,
-            parser_family=parser_family,
-            baseline_pos=baseline_pos,
-            baseline_projection=baseline_snapshot.dialog_projection,
+        output, snapshot, completion_anomalies, completion_payload = (
+            self._session._wait_for_shadow_completion(
+                parser=parser,
+                parser_family=parser_family,
+                baseline_pos=baseline_pos,
+                baseline_output_text=baseline_output.output,
+                baseline_projection=baseline_snapshot.dialog_projection,
+                completion_observer=completion_observer,
+            )
         )
 
         merged_anomalies = self._session._merge_anomalies(
@@ -275,6 +296,7 @@ class ShadowOnlyTurnEngine:
                 "head": snapshot.dialog_projection.head,
                 "tail": snapshot.dialog_projection.tail,
             },
+            extra_payload=completion_payload,
         )
 
 
@@ -768,12 +790,35 @@ class CaoRestSession:
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Send one prompt turn via CAO direct input endpoints."""
 
+        return self._send_prompt_internal(prompt)
+
+    def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
+        """Send one runtime-owned mailbox prompt via CAO direct input endpoints."""
+
+        return self._send_prompt_internal(
+            prompt_request.prompt,
+            prompt_request=prompt_request,
+        )
+
+    def _send_prompt_internal(
+        self,
+        prompt: str,
+        *,
+        prompt_request: MailPromptRequest | None = None,
+    ) -> list[SessionEvent]:
+        """Send one prompt turn, optionally with mailbox-specific completion gating."""
+
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
 
         turn_index = self._turn_index + 1
         engine = self._select_turn_engine()
-        events, result = engine.execute_turn(prompt, turn_index=turn_index)
+        completion_observer = self._build_mail_shadow_completion_observer(prompt_request)
+        events, result = engine.execute_turn(
+            prompt,
+            turn_index=turn_index,
+            completion_observer=completion_observer,
+        )
         done_payload = self._post_process_turn_result(result)
         events.append(
             SessionEvent(
@@ -785,6 +830,33 @@ class CaoRestSession:
         )
         self._turn_index = turn_index
         return events
+
+    def _build_mail_shadow_completion_observer(
+        self,
+        prompt_request: MailPromptRequest | None,
+    ) -> _ShadowCompletionObserver | None:
+        """Return mailbox-only shadow completion gating when the request needs it."""
+
+        if prompt_request is None or self._parsing_mode != "shadow_only":
+            return None
+
+        def _observe(
+            raw_output_text: str,
+            snapshot: ParsedShadowSnapshot,
+            baseline_output_text: str,
+            baseline_projection: DialogProjection,
+        ) -> dict[str, object] | None:
+            surface_payloads = build_shadow_mail_result_surface_payloads(
+                raw_output_text=raw_output_text,
+                current_projection=snapshot.dialog_projection,
+                baseline_output_text=baseline_output_text,
+                baseline_projection=baseline_projection,
+            )
+            if not shadow_mail_result_contract_reached(surface_payloads):
+                return None
+            return {MAIL_RESULT_SURFACES_PAYLOAD_KEY: list(surface_payloads)}
+
+        return _observe
 
     def send_input_ex(
         self,
@@ -914,6 +986,8 @@ class CaoRestSession:
             payload["dialog_projection"] = result.dialog_projection
         if result.projection_slices is not None:
             payload["projection_slices"] = result.projection_slices
+        if result.extra_payload is not None:
+            payload.update(result.extra_payload)
         return payload
 
     def _serialize_shadow_parser_metadata(
@@ -1173,8 +1247,15 @@ class CaoRestSession:
         parser: ShadowParser,
         parser_family: str,
         baseline_pos: int,
+        baseline_output_text: str,
         baseline_projection: DialogProjection,
-    ) -> tuple[CaoTerminalOutputResponse, ParsedShadowSnapshot, tuple[ShadowParserAnomaly, ...]]:
+        completion_observer: _ShadowCompletionObserver | None = None,
+    ) -> tuple[
+        CaoTerminalOutputResponse,
+        ParsedShadowSnapshot,
+        tuple[ShadowParserAnomaly, ...],
+        dict[str, object] | None,
+    ]:
         deadline = time.monotonic() + self._timeout_seconds
         last_snapshot: ParsedShadowSnapshot | None = None
         last_output: CaoTerminalOutputResponse | None = None
@@ -1201,7 +1282,18 @@ class CaoRestSession:
             last_output = output
 
             if runtime_state == "completed":
-                return output, snapshot, tuple(monitor.m_anomalies)
+                completion_payload: dict[str, object] | None = None
+                if completion_observer is not None:
+                    completion_payload = completion_observer(
+                        output.output,
+                        snapshot,
+                        baseline_output_text,
+                        baseline_projection,
+                    )
+                    if completion_payload is None:
+                        time.sleep(self._poll_interval_seconds)
+                        continue
+                return output, snapshot, tuple(monitor.m_anomalies), completion_payload
             if runtime_state == "blocked_operator":
                 raise BackendExecutionError(
                     self._format_shadow_operator_blocked_error(
