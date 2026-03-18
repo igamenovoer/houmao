@@ -155,6 +155,10 @@ pixi run python -m houmao.agents.realm_controller gateway-send-prompt \
 - Tmux-backed stop flows try to detach a live gateway before terminating the backend session.
 - The runtime-managed session model persists regardless of whether a gateway is attached.
 
+## Troubleshooting
+
+- [Troubleshooting Codex CAO Approval Prompts](../troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Use this when a CAO-backed Codex session starts normally but a later prompt turn stops on an approval or sandbox menu instead of completing the requested work.
+
 ## Source References
 
 - [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
