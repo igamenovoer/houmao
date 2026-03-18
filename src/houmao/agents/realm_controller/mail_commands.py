@@ -43,6 +43,15 @@ class MailPromptRequest:
 
 
 @dataclass(frozen=True)
+class SentinelBlock:
+    """One standalone sentinel-delimited result block extracted from a text surface."""
+
+    begin_line: int
+    end_line: int
+    payload_text: str
+
+
+@dataclass(frozen=True)
 class _MailResultTextSurface:
     """One candidate text surface that may contain a sentinel-delimited result."""
 
@@ -222,11 +231,11 @@ def build_shadow_mail_result_surface_payloads(
 
 
 def shadow_mail_result_contract_reached(surface_payloads: tuple[dict[str, str], ...]) -> bool:
-    """Return whether post-submit shadow surfaces contain one complete sentinel pair."""
+    """Return whether post-submit shadow surfaces contain one standalone sentinel block."""
 
     for surface in surface_payloads:
         text = surface.get("text")
-        if isinstance(text, str) and _contains_complete_mail_result_payload(text):
+        if isinstance(text, str) and extract_sentinel_blocks(text):
             return True
     return False
 
@@ -401,21 +410,17 @@ def _parse_mail_result_text(
     operation: MailOperation,
     mailbox: MailboxResolvedConfig,
 ) -> dict[str, Any]:
-    begin_count = text.count(MAIL_RESULT_BEGIN_SENTINEL)
-    end_count = text.count(MAIL_RESULT_END_SENTINEL)
-    if begin_count != 1 or end_count != 1:
+    blocks = extract_sentinel_blocks(text)
+    if len(blocks) == 0:
+        raise MailboxResultParseError(
+            "Mailbox result parsing failed: no standalone sentinel-delimited payload found."
+        )
+    if len(blocks) != 1:
         raise MailboxResultParseError(
             "Mailbox result parsing failed: expected exactly one sentinel-delimited payload."
         )
 
-    begin_index = text.find(MAIL_RESULT_BEGIN_SENTINEL)
-    end_index = text.find(MAIL_RESULT_END_SENTINEL, begin_index + len(MAIL_RESULT_BEGIN_SENTINEL))
-    if begin_index < 0 or end_index < 0 or end_index <= begin_index:
-        raise MailboxResultParseError(
-            "Mailbox result parsing failed: could not locate a valid sentinel-delimited payload."
-        )
-
-    payload_text = text[begin_index + len(MAIL_RESULT_BEGIN_SENTINEL) : end_index].strip()
+    payload_text = blocks[0].payload_text
     if not payload_text:
         raise MailboxResultParseError("Mailbox result parsing failed: sentinel payload was empty.")
 
@@ -462,14 +467,45 @@ def _trim_post_submit_text(current_text: str, baseline_text: str) -> str:
     return current_text
 
 
-def _contains_complete_mail_result_payload(text: str) -> bool:
-    """Return whether the text already contains one complete sentinel-delimited block."""
+def extract_sentinel_blocks(text: str) -> list[SentinelBlock]:
+    """Extract standalone sentinel-delimited result blocks from *text*.
 
-    begin_index = text.find(MAIL_RESULT_BEGIN_SENTINEL)
-    if begin_index < 0:
-        return False
-    end_index = text.find(MAIL_RESULT_END_SENTINEL, begin_index + len(MAIL_RESULT_BEGIN_SENTINEL))
-    return end_index > begin_index
+    A sentinel is considered "standalone" when its line, after stripping
+    whitespace, equals the sentinel string exactly.  Sentinel names that
+    appear inside prose, JSON string values, or other inline contexts are
+    ignored.
+
+    Returns zero or more :class:`SentinelBlock` instances, each carrying
+    the raw payload text between the BEGIN and END delimiter lines.
+    """
+
+    lines = text.splitlines()
+    blocks: list[SentinelBlock] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() == MAIL_RESULT_BEGIN_SENTINEL:
+            begin_line = i
+            # Scan forward for matching standalone END sentinel.
+            j = i + 1
+            while j < len(lines):
+                if lines[j].strip() == MAIL_RESULT_END_SENTINEL:
+                    payload = "\n".join(lines[begin_line + 1 : j]).strip()
+                    blocks.append(
+                        SentinelBlock(
+                            begin_line=begin_line,
+                            end_line=j,
+                            payload_text=payload,
+                        )
+                    )
+                    i = j + 1
+                    break
+                j += 1
+            else:
+                # No matching END found — skip this BEGIN.
+                i += 1
+        else:
+            i += 1
+    return blocks
 
 
 def _mailbox_command_error_from_backend(exc: BackendExecutionError) -> MailboxCommandError:
