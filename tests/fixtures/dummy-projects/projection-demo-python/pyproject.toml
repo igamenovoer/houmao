@@ -1,0 +1,9 @@
+[project]
+name = "projection-demo-python"
+version = "0.1.0"
+description = "Small dummy project used by dual shadow-watch demos"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
