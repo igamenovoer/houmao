@@ -91,7 +91,7 @@ stateDiagram-v2
     Unknown --> Disconnected: evt_surface_disconnected
 ```
 
-The graph shows parser-state transitions only. It does not mean a turn is complete when Claude returns to `idle + freeform`; runtime completion still belongs to `TurnMonitor`.
+The graph shows parser-state transitions only. It does not mean a turn is complete when Claude returns to `idle + freeform`; runtime completion still belongs to the readiness/completion monitor described in [Runtime Lifecycle](runtime-lifecycle.md).
 
 ## Claude State Meanings
 
@@ -120,9 +120,9 @@ The parser derives `ui_context` and `input_mode` from one bounded active-surface
 | `evt_operator_blocked` | `business_state` changes to `awaiting_operator` | selection menu, trust prompt, or setup block appears |
 | `evt_unknown_entered` | `business_state` changes to `unknown` while `availability=supported` | Claude surface is still recognized but no safe stronger state matches |
 | `evt_context_changed` | `ui_context` changes across snapshots | for example `normal_prompt` to `slash_command` or `trust_prompt` |
-| `evt_projection_changed` | `DialogProjection.dialog_text` changes across snapshots | visible projected Claude dialog changed |
+| `evt_normalized_text_changed` | `DialogProjection.normalized_text` changes across snapshots | the closer-to-source visible Claude snapshot text changed |
 
-These events describe parser observations, not runtime lifecycle decisions. Runtime uses them as inputs to `TurnMonitor`.
+These events describe parser observations, not runtime lifecycle decisions. The runtime monitor consumes the shared parser outputs from this page; current completion evidence keys off normalized shadow text after pipeline normalization rather than `dialog_text`.
 
 ## Preset And Version Selection
 
@@ -170,6 +170,8 @@ Projection preserves visible dialog content in order, including:
 - menu text that matters when Claude is waiting for user input
 
 `dialog_text` therefore means “visible dialog-oriented transcript,” not “the answer for the last prompt.”
+
+The current runtime lifecycle monitor does not use `dialog_text` as its post-submit diff surface. It keys change evidence off normalized shadow text and keeps `dialog_text` for human-facing transcript views and caller-owned extraction patterns.
 
 ## Claude-Specific Blocking And Drift Cases
 

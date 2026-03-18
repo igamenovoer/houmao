@@ -411,6 +411,7 @@ Behavior:
   3) per-tool default (`claude -> shadow_only`, `codex -> shadow_only`)
 - Shadow stall policy config (for `parsing_mode=shadow_only`):
   - `runtime.cao.shadow.unknown_to_stalled_timeout_seconds` (default `30`)
+  - `runtime.cao.shadow.completion_stability_seconds` (default `1.0`)
   - `runtime.cao.shadow.stalled_is_terminal` (default `false`)
 - `start-session` JSON output for `backend=cao_rest` includes the resolved
   `parsing_mode` alongside `agent_identity`.
@@ -423,8 +424,9 @@ Behavior:
 - Strict no-fallback policy:
   - `cao_only`: readiness/completion from CAO terminal status, answer extraction
     from `output?mode=last`.
-  - `shadow_only`: readiness/completion from runtime `TurnMonitor` over
-    `output?mode=full`, with parser-owned `surface_assessment` and
+  - `shadow_only`: readiness/completion from the runtime monitor over
+    `output?mode=full`, with current-thread CAO polling in `cao_rest.py`
+    feeding readiness/completion pipelines in `cao_rx_monitor.py`, and with parser-owned `surface_assessment` and
     `dialog_projection` artifacts instead of parser-owned final-answer extraction.
     Readiness follows the currently active input surface, not any historical
     slash-command or model-switch line still visible in scrollback. A recovered
@@ -486,7 +488,8 @@ when they are missing from `PATH`.
 - Shadow parsers (when `parsing_mode=shadow_only`) produce frozen
   `surface_assessment` and `dialog_projection` value objects.
 - `dialog_projection.normalized_text` remains closer to the captured TUI surface.
-- `dialog_projection.dialog_text` is a best-effort heuristic projection for lifecycle diffing, operator inspection, and caller-owned extraction patterns; it is not an exact recovered transcript.
+- `dialog_projection.dialog_text` is a best-effort heuristic projection for operator inspection and caller-owned extraction patterns; it is not an exact recovered transcript.
+- Current runtime lifecycle evidence keys off normalized shadow text after pipeline normalization rather than `dialog_text`.
 - Provider parsers own version-aware projector selection, and `projection_metadata.projector_id` identifies the selected projector instance.
 - Shared surface assessment facets are:
   - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
@@ -494,7 +497,10 @@ when they are missing from `PATH`.
   - `input_mode`: `freeform`, `modal`, `closed`, `unknown`
   - `ui_context`: shared base plus provider-specific extensions
 - Runtime success terminality in `shadow_only` requires `submit_ready` plus
-  either post-submit projected-dialog change or observed post-submit `working`.
+  previously-seen post-submit activity (`working` or normalized shadow-text change)
+  that then remains stable for `completion_stability_seconds`.
+- Caller-owned completion observers may bypass the generic stability window when
+  they detect a definitive result payload.
 - Runtime shadow parsing for both Claude and Codex is versioned and preset-driven.
   Preset resolution order is:
   1) provider-specific env override,
@@ -508,8 +514,11 @@ when they are missing from `PATH`.
   `unknown_version_floor_used`.
 - Unknown/drifted output variants fail fast with
   `unsupported_output_format` (no fallback to `cao_only` in-turn).
-- Runtime promotes continuous `unknown` status to `stalled` after
+- Runtime promotes continuous `unknown` status to `stalled` after the
+  configured inter-observation-gap threshold
   `unknown_to_stalled_timeout_seconds`.
+- Any known observation cancels the pending unknown-to-stalled timer and clears
+  stalled tracking before the recovered classification is handled.
 - `stalled_is_terminal=true` fails immediately with stalled diagnostics; when
   `false`, runtime continues polling and can recover to known statuses.
 - `parser_metadata` now includes:
@@ -518,6 +527,9 @@ when they are missing from `PATH`.
   - version detection/selection source, and
   - anomaly list (for example `baseline_invalidated`,
     `stalled_entered`, `stalled_recovered`).
+- Shadow policy values such as `unknown_to_stalled_timeout_seconds`,
+  `completion_stability_seconds`, and `stalled_is_terminal` are surfaced in
+  both `parser_metadata` and `mode_diagnostics`.
 - `shadow_only` done payloads surface:
   - `surface_assessment`
   - `dialog_projection`

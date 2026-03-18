@@ -4,6 +4,8 @@ This repository is the canonical documentation home for the extracted runtime su
 
 ## Developer
 
+For the maintained CAO `shadow_only` parser/runtime contract and lifecycle semantics, start here.
+
 - [TUI Parsing Developer Guide](developer/tui-parsing/index.md)
 
 ## Reference

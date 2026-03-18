@@ -30,7 +30,7 @@ Common error/anomaly signals:
 - `baseline_invalidated`: the visible scrollback shrank below the recorded pre-submit baseline offset.
 - `unknown_version_floor_used`: detected tool version is newer than known parser presets.
 
-Inspect `done.payload.parser_metadata`:
+Inspect `done.payload.parser_metadata` for parser selection/anomaly fields:
 
 - `shadow_parser_preset`
 - `shadow_parser_version`
@@ -39,7 +39,15 @@ Inspect `done.payload.parser_metadata`:
 - `shadow_parser_anomalies`
 - `baseline_invalidated`
 - `unknown_to_stalled_timeout_seconds`
+- `completion_stability_seconds`
 - `stalled_is_terminal`
+
+Inspect `done.payload.mode_diagnostics` for the runtime monitor view:
+
+- `unknown_to_stalled_timeout_seconds`
+- `completion_stability_seconds`
+- `stalled_is_terminal`
+- `baseline_invalidated`
 
 Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` when you need to reason about state vs visible transcript separately.
 
@@ -66,8 +74,9 @@ See: [Realm Controller window-hygiene checklist](./realm_controller.md#manual-ve
 ## Unknown vs Stalled
 
 - `unknown` is parser-owned and means the output format is recognized, but no safe classification (`idle`, `working`, or `awaiting_operator`) was found.
-- `stalled` is runtime-owned and means `unknown` stayed continuous for at least `unknown_to_stalled_timeout_seconds`.
+- `stalled` is runtime-owned and means the full classified-state stream stayed continuously unknown long enough to cross `unknown_to_stalled_timeout_seconds`.
 - `input_mode = unknown` by itself keeps the surface non-ready, but does not enter `stalled` while `business_state` remains known.
+- Any known observation cancels a pending unknown-to-stalled timer and clears stalled tracking before the recovered state is handled.
 - `stalled_is_terminal=true`: fail immediately at stalled entry.
 - `stalled_is_terminal=false`: keep polling and allow recovery.
 
@@ -78,6 +87,7 @@ runtime:
   cao:
     shadow:
       unknown_to_stalled_timeout_seconds: 30
+      completion_stability_seconds: 1.0
       stalled_is_terminal: false
 ```
 
@@ -134,7 +144,7 @@ into the generated Codex home `config.toml`.
 Symptom:
 
 ```text
-Timed out waiting for shadow turn completion ... shadow_status=idle
+Timed out waiting for shadow turn completion ... shadow_status=idle+freeform
 ```
 
 Tail excerpt already includes a real assistant answer, for example:
@@ -147,15 +157,17 @@ Tail excerpt already includes a real assistant answer, for example:
 Cause:
 
 - The runtime no longer uses parser-owned answer extraction as the completion contract.
-- Completion now requires a return to `submit_ready` plus either:
-  - observed projected-dialog change after submit, or
+- Completion now requires a return to `submit_ready` plus previously-seen post-submit activity:
+  - observed normalized shadow-text change after submit, or
   - observed post-submit `working`.
-- A visible transcript fragment may exist without yet satisfying that lifecycle rule.
+- That candidate-complete surface must then remain stable for `completion_stability_seconds`.
+- Any later state-signature change, including a return to `working` or another normalized shadow-text change, resets the pending completion window.
+- A visible transcript fragment may exist without yet surviving that lifecycle rule.
 
 Fixes in runtime/parser:
 
 - Baseline capture anchors readiness/completion monitoring and `baseline_invalidated` diagnostics.
-- Runtime terminality is driven by `TurnMonitor`, not parser-owned answer extraction.
+- Runtime terminality is driven by the readiness/completion monitor pipelines in `cao_rx_monitor.py`, not parser-owned answer extraction.
 - The caller should read `dialog_projection` as projected visible transcript, not as an authoritative prompt answer.
 - Exact downstream extraction should be caller-owned and contract-shaped, for example by requiring one sentinel-delimited payload in the prompt.
 

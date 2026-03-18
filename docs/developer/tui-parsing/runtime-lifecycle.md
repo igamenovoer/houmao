@@ -1,98 +1,163 @@
 # Runtime Lifecycle And State Transitions
 
-`TurnMonitor` is the runtime-owned state machine for CAO `shadow_only` turns. It lives in `backends/cao_rest.py` and interprets ordered parser observations before and after submit.
+The runtime-owned lifecycle monitor for CAO `shadow_only` turns is split across two modules:
 
-This page documents the runtime states, the transition events, and the success/failure rules that sit above provider parsing.
+- `backends/cao_rest.py` owns current-thread polling, parser invocation, deadline handling, and error translation.
+- `backends/cao_rx_monitor.py` owns readiness/completion classification, post-submit evidence accumulation, stability timing, and stalled recovery.
+
+This page documents the readiness and completion semantics that sit above provider parsing.
+
+## Runtime Observation Flow
+
+```mermaid
+sequenceDiagram
+    participant Poll as cao_rest.py<br/>poll loop
+    participant Parser as Provider parser
+    participant RM as Runtime monitor<br/>cao_rx_monitor.py
+
+    Poll->>Parser: parse_snapshot(output, baseline_pos)
+    Parser-->>Poll: SurfaceAssessment + DialogProjection
+    Poll->>RM: ShadowObservation
+    RM-->>Poll: Ready / Blocked / Failed / Stalled / Completed
+```
+
+The important boundary is that provider parsers still classify one snapshot, while the runtime monitor interprets an ordered stream of `ShadowObservation` values over time.
 
 ## Two Monitoring Phases
 
-`TurnMonitor` operates in two phases:
+The runtime monitor operates in two phases:
 
 - `readiness`: pre-submit polling, where runtime waits until the surface looks safe for prompt submission
-- `completion`: post-submit polling, where runtime decides whether the turn is in progress, blocked, stalled, failed, or complete
+- `completion`: post-submit polling, where runtime decides whether the turn is still waiting, in progress, blocked, stalled, failed, or complete
 
-The same monitor structure is reused across both phases, but the meaning of observations changes after submit because runtime starts tracking baseline projection text, post-submit `working`, and projection changes.
+The monitor is no longer one mutable class. Each phase is a ReactiveX pipeline that classifies the full observation stream and lets timed operators emit `stalled` or `completed` results while `cao_rest.py` keeps ownership of the synchronous CAO I/O boundary.
 
-That projection tracking is intentionally coarse. The monitor compares best-effort projected dialog surfaces only to decide whether the visible TUI appears to have changed after submit; it does not try to interpret the semantic answer content.
+## Readiness Classification Order
 
-## Mermaid State Transition Graph
+Readiness evaluates each observation in this deterministic priority order:
+
+| Priority | Condition | Classification |
+|------|-----------|----------------|
+| 1 | `availability in {unsupported, disconnected}` | `failed` |
+| 2 | `business_state = awaiting_operator` | `blocked` |
+| 3 | unknown-for-stall surface | `unknown` or `stalled` path |
+| 4 | derived `submit_ready` surface | `ready` |
+| 5 | anything else | `waiting` |
 
 ```mermaid
 stateDiagram-v2
-    [*] --> AwaitingReady
-    state "awaiting_ready" as AwaitingReady
-    state "submitted_waiting_activity" as SubmittedWaitingActivity
-    state "in_progress" as InProgress
-    state "blocked_operator" as BlockedOperator
+    [*] --> Waiting
+    state "waiting" as Waiting
+    state "unknown" as Unknown
     state "stalled" as Stalled
-    state "completed" as Completed
+    state "ready" as Ready
+    state "blocked" as Blocked
     state "failed" as Failed
 
-    AwaitingReady --> SubmittedWaitingActivity: evt_submit
+    Waiting --> Ready: evt_submit_ready
+    Waiting --> Blocked: evt_operator_blocked
+    Waiting --> Failed: evt_surface_unsupported_or_disconnected
+    Waiting --> Unknown: evt_unknown_for_stall
 
-    SubmittedWaitingActivity --> InProgress: evt_working_seen
-    SubmittedWaitingActivity --> BlockedOperator: evt_operator_blocked_seen
-    SubmittedWaitingActivity --> Completed: evt_submit_ready_after_submit<br/>+ post_submit_progress_seen
-    SubmittedWaitingActivity --> Stalled: evt_unknown_timeout
-    SubmittedWaitingActivity --> Failed: evt_surface_unsupported
-    SubmittedWaitingActivity --> Failed: evt_surface_disconnected
+    Unknown --> Waiting: evt_known_nonready
+    Unknown --> Ready: evt_submit_ready
+    Unknown --> Blocked: evt_operator_blocked
+    Unknown --> Failed: evt_surface_unsupported_or_disconnected
+    Unknown --> Stalled: evt_unknown_timeout
 
-    InProgress --> BlockedOperator: evt_operator_blocked_seen
-    InProgress --> Completed: evt_submit_ready_after_submit<br/>+ post_submit_progress_seen
-    InProgress --> Stalled: evt_unknown_timeout
-    InProgress --> Failed: evt_surface_unsupported
-    InProgress --> Failed: evt_surface_disconnected
-
-    Stalled --> InProgress: evt_stalled_recovered + evt_working_seen
-    Stalled --> BlockedOperator: evt_stalled_recovered + evt_operator_blocked_seen
-    Stalled --> Completed: evt_stalled_recovered<br/>+ evt_submit_ready_after_submit<br/>+ post_submit_progress_seen
+    Stalled --> Waiting: evt_stalled_recovered_to_waiting
+    Stalled --> Ready: evt_stalled_recovered_to_submit_ready
+    Stalled --> Blocked: evt_stalled_recovered_to_blocked
     Stalled --> Failed: stalled_is_terminal
 ```
 
-The diagram shows the major runtime states. The `post_submit_progress_seen` guard is shorthand for the runtime having already observed either projection change or `working` after submit.
+The readiness pipeline emits terminal `ReadyResult`, `BlockedResult`, `FailedResult`, or `StalledResult` values. When `stalled_is_terminal = false`, `cao_rest.py` keeps polling after a stalled emission and lets the next known observation recover the state.
 
-## Runtime State Definitions
+## Completion Classification Order
 
-| State | Meaning | Typical entry condition |
-|------|---------|-------------------------|
-| `awaiting_ready` | Pre-submit monitor is still waiting for a submit-ready freeform prompt | parser reports a supported but not-yet-submittable surface, or completion-style evidence has not started yet |
-| `submitted_waiting_activity` | Prompt has been submitted, but runtime has not yet seen decisive post-submit progress or completion evidence | `record_submit()` stores the pre-submit baseline projection and resets post-submit flags |
-| `in_progress` | Post-submit `working` evidence has been observed | parser reports `business_state=working` after submit |
-| `blocked_operator` | The tool is waiting for operator approval, trust, selection, or setup action | parser reports `business_state=awaiting_operator` |
-| `stalled` | `unknown` has persisted long enough to cross the runtime stall threshold | continuous unknown duration reaches `unknown_to_stalled_timeout_seconds` |
-| `completed` | Runtime has enough evidence to treat the turn as success-terminal | surface returns to `submit_ready` and runtime has also observed post-submit `working` or projection change |
-| `failed` | Runtime has reached a non-recoverable outcome | unsupported surface, disconnected surface, or terminal stalled policy |
+Completion classifies each observation in this deterministic priority order:
 
-These are runtime lifecycle states, not parser states. The parser reports snapshot properties such as `availability`, `business_state`, and `input_mode`, and runtime derives readiness/blocking from those axes.
+| Priority | Condition | Classification |
+|------|-----------|----------------|
+| 1 | update post-submit evidence from `business_state = working` and normalized shadow-text change | evidence accumulator only |
+| 2 | `availability in {unsupported, disconnected}` | `failed` |
+| 3 | `business_state = awaiting_operator` | `blocked` |
+| 4 | unknown-for-stall surface | `unknown` or `stalled` path |
+| 5 | `business_state = working` | `in_progress` |
+| 6 | `submit_ready` plus previously-seen post-submit activity | `candidate_complete` |
+| 7 | anything else | `waiting` |
 
-## Transition Event Definitions
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting
+    state "waiting" as Waiting
+    state "in_progress" as InProgress
+    state "candidate_complete" as CandidateComplete
+    state "unknown" as Unknown
+    state "stalled" as Stalled
+    state "completed" as Completed
+    state "blocked" as Blocked
+    state "failed" as Failed
 
-The code does not implement a formal event enum, but the contract is easiest to understand in terms of conceptual transition events derived from parser observations.
+    Waiting --> InProgress: evt_working_seen
+    Waiting --> CandidateComplete: evt_submit_ready_with_activity
+    Waiting --> Blocked: evt_operator_blocked
+    Waiting --> Failed: evt_surface_unsupported_or_disconnected
+    Waiting --> Unknown: evt_unknown_for_stall
 
-| Event | Detection from observations | Typical effect |
-|------|-----------------------------|----------------|
-| `evt_submit` | runtime sends terminal input and calls `record_submit()` with the baseline projection | moves monitor into `submitted_waiting_activity` |
-| `evt_working_seen` | post-submit `SurfaceAssessment.business_state == "working"` | sets `m_saw_working_after_submit = true` and moves runtime to `in_progress` |
-| `evt_operator_blocked_seen` | post-submit `SurfaceAssessment.business_state == "awaiting_operator"` | moves runtime to `blocked_operator` |
-| `evt_projection_changed` | current `DialogProjection.dialog_text` differs from the recorded pre-submit baseline | sets `m_saw_projection_change_after_submit = true`; this is coarse TUI-change evidence, not answer extraction |
-| `evt_submit_ready_after_submit` | current snapshot satisfies `submit_ready` after submit | may complete the turn if the post-submit evidence guard has also been satisfied |
-| `evt_surface_unsupported` | `SurfaceAssessment.availability == "unsupported"` | moves runtime to `failed` |
-| `evt_surface_disconnected` | `SurfaceAssessment.availability == "disconnected"` | moves runtime to `failed` |
-| `evt_unknown_timeout` | `unknown_for_stall(surface_assessment)` stays true until the configured timeout elapses | emits `stalled_entered` anomaly and moves runtime to `stalled` |
-| `evt_stalled_recovered` | a known state is observed after stalled tracking was active | emits `stalled_recovered` anomaly and clears unknown/stalled timers |
+    InProgress --> CandidateComplete: evt_submit_ready_with_activity
+    InProgress --> Waiting: evt_known_noncandidate
+    InProgress --> Blocked: evt_operator_blocked
+    InProgress --> Failed: evt_surface_unsupported_or_disconnected
+    InProgress --> Unknown: evt_unknown_for_stall
 
-## Success Terminality Rule
+    CandidateComplete --> Completed: evt_stability_window_elapsed
+    CandidateComplete --> Completed: evt_completion_observer_payload
+    CandidateComplete --> InProgress: evt_working_seen
+    CandidateComplete --> Waiting: evt_state_signature_changed
+    CandidateComplete --> Blocked: evt_operator_blocked
+    CandidateComplete --> Failed: evt_surface_unsupported_or_disconnected
+    CandidateComplete --> Unknown: evt_unknown_for_stall
 
-Success terminality is intentionally stronger than “the parser says ready.” In `observe_completion()`, runtime completes only when both of these are true:
+    Unknown --> Waiting: evt_known_noncandidate
+    Unknown --> InProgress: evt_stalled_recovered_to_working
+    Unknown --> CandidateComplete: evt_stalled_recovered_to_candidate
+    Unknown --> Blocked: evt_operator_blocked
+    Unknown --> Failed: evt_surface_unsupported_or_disconnected
+    Unknown --> Stalled: evt_unknown_timeout
 
-- the current surface is `submit_ready` again
-- runtime has observed at least one post-submit progress signal:
-  - `m_saw_projection_change_after_submit`, or
-  - `m_saw_working_after_submit`
+    Stalled --> Waiting: evt_stalled_recovered_to_waiting
+    Stalled --> InProgress: evt_stalled_recovered_to_working
+    Stalled --> CandidateComplete: evt_stalled_recovered_to_candidate
+    Stalled --> Blocked: evt_stalled_recovered_to_blocked
+    Stalled --> Failed: stalled_is_terminal
+```
 
-That rule avoids a common false positive: a snapshot may look idle again even though runtime never observed evidence that the new turn actually progressed.
+These are conceptual runtime classifications, not parser states. Provider parsers still report snapshot properties such as `availability`, `business_state`, `input_mode`, and `DialogProjection`.
 
-The `m_saw_projection_change_after_submit` branch should be read narrowly: it means the best-effort projected transcript moved after submit. It does not mean the runtime extracted or validated the assistant reply text.
+## Post-Submit Evidence And Stability Window
+
+Completion success is intentionally stronger than “the parser says ready again.”
+
+The completion pipeline records post-submit activity through two evidence sources:
+
+- `business_state = working`
+- normalized shadow-text change derived from `DialogProjection.normalized_text` after `normalize_projection_text()`
+
+That second branch should be read narrowly: it means the closer-to-source normalized shadow surface changed after submit. It does not mean the runtime extracted or validated the assistant reply text.
+
+Once post-submit activity exists, a later `submit_ready` surface becomes `candidate_complete`, not immediately `completed`. The pipeline then starts a `completion_stability_seconds` timer. Any later state-signature change resets that timer. The current signature includes:
+
+- lifecycle classification status,
+- `availability`,
+- `business_state`,
+- `input_mode`,
+- the normalized projection key, and
+- the accumulated evidence flags.
+
+This is what prevents a transient idle flicker from becoming a false completion.
+
+The mailbox completion observer runs on every post-submit emission after activity has started. If it returns a definitive payload, the pipeline emits `CompletedResult` immediately and bypasses the generic stability window.
 
 ## Unknown And Stalled Handling
 
@@ -103,34 +168,54 @@ Runtime treats both of these as unknown for stall timing:
 
 `input_mode == "unknown"` by itself keeps the surface non-ready, but does not enter the unknown-to-stalled path while the business state is still known.
 
+The key semantic change from the old `_TurnMonitor` is that stall timing now follows the full classified-state stream:
+
+- the timer is armed only while the current classification is `unknown`
+- any known observation cancels the pending timer
+- slow polls naturally stretch the effective wall-clock wait because the timer follows inter-emission gaps rather than a fixed wall-clock start timestamp
+
 When unknown persists past the timeout:
 
-- the monitor enters `stalled`
+- the pipeline emits `stalled`
 - runtime records the `stalled_entered` anomaly
 - `phase`, `elapsed_unknown_seconds`, and `parser_family` are attached as details
 
-When a known state returns after stall:
+When a known state returns after stalled tracking:
 
 - runtime records `stalled_recovered`
 - `elapsed_stalled_seconds` and `recovered_to` are attached as details
-- stall timers are cleared
+- pending unknown/stalled timing is cleared before the recovered classification is handled
 
-Whether stalled is terminal depends on runtime policy outside the monitor:
+Whether stalled is terminal still depends on runtime policy outside the pipeline:
 
-- `stalled_is_terminal = true`: treat stalled as failure immediately
-- `stalled_is_terminal = false`: continue polling for recovery until an outer timeout or known state arrives
+- `stalled_is_terminal = true`: `cao_rest.py` turns the stalled result into a failure immediately
+- `stalled_is_terminal = false`: `cao_rest.py` keeps polling for recovery until an outer timeout or known state arrives
 
-## Blocked, Failed, And Completed Outcomes
+## Outcome Meanings
 
 The runtime interprets parser observations this way:
 
-- `business_state = awaiting_operator` means the tool needs explicit human input, so the lifecycle becomes `blocked_operator`
+- `business_state = awaiting_operator` means the tool needs explicit human input, so the lifecycle becomes `blocked`
 - `business_state = idle` with `input_mode = modal` means the tool is not submit-ready yet, but it is not a blocked failure by itself
 - `business_state = working` with `input_mode = freeform|modal` means the turn is still in progress
 - `unsupported` means the parser contract does not recognize the surface, so the lifecycle becomes `failed`
 - `disconnected` means the TUI surface is unavailable, so the lifecycle becomes `failed`
-- `completed` means the turn is success-terminal and payload shaping can expose `dialog_projection`, `surface_assessment`, `projection_slices`, and diagnostics
+- `completed` means the turn is success-terminal and payload shaping can expose `dialog_projection`, `surface_assessment`, `projection_slices`, `parser_metadata`, and `mode_diagnostics`
 
 A successful `completed` state still does not imply parser-owned answer association. It only means the runtime observed enough evidence to declare the turn finished under the shadow-mode lifecycle contract.
 
 If a caller needs machine-reliable reply text after completion, it should define that contract explicitly with schema-shaped prompting, sentinels, or another narrow caller-owned extraction rule over the available text surfaces.
+
+## Testing Surface
+
+The main executable reference for these timing semantics is `tests/unit/agents/realm_controller/test_cao_rx_monitor.py`.
+
+That suite uses `TestScheduler` to verify:
+
+- unknown-to-stalled transition,
+- stalled recovery,
+- non-stalling `input_mode = unknown` with known business state,
+- slow-poll inter-emission-gap timing,
+- transient idle flicker reset behavior,
+- normalized shadow-text change resetting the stability window, and
+- mailbox observer bypass behavior.

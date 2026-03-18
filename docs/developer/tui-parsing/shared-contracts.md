@@ -71,7 +71,7 @@ Provider subclasses add provider-specific evidence:
 - `closed`
 - `unknown`
 
-Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `in_progress` or `completed` live one layer higher in `TurnMonitor`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
+Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `waiting`, `in_progress`, `candidate_complete`, `completed`, and `stalled` live one layer higher in the readiness/completion monitor pipelines in `cao_rx_monitor.py`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
 
 ### Shared `ui_context`
 
@@ -137,7 +137,7 @@ The shared layer currently defines several important anomaly codes:
 - `stalled_entered`
 - `stalled_recovered`
 
-The provider parser emits version/baseline anomalies, while runtime `TurnMonitor` adds stalled lifecycle anomalies.
+The provider parser emits version/baseline anomalies, while the runtime readiness/completion monitor adds stalled lifecycle anomalies.
 
 ## Projection Slices And Result Payloads
 
@@ -157,7 +157,7 @@ That payload intentionally omits a shadow-mode `output_text` compatibility alias
 
 The runtime expects different levels of trust from different projection uses:
 
-- lifecycle/coarse diffing: `dialog_text` is reliable enough for “did the visible TUI move?” style checks such as `TurnMonitor` post-submit progress evidence
+- lifecycle/runtime evidence: the current runtime monitor uses `DialogProjection.normalized_text` after pipeline normalization for coarse post-submit change detection; `dialog_text` is not the lifecycle evidence boundary
 - operator diagnostics: `dialog_text`, `head`, and `tail` are appropriate for human inspection, logs, and troubleshooting
 - machine-critical extraction: do not rely on exact `dialog_text` fidelity; prefer schema-shaped prompting plus explicit sentinels or similarly narrow caller-owned patterns over available text surfaces
 

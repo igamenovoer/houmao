@@ -9,7 +9,7 @@ It is the maintainer-oriented companion to the shorter reference and troubleshoo
 The TUI parsing stack turns CAO `mode=full` tmux snapshots into stable runtime artifacts without pretending that raw terminal scrollback can always prove “the answer for the current prompt.” The current contract is built around these layers:
 
 - provider parsers classify one snapshot into `SurfaceAssessment` and `DialogProjection`
-- runtime `TurnMonitor` interprets ordered snapshots before and after submit
+- current-thread CAO polling in `cao_rest.py` feeds `ShadowObservation` values into readiness and completion monitor pipelines in `cao_rx_monitor.py`
 - callers may optionally layer answer association on top of projected dialog
 
 ## Reading Order
@@ -18,7 +18,7 @@ The TUI parsing stack turns CAO `mode=full` tmux snapshots into stable runtime a
 |------|------------|
 | [Architecture](architecture.md) | Understand the layered design, major modules, and end-to-end data flow |
 | [Shared Contracts](shared-contracts.md) | Learn the shared models, payload fields, anomalies, and result surface |
-| [Runtime Lifecycle](runtime-lifecycle.md) | Understand `TurnMonitor`, lifecycle states, transition events, and success terminality |
+| [Runtime Lifecycle](runtime-lifecycle.md) | Understand readiness/completion monitor semantics, completion stability, stalled recovery, and success terminality |
 | [Claude](claude.md) | Review Claude-specific state vocabulary, detection signals, preset/version behavior, and projection rules |
 | [Codex](codex.md) | Review Codex-specific state vocabulary, supported output families, preset/version behavior, and projection rules |
 | [Maintenance](maintenance.md) | See the update checklist for parser drift, docs/spec alignment, and fixture/test refreshes |
@@ -29,15 +29,18 @@ This doc set summarizes the active runtime contract from these sources:
 
 - active specs in `openspec/specs/`
 - runtime modules under `src/houmao/agents/realm_controller/backends/`
+- the completed `openspec/changes/rx-shadow-turn-monitor/` change for the current monitor design and terminology
 - the archived originating design and contract notes in `openspec/changes/archive/2026-03-09-decouple-shadow-state-from-answer-association/`
 
 The most important implementation files are:
 
 - `backends/shadow_parser_core.py`
+- `backends/cao_rx_monitor.py`
 - `backends/cao_rest.py`
 - `backends/claude_code_shadow.py`
 - `backends/codex_shadow.py`
 - `backends/shadow_answer_association.py`
+- `tests/unit/agents/realm_controller/test_cao_rx_monitor.py`
 
 All of those paths are relative to `src/houmao/agents/realm_controller/`.
 
@@ -49,3 +52,5 @@ The shorter reference pages remain useful for operators and quick lookups:
 - [CAO Shadow Parser Troubleshooting](../../reference/cao_shadow_parser_troubleshooting.md)
 
 Those pages now point back to this guide for design-level detail. If you are changing contracts, state transitions, or parser responsibilities, treat this developer guide as the place where the deep explanation should live.
+
+The existing [Architecture](architecture.md) and [Runtime Lifecycle](runtime-lifecycle.md) pages are the maintained home for the runtime monitor explanation. This guide intentionally does not split that material into a separate Rx-only page unless the lifecycle story becomes too large to keep readable.

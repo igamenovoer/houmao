@@ -2,6 +2,8 @@
 
 ## Developer Deep Dive
 
+For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior, start here.
+
 - [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
 
 ## Reference Pages
