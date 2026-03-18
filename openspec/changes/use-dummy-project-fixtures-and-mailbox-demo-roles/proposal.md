@@ -6,7 +6,7 @@ The current spec and test split is also misleading. The tracked "direct live" au
 
 ## What Changes
 
-- Add tracked dummy-project fixtures plus lightweight mailbox-demo roles, recipes, and blueprints for narrow runtime-agent and mailbox-demo tests.
+- Add tracked dummy-project fixtures plus a lightweight `mailbox-demo` role family, matching Claude/Codex recipes, and `mailbox-demo-claude` / `mailbox-demo-codex` blueprints for narrow runtime-agent and mailbox-demo tests.
 - Change the mailbox tutorial pack defaults so sender and receiver run inside a copied dummy project rooted under the demo-owned output/home tree instead of a git worktree of the main repository.
 - Add a pack-owned inspect/watch surface so maintainers can periodically attach tmux, tail terminal logs, and view live tool state while slow mailbox turns are in flight.
 - Keep the mailbox sentinel-delimited result contract strict; missing or malformed result blocks remain direct-path failures instead of being papered over by synthetic mailbox success.
@@ -27,5 +27,5 @@ The current spec and test split is also misleading. The tracked "direct live" au
 
 - Affected code: `scripts/demo/mailbox-roundtrip-tutorial-pack/`, `src/houmao/demo/`, runtime helper code that resolves tutorial-pack session state and inspection surfaces, and any helper paths that currently create a repo worktree for mailbox-demo sessions.
 - Affected fixtures: `tests/fixtures/dummy-projects/`, `tests/fixtures/agents/roles/`, `tests/fixtures/agents/brain-recipes/`, `tests/fixtures/agents/blueprints/`, and fixture README/guidance.
-- Affected tests: tracked integration coverage under `tests/integration/demo/` plus a new opt-in/manual real-agent smoke lane under `tests/manual/` or equivalent env-gated entrypoint.
+- Affected tests: tracked integration coverage under `tests/integration/demo/` plus a new opt-in manual real-agent smoke lane under `tests/manual/`.
 - Affected docs/specs: mailbox tutorial-pack docs, fixture guidance, and mailbox automation specs that currently imply real-agent automatic coverage or full-repo workdir defaults.

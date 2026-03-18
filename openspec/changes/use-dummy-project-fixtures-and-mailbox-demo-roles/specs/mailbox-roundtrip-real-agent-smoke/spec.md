@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Repository SHALL provide an opt-in real-agent mailbox smoke entrypoint
-The repository SHALL provide an opt-in smoke entrypoint for `scripts/demo/mailbox-roundtrip-tutorial-pack` that uses the operator's actual local Claude/Codex CLIs and credentials through the normal `start-session` and runtime `mail` control path.
+The repository SHALL provide an opt-in smoke entrypoint for `scripts/demo/mailbox-roundtrip-tutorial-pack` as a standalone manual script under `tests/manual/` that uses the operator's actual local Claude/Codex CLIs and credentials through the normal `start-session` and runtime `mail` control path.
 
-That smoke entrypoint SHALL NOT run as part of the default fast test suite. It SHALL require explicit maintainer opt-in through a manual script, an env-gated test target, or an equivalent clearly non-default invocation.
+That smoke entrypoint SHALL NOT run as part of the default fast test suite. It SHALL require explicit maintainer invocation of that manual script.
 
 The real-agent smoke entrypoint SHALL use the mailbox tutorial pack with the dedicated dummy-project workdir fixture and the lightweight mailbox-demo blueprints rather than the main-repo worktree plus heavyweight engineering roles.
 

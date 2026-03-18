@@ -7,13 +7,13 @@ The tutorial-pack `run_demo.sh` SHALL:
 - define repository context and a temporary workspace path,
 - check prerequisites before execution,
 - copy tracked demo inputs into the temporary workspace before runtime commands execute,
-- provision a tracked dummy-project fixture into the demo-local `project/` workdir before runtime commands execute, and
+- copy a tracked source-only dummy-project fixture into the demo-local `project/` workdir and initialize the copied tree as a fresh git-backed workspace before runtime commands execute, and
 - support `--snapshot-report` mode for expected-report refresh.
 
 The tracked demo parameters SHALL define the default tutorial pair, including:
 
-- a lightweight mailbox-demo Claude blueprint,
-- a lightweight mailbox-demo Codex blueprint,
+- `blueprints/mailbox-demo-claude.yaml` as the lightweight mailbox-demo Claude blueprint,
+- `blueprints/mailbox-demo-codex.yaml` as the lightweight mailbox-demo Codex blueprint,
 - the CAO-backed backend choice,
 - agent identities,
 - mailbox principal/address pairs,
@@ -25,8 +25,8 @@ The runner SHALL avoid modifying tracked files outside explicit snapshot mode.
 #### Scenario: Runner prepares an isolated workspace from tracked inputs and a dummy project fixture
 - **WHEN** a developer runs `run_demo.sh`
 - **THEN** the runner creates an isolated workspace and copies the tracked tutorial inputs into it before the mailbox workflow starts
-- **AND THEN** it provisions the selected dummy-project fixture into the demo-local `project/` workdir before any `start-session` call
-- **AND THEN** the default tutorial parameters reference the dedicated mailbox-demo blueprints rather than the heavyweight GPU-oriented tutorial pair
+- **AND THEN** it provisions the selected dummy-project fixture into the demo-local `project/` workdir and initializes that copied tree as a fresh git-backed workspace before any `start-session` call
+- **AND THEN** the default tutorial parameters reference `blueprints/mailbox-demo-claude.yaml` and `blueprints/mailbox-demo-codex.yaml` rather than the heavyweight GPU-oriented tutorial pair
 
 ### Requirement: Tutorial-pack runner SHALL start two mailbox-enabled sessions on one shared mailbox root
 The tutorial-pack runner SHALL build and start two CAO-backed runtime sessions that both use mailbox support against the same filesystem mailbox root while keeping distinct agent identities, mailbox principal ids, and mailbox addresses.
@@ -34,6 +34,8 @@ The tutorial-pack runner SHALL build and start two CAO-backed runtime sessions t
 The runner SHALL use blueprint-driven build and start flow for the tutorial pair, with credential selection owned by the blueprint-bound recipes and mailbox enablement expressed through `start-session --mailbox-*` overrides rather than tutorial-specific mailbox recipe files.
 
 The runner SHALL pass the provisioned dummy-project workdir under the selected demo-owned output/home tree to both `start-session` calls instead of targeting a git worktree of the main repository.
+
+The runner SHALL ensure that copied `project/` tree is initialized as its own fresh git repository rather than as a worktree or a copied tracked `.git/` directory.
 
 The runner SHALL capture the structured `start-session` output for both agents, including the redacted mailbox binding payload returned by the runtime.
 

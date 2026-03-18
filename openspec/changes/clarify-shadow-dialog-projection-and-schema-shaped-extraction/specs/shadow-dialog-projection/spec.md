@@ -62,3 +62,27 @@ Reliable downstream machine use SHALL depend on a separate caller-owned or proto
 - **WHEN** a downstream integration needs reliable machine-readable data from a shadow-mode session
 - **THEN** it uses an explicit answer-association or schema-shaped extraction contract over available text surfaces
 - **AND THEN** it does not treat `dialog_projection.dialog_text` by itself as an exact-text guarantee
+
+### Requirement: Shadow-mode text surfaces have explicit reliability tiers
+The system SHALL classify repo-owned shadow-mode text uses into three reliability tiers:
+
+- lifecycle/runtime, where best-effort projected dialog is acceptable only for coarse change detection or readiness/completion monitoring,
+- operator/diagnostic, where best-effort projected dialog is acceptable for human-facing inspection or debugging surfaces, and
+- machine-critical, where projected dialog by itself is insufficient and the consumer SHALL rely on schema-shaped prompting, explicit sentinels, or a caller-owned extractor over available text surfaces.
+
+The current normative mappings for repo-owned consumers SHALL include `_TurnMonitor.observe_completion()` as lifecycle/runtime, interactive demo `output_text_tail` as operator/diagnostic, and runtime mailbox result parsing as machine-critical.
+
+#### Scenario: Lifecycle monitoring uses projected dialog only for coarse change detection
+- **WHEN** runtime lifecycle monitoring compares projected dialog before and after prompt submission
+- **THEN** it may use projected dialog changes as coarse completion/readiness evidence
+- **AND THEN** that lifecycle use does not imply answer extraction or exact-text recovery
+
+#### Scenario: Operator-facing inspect output uses the operator/diagnostic tier
+- **WHEN** interactive demo inspect surfaces `output_text_tail`
+- **THEN** that field is treated as a best-effort projected diagnostic tail for human inspection
+- **AND THEN** the contract does not elevate that field to authoritative reply text
+
+#### Scenario: Machine-critical consumer uses an explicit structured extraction contract
+- **WHEN** a machine-critical consumer such as runtime mailbox result parsing needs reliable shadow-mode data
+- **THEN** it uses schema/sentinel or caller-owned extraction over available text surfaces
+- **AND THEN** projected dialog alone is insufficient as the correctness boundary

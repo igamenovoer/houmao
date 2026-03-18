@@ -1,12 +1,13 @@
 ## MODIFIED Requirements
 
-### Requirement: Interactive demo inspect SHALL optionally include a clean output-text tail
+### Requirement: Interactive demo inspect SHALL optionally include a best-effort projected output-text tail
 The interactive demo `inspect` command SHALL accept `--with-output-text <num-tail-chars>` as an optional argument.
 
 `<num-tail-chars>` SHALL be a positive integer specifying how many characters of best-effort projected dialog text to include from the tail of the current live TUI snapshot for the persisted tool selection.
 
 When this option is present, the demo SHALL fetch live CAO terminal output using `output?mode=full`, project that scrollback into best-effort dialog text using the runtime-owned parser stack for the persisted tool, and include the last `<num-tail-chars>` characters of that projected dialog text in the inspect result as `output_text_tail`.
 
+The reported `output_text_tail` SHALL remain the field name for this change.
 The reported `output_text_tail` SHALL come from best-effort projected dialog text, SHALL remain an operator-facing diagnostic surface, SHALL NOT be described as an exact extracted tool reply, and SHALL NOT fall back to raw ANSI or tmux scrollback.
 
 #### Scenario: Inspect returns the requested best-effort dialog tail for the selected tool

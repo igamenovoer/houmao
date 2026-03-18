@@ -41,14 +41,16 @@ The parser stack should treat dialog projection as a modular provider-owned proc
 
 The refactor will introduce a shared projector abstraction with these properties:
 
-- one selected processor instance owns projection for one parsed snapshot,
+- the projector contract is a narrow repo-owned duck-typed interface, such as a `Protocol`, rather than an ad hoc callback or heavyweight plugin boundary,
+- one selected processor instance owns provider-specific projection for one already-normalized snapshot,
+- parser/shared-core flow retains ANSI stripping, newline normalization, preset resolution, surface assessment, fallback/head-tail assembly, and final `DialogProjection` metadata wiring,
 - processor selection is provider-aware and version-aware, and may also consider output-variant evidence,
-- the selected processor emits the provider-specific `DialogProjection` subtype plus provenance via `projector_id`, and
+- the selected processor contributes provenance through `projector_id`, and
 - runtime lifecycle code such as `_TurnMonitor` remains unchanged because it still consumes the same `DialogProjection` contract.
 
-Provider parser classes will remain responsible for preset resolution, supported/unsupported detection, and surface assessment, but they will stop owning all projection cleanup logic directly. Instead they will orchestrate selection and invocation of the matching projector.
+Provider parser classes will remain responsible for preset resolution, supported/unsupported detection, and surface assessment, but they will stop owning all projection cleanup logic directly. Instead they will own default projector selection and orchestrate invocation of the matching projector.
 
-For maintainability and controlled extensibility, provider parsers or the shared stack should also allow explicit processor injection/override for tests and advanced callers. This is enough to make processor swapping real without committing to a general-purpose plugin-loading system.
+For maintainability and controlled extensibility, both direct provider parser construction and `ShadowParserStack` should expose the same explicit processor injection/override surface for tests and advanced callers, with stack-level override acting only as pass-through to the selected parser. This is enough to make processor swapping real without committing to a general-purpose plugin-loading system.
 
 **Alternatives considered**
 
@@ -85,7 +87,7 @@ The design will distinguish these uses:
 2. Operator/diagnostic tier: projection is acceptable for human-facing summaries such as inspect output.
 3. Machine-critical tier: important downstream parsing must rely on schema-shaped prompt/result contracts plus explicit extractor logic over available surfaces, not on generic projection fidelity.
 
-This is the key architectural clarification. It explains why `_TurnMonitor` can continue using projection diffs while mailbox-style protocols need stronger prompt/result contracts.
+This is the key architectural clarification. It explains why `_TurnMonitor` can continue using projection diffs while mailbox-style protocols need stronger prompt/result contracts. The tier model is part of the normative contract for this change, and the affected specs should explicitly map the current repo-owned consumers to these tiers.
 
 **Alternatives considered**
 
@@ -102,7 +104,7 @@ Affected runtime-owned machine protocols should follow the same pattern:
 - the parser searches for explicit sentinels or schema-shaped payloads,
 - and projection remains only one possible transport surface through which the contract is recovered.
 
-For important parsing, the runtime may inspect more than one available shadow surface, but it must not claim that `dialog_projection.dialog_text` alone is exact.
+For important parsing, the runtime may inspect more than one available shadow surface, but it must not claim that `dialog_projection.dialog_text` alone is exact. This change defers any shared sentinel/schema-extraction helper; mailbox and other machine-critical protocols should keep protocol-local extraction until a second runtime-owned consumer creates real abstraction pressure.
 
 **Alternatives considered**
 
@@ -131,7 +133,7 @@ This decision also applies to repo-owned helper code that parses live shadow sna
 
 The demo’s `--with-output-text` option is useful, but it is not a reliable data-extraction API. The design will keep the field for operator inspection while revising the contract and wording from “clean output text” to “best-effort projected dialog tail”.
 
-That keeps the demo useful without teaching callers the wrong lesson about projection fidelity.
+That keeps the demo useful without teaching callers the wrong lesson about projection fidelity. The field name remains `output_text_tail` in this change; only its wording and surrounding guidance change.
 
 **Alternatives considered**
 
@@ -161,6 +163,4 @@ That keeps the demo useful without teaching callers the wrong lesson about proje
 
 ## Open Questions
 
-- Should the controlled projector override live at `ShadowParserStack` construction, provider parser construction, or both?
-- Should the runtime add a shared helper for extracting sentinel/schema-shaped payloads from multiple shadow text surfaces, or should each protocol keep its own extractor?
-- Should the interactive demo keep the `output_text_tail` field name for compatibility while changing only its wording, or should a later change rename it to something more obviously diagnostic?
+None at this stage. This change resolves the earlier questions about projector override location, shared schema-extraction helper timing, inspect field naming, and whether the reliability tiers should remain non-normative.
