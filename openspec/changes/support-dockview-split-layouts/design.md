@@ -26,6 +26,8 @@ The main gap is behavioral, not foundational. The code still assumes that only o
 - floating groups or pop-out windows
 - duplicate views of the same terminal session in more than one panel
 - browser-level 2-view or 4-view presets separate from Dockview drag/drop behavior
+- explicit split buttons or keyboard shortcuts beyond drag/drop in this phase
+- dashboard group visualization beyond the current flat session list
 - changes to tmux's own internal pane splitting
 - full mobile-first split-layout ergonomics
 
@@ -34,6 +36,8 @@ The main gap is behavioral, not foundational. The code still assumes that only o
 ### 1. Dockview groups become the visible pane model
 
 Tailmux will stop normalizing Dockview back into a single visible group. Instead, Dockview groups will be treated as the browser-level pane containers, and a user-created left/right/top/bottom drop will be allowed to create a split.
+
+Tailmux will remove the current single-group normalization hooks and the custom drop interception that only allows center-content drops. Dockview's normal docked split behavior will become the primary layout engine, while Tailmux continues to forbid floating and pop-out layouts as a product constraint.
 
 Rationale:
 
@@ -64,6 +68,8 @@ Alternatives considered:
 
 With multiple visible panes, `activeSessionId` must mean the session whose panel currently holds focus, not merely the most recently selected tab in some other group. Tailmux will treat Dockview's active/focus events as the primary signal and will also forward direct interaction inside terminal content back to the owning panel so toolbar and keyboard actions follow the pane the user is actually working in.
 
+The contract is behavioral rather than tied to one xterm internal API: when terminal content receives focus or an equivalent user interaction, the owning Dockview panel must become the active workspace target. Implementation may use xterm's textarea focus path or another equivalent terminal-focus mechanism.
+
 Rationale:
 
 - In a split layout, multiple panels are visible at once and the old single-visible-tab assumption is no longer valid.
@@ -76,21 +82,23 @@ Alternatives considered:
 
 ### 4. Resize and fit behavior will target visible panels, not only the active one
 
-The current implementation only does a global fit for `activeSessionId` on window resize. In split layouts, Tailmux will fit every visible panel after workspace layout changes and window resize events, while still using per-panel dimension and visibility hooks for more local resizes.
+The current implementation only does a global fit for `activeSessionId` on window resize. In split layouts, container-level size changes will trigger `workspace.layout()`, and the existing panel component `layout()` hook will remain the place where each visible terminal schedules its own fit. Tailmux will still use per-panel dimension and visibility hooks for more local resizes.
 
 Rationale:
 
 - Multiple panels can change size together when a split divider moves or when the window changes size.
 - xterm must receive updated dimensions for every visible terminal to keep rows and columns correct.
-- Dockview panel APIs already surface dimension and visibility changes, so the implementation can limit work to visible panels rather than every session.
+- Dockview already propagates layout changes to visible components, so calling `workspace.layout()` at container-change points avoids inventing a second visible-panel iteration path.
 
 Alternatives considered:
 
-- Fit every session unconditionally on each layout change: rejected because hidden panels do not need immediate resize work and the extra traffic is unnecessary.
+- Manually iterate visible panels on every container resize: rejected as the primary plan because it duplicates the component `layout()` responsibility. It remains an implementation fallback only if `workspace.layout()` proves insufficient in verification.
 
 ### 5. Persisted workspace state will move to a split-aware versioned format
 
-Tailmux will bump the workspace state version and treat Dockview layout JSON as the primary representation of arrangement. Session descriptors will remain alongside the layout so restorable tmux-backed tabs can be recreated before the layout is loaded with `fromJSON(..., { reuseExistingPanels: true })`.
+Tailmux will bump the workspace payload version and treat Dockview layout JSON as the primary representation of arrangement. Session descriptors will remain alongside the layout so restorable tmux-backed tabs can be recreated before the layout is loaded with `fromJSON(..., { reuseExistingPanels: true })`.
+
+The existing local-storage key can remain in place unless implementation reveals a concrete migration problem that requires a key rename. The version field inside the payload is the default compatibility boundary for this change.
 
 The restore flow will:
 
@@ -111,9 +119,26 @@ Alternatives considered:
 
 - Preserve backward compatibility with the old persisted layout version: rejected because the new multi-group design changes the meaning of the stored workspace state enough that reset-on-version-change is cleaner.
 
-### 6. The current global toolbar model stays, but the UI must show focused-pane ownership clearly
+### 6. Flat session enumeration is secondary and derived from the layout tree
+
+Tailmux will keep the dashboard as a flat session list for this phase. For list display and fallback activation only, it will derive a stable flattened session order from the Dockview layout tree and panel order rather than treating `workspace.groups` iteration as an implicit source of truth.
+
+Rationale:
+
+- The dashboard already uses a single list container and does not need structural UI changes for the first multi-pane release.
+- Dockview JSON is already the primary representation of layout, so deriving flat list order from that structure keeps list semantics aligned with the actual workspace.
+- This avoids making `orderedSessionIds` compete with Dockview JSON as a second layout source.
+
+Alternatives considered:
+
+- Make the dashboard group-aware now: rejected because it expands UI scope without changing the core split behavior.
+- Keep relying on raw `workspace.groups` iteration order: rejected because it is too implicit for a feature that now has multi-group semantics.
+
+### 7. The current global toolbar model stays, but the UI must show focused-pane ownership clearly
 
 The existing external tmux and keyboard controls will remain global controls rather than becoming per-pane embedded toolbars. To keep that usable in a split layout, the focused pane must be visually obvious and the workspace summary should describe the currently targeted session.
+
+The focused-pane signal must apply to the visible panel content area, not only to the tab strip, so users can identify the action target even when multiple terminals are black-background panes side by side.
 
 Rationale:
 
@@ -130,6 +155,7 @@ Alternatives considered:
 - [Focus ambiguity between visible panes] -> Forward pointer/focus events from terminal roots into Dockview panel activation and add stronger visual focus styling for the targeted pane.
 - [More resize and websocket resize traffic] -> Debounce global layout saves and fit only visible panels after layout-affecting events.
 - [Corrupted or stale persisted layout data] -> Use a new workspace state version, filter restored layouts to known session IDs, and fall back to the default empty workspace on invalid state.
+- [Flat dashboard ordering becomes confusing across groups] -> Derive flattened list order from the Dockview layout tree, keep the dashboard flat for this phase, and document that it is a management surface rather than a spatial map.
 - [Mobile drag/drop remains weaker than desktop] -> Treat split layouts as desktop-first in docs and avoid promising touch-optimized pane management in this change.
 - [User confusion when shell tabs disappear after reload from a complex layout] -> Keep the existing summary toast behavior and make the message apply to split layouts as well.
 
@@ -142,5 +168,4 @@ Alternatives considered:
 
 ## Open Questions
 
-- Should the dashboard remain a flat session list in this phase, or should it show which workspace group each session belongs to? Current design assumes a flat list is acceptable.
-- Should the UI expose explicit split commands later in addition to drag/drop, or is drag/drop alone sufficient for the first multi-pane release?
+None for this change. Group-aware dashboard structure and explicit split commands are intentionally deferred to follow-up work.

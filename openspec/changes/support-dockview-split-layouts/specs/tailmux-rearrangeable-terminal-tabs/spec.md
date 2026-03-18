@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
-### Requirement: Browser terminal tabs are freely rearrangeable within one workspace group
+### Requirement: Browser terminal tabs are freely rearrangeable across workspace groups
 Tailmux SHALL expose browser terminal tabs through a workspace that allows users to reorder tabs by drag and drop, create vertical or horizontal split layouts by docking tabs into edge positions, move tabs between visible groups, activate any tab directly from the workspace, and close tabs from the workspace surface.
 
-The workspace SHALL allow multiple visible Dockview groups and SHALL NOT collapse a valid split layout back into a single visible group.
+The workspace SHALL allow multiple visible Dockview groups and SHALL NOT collapse a valid split layout back into a single visible group. The workspace SHALL NOT create floating groups or pop-out groups in this change.
 
 #### Scenario: User reorders terminal tabs inside a group
 - **WHEN** a user drags one terminal tab to a different position in the same workspace tab strip
@@ -19,6 +19,16 @@ The workspace SHALL allow multiple visible Dockview groups and SHALL NOT collaps
 - **WHEN** a user drags a terminal tab from one visible workspace group into another existing group
 - **THEN** the tab becomes part of the destination group
 - **AND THEN** the source and destination groups remain otherwise intact
+
+#### Scenario: Moving the last tab out of a group does not leave an empty visible group
+- **WHEN** a user drags the last remaining tab out of a visible workspace group into a different split position
+- **THEN** Tailmux does not leave behind an empty visible workspace group
+- **AND THEN** only occupied workspace groups remain visible after the move
+
+#### Scenario: Split creation remains docked within the workspace
+- **WHEN** a user rearranges terminal tabs to create additional visible panes
+- **THEN** Tailmux creates only docked workspace groups inside the current workspace
+- **AND THEN** it does not create floating or pop-out layouts
 
 ### Requirement: Reordering and activation preserve terminal session continuity
 Tailmux SHALL preserve the underlying terminal session, terminal buffer, and browser-side terminal state when a tab is reordered within a group, moved between groups, docked into a split, or when the active workspace pane changes.
@@ -43,7 +53,7 @@ Reordering, moving, or activating a tab SHALL NOT recreate the session transport
 ### Requirement: Workspace-scoped actions target the active terminal tab
 Tailmux SHALL derive the active browser terminal session from the currently focused workspace panel and SHALL route tab-scoped actions through that active session even when multiple terminal panes are visible at the same time.
 
-Tab-scoped actions include header buttons, dashboard switch and close behavior, and mobile keyboard or tmux controls.
+Tab-scoped actions include header buttons, dashboard switch and close behavior, and mobile keyboard or tmux controls. For this change, the dashboard SHALL remain a flat session list even when sessions are distributed across multiple visible groups.
 
 #### Scenario: Header tmux action follows the focused split pane
 - **WHEN** a user focuses a tmux-backed terminal pane in a split layout and triggers a header tmux action
@@ -56,7 +66,7 @@ Tab-scoped actions include header buttons, dashboard switch and close behavior, 
 - **AND THEN** subsequent keyboard and toolbar actions use that pane's session
 
 #### Scenario: Dashboard switch activates a tab in another visible group
-- **WHEN** a user chooses a session from the dashboard and that session belongs to a different visible workspace group
+- **WHEN** a user chooses a session from the flat dashboard list and that session belongs to a different visible workspace group
 - **THEN** the corresponding workspace tab becomes active in its group
 - **AND THEN** subsequent tab-scoped actions target that activated session
 

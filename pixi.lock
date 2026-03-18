@@ -103,6 +103,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ff/9a/9afaade874b2fa6c752c36f1548f718b5b83af81ed9b76628329dab81c1b/rfc3986-2.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/14/25/b208c5683343959b670dc001595f2f3737e051da617f66c31f7c4fa93abc/rich-14.3.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/64/ad/ad450332cc3541b50dc41734767610149fb39678d94a17264fca13dc8577/RXPY-0.1.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/f5/5f/f17563f28ff03c7b6799c50d01d5d856a1d55f2676f537ca8d28c7f627cd/scipy-1.17.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/46/f5af3402b579fd5e11573ce652019a67074317e18c1935cc0b4ba9b35552/secretstorage-3.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
@@ -513,7 +514,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: b984eaa9ed7c8f37c992505e18a5650e5e9978a73b0ffee86f8211d483f1c041
+  sha256: 826b77ac7c7873dd784b1594fb68aaf8351edba9286cf1575b0087d3c9902ad6
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7
@@ -530,6 +531,7 @@ packages:
   - fastapi>=0.135.1,<0.136
   - uvicorn>=0.41.0,<0.42
   - platformdirs>=4.9.4,<5
+  - rxpy>=0.1.0,<0.2
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/c6/50/e0edd38dcd63fb26a8547f13d28f7a008bc4a3fd4eb4ff030673f22ad41a/hydra_core-1.3.2-py3-none-any.whl
   name: hydra-core
@@ -1702,6 +1704,10 @@ packages:
   - pkg:pypi/ruff?source=compressed-mapping
   size: 9232759
   timestamp: 1772571785328
+- pypi: https://files.pythonhosted.org/packages/64/ad/ad450332cc3541b50dc41734767610149fb39678d94a17264fca13dc8577/RXPY-0.1.0.tar.gz
+  name: rxpy
+  version: 0.1.0
+  sha256: c26978f66219140844f2c2eb1c1b689bc40fa78da354fe42c160141ed68eb3a4
 - pypi: https://files.pythonhosted.org/packages/f5/5f/f17563f28ff03c7b6799c50d01d5d856a1d55f2676f537ca8d28c7f627cd/scipy-1.17.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
   name: scipy
   version: 1.17.1
