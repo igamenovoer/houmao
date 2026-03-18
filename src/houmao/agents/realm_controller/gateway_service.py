@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -426,7 +427,7 @@ class GatewayServiceRuntime:
             return False, str(exc)
         return True, None
 
-    def _load_notifier_mailbox_config(self):  # type: ignore[no-untyped-def]
+    def _load_notifier_mailbox_config(self) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by the notifier."""
 
         manifest_path = self.m_attach_contract.manifest_path

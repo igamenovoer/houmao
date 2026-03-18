@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
@@ -14,7 +14,17 @@ import shutil
 import sqlite3
 import sys
 import time
-from typing import Callable, ClassVar, Iterable, Iterator, Literal, Sequence, TextIO, TypeVar
+from typing import (
+    Callable,
+    ClassVar,
+    Iterable,
+    Iterator,
+    Literal,
+    Sequence,
+    TextIO,
+    TypedDict,
+    TypeVar,
+)
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -43,6 +53,19 @@ _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _STASHED_ENTRY_RE = re.compile(r"^(?P<address>.+)--(?P<suffix>[0-9a-f]{32})$")
 
 _ManagedRequestT = TypeVar("_ManagedRequestT", bound="_ManagedRequestModel")
+
+
+class _LocalMessageStateRow(TypedDict):
+    """Typed mailbox-local state row materialized from SQLite projections."""
+
+    message_id: str
+    thread_id: str
+    created_at_utc: str
+    subject: str
+    is_read: bool
+    is_starred: bool
+    is_archived: bool
+    is_deleted: bool
 
 
 class ManagedMailboxOperationError(RuntimeError):
@@ -611,7 +634,7 @@ def ensure_mailbox_local_state(
 def _attached_local_mailboxes(
     connection: sqlite3.Connection,
     registrations: Iterable[MailboxRegistration],
-) -> Iterator[dict[str, str]]:
+) -> AbstractContextManager[dict[str, str]]:
     """Attach mailbox-local SQLite databases to one shared-root SQLite connection."""
 
     return _attached_local_mailboxes_with_options(
@@ -747,7 +770,7 @@ def _registration_local_state_rows(
     *,
     connection: sqlite3.Connection,
     registration_id: str,
-) -> list[dict[str, object]]:
+) -> list[_LocalMessageStateRow]:
     """Build mailbox-local state rows from shared structural projections plus legacy state."""
 
     rows = connection.execute(
@@ -793,7 +816,13 @@ def _coerce_optional_bool(value: object, *, default: bool) -> bool:
 
     if value is None:
         return default
-    return bool(int(value))
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, (str, bytes, bytearray)):
+        return bool(int(value))
+    raise TypeError(f"Unsupported SQLite boolean value: {value!r}")
 
 
 def _default_read_for_folder(folder_name: str) -> bool:

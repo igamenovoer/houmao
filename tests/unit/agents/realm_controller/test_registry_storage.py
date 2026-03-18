@@ -17,7 +17,6 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryTerminalV1,
 )
 from houmao.agents.realm_controller.registry_storage import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
     DEFAULT_REGISTRY_LEASE_TTL,
     LIVE_AGENT_REGISTRY_SCHEMA,
     cleanup_stale_live_agent_records,
@@ -27,6 +26,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record,
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
+from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 def _sample_record(

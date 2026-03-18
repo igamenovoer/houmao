@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from houmao.owned_paths import (
     AGENTSYS_JOB_DIR_ENV_VAR,
@@ -244,7 +244,11 @@ class RuntimeSessionController:
         self._reset_operation_warnings()
         backend_send_mail_prompt = getattr(self.backend_session, "send_mail_prompt", None)
         if callable(backend_send_mail_prompt):
-            events = backend_send_mail_prompt(prompt_request)
+            typed_send_mail_prompt = cast(
+                Callable[[MailPromptRequest], list[SessionEvent]],
+                backend_send_mail_prompt,
+            )
+            events = typed_send_mail_prompt(prompt_request)
         else:
             events = self.backend_session.send_prompt(prompt_request.prompt)
         self.persist_manifest()

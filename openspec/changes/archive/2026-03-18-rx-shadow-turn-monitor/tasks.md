@@ -38,10 +38,10 @@
 - [x] 5.5 Add launch-plan/backend policy tests for `completion_stability_seconds` extraction, validation, and diagnostics serialization
 - [x] 5.6 Update existing shadow tests in `test_cao_client_and_profile.py` that depend on `_TurnMonitor` internals to work with the new Rx-based implementation
 - [x] 5.7 Migrate the behavioral scenarios from `tests/unit/agents/realm_controller/test_cao_shadow_turn_monitor.py` into the new Rx-based test suite and delete the old file
-- [ ] 5.8 Run full `pixi run test-runtime` suite and verify no regressions
+- [x] 5.8 Run full `pixi run test-runtime` suite and verify no regressions
 
 ## 6. Cleanup
 
 - [x] 6.1 Remove `_TurnMonitor`, `_TurnMonitorPhase`, `_TurnMonitorState` type definitions from `cao_rest.py`
 - [x] 6.2 Update issue-002 status to "Fixed on `devel`" and cross-reference this change
-- [ ] 6.3 Run `pixi run format && pixi run lint && pixi run typecheck` and fix any issues
+- [x] 6.3 Run `pixi run format && pixi run lint && pixi run typecheck` and fix any issues

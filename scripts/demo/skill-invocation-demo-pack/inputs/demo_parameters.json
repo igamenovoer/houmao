@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "demo_id": "skill-invocation-demo-pack",
+  "agent_def_dir": "tests/fixtures/agents",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
+  "backend": "cao_rest",
+  "cao_base_url": "http://localhost:9889",
+  "parsing_mode": "shadow_only",
+  "tool_lanes": {
+    "claude": {
+      "blueprint": "blueprints/skill-invocation-demo-claude.yaml",
+      "agent_identity": "AGENTSYS-skill-invocation-demo-claude"
+    },
+    "codex": {
+      "blueprint": "blueprints/skill-invocation-demo-codex.yaml",
+      "agent_identity": "AGENTSYS-skill-invocation-demo-codex"
+    }
+  },
+  "prompt": {
+    "trigger_file": "inputs/trigger_prompt.md",
+    "trigger_phrase": "workspace probe handshake",
+    "marker_relative_path": ".houmao-skill-invocation-demo/markers/workspace-probe.json",
+    "expected_marker_payload": {
+      "schema_version": 1,
+      "probe_id": "skill-invocation-demo",
+      "marker_kind": "workspace_probe_handshake",
+      "status": "ok"
+    }
+  },
+  "automatic": {
+    "marker_timeout_seconds": 180
+  }
+}

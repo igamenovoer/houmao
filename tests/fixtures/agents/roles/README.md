@@ -9,4 +9,8 @@ Each role package contains:
 
 Roles are applied after a brain is constructed and the tool process has started.
 
-Use lightweight roles such as `mailbox-demo` for narrow mailbox/runtime-contract turns in copied dummy projects. Use heavyweight roles such as `gpu-kernel-coder` when the scenario intentionally exercises broad repository-scale engineering behavior.
+Use lightweight roles such as `skill-invocation-demo` for narrow installed-skill checks in copied dummy projects.
+
+Use lightweight roles such as `mailbox-demo` for narrow mailbox/runtime-contract turns in copied dummy projects.
+
+Use heavyweight roles such as `gpu-kernel-coder` when the scenario intentionally exercises broad repository-scale engineering behavior.

@@ -910,15 +910,20 @@ def _row_to_gateway_notifier_audit_record(
         )
         for item in payload
     )
+    audit_id = _require_sqlite_int(row[0], field_name="audit_id")
+    unread_count = (
+        None if row[2] is None else _require_sqlite_int(row[2], field_name="unread_count")
+    )
+    queue_depth = None if row[7] is None else _require_sqlite_int(row[7], field_name="queue_depth")
     return GatewayNotifierAuditRecord(
-        audit_id=int(row[0]),
+        audit_id=audit_id,
         poll_time_utc=str(row[1]),
-        unread_count=None if row[2] is None else int(row[2]),
+        unread_count=unread_count,
         unread_digest=None if row[3] is None else str(row[3]),
         unread_summary=unread_summary,
         request_admission=None if row[5] is None else cast(GatewayAdmissionState, str(row[5])),
         active_execution=None if row[6] is None else cast(GatewayExecutionState, str(row[6])),
-        queue_depth=None if row[7] is None else int(row[7]),
+        queue_depth=queue_depth,
         outcome=cast(GatewayNotifierAuditOutcome, str(row[8])),
         enqueued_request_id=None if row[9] is None else str(row[9]),
         detail=None if row[10] is None else str(row[10]),
@@ -1017,6 +1022,16 @@ def _require_json_string(value: object, *, key: str) -> str:
             f"Gateway notifier audit unread_summary_json is missing string field {key!r}."
         )
     return field_value
+
+
+def _require_sqlite_int(value: object, *, field_name: str) -> int:
+    """Return one SQLite integer field with strict runtime validation."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SessionManifestError(
+            f"Gateway notifier audit field {field_name!r} must be stored as an integer."
+        )
+    return value
 
 
 def _load_json_mapping(path: Path, *, missing_prefix: str) -> GatewayJsonObject:

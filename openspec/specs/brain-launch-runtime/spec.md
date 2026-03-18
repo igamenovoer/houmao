@@ -709,9 +709,13 @@ For the corrected two-axis shadow surface model, the unknown-to-stalled timer SH
 
 `input_mode = unknown` by itself SHALL keep the surface non-ready, but SHALL NOT trigger the unknown-to-stalled timer when `business_state` remains known.
 
+The unknown-to-stalled timeout SHALL measure inter-observation gaps rather than wall-clock elapsed time from a fixed start timestamp. When polling intervals vary (slow network, slow CAO), the effective timeout SHALL scale proportionally to the number of actual observations rather than firing after a fixed wall-clock duration that may contain fewer observations than intended.
+
+Any known observation SHALL cancel a pending unknown-to-stalled timeout and reset unknown/stalled tracking. The runtime SHALL NOT enter `stalled` unless the current continuous unknown run reaches the configured threshold.
+
 #### Scenario: Unknown business state reaches stalled threshold
 - **WHEN** shadow polling remains on a supported surface with `business_state = unknown`
-- **AND WHEN** elapsed unknown duration reaches `unknown_to_stalled_timeout_seconds`
+- **AND WHEN** the continuous inter-observation gap on unknown surfaces reaches `unknown_to_stalled_timeout_seconds`
 - **THEN** runtime marks the shadow lifecycle state as `stalled`
 
 #### Scenario: Unknown input mode alone does not enter stalled
@@ -719,6 +723,18 @@ For the corrected two-axis shadow surface model, the unknown-to-stalled timer SH
 - **AND WHEN** only `input_mode = unknown`
 - **THEN** runtime keeps the surface non-ready
 - **AND THEN** it does not enter `stalled` solely because the input mode is unknown
+
+#### Scenario: Slow polling extends effective stall wait
+- **WHEN** shadow polling intervals are slower than normal (e.g., due to network latency or CAO load)
+- **AND WHEN** the surface remains unknown across those slow polls
+- **THEN** the stall timeout fires after the configured duration of continuous unknown observations
+- **AND THEN** the effective wall-clock wait is longer than it would be under normal polling intervals
+
+#### Scenario: Known observation cancels pending stall timeout
+- **WHEN** shadow polling emits unknown-for-stall observations
+- **AND WHEN** a later observation returns to a known surface before the stall threshold is reached
+- **THEN** runtime cancels the pending unknown-to-stalled timeout
+- **AND THEN** it does not emit `stalled` unless a later continuous unknown run reaches the threshold
 
 ### Requirement: Runtime emits stalled lifecycle anomaly codes
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL emit dedicated anomaly codes for stalled lifecycle transitions:
@@ -767,9 +783,11 @@ For `shadow_only`, the runtime SHALL treat a surface as submit-ready only when a
 - `input_mode = freeform`
 
 For `shadow_only`, the runtime SHALL surface projected dialog data derived from `output?mode=full` and SHALL NOT require parser-owned prompt-associated answer extraction to complete the turn.
-For `shadow_only`, generic success terminality SHALL require a return to the submit-ready surface plus either:
-- projected-dialog change observed after submit, or
+For `shadow_only`, generic success terminality SHALL require a return to the submit-ready surface plus previously-seen post-submit activity from either:
+- normalized shadow-text change observed after submit, or
 - post-submit observation of `business_state = working`.
+
+That candidate-complete surface SHALL then remain stable for `completion_stability_seconds` before generic shadow completion is emitted. State changes during that stability window SHALL reset the pending completion window.
 
 This generic completion gate intentionally uses full `submit_ready`, not merely "the surface looks typeable again." A `shadow_only` turn SHALL NOT complete while `business_state = working`, even when `input_mode = freeform`.
 
@@ -826,7 +844,7 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 #### Scenario: `shadow_only` does not complete on submit-ready surface alone when no post-submit evidence exists
 - **WHEN** a `shadow_only` turn returns to the derived submit-ready surface
 - **AND WHEN** the runtime has not observed post-submit `business_state = working`
-- **AND WHEN** projected dialog has not changed since submit
+- **AND WHEN** normalized shadow text has not changed since submit
 - **THEN** the runtime does not mark the turn complete yet
 - **AND THEN** it continues monitoring or fails according to turn-monitor timeout or stall policy
 
@@ -852,13 +870,16 @@ At minimum, the readiness path SHALL evaluate each observation in this priority 
 
 At minimum, the completion path SHALL evaluate each observation in this priority order:
 
-1. update progress evidence from projected-dialog change and `business_state = working`
+1. update progress evidence from normalized shadow text change derived from `DialogProjection.normalized_text` and `business_state = working`
 2. `availability in {unsupported, disconnected}` -> fail
 3. `business_state = awaiting_operator` -> blocked outcome
 4. unknown-for-stall surface -> unknown or stalled path
 5. `business_state = working` -> keep `in_progress` regardless of `input_mode`
-6. `submit_ready` plus previously-seen progress evidence -> complete
+6. `submit_ready` plus previously-seen progress evidence plus completion stability window elapsed -> complete
 7. otherwise remain in a post-submit waiting state
+
+The turn monitor SHALL be implemented as ReactiveX pipelines using `reactivex` operators for temporal logic rather than hand-rolled mutable fields and manual timestamp arithmetic.
+The turn monitor's temporal operators SHALL consume the full classified-state stream so non-target observations can cancel pending stall and completion timers instead of being hidden behind filtered sub-streams.
 
 #### Scenario: Working modal surface remains in progress during completion
 - **WHEN** a post-submit `shadow_only` observation shows `availability = supported`, `business_state = working`, and `input_mode = modal`
@@ -869,6 +890,50 @@ At minimum, the completion path SHALL evaluate each observation in this priority
 - **WHEN** a `shadow_only` observation shows `business_state = awaiting_operator`
 - **THEN** the runtime routes the observation to a blocked-surface outcome before considering ready or completion gating
 - **AND THEN** it does not treat that observation as submit-ready or completed
+
+### Requirement: Shadow completion requires stability window before declaring turn complete
+For CAO sessions in `parsing_mode=shadow_only`, the runtime SHALL accept a configurable stability window (`completion_stability_seconds`) from the CAO shadow policy config surface and SHALL NOT declare a turn complete on a single idle observation after post-submit activity. Instead, the runtime SHALL require `completion_stability_seconds` of continuous idle observations with no state changes before emitting a completion event.
+
+When unset, `completion_stability_seconds` SHALL default to 1.0 second.
+
+Each new state change (`DialogProjection.normalized_text` change after pipeline normalization, `business_state` transition) observed during the stability window SHALL reset the stability timer.
+
+The stability window applies only to generic shadow completion. Caller-owned completion observers (e.g., mailbox sentinel detection) that find a definitive result MAY bypass the stability window and complete immediately.
+
+#### Scenario: Transient idle flicker does not trigger false completion
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** a subsequent observation within `completion_stability_seconds` shows `business_state = working` again
+- **THEN** the runtime resets the stability timer and does not declare the turn complete
+- **AND THEN** the runtime continues monitoring for sustained idle
+
+#### Scenario: Sustained idle after activity triggers completion
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** no further state changes occur for `completion_stability_seconds`
+- **THEN** the runtime declares the turn complete
+
+#### Scenario: Normalized shadow text change resets stability window
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** the normalized shadow text changes again before `completion_stability_seconds` elapses
+- **THEN** the runtime resets the stability timer
+- **AND THEN** it continues monitoring for a fresh sustained-idle window
+
+#### Scenario: Mailbox observer bypasses stability window on definitive result
+- **WHEN** a `shadow_only` mailbox turn's completion observer detects a valid sentinel-delimited result in post-submit shadow text
+- **THEN** the runtime completes the turn immediately with that result
+- **AND THEN** the generic stability window does not delay the mailbox result
+
+### Requirement: Shadow turn monitor supports deterministic time-based testing
+The shadow turn monitor's temporal logic SHALL be testable with deterministic virtual-time scheduling. Unit tests SHALL be able to advance time precisely, verify debounce windows, timeout thresholds, and observation sequences without real sleeps or wall-clock timing dependencies.
+
+#### Scenario: Unit test verifies debounce window with virtual time
+- **WHEN** a test creates a shadow completion pipeline with a `TestScheduler`
+- **AND WHEN** the test advances virtual time past the stability window after emitting an idle observation
+- **THEN** the pipeline emits a completion event at the expected virtual timestamp
+
+#### Scenario: Unit test verifies stall timeout with virtual time
+- **WHEN** a test creates a shadow readiness pipeline with a `TestScheduler`
+- **AND WHEN** the test emits unknown observations and advances virtual time past the stall threshold
+- **THEN** the pipeline emits a stalled event at the expected virtual timestamp
 
 ### Requirement: Shadow runtime distinguishes operator-blocked surfaces from modal non-ready surfaces
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL distinguish between surfaces that are blocked on operator action and surfaces that are merely modal or otherwise not yet freeform-ready.
@@ -895,7 +960,7 @@ For CAO-backed turns in both `parsing_mode=cao_only` and `parsing_mode=shadow_on
 This shared post-processing step SHALL NOT sanitize/rewrite `cao_only` extracted answer text. It SHALL canonicalize status/provenance into runtime-stable values for downstream consumers and record/log raw backend values for diagnostics.
 
 For `shadow_only`, shared post-processing SHALL distinguish projected dialog content from any caller-owned answer association logic, SHALL expose first-class `dialog_projection` and `surface_assessment` payload fields, and SHALL NOT label projected dialog as the authoritative final answer for the current prompt by default.
-For `shadow_only`, the surfaced `dialog_projection` SHALL remain a best-effort text projection that is suitable for lifecycle diffing, operator inspection, and caller-owned best-effort extraction, but SHALL NOT be represented as an exact recovered reply transcript.
+For `shadow_only`, the surfaced `dialog_projection` SHALL remain a best-effort text projection that is suitable for operator inspection and caller-owned best-effort extraction. Lifecycle change evidence MAY instead use normalized shadow text derived from the same parser output, and projected dialog SHALL NOT be represented as an exact recovered reply transcript.
 For `shadow_only`, downstream machine-critical parsing SHALL rely on explicit schema-shaped output contracts or caller-owned extraction rules over the available text surfaces rather than on projection fidelity alone.
 For `shadow_only`, shared post-processing SHALL NOT preserve `output_text` as a compatibility alias to projected dialog.
 If raw CAO `tail` text is retained for debugging, it SHALL remain in diagnostics or internal-only fields and SHALL NOT become a first-class caller-facing shadow result field.

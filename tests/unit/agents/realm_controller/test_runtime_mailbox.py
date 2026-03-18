@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -260,6 +261,9 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
+            agent_name="AGENTSYS-research",
+            agent_id=derive_agent_id_from_name("AGENTSYS-research"),
+            tmux_session_name="AGENTSYS-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,

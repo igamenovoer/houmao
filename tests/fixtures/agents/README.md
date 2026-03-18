@@ -30,6 +30,12 @@ Choose `tests/fixtures/dummy-projects/` plus a lightweight role such as `mailbox
 - the launched workdir should stay small and deterministic
 - you want the demo or test to copy a tracked source tree into its own isolated output directory
 
+Choose `tests/fixtures/dummy-projects/` plus `skill-invocation-demo` and the `skill-invocation-demo-*` blueprints when:
+
+- the question under test is whether an installed skill triggers from narrow prompt wording
+- verification should rely on a deterministic side effect instead of assistant prose
+- the launched workdir should stay small, copied, and demo-owned
+
 Choose a repo worktree plus a heavyweight role such as `gpu-kernel-coder` when:
 
 - the workflow intentionally exercises broad repository discovery
@@ -43,6 +49,9 @@ Quick decision tree:
    If `no`, use a copied dummy project.
 2. Is the task a narrow mailbox/demo/runtime-contract action?
    If `yes`, prefer `mailbox-demo`.
+   If `no`, continue.
+3. Is the task a narrow installed-skill invocation check?
+   If `yes`, prefer `skill-invocation-demo` plus the recipe-owned `skill-invocation-demo-*` fixture family.
    If `no`, select the role family that matches the broader workflow.
 
 ### `agents/brains/tool-adapters/`
@@ -71,6 +80,7 @@ Stores reusable skills in Agent Skills format.
 Use this when:
 
 - adding/editing reusable task instructions that can be installed into runtime homes
+- defining a reusable narrow probe contract such as `skill-invocation-probe`
 
 ### `agents/brains/brain-recipes/<tool>/*.yaml`
 
@@ -79,6 +89,7 @@ Stores declarative, secret-free brain presets.
 Use this when:
 
 - you want a reusable preset for `{tool, skills, config profile, credential profile-name}`
+- you want recipes to own the selected probe skill together with the tool/config/credential inputs for the skill-invocation demo flow
 
 ### `agents/brains/api-creds/<tool>/<profile>/`
 
@@ -98,6 +109,7 @@ Stores brain-agnostic role packages.
 Use this when:
 
 - defining behavior/policy for an agent independent of tool/runtime layout
+- biasing a copied dummy-project session toward one narrow flow such as `mailbox-demo` or `skill-invocation-demo`
 
 ### `agents/blueprints/<agent>.yaml`
 
@@ -107,6 +119,11 @@ Use this when:
 
 - you want one named, shareable agent definition without embedding secrets
 - you want CLI entrypoints such as `build-brain --blueprint ...` or `start-session --blueprint ...` to resolve the role and the recipe-selected tool/config/credential inputs together
+
+Remember the fixture-model boundary:
+
+- recipes own tool, skills, config profile, and credential profile
+- blueprints bind one recipe to one role without restating secrets or skill lists
 
 ## Runtime Outputs (Generated)
 
