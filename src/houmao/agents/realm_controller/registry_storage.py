@@ -241,7 +241,11 @@ def remove_live_agent_record(
             record = _read_live_agent_record(path)
         except SessionManifestError:
             record = None
-        if generation_id is not None and record is not None and record.generation_id != generation_id:
+        if (
+            generation_id is not None
+            and record is not None
+            and record.generation_id != generation_id
+        ):
             return False
 
     if not record_dir.exists():

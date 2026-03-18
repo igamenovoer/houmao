@@ -13,7 +13,6 @@ from pydantic import ValidationError
 
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
-    normalize_agent_identity_name,
 )
 
 from .boundary_models import (

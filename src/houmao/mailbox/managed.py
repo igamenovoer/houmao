@@ -1494,7 +1494,10 @@ def repair_mailbox_index(
                     replace_unreadable=True,
                 ) as attached_aliases:
                     for registration in recovered_registrations.values():
-                        if registration.mailbox_path.exists() and registration.mailbox_path.is_dir():
+                        if (
+                            registration.mailbox_path.exists()
+                            and registration.mailbox_path.is_dir()
+                        ):
                             _clear_local_mailbox_state(
                                 connection=connection,
                                 local_alias=attached_aliases[registration.registration_id],
@@ -1545,7 +1548,10 @@ def repair_mailbox_index(
                     for thread_id in sorted(thread_ids):
                         _recompute_thread_summary(connection, thread_id)
                     for registration in recovered_registrations.values():
-                        if registration.mailbox_path.exists() and registration.mailbox_path.is_dir():
+                        if (
+                            registration.mailbox_path.exists()
+                            and registration.mailbox_path.is_dir()
+                        ):
                             _rebuild_local_thread_summaries(
                                 connection=connection,
                                 local_alias=attached_aliases[registration.registration_id],

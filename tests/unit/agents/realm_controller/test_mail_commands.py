@@ -602,7 +602,7 @@ def test_extract_sentinel_blocks_ignores_prompt_echo_finds_real_block() -> None:
         "Return exactly one JSON result between "
         "`AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`.\n"
         "\n"
-        'AGENTSYS_MAIL_REQUEST:\n```json\n'
+        "AGENTSYS_MAIL_REQUEST:\n```json\n"
         '{"response_contract": {"sentinel_begin": "AGENTSYS_MAIL_RESULT_BEGIN", '
         '"sentinel_end": "AGENTSYS_MAIL_RESULT_END"}}\n'
         "```\n"
@@ -630,7 +630,7 @@ def test_extract_sentinel_blocks_returns_multiple_blocks() -> None:
 
 
 def test_extract_sentinel_blocks_begin_without_end() -> None:
-    text = "AGENTSYS_MAIL_RESULT_BEGIN\n" '{"ok": true}\n'
+    text = 'AGENTSYS_MAIL_RESULT_BEGIN\n{"ok": true}\n'
     blocks = extract_sentinel_blocks(text)
     assert blocks == []
 
@@ -672,7 +672,9 @@ def _build_prompt_echo_surface() -> str:
 
 def test_shadow_contract_not_reached_for_prompt_echo_only() -> None:
     """Prompt-echo-only surface must NOT satisfy mailbox completion gating."""
-    surface_payloads = ({"surface_id": "shadow_post_submit.normalized_text", "text": _build_prompt_echo_surface()},)
+    surface_payloads = (
+        {"surface_id": "shadow_post_submit.normalized_text", "text": _build_prompt_echo_surface()},
+    )
     assert shadow_mail_result_contract_reached(surface_payloads) is False
 
 

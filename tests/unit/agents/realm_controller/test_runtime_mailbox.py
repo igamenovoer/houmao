@@ -221,7 +221,9 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
     assert receiver.launch_plan.mailbox is not None
     assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
     assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
-    assert (shared_root / "mailboxes" / "AGENTSYS-mailbox-sender@agents.localhost" / "inbox").is_dir()
+    assert (
+        shared_root / "mailboxes" / "AGENTSYS-mailbox-sender@agents.localhost" / "inbox"
+    ).is_dir()
     assert (
         shared_root / "mailboxes" / "AGENTSYS-mailbox-receiver@agents.localhost" / "inbox"
     ).is_dir()

@@ -167,8 +167,7 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     captured_tmux_env: dict[str, object] = {}
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base."
-        "set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: captured_tmux_env.update(
             {"session_name": session_name, "env_vars": dict(env_vars)}
         ),

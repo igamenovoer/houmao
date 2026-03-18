@@ -296,7 +296,9 @@ def _event_payload_text_candidates(event: SessionEvent) -> tuple[str, ...]:
     return tuple(candidates)
 
 
-def _event_mail_result_surface_candidates(event: SessionEvent) -> tuple[_MailResultTextSurface, ...]:
+def _event_mail_result_surface_candidates(
+    event: SessionEvent,
+) -> tuple[_MailResultTextSurface, ...]:
     """Return explicit completion-contract surfaces embedded in one session event."""
 
     payload = event.payload
@@ -336,7 +338,9 @@ def _mail_result_text_surfaces(events: list[SessionEvent]) -> tuple[_MailResultT
 
     for index, event in enumerate(events):
         surfaces.extend(_event_mail_result_surface_candidates(event))
-        for payload_index, payload_text in enumerate(_event_payload_text_candidates(event), start=1):
+        for payload_index, payload_text in enumerate(
+            _event_payload_text_candidates(event), start=1
+        ):
             surfaces.append(
                 _MailResultTextSurface(
                     surface_id=f"event[{index}].payload[{payload_index}]",

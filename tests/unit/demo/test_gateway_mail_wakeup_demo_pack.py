@@ -252,7 +252,9 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
         command = args[0]
         if command == "build-brain":
             return {
-                "manifest_path": str(tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml")
+                "manifest_path": str(
+                    tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml"
+                )
             }
         if command == "start-session":
             return {
@@ -644,7 +646,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         state_path=layout.state_path,
     )
 
-    assert report["parameters"]["project_fixture"] == "tests/fixtures/dummy-projects/mailbox-demo-python"
+    assert (
+        report["parameters"]["project_fixture"]
+        == "tests/fixtures/dummy-projects/mailbox-demo-python"
+    )
     assert report["parameters"]["agent"]["blueprint"] == "blueprints/mailbox-demo-codex.yaml"
     assert report["checks"]["cao_managed"] is True
     assert report["checks"]["gateway_attached"] is True

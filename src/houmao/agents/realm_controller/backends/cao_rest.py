@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from collections import deque
 import os
 import re
 import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Final, Literal, Protocol, cast
 
@@ -34,21 +35,29 @@ from ..mail_commands import (
     shadow_mail_result_contract_reached,
 )
 from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEvent
+from .cao_rx_monitor import (
+    BlockedResult,
+    CompletedResult,
+    FailedResult,
+    PipelineResult,
+    ReadyResult,
+    ShadowObservation,
+    StalledResult,
+    build_completion_pipeline,
+    build_readiness_pipeline,
+)
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .codex_bootstrap import ensure_codex_home_bootstrap
 from .shadow_parser_core import (
-    ANOMALY_STALLED_ENTERED,
-    ANOMALY_STALLED_RECOVERED,
     DialogProjection,
     ParsedShadowSnapshot,
     SurfaceAssessment,
     ShadowParserAnomaly,
     ShadowParserError,
     ShadowParserMetadata,
-    is_operator_blocked,
-    is_submit_ready,
-    is_unknown_for_stall,
 )
+from reactivex.scheduler import HistoricalScheduler
+from reactivex.subject import Subject
 from .shadow_parser_stack import (
     ShadowParser,
     ShadowParserStack,
@@ -78,6 +87,7 @@ _CAO_ONLY_READY_STATUSES: Final[set[CaoTerminalStatus]] = {
 }
 _PARSER_FAMILY_CAO_NATIVE: Final[str] = "cao_native"
 _DEFAULT_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS: Final[float] = 30.0
+_DEFAULT_COMPLETION_STABILITY_SECONDS: Final[float] = 1.0
 _DEFAULT_STALLED_IS_TERMINAL: Final[bool] = False
 
 _CANONICAL_STATUS_BY_BACKEND_STATUS: Final[dict[str, str]] = {
@@ -284,6 +294,9 @@ class ShadowOnlyTurnEngine:
                 "unknown_to_stalled_timeout_seconds": (
                     self._session._shadow_stall_policy.unknown_to_stalled_timeout_seconds
                 ),
+                "completion_stability_seconds": (
+                    self._session._shadow_stall_policy.completion_stability_seconds
+                ),
                 "stalled_is_terminal": (self._session._shadow_stall_policy.stalled_is_terminal),
                 "debug_transport_tail_excerpt": self._session._shadow_tail_excerpt(
                     parser=parser,
@@ -305,6 +318,7 @@ class _ShadowStallPolicy:
     """Runtime policy for unknown-to-stalled lifecycle handling."""
 
     unknown_to_stalled_timeout_seconds: float
+    completion_stability_seconds: float
     stalled_is_terminal: bool
 
 
@@ -315,225 +329,6 @@ class _TmuxWindowRecord:
     window_id: str
     window_index: str
     window_name: str
-
-
-_TurnMonitorPhase = Literal["readiness", "completion"]
-_TurnMonitorState = Literal[
-    "awaiting_ready",
-    "submitted_waiting_activity",
-    "in_progress",
-    "blocked_operator",
-    "stalled",
-    "completed",
-    "failed",
-]
-
-
-@dataclass
-class _TurnMonitor:
-    """Runtime-owned lifecycle monitor for shadow-mode readiness and turns.
-
-    The completion path treats projection changes as coarse evidence that the TUI
-    moved after submission. It is intentionally not a semantic answer extractor.
-    """
-
-    phase: _TurnMonitorPhase
-    m_state: _TurnMonitorState
-    m_unknown_started_at: float | None = None
-    m_stalled_started_at: float | None = None
-    m_saw_working_after_submit: bool = False
-    m_saw_projection_change_after_submit: bool = False
-    m_baseline_projection_text: str | None = None
-    m_anomalies: list[ShadowParserAnomaly] = field(default_factory=list)
-
-    def record_submit(self, *, baseline_projection: DialogProjection) -> None:
-        """Record the pre-submit projection baseline for coarse completion diffing.
-
-        The stored projection is only used to detect that the visible dialog
-        changed after submission. It is not treated as a reliable extracted reply.
-        """
-
-        self.m_state = "submitted_waiting_activity"
-        self.m_baseline_projection_text = baseline_projection.dialog_text
-        self.m_saw_working_after_submit = False
-        self.m_saw_projection_change_after_submit = False
-        self.m_unknown_started_at = None
-        self.m_stalled_started_at = None
-
-    def observe_readiness(
-        self,
-        *,
-        surface_assessment: SurfaceAssessment,
-        parser_family: str,
-        now_monotonic: float,
-        timeout_seconds: float,
-    ) -> _TurnMonitorState:
-        """Advance readiness monitoring from one parsed snapshot."""
-
-        status_label = _surface_status_label(surface_assessment)
-        if is_unknown_for_stall(surface_assessment):
-            return self._observe_unknown(
-                parser_family=parser_family,
-                now_monotonic=now_monotonic,
-                timeout_seconds=timeout_seconds,
-            )
-
-        self._recover_if_stalled(
-            parser_family=parser_family,
-            now_monotonic=now_monotonic,
-            recovered_to=status_label,
-        )
-        if surface_assessment.availability in {"unsupported", "disconnected"}:
-            self.m_state = "failed"
-            return self.m_state
-        if is_operator_blocked(surface_assessment):
-            self.m_state = "blocked_operator"
-            return self.m_state
-        self.m_state = "awaiting_ready"
-        return self.m_state
-
-    def observe_completion(
-        self,
-        *,
-        surface_assessment: SurfaceAssessment,
-        dialog_projection: DialogProjection,
-        parser_family: str,
-        now_monotonic: float,
-        timeout_seconds: float,
-    ) -> _TurnMonitorState:
-        """Advance post-submit lifecycle monitoring from one parsed snapshot.
-
-        A projection delta is used as best-effort activity evidence alongside
-        business-state transitions. Completion still remains a lifecycle judgment,
-        not semantic interpretation of the projected text.
-        """
-
-        baseline_projection_text = self.m_baseline_projection_text
-        if baseline_projection_text is None:
-            raise RuntimeError("Completion monitor requires a recorded baseline projection.")
-
-        # Treat projection drift as coarse "something changed in the TUI" evidence.
-        if dialog_projection.dialog_text != baseline_projection_text:
-            self.m_saw_projection_change_after_submit = True
-
-        if surface_assessment.business_state == "working":
-            self.m_saw_working_after_submit = True
-
-        if is_unknown_for_stall(surface_assessment):
-            return self._observe_unknown(
-                parser_family=parser_family,
-                now_monotonic=now_monotonic,
-                timeout_seconds=timeout_seconds,
-            )
-
-        recovered_to = _surface_status_label(surface_assessment)
-        if surface_assessment.availability in {"unsupported", "disconnected"}:
-            self.m_state = "failed"
-            recovered_to = _surface_status_label(surface_assessment)
-        elif is_operator_blocked(surface_assessment):
-            self.m_state = "blocked_operator"
-            recovered_to = "blocked_operator"
-        elif surface_assessment.business_state == "working":
-            self.m_state = "in_progress"
-        elif is_submit_ready(surface_assessment):
-            if self.m_saw_projection_change_after_submit or self.m_saw_working_after_submit:
-                self.m_state = "completed"
-                recovered_to = "completed"
-            else:
-                self.m_state = "submitted_waiting_activity"
-                recovered_to = "submit_ready"
-        else:
-            self.m_state = "submitted_waiting_activity"
-            recovered_to = _surface_status_label(surface_assessment)
-
-        self._recover_if_stalled(
-            parser_family=parser_family,
-            now_monotonic=now_monotonic,
-            recovered_to=recovered_to,
-        )
-        return self.m_state
-
-    def elapsed_unknown_seconds(self, *, now_monotonic: float) -> float | None:
-        """Return current continuous unknown duration, if any."""
-
-        if self.m_unknown_started_at is None:
-            return None
-        return max(now_monotonic - self.m_unknown_started_at, 0.0)
-
-    def elapsed_stalled_seconds(self, *, now_monotonic: float) -> float | None:
-        """Return current stalled duration, if any."""
-
-        if self.m_stalled_started_at is None:
-            return None
-        return max(now_monotonic - self.m_stalled_started_at, 0.0)
-
-    def saw_post_submit_activity(self) -> bool:
-        """Return whether the monitor observed any post-submit activity."""
-
-        return self.m_saw_projection_change_after_submit or self.m_saw_working_after_submit
-
-    def _observe_unknown(
-        self,
-        *,
-        parser_family: str,
-        now_monotonic: float,
-        timeout_seconds: float,
-    ) -> _TurnMonitorState:
-        """Advance unknown/stalled timing for one observation."""
-
-        if self.m_unknown_started_at is None:
-            self.m_unknown_started_at = now_monotonic
-        elapsed_unknown_seconds = max(now_monotonic - self.m_unknown_started_at, 0.0)
-        if elapsed_unknown_seconds >= timeout_seconds:
-            if self.m_stalled_started_at is None:
-                self.m_stalled_started_at = now_monotonic
-                self.m_anomalies.append(
-                    ShadowParserAnomaly(
-                        code=ANOMALY_STALLED_ENTERED,
-                        message=(
-                            "Shadow status remained unknown and entered stalled lifecycle state"
-                        ),
-                        details={
-                            "phase": self.phase,
-                            "elapsed_unknown_seconds": _format_seconds(elapsed_unknown_seconds),
-                            "parser_family": parser_family,
-                        },
-                    )
-                )
-            self.m_state = "stalled"
-            return self.m_state
-
-        if self.phase == "completion":
-            self.m_state = "submitted_waiting_activity"
-        else:
-            self.m_state = "awaiting_ready"
-        return self.m_state
-
-    def _recover_if_stalled(
-        self,
-        *,
-        parser_family: str,
-        now_monotonic: float,
-        recovered_to: str,
-    ) -> None:
-        """Record recovery when a stalled monitor sees a known state again."""
-
-        if self.m_stalled_started_at is not None:
-            elapsed_stalled_seconds = max(now_monotonic - self.m_stalled_started_at, 0.0)
-            self.m_anomalies.append(
-                ShadowParserAnomaly(
-                    code=ANOMALY_STALLED_RECOVERED,
-                    message="Shadow status recovered from stalled to known state",
-                    details={
-                        "phase": self.phase,
-                        "elapsed_stalled_seconds": _format_seconds(elapsed_stalled_seconds),
-                        "parser_family": parser_family,
-                        "recovered_to": recovered_to,
-                    },
-                )
-            )
-        self.m_unknown_started_at = None
-        self.m_stalled_started_at = None
 
 
 def default_cao_agent_store(cao_home: Path | None = None) -> Path:
@@ -1018,6 +813,7 @@ class CaoRestSession:
             "unknown_to_stalled_timeout_seconds": (
                 self._shadow_stall_policy.unknown_to_stalled_timeout_seconds
             ),
+            "completion_stability_seconds": self._shadow_stall_policy.completion_stability_seconds,
             "stalled_is_terminal": self._shadow_stall_policy.stalled_is_terminal,
         }
         if operator_blocked_excerpt:
@@ -1119,6 +915,40 @@ class CaoRestSession:
                 merged.append(anomaly)
         return tuple(merged)
 
+    @staticmethod
+    def _advance_shadow_scheduler(
+        *,
+        scheduler: HistoricalScheduler,
+        previous_monotonic: float,
+        current_monotonic: float,
+    ) -> float:
+        """Advance one same-thread scheduler by real elapsed monotonic time."""
+
+        elapsed_seconds = max(current_monotonic - previous_monotonic, 0.0)
+        if elapsed_seconds > 0:
+            scheduler.advance_by(timedelta(seconds=elapsed_seconds))
+        return current_monotonic
+
+    @staticmethod
+    def _drain_shadow_pipeline_results(
+        result_queue: deque[PipelineResult],
+    ) -> list[PipelineResult]:
+        """Drain queued pipeline results in subscription order."""
+
+        drained: list[PipelineResult] = []
+        while result_queue:
+            drained.append(result_queue.popleft())
+        return drained
+
+    @staticmethod
+    def _require_shadow_result_observation(result: PipelineResult) -> ShadowObservation:
+        """Return the observation carried by one non-timeout pipeline result."""
+
+        observation = result.observation
+        if observation is None:
+            raise RuntimeError("TimedOutResult is not emitted by the shadow monitor pipelines.")
+        return observation
+
     def _get_terminal_output_last(self) -> CaoTerminalOutputResponse:
         try:
             return self._client.get_terminal_output(self._terminal_id, mode="last")
@@ -1168,67 +998,170 @@ class CaoRestSession:
         parser_family: str,
     ) -> tuple[CaoTerminalOutputResponse, ParsedShadowSnapshot, tuple[ShadowParserAnomaly, ...]]:
         deadline = time.monotonic() + self._timeout_seconds
-        monitor = _TurnMonitor(phase="readiness", m_state="awaiting_ready")
-        last_runtime_state: _TurnMonitorState = "awaiting_ready"
+        scheduler = HistoricalScheduler()
+        observation_subject: Subject[ShadowObservation] = Subject()
+        pipeline_results: deque[PipelineResult] = deque()
+        pipeline_error: Exception | None = None
+        last_scheduler_monotonic = time.monotonic()
+        last_runtime_state = "awaiting_ready"
         last_snapshot: ParsedShadowSnapshot | None = None
         last_output: CaoTerminalOutputResponse | None = None
-        while time.monotonic() < deadline:
-            output = self._get_terminal_output_full()
-            now_monotonic = time.monotonic()
-            snapshot = self._parse_shadow_snapshot(
-                parser=parser,
-                parser_family=parser_family,
-                output=output.output,
-                baseline_pos=0,
-            )
-            runtime_state = monitor.observe_readiness(
-                surface_assessment=snapshot.surface_assessment,
-                parser_family=parser_family,
-                now_monotonic=now_monotonic,
-                timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
-            )
-            last_runtime_state = runtime_state
-            last_snapshot = snapshot
-            last_output = output
 
-            if is_submit_ready(snapshot.surface_assessment):
-                return output, snapshot, tuple(monitor.m_anomalies)
-            if runtime_state == "blocked_operator":
-                raise BackendExecutionError(
-                    self._format_shadow_operator_blocked_error(
+        def _capture_result(result: PipelineResult) -> None:
+            pipeline_results.append(result)
+
+        def _capture_error(error: Exception) -> None:
+            nonlocal pipeline_error
+            pipeline_error = error
+
+        subscription = build_readiness_pipeline(
+            observation_subject,
+            stall_timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
+            scheduler=scheduler,
+        ).subscribe(
+            on_next=_capture_result,
+            on_error=_capture_error,
+        )
+        try:
+            while True:
+                now_monotonic = time.monotonic()
+                last_scheduler_monotonic = self._advance_shadow_scheduler(
+                    scheduler=scheduler,
+                    previous_monotonic=last_scheduler_monotonic,
+                    current_monotonic=now_monotonic,
+                )
+                if pipeline_error is not None:
+                    raise pipeline_error
+
+                for result in self._drain_shadow_pipeline_results(pipeline_results):
+                    if isinstance(result, ReadyResult):
+                        return (
+                            result.observation.output,
+                            result.observation.snapshot,
+                            result.anomalies,
+                        )
+
+                    observation = self._require_shadow_result_observation(result)
+                    last_snapshot = observation.snapshot
+                    last_output = observation.output
+                    if isinstance(result, BlockedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_operator_blocked_error(
+                                parser_family=parser_family,
+                                surface_assessment=observation.snapshot.surface_assessment,
+                                output=observation.output.output,
+                                during_turn=False,
+                            )
+                        )
+                    if isinstance(result, FailedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_surface_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="readiness",
+                                surface_assessment=observation.snapshot.surface_assessment,
+                            )
+                        )
+                    if isinstance(result, StalledResult):
+                        last_runtime_state = "stalled"
+                        if self._shadow_stall_policy.stalled_is_terminal:
+                            raise BackendExecutionError(
+                                self._format_shadow_stalled_error(
+                                    parser=parser,
+                                    parser_family=parser_family,
+                                    output=observation.output.output,
+                                    phase="readiness",
+                                    parser_status=_surface_status_label(
+                                        observation.snapshot.surface_assessment
+                                    ),
+                                    elapsed_unknown_seconds=result.elapsed_unknown_seconds,
+                                    elapsed_stalled_seconds=result.elapsed_stalled_seconds,
+                                )
+                            )
+
+                if now_monotonic >= deadline:
+                    break
+
+                output = self._get_terminal_output_full()
+                snapshot = self._parse_shadow_snapshot(
+                    parser=parser,
+                    parser_family=parser_family,
+                    output=output.output,
+                    baseline_pos=0,
+                )
+                observed_at = time.monotonic()
+                last_scheduler_monotonic = self._advance_shadow_scheduler(
+                    scheduler=scheduler,
+                    previous_monotonic=last_scheduler_monotonic,
+                    current_monotonic=observed_at,
+                )
+                last_snapshot = snapshot
+                last_output = output
+                last_runtime_state = "awaiting_ready"
+                observation_subject.on_next(
+                    ShadowObservation(
+                        output=output,
+                        snapshot=snapshot,
+                        projection=snapshot.dialog_projection,
+                        monotonic_ts=observed_at,
                         parser_family=parser_family,
-                        surface_assessment=snapshot.surface_assessment,
-                        output=output.output,
-                        during_turn=False,
                     )
                 )
-            if runtime_state == "failed":
-                raise BackendExecutionError(
-                    self._format_shadow_surface_error(
-                        parser=parser,
-                        parser_family=parser_family,
-                        output=output.output,
-                        phase="readiness",
-                        surface_assessment=snapshot.surface_assessment,
-                    )
-                )
-            if runtime_state == "stalled" and self._shadow_stall_policy.stalled_is_terminal:
-                raise BackendExecutionError(
-                    self._format_shadow_stalled_error(
-                        parser=parser,
-                        parser_family=parser_family,
-                        output=output.output,
-                        phase="readiness",
-                        parser_status=_surface_status_label(snapshot.surface_assessment),
-                        elapsed_unknown_seconds=monitor.elapsed_unknown_seconds(
-                            now_monotonic=now_monotonic
-                        ),
-                        elapsed_stalled_seconds=monitor.elapsed_stalled_seconds(
-                            now_monotonic=now_monotonic
-                        ),
-                    )
-                )
-            time.sleep(self._poll_interval_seconds)
+                if pipeline_error is not None:
+                    raise pipeline_error
+
+                for result in self._drain_shadow_pipeline_results(pipeline_results):
+                    if isinstance(result, ReadyResult):
+                        return (
+                            result.observation.output,
+                            result.observation.snapshot,
+                            result.anomalies,
+                        )
+
+                    observation = self._require_shadow_result_observation(result)
+                    last_snapshot = observation.snapshot
+                    last_output = observation.output
+                    if isinstance(result, BlockedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_operator_blocked_error(
+                                parser_family=parser_family,
+                                surface_assessment=observation.snapshot.surface_assessment,
+                                output=observation.output.output,
+                                during_turn=False,
+                            )
+                        )
+                    if isinstance(result, FailedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_surface_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="readiness",
+                                surface_assessment=observation.snapshot.surface_assessment,
+                            )
+                        )
+                    if isinstance(result, StalledResult):
+                        last_runtime_state = "stalled"
+                        if self._shadow_stall_policy.stalled_is_terminal:
+                            raise BackendExecutionError(
+                                self._format_shadow_stalled_error(
+                                    parser=parser,
+                                    parser_family=parser_family,
+                                    output=observation.output.output,
+                                    phase="readiness",
+                                    parser_status=_surface_status_label(
+                                        observation.snapshot.surface_assessment
+                                    ),
+                                    elapsed_unknown_seconds=result.elapsed_unknown_seconds,
+                                    elapsed_stalled_seconds=result.elapsed_stalled_seconds,
+                                )
+                            )
+
+                time.sleep(self._poll_interval_seconds)
+        finally:
+            observation_subject.on_completed()
+            subscription.dispose()
 
         detail = (
             "Timed out waiting for shadow-ready state from mode=full output "
@@ -1262,92 +1195,190 @@ class CaoRestSession:
         dict[str, object] | None,
     ]:
         deadline = time.monotonic() + self._timeout_seconds
+        scheduler = HistoricalScheduler()
+        observation_subject: Subject[ShadowObservation] = Subject()
+        pipeline_results: deque[PipelineResult] = deque()
+        pipeline_error: Exception | None = None
+        last_scheduler_monotonic = time.monotonic()
         last_snapshot: ParsedShadowSnapshot | None = None
         last_output: CaoTerminalOutputResponse | None = None
-        monitor = _TurnMonitor(phase="completion", m_state="submitted_waiting_activity")
-        monitor.record_submit(baseline_projection=baseline_projection)
 
-        while time.monotonic() < deadline:
-            output = self._get_terminal_output_full()
-            now_monotonic = time.monotonic()
-            snapshot = self._parse_shadow_snapshot(
-                parser=parser,
-                parser_family=parser_family,
-                output=output.output,
-                baseline_pos=baseline_pos,
-            )
-            runtime_state = monitor.observe_completion(
-                surface_assessment=snapshot.surface_assessment,
-                dialog_projection=snapshot.dialog_projection,
-                parser_family=parser_family,
-                now_monotonic=now_monotonic,
-                timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
-            )
-            last_snapshot = snapshot
-            last_output = output
+        rx_completion_observer = None
+        if completion_observer is not None:
 
-            if runtime_state == "completed":
-                completion_payload: dict[str, object] | None = None
-                if completion_observer is not None:
-                    completion_payload = completion_observer(
-                        output.output,
-                        snapshot,
-                        baseline_output_text,
-                        baseline_projection,
-                    )
-                    if completion_payload is None:
-                        time.sleep(self._poll_interval_seconds)
-                        continue
-                return output, snapshot, tuple(monitor.m_anomalies), completion_payload
-            if completion_observer is not None and monitor.saw_post_submit_activity():
-                completion_payload = completion_observer(
-                    output.output,
+            def _observe_completion(
+                raw_output_text: str,
+                snapshot: ParsedShadowSnapshot,
+                pipeline_baseline_projection: DialogProjection,
+            ) -> dict[str, object] | None:
+                return completion_observer(
+                    raw_output_text,
                     snapshot,
                     baseline_output_text,
-                    baseline_projection,
+                    pipeline_baseline_projection,
                 )
-                if completion_payload is not None:
-                    return output, snapshot, tuple(monitor.m_anomalies), completion_payload
-            if runtime_state == "blocked_operator":
-                raise BackendExecutionError(
-                    self._format_shadow_operator_blocked_error(
-                        parser_family=parser_family,
-                        surface_assessment=snapshot.surface_assessment,
-                        output=output.output,
-                        during_turn=True,
-                    )
-                )
-            if runtime_state == "failed":
-                raise BackendExecutionError(
-                    self._format_shadow_surface_error(
-                        parser=parser,
-                        parser_family=parser_family,
-                        output=output.output,
-                        phase="completion",
-                        surface_assessment=snapshot.surface_assessment,
-                    )
-                )
-            if runtime_state == "stalled":
-                if self._shadow_stall_policy.stalled_is_terminal:
-                    raise BackendExecutionError(
-                        self._format_shadow_stalled_error(
-                            parser=parser,
-                            parser_family=parser_family,
-                            output=output.output,
-                            phase="completion",
-                            parser_status=_surface_status_label(snapshot.surface_assessment),
-                            elapsed_unknown_seconds=monitor.elapsed_unknown_seconds(
-                                now_monotonic=now_monotonic
-                            ),
-                            elapsed_stalled_seconds=monitor.elapsed_stalled_seconds(
-                                now_monotonic=now_monotonic
-                            ),
-                        )
-                    )
-                time.sleep(self._poll_interval_seconds)
-                continue
 
-            time.sleep(self._poll_interval_seconds)
+            rx_completion_observer = _observe_completion
+
+        def _capture_result(result: PipelineResult) -> None:
+            pipeline_results.append(result)
+
+        def _capture_error(error: Exception) -> None:
+            nonlocal pipeline_error
+            pipeline_error = error
+
+        subscription = build_completion_pipeline(
+            observation_subject,
+            stability_seconds=self._shadow_stall_policy.completion_stability_seconds,
+            stall_timeout_seconds=self._shadow_stall_policy.unknown_to_stalled_timeout_seconds,
+            baseline_projection=baseline_projection,
+            completion_observer=rx_completion_observer,
+            scheduler=scheduler,
+        ).subscribe(
+            on_next=_capture_result,
+            on_error=_capture_error,
+        )
+        try:
+            while True:
+                now_monotonic = time.monotonic()
+                last_scheduler_monotonic = self._advance_shadow_scheduler(
+                    scheduler=scheduler,
+                    previous_monotonic=last_scheduler_monotonic,
+                    current_monotonic=now_monotonic,
+                )
+                if pipeline_error is not None:
+                    raise pipeline_error
+
+                for result in self._drain_shadow_pipeline_results(pipeline_results):
+                    observation = self._require_shadow_result_observation(result)
+                    last_snapshot = observation.snapshot
+                    last_output = observation.output
+                    if isinstance(result, CompletedResult):
+                        return (
+                            observation.output,
+                            observation.snapshot,
+                            result.anomalies,
+                            result.completion_payload,
+                        )
+                    if isinstance(result, BlockedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_operator_blocked_error(
+                                parser_family=parser_family,
+                                surface_assessment=observation.snapshot.surface_assessment,
+                                output=observation.output.output,
+                                during_turn=True,
+                            )
+                        )
+                    if isinstance(result, FailedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_surface_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="completion",
+                                surface_assessment=observation.snapshot.surface_assessment,
+                            )
+                        )
+                    if (
+                        isinstance(result, StalledResult)
+                        and self._shadow_stall_policy.stalled_is_terminal
+                    ):
+                        raise BackendExecutionError(
+                            self._format_shadow_stalled_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="completion",
+                                parser_status=_surface_status_label(
+                                    observation.snapshot.surface_assessment
+                                ),
+                                elapsed_unknown_seconds=result.elapsed_unknown_seconds,
+                                elapsed_stalled_seconds=result.elapsed_stalled_seconds,
+                            )
+                        )
+
+                if now_monotonic >= deadline:
+                    break
+
+                output = self._get_terminal_output_full()
+                snapshot = self._parse_shadow_snapshot(
+                    parser=parser,
+                    parser_family=parser_family,
+                    output=output.output,
+                    baseline_pos=baseline_pos,
+                )
+                observed_at = time.monotonic()
+                last_scheduler_monotonic = self._advance_shadow_scheduler(
+                    scheduler=scheduler,
+                    previous_monotonic=last_scheduler_monotonic,
+                    current_monotonic=observed_at,
+                )
+                last_snapshot = snapshot
+                last_output = output
+                observation_subject.on_next(
+                    ShadowObservation(
+                        output=output,
+                        snapshot=snapshot,
+                        projection=snapshot.dialog_projection,
+                        monotonic_ts=observed_at,
+                        parser_family=parser_family,
+                    )
+                )
+                if pipeline_error is not None:
+                    raise pipeline_error
+
+                for result in self._drain_shadow_pipeline_results(pipeline_results):
+                    observation = self._require_shadow_result_observation(result)
+                    last_snapshot = observation.snapshot
+                    last_output = observation.output
+                    if isinstance(result, CompletedResult):
+                        return (
+                            observation.output,
+                            observation.snapshot,
+                            result.anomalies,
+                            result.completion_payload,
+                        )
+                    if isinstance(result, BlockedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_operator_blocked_error(
+                                parser_family=parser_family,
+                                surface_assessment=observation.snapshot.surface_assessment,
+                                output=observation.output.output,
+                                during_turn=True,
+                            )
+                        )
+                    if isinstance(result, FailedResult):
+                        raise BackendExecutionError(
+                            self._format_shadow_surface_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="completion",
+                                surface_assessment=observation.snapshot.surface_assessment,
+                            )
+                        )
+                    if (
+                        isinstance(result, StalledResult)
+                        and self._shadow_stall_policy.stalled_is_terminal
+                    ):
+                        raise BackendExecutionError(
+                            self._format_shadow_stalled_error(
+                                parser=parser,
+                                parser_family=parser_family,
+                                output=observation.output.output,
+                                phase="completion",
+                                parser_status=_surface_status_label(
+                                    observation.snapshot.surface_assessment
+                                ),
+                                elapsed_unknown_seconds=result.elapsed_unknown_seconds,
+                                elapsed_stalled_seconds=result.elapsed_stalled_seconds,
+                            )
+                        )
+
+                time.sleep(self._poll_interval_seconds)
+        finally:
+            observation_subject.on_completed()
+            subscription.dispose()
 
         status_text = (
             _surface_status_label(last_snapshot.surface_assessment)
@@ -1713,6 +1744,24 @@ def _resolve_shadow_stall_policy(launch_plan: LaunchPlan) -> _ShadowStallPolicy:
             "`unknown_to_stalled_timeout_seconds` must be > 0."
         )
 
+    completion_stability_raw = configured.get("completion_stability_seconds")
+    if completion_stability_raw is None:
+        completion_stability_seconds = _DEFAULT_COMPLETION_STABILITY_SECONDS
+    elif isinstance(completion_stability_raw, (int, float)) and not isinstance(
+        completion_stability_raw, bool
+    ):
+        completion_stability_seconds = float(completion_stability_raw)
+    else:
+        raise BackendExecutionError(
+            "Invalid launch metadata for shadow stall policy: "
+            "`completion_stability_seconds` must be numeric."
+        )
+    if completion_stability_seconds <= 0:
+        raise BackendExecutionError(
+            "Invalid launch metadata for shadow stall policy: "
+            "`completion_stability_seconds` must be > 0."
+        )
+
     stalled_terminal_raw = configured.get("stalled_is_terminal")
     if stalled_terminal_raw is None:
         stalled_is_terminal = _DEFAULT_STALLED_IS_TERMINAL
@@ -1726,6 +1775,7 @@ def _resolve_shadow_stall_policy(launch_plan: LaunchPlan) -> _ShadowStallPolicy:
 
     return _ShadowStallPolicy(
         unknown_to_stalled_timeout_seconds=timeout_seconds,
+        completion_stability_seconds=completion_stability_seconds,
         stalled_is_terminal=stalled_is_terminal,
     )
 

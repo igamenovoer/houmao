@@ -64,9 +64,10 @@ def test_job_dir_defaults_under_working_directory(tmp_path: Path) -> None:
         working_directory=tmp_path / "repo",
     )
 
-    assert resolved == (
-        tmp_path / "repo" / ".houmao" / "jobs" / "session-20260314-120000Z-abcd1234"
-    ).resolve()
+    assert (
+        resolved
+        == (tmp_path / "repo" / ".houmao" / "jobs" / "session-20260314-120000Z-abcd1234").resolve()
+    )
 
 
 def test_job_dir_uses_env_override_when_no_explicit_override(tmp_path: Path) -> None:

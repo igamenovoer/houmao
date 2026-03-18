@@ -419,10 +419,7 @@ def _manifest_matches_agent_identity(
 
     persisted_agent_identity = str(payload.get("agent_name", "")).strip()
     persisted_session_name = str(payload.get("tmux_session_name", "")).strip()
-    return (
-        persisted_agent_identity == agent_identity
-        and persisted_session_name == session_name
-    )
+    return persisted_agent_identity == agent_identity and persisted_session_name == session_name
 
 
 def _stop_remote_session(

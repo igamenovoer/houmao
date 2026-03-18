@@ -282,7 +282,9 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
     # mailbox before calling this helper when the mailbox root is already initialized.
     mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=config.address)
     inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
-    local_sqlite_path = resolve_active_mailbox_local_sqlite_path(mailbox_root, address=config.address)
+    local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+        mailbox_root, address=config.address
+    )
     return {
         "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
         "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
@@ -334,9 +336,7 @@ def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, 
     """Project packaged runtime-owned mailbox skills into one brain home."""
 
     source_root = (
-        resources.files("houmao.agents.realm_controller.assets")
-        / "system_skills"
-        / "mailbox"
+        resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
     )
     namespace_root = destination_root / MAILBOX_SYSTEM_NAMESPACE_DIR
     _copy_resource_tree(source_root, namespace_root)

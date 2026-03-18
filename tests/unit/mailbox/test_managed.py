@@ -904,4 +904,6 @@ def test_repair_mailbox_index_rebuilds_unreadable_local_mailbox_state(tmp_path: 
         address=recipient.address,
         message_id=request.message_id,
     ) == (0, 0, 0, 0)
-    assert list(recipient_registration.local_sqlite_path.parent.glob("mailbox.sqlite.local-unusable-*.bak"))
+    assert list(
+        recipient_registration.local_sqlite_path.parent.glob("mailbox.sqlite.local-unusable-*.bak")
+    )

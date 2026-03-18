@@ -152,11 +152,13 @@ def _sample_shadow_policy_launch_plan(
     tmp_path: Path,
     *,
     unknown_timeout_seconds: float,
+    completion_stability_seconds: float = 1.0,
     stalled_is_terminal: bool,
 ) -> LaunchPlan:
     plan = _sample_launch_plan(tmp_path, tool="codex")
     plan.metadata["cao_shadow_policy_config"] = {
         "unknown_to_stalled_timeout_seconds": unknown_timeout_seconds,
+        "completion_stability_seconds": completion_stability_seconds,
         "stalled_is_terminal": stalled_is_terminal,
     }
     return plan
@@ -1909,6 +1911,8 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
     assert parser_metadata["shadow_output_format"] == "codex_shadow_v1"
     assert parser_metadata["shadow_output_variant"] == "codex_label_v1"
     assert parser_metadata["shadow_output_format_match"] is True
+    assert parser_metadata["completion_stability_seconds"] == pytest.approx(1.0)
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(1.0)
     assert done_payload["surface_assessment"]["business_state"] == "idle"
     assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
@@ -2408,6 +2412,7 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=False,
         ),
         api_base_url="http://localhost:9889",
@@ -2424,6 +2429,8 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
     anomaly_codes = {item["code"] for item in anomalies}
 
     assert done_payload["canonical_runtime_status"] == "completed"
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(0.06)
+    assert done_payload["parser_metadata"]["completion_stability_seconds"] == pytest.approx(0.06)
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(
@@ -2524,6 +2531,7 @@ def test_cao_codex_shadow_terminal_stalled_fails_without_cross_mode_fallback(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=True,
         ),
         api_base_url="http://localhost:9889",
@@ -2631,6 +2639,7 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=False,
         ),
         api_base_url="http://localhost:9889",
@@ -2647,6 +2656,8 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
     anomaly_codes = {item["code"] for item in anomalies}
 
     assert done_payload["canonical_runtime_status"] == "completed"
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(0.06)
+    assert done_payload["parser_metadata"]["completion_stability_seconds"] == pytest.approx(0.06)
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(

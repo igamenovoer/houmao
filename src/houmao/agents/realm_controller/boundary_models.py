@@ -296,8 +296,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
 
         if self.agent_id is not None and not _SAFE_AGENT_ID_RE.fullmatch(self.agent_id):
             raise ValueError(
-                "agent_id must use a safe filesystem component form "
-                "([A-Za-z0-9][A-Za-z0-9._-]*)"
+                "agent_id must use a safe filesystem component form ([A-Za-z0-9][A-Za-z0-9._-]*)"
             )
 
         expects_tmux_identity = self.backend in _TMUX_BACKED_BACKENDS

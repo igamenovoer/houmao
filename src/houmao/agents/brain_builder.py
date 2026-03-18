@@ -661,7 +661,9 @@ def main(argv: list[str] | None = None) -> int:
     namespace = _parse_args(argv or sys.argv[1:])
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(namespace.agent_def_dir, cwd=cwd)
-    runtime_root = _normalize_path(namespace.runtime_root, base=cwd) if namespace.runtime_root else None
+    runtime_root = (
+        _normalize_path(namespace.runtime_root, base=cwd) if namespace.runtime_root else None
+    )
 
     recipe: BrainRecipe | None = None
     if namespace.recipe:

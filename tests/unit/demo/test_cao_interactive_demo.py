@@ -990,9 +990,7 @@ def test_start_demo_verified_cao_replacement_retries_later_known_configs_after_i
     stop_calls = [
         call
         for call in runner.calls
-        if len(call) > 5
-        and call[4] == "houmao.cao.tools.cao_server_launcher"
-        and call[5] == "stop"
+        if len(call) > 5 and call[4] == "houmao.cao.tools.cao_server_launcher" and call[5] == "stop"
     ]
     assert len(stop_calls) == 2
     assert stop_calls[0][stop_calls[0].index("--config") + 1] == str(paths.launcher_config_path)

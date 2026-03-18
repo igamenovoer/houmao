@@ -169,7 +169,10 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
         mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost"
     )
     assert plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
-        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost" / "mailbox.sqlite"
+        mailbox.filesystem_root
+        / "mailboxes"
+        / "AGENTSYS-research@agents.localhost"
+        / "mailbox.sqlite"
     )
     assert "AGENTSYS_MAILBOX_FS_ROOT" in plan.env_var_names
     assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
@@ -524,6 +527,7 @@ def test_build_launch_plan_records_shadow_stall_policy_config(tmp_path: Path) ->
                 "parsing_mode": "shadow_only",
                 "shadow": {
                     "unknown_to_stalled_timeout_seconds": 7,
+                    "completion_stability_seconds": 1.5,
                     "stalled_is_terminal": True,
                 },
             },
@@ -548,6 +552,7 @@ def test_build_launch_plan_records_shadow_stall_policy_config(tmp_path: Path) ->
 
     assert configured_cao_shadow_policy(plan) == {
         "unknown_to_stalled_timeout_seconds": 7.0,
+        "completion_stability_seconds": 1.5,
         "stalled_is_terminal": True,
     }
 
@@ -625,6 +630,86 @@ def test_build_launch_plan_rejects_invalid_shadow_terminality_type(
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="Expected boolean"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="cao_rest",
+                working_directory=tmp_path,
+            )
+        )
+
+
+def test_build_launch_plan_rejects_invalid_completion_stability_timeout(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = {
+        "inputs": {"tool": "codex"},
+        "runtime": {
+            "launch_executable": "codex",
+            "launch_args": [],
+            "launch_home_selector": {
+                "env_var": "CODEX_HOME",
+                "value": str(tmp_path / "home"),
+            },
+            "cao": {
+                "shadow": {
+                    "completion_stability_seconds": 0,
+                }
+            },
+        },
+        "credentials": {
+            "env_contract": {
+                "source_file": str(env_file),
+                "allowlisted_env_vars": ["OPENAI_API_KEY"],
+            }
+        },
+    }
+
+    role = load_role_package(tmp_path / "repo", "r")
+    with pytest.raises(LaunchPlanError, match="must be > 0"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="cao_rest",
+                working_directory=tmp_path,
+            )
+        )
+
+
+def test_build_launch_plan_rejects_invalid_completion_stability_type(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = {
+        "inputs": {"tool": "codex"},
+        "runtime": {
+            "launch_executable": "codex",
+            "launch_args": [],
+            "launch_home_selector": {
+                "env_var": "CODEX_HOME",
+                "value": str(tmp_path / "home"),
+            },
+            "cao": {
+                "shadow": {
+                    "completion_stability_seconds": "fast",
+                }
+            },
+        },
+        "credentials": {
+            "env_contract": {
+                "source_file": str(env_file),
+                "allowlisted_env_vars": ["OPENAI_API_KEY"],
+            }
+        },
+    }
+
+    role = load_role_package(tmp_path / "repo", "r")
+    with pytest.raises(LaunchPlanError, match="Expected number"):
         build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,

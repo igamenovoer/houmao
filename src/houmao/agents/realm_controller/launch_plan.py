@@ -32,6 +32,7 @@ _CAO_PARSING_MODE_VALUES: Final[set[str]] = {"cao_only", "shadow_only"}
 _CAO_PARSING_MODE_METADATA_KEY: Final[str] = "cao_parsing_mode_config"
 _CAO_SHADOW_POLICY_METADATA_KEY: Final[str] = "cao_shadow_policy_config"
 _CAO_SHADOW_UNKNOWN_TIMEOUT_KEY: Final[str] = "unknown_to_stalled_timeout_seconds"
+_CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds"
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 
 
@@ -269,6 +270,11 @@ def configured_cao_shadow_policy(
     timeout = value.get(_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY)
     if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
         normalized[_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY] = float(timeout)
+    completion_stability = value.get(_CAO_SHADOW_COMPLETION_STABILITY_KEY)
+    if isinstance(completion_stability, (int, float)) and not isinstance(
+        completion_stability, bool
+    ):
+        normalized[_CAO_SHADOW_COMPLETION_STABILITY_KEY] = float(completion_stability)
     stalled_terminal = value.get(_CAO_SHADOW_STALLED_TERMINAL_KEY)
     if isinstance(stalled_terminal, bool):
         normalized[_CAO_SHADOW_STALLED_TERMINAL_KEY] = stalled_terminal
@@ -374,6 +380,22 @@ def _extract_configured_cao_shadow_policy(
                 f"`runtime.cao.shadow.{_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY}` must be > 0"
             )
         policy[_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY] = normalized_timeout
+
+    completion_stability = shadow.get(_CAO_SHADOW_COMPLETION_STABILITY_KEY)
+    if completion_stability is not None:
+        if not isinstance(completion_stability, (int, float)) or isinstance(
+            completion_stability, bool
+        ):
+            raise LaunchPlanError(
+                "Expected number `runtime.cao.shadow."
+                f"{_CAO_SHADOW_COMPLETION_STABILITY_KEY}` in manifest"
+            )
+        normalized_completion_stability = float(completion_stability)
+        if normalized_completion_stability <= 0:
+            raise LaunchPlanError(
+                f"`runtime.cao.shadow.{_CAO_SHADOW_COMPLETION_STABILITY_KEY}` must be > 0"
+            )
+        policy[_CAO_SHADOW_COMPLETION_STABILITY_KEY] = normalized_completion_stability
 
     stalled_terminal = shadow.get(_CAO_SHADOW_STALLED_TERMINAL_KEY)
     if stalled_terminal is not None:

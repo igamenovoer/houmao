@@ -24,9 +24,7 @@ from houmao.agents.realm_controller.registry_models import LiveAgentRegistryReco
 def test_packaged_schema_matches_pydantic_model(
     schema_name: str,
     model: (
-        type[LaunchPlanPayloadV1]
-        | type[SessionManifestPayloadV3]
-        | type[LiveAgentRegistryRecordV2]
+        type[LaunchPlanPayloadV1] | type[SessionManifestPayloadV3] | type[LiveAgentRegistryRecordV2]
     ),
 ) -> None:
     packaged_schema = _load_packaged_schema(schema_name)
@@ -150,7 +148,9 @@ def _extract_types(schema: dict[str, Any], *, root: dict[str, Any] | None = None
     return set()
 
 
-def _select_branch(schema: dict[str, Any], root: dict[str, Any], *, target_type: str) -> dict[str, Any]:
+def _select_branch(
+    schema: dict[str, Any], root: dict[str, Any], *, target_type: str
+) -> dict[str, Any]:
     current = _resolve_refs(schema, root)
 
     direct_types = _extract_direct_types(current)
