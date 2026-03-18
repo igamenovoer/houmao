@@ -233,7 +233,7 @@ Detailed inspection note:
 
 - `GET /v1/mail-notifier` stays a compact snapshot surface.
 - Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
-- The runnable walkthrough for this behavior lives at [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md).
+- The runnable walkthrough for this behavior lives at [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), using the copied dummy-project plus lightweight `mailbox-demo` fixture shape rather than a repository worktree.
 
 ## Durable And Ephemeral Gateway Artifacts
 

@@ -6,9 +6,10 @@ This pack answers one maintainer-friendly question:
 
 > How do I provision a demo-owned dummy project, launch two CAO-backed mailbox sessions, run the roundtrip, inspect slow turns, verify the sanitized report contract, and automate regression scenarios from the pack directory itself?
 
-The pack now exposes two automation layers:
+The pack now exposes three automation layers:
 
 - `run_demo.sh` for the operator and stepwise maintainer command surface.
+- `autotest/run_autotest.sh` for canonical opt-in real-agent HTT cases.
 - `scripts/run_automation_scenarios.py` for named maintainer regression scenarios that archive machine-readable results under one automation root.
 
 ## Prerequisites
@@ -20,11 +21,11 @@ The pack now exposes two automation layers:
 
 The default verified path is still launcher-managed loopback CAO. When `CAO_BASE_URL` points at a supported loopback URL such as `http://localhost:9889`, the helper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `--cao-profile-store`, and only stops that CAO later if the current demo run started it.
 
-If `CAO_BASE_URL` points at an external CAO, the default automation path still exits with `SKIP:` guidance instead of guessing ownership or profile-store state.
+If `CAO_BASE_URL` points at an external CAO, the default `run_demo.sh` path still exits with `SKIP:` guidance instead of guessing ownership or profile-store state. The real-agent autotest harness is stricter: it fails preflight instead of treating that mismatch as a soft skip.
 
 ## Command Surface
 
-The pack wrapper now supports explicit commands:
+The pack exposes one deterministic tutorial wrapper plus one dedicated real-agent harness.
 
 ```bash
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|inspect|verify|stop] \
@@ -39,7 +40,18 @@ scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh [auto|start|roundtrip|i
   [--snapshot-report]
 ```
 
-For this mailbox roundtrip workflow, the pack uses `shadow_only` for both Claude and Codex. `cao_only` does not satisfy this pack's contract and is rejected by the pack-local scripts.
+```bash
+scripts/demo/mailbox-roundtrip-tutorial-pack/autotest/run_autotest.sh \
+  [--case <real-agent-roundtrip|real-agent-preflight|real-agent-mailbox-persistence>] \
+  [--demo-output-dir <path>] \
+  [--parameters <path>] \
+  [--expected-report <path>] \
+  [--jobs-dir <path>] \
+  [--registry-dir <path>] \
+  [--phase-timeout-seconds <seconds>]
+```
+
+For this mailbox roundtrip workflow, the pack uses `shadow_only` for both Claude and Codex. `cao_only` does not satisfy this pack's contract and is rejected by the pack-local scripts. `run_demo.sh` stays focused on the tutorial/operator flow; `autotest/run_autotest.sh` owns case selection, fail-fast real-agent preflight, timeout-bounded phase execution, and machine-readable HTT evidence.
 
 Commands:
 
@@ -49,6 +61,12 @@ Commands:
 - `inspect`: show persisted tmux/log coordinates for `sender` or `receiver`, plus live CAO `tool_state` and optional projected output tail when available.
 - `verify`: rebuild `report.json`, refresh `report.sanitized.json`, compare against `expected_report/report.json`, and optionally refresh the tracked snapshot with `--snapshot-report`.
 - `stop`: stop demo-owned live sessions and any demo-managed CAO started by the current run.
+
+Real-agent autotest cases:
+
+- `real-agent-preflight`: fail fast on missing tools, missing credential/config material, unsafe output-root reuse, unsupported CAO ownership, or non-isolated runtime roots.
+- `real-agent-roundtrip`: run `start -> roundtrip -> verify -> stop` through the pack wrapper and then reopen the mailbox artifacts from disk.
+- `real-agent-mailbox-persistence`: run the same live roundtrip flow and fail if the sender/receiver mailbox directories or canonical send/reply Markdown files are unreadable after stop.
 
 Examples:
 
@@ -68,6 +86,11 @@ scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh stop --demo-output-dir 
 scripts/demo/mailbox-roundtrip-tutorial-pack/run_demo.sh verify \
   --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs-stepwise \
   --snapshot-report
+
+# Canonical real-agent HTT path with an explicit reusable output root.
+scripts/demo/mailbox-roundtrip-tutorial-pack/autotest/run_autotest.sh \
+  --case real-agent-roundtrip \
+  --demo-output-dir scripts/demo/mailbox-roundtrip-tutorial-pack/outputs/autotest/live-roundtrip
 ```
 
 ## Demo Output Layout
@@ -98,7 +121,8 @@ The pack now separates maintainer-facing outputs from generated orchestration st
 │   ├── sender_stop.json        # emitted by explicit `stop` or successful `auto`
 │   ├── receiver_stop.json
 │   ├── stop_result.json
-│   └── cleanup_*.json          # emitted when cleanup runs after failure or interruption
+│   ├── cleanup_*.json          # emitted when cleanup runs after failure or interruption
+│   └── testplans/              # real-agent autotest results and per-phase logs
 ├── cao/                        # demo-local CAO launcher config and runtime artifacts
 ├── project/                    # copied dummy-project fixture initialized as a fresh git repo
 ├── runtime/                    # build-brain outputs and session manifests
@@ -111,12 +135,25 @@ Notes:
 - Fresh automatic `start` runs persist `shadow_only` in `<output-root>/control/demo_state.json`, and later `roundtrip` and `stop` commands reuse that persisted mode for the same demo root unless an explicit `shadow_only` override is supplied again.
 - Demo roots that still persist `cao_only` are stale for this pack and should be discarded and recreated so the workflow restarts in `shadow_only`.
 - When `--jobs-dir` is omitted, per-session jobs stay under `<demo-output-dir>/project/.houmao/jobs/<session-id>/`.
+- `autotest/run_autotest.sh` sets demo-local `--jobs-dir` and `AGENTSYS_GLOBAL_REGISTRY_DIR` roots under `<demo-output-dir>/runtime/` so the real-agent HTT path does not lean on unrelated ambient state.
 - The default tracked fixture is `tests/fixtures/dummy-projects/mailbox-demo-python`.
 - The default tracked blueprints are `blueprints/mailbox-demo-claude.yaml` and `blueprints/mailbox-demo-codex.yaml`.
 - Fresh `start` runs copy the source-only dummy project into `<demo-output-dir>/project`, write `.houmao-demo-project.json`, initialize a new git repo, and create one pinned initial commit.
 - Full reruns against the same stopped demo root re-provision that managed dummy project deterministically instead of preserving ad hoc edits inside `project/`.
 - If `<demo-output-dir>/project` already exists before a stopped demo state is present, the automation fails before any live runtime work starts.
 - The pack-local `.gitignore` ignores `outputs/` because that tree is disposable generated state.
+
+## Autotest Directory
+
+The implemented real-agent assets live under `scripts/demo/mailbox-roundtrip-tutorial-pack/autotest/`:
+
+- `run_autotest.sh`
+- `case-real-agent-preflight.sh` plus `case-real-agent-preflight.md`
+- `case-real-agent-roundtrip.sh` plus `case-real-agent-roundtrip.md`
+- `case-real-agent-mailbox-persistence.sh` plus `case-real-agent-mailbox-persistence.md`
+- `helpers/common.sh`
+
+The `.md` files in `autotest/` are operator-facing companion docs for the shipped cases. They are not copies of the design-phase OpenSpec files under `openspec/changes/add-real-agent-mailbox-roundtrip-autotest/testplans/`.
 
 ## Automatic Coverage
 
@@ -145,17 +182,25 @@ That test:
 
 The scenario runner remains the fast hermetic regression layer. Together, the scenario runner and live pytest target are deterministic automatic coverage; neither one claims to exercise the operator's real local Claude/Codex CLIs.
 
-## Real-Agent Smoke
+## Real-Agent Autotest
 
-Opt-in local CLI smoke lives under `tests/manual/manual_mailbox_roundtrip_real_agent_smoke.py`.
+The canonical live-agent contract now lives under `scripts/demo/mailbox-roundtrip-tutorial-pack/autotest/run_autotest.sh`.
 
-That manual entrypoint:
+When `--demo-output-dir` is omitted, the harness creates a timestamped case-owned output root under `scripts/demo/mailbox-roundtrip-tutorial-pack/outputs/autotest/`. Each successful or failed case writes machine-readable evidence under `<demo-output-dir>/control/testplans/` plus per-phase logs under `<demo-output-dir>/control/testplans/logs/`.
 
-- uses the tracked dummy-project plus `mailbox-demo` blueprint defaults
-- fails explicitly when `pixi`, `tmux`, `claude`, `codex`, or the selected tracked credential profiles are unavailable
-- prints `run_demo.sh inspect --agent sender|receiver ...` commands before the live roundtrip so maintainers can inspect slow sessions from a second terminal
+The companion case docs are:
 
-Treat that manual script as the real-agent promise. The automatic regression lanes remain deterministic stand-in coverage of the direct runtime mail path.
+- `autotest/case-real-agent-preflight.md`
+- `autotest/case-real-agent-roundtrip.md`
+- `autotest/case-real-agent-mailbox-persistence.md`
+
+The harness prints stable `run_demo.sh inspect ...` commands after `start` so maintainers can inspect sender and receiver sessions while the live turns are in flight. It also records those inspect commands, the final mailbox directories, and the canonical send/reply Markdown paths in the case result JSON.
+
+The compatibility boundary is explicit:
+
+- `run_demo.sh`, the scenario runner, and the deterministic live pytest lane remain regression aids.
+- `autotest/run_autotest.sh` is the only pack-owned path that claims to satisfy the real-agent live HTT contract.
+- `tests/manual/manual_mailbox_roundtrip_real_agent_smoke.py` remains available as a convenience wrapper, but it now delegates directly to `autotest/run_autotest.sh` instead of defining a separate live-flow contract.
 
 ## Scenario Automation
 

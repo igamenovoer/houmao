@@ -13,7 +13,7 @@ Success means you can run one end-to-end automatic flow, inspect the durable not
 - [ ] `pixi` is installed.
 - [ ] The repo environment is installed (`pixi install` once).
 - [ ] `tmux` is installed and on `PATH`.
-- [ ] The default Codex credential profile selected by `tests/fixtures/agents/blueprints/gpu-kernel-coder-codex.yaml` is available.
+- [ ] The default Codex credential profile selected by `tests/fixtures/agents/blueprints/mailbox-demo-codex.yaml` is available.
 - [ ] You are running from this repository checkout.
 
 The default verified path is launcher-managed loopback CAO. The helper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `CAO_PROFILE_STORE`, and stops that CAO again during cleanup when the demo owns it.
@@ -28,7 +28,7 @@ If you point `CAO_BASE_URL` at a non-loopback or intentionally external CAO serv
 ├── deliveries/                # staged Markdown plus managed delivery payload files
 ├── inputs/                    # copied tracked tutorial inputs
 ├── outputs/                   # demo-owned wake-up artifact written by the agent
-├── project/                   # git worktree of this repository; the live agent workdir
+├── project/                   # copied dummy-project fixture initialized as a fresh git repo
 ├── runtime/                   # built brain outputs and session manifests
 ├── shared-mailbox/            # shared filesystem mailbox root
 ├── brain_build.json
@@ -42,7 +42,13 @@ If you point `CAO_BASE_URL` at a non-loopback or intentionally external CAO serv
 
 By default, the wrapper uses `tmp/demo/gateway-mail-wakeup-demo-pack`. Override it with `--demo-output-dir <abs-or-rel-path>`. Relative paths resolve from the repository root.
 
-`project/` is provisioned through `git worktree add --detach ... HEAD`, so the managed agent sees committed repository state at `HEAD`, not your uncommitted changes in the source checkout.
+Notes:
+
+- The default tracked fixture is `tests/fixtures/dummy-projects/mailbox-demo-python`.
+- The default tracked blueprint is `blueprints/mailbox-demo-codex.yaml`.
+- `project/` is provisioned by copying the tracked source-only dummy project into the selected demo root, writing `.houmao-demo-project.json`, and initializing a fresh standalone git repo for that run.
+- This pack is intentionally a narrow mailbox and runtime-contract walkthrough, so it uses the copied dummy-project plus `mailbox-demo` fixture shape instead of a repository worktree plus heavyweight engineering role.
+- Demo roots that still contain the old repository-worktree layout are stale for this pack. Use a fresh `--demo-output-dir` or remove the old demo root before rerunning.
 
 ## Unread-Set Semantics
 
@@ -65,9 +71,9 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh
 
 What it does:
 
-1. Provisions `<demo-output-dir>/project` as a git worktree.
+1. Provisions `<demo-output-dir>/project` by copying the tracked dummy-project fixture and initializing it as a fresh standalone git repo.
 2. Starts or reuses loopback CAO under `<demo-output-dir>/cao/`.
-3. Builds the tracked Codex brain and starts one mailbox-enabled session.
+3. Builds the tracked lightweight mailbox-demo Codex brain and starts one mailbox-enabled session.
 4. Attaches the gateway and enables notifier polling with a one-second interval.
 5. Waits for the session to look idle, using CAO terminal status first and gateway status as a fallback.
 6. Injects one wake-up mail through the managed mailbox delivery script.
@@ -83,6 +89,8 @@ Start the live session and keep it running:
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh start
 ```
+
+If an old demo root already contains a repository worktree or another unmanaged `project/` directory, the command now fails before any live runtime work starts. That failure is intentional; remove the stale demo root or choose a fresh `--demo-output-dir`.
 
 Inject one message from inline text:
 

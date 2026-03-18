@@ -13,6 +13,8 @@ This page documents the runtime states, the transition events, and the success/f
 
 The same monitor structure is reused across both phases, but the meaning of observations changes after submit because runtime starts tracking baseline projection text, post-submit `working`, and projection changes.
 
+That projection tracking is intentionally coarse. The monitor compares best-effort projected dialog surfaces only to decide whether the visible TUI appears to have changed after submit; it does not try to interpret the semantic answer content.
+
 ## Mermaid State Transition Graph
 
 ```mermaid
@@ -72,7 +74,7 @@ The code does not implement a formal event enum, but the contract is easiest to 
 | `evt_submit` | runtime sends terminal input and calls `record_submit()` with the baseline projection | moves monitor into `submitted_waiting_activity` |
 | `evt_working_seen` | post-submit `SurfaceAssessment.business_state == "working"` | sets `m_saw_working_after_submit = true` and moves runtime to `in_progress` |
 | `evt_operator_blocked_seen` | post-submit `SurfaceAssessment.business_state == "awaiting_operator"` | moves runtime to `blocked_operator` |
-| `evt_projection_changed` | current `DialogProjection.dialog_text` differs from the recorded pre-submit baseline | sets `m_saw_projection_change_after_submit = true` |
+| `evt_projection_changed` | current `DialogProjection.dialog_text` differs from the recorded pre-submit baseline | sets `m_saw_projection_change_after_submit = true`; this is coarse TUI-change evidence, not answer extraction |
 | `evt_submit_ready_after_submit` | current snapshot satisfies `submit_ready` after submit | may complete the turn if the post-submit evidence guard has also been satisfied |
 | `evt_surface_unsupported` | `SurfaceAssessment.availability == "unsupported"` | moves runtime to `failed` |
 | `evt_surface_disconnected` | `SurfaceAssessment.availability == "disconnected"` | moves runtime to `failed` |
@@ -89,6 +91,8 @@ Success terminality is intentionally stronger than “the parser says ready.” 
   - `m_saw_working_after_submit`
 
 That rule avoids a common false positive: a snapshot may look idle again even though runtime never observed evidence that the new turn actually progressed.
+
+The `m_saw_projection_change_after_submit` branch should be read narrowly: it means the best-effort projected transcript moved after submit. It does not mean the runtime extracted or validated the assistant reply text.
 
 ## Unknown And Stalled Handling
 
@@ -128,3 +132,5 @@ The runtime interprets parser observations this way:
 - `completed` means the turn is success-terminal and payload shaping can expose `dialog_projection`, `surface_assessment`, `projection_slices`, and diagnostics
 
 A successful `completed` state still does not imply parser-owned answer association. It only means the runtime observed enough evidence to declare the turn finished under the shadow-mode lifecycle contract.
+
+If a caller needs machine-reliable reply text after completion, it should define that contract explicitly with schema-shaped prompting, sentinels, or another narrow caller-owned extraction rule over the available text surfaces.

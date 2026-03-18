@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -47,6 +48,11 @@ _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 _OUTPUT_PATH_TOKEN = "{{OUTPUT_FILE_PATH}}"
 _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/gateway-mail-wakeup-demo-pack")
+_FIXED_DEMO_PROJECT_COMMIT_UTC = "2026-03-18T00:00:00Z"
+_FIXED_DEMO_PROJECT_COMMIT_MESSAGE = "Initial dummy project snapshot"
+_FIXED_DEMO_PROJECT_AUTHOR_NAME = "Houmao Demo Fixture"
+_FIXED_DEMO_PROJECT_AUTHOR_EMAIL = "houmao-demo-fixture@example.invalid"
+_MANAGED_PROJECT_METADATA_NAME = ".houmao-demo-project.json"
 
 _ARTIFACT_FILENAMES = {
     "brain_build": "brain_build.json",
@@ -112,7 +118,7 @@ RealmControllerRunner = Callable[
     [list[str], Path, Path, Path, dict[str, str] | None],
     dict[str, Any],
 ]
-GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+GitRunner = Callable[[list[str], Path, dict[str, str] | None], subprocess.CompletedProcess[str]]
 LauncherRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 
 
@@ -174,6 +180,7 @@ class DemoParameters:
     schema_version: int
     demo_id: str
     agent_def_dir: str
+    project_fixture: str
     backend: str
     cao_base_url: str
     shared_mailbox_root_template: str
@@ -461,6 +468,9 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         agent_def_dir=_require_non_empty_string(
             payload.get("agent_def_dir"), context="agent_def_dir"
         ),
+        project_fixture=_require_non_empty_string(
+            payload.get("project_fixture"), context="project_fixture"
+        ),
         backend=_require_non_empty_string(payload.get("backend"), context="backend"),
         cao_base_url=_require_non_empty_string(payload.get("cao_base_url"), context="cao_base_url"),
         shared_mailbox_root_template=_require_non_empty_string(
@@ -585,8 +595,12 @@ def _stderr_path_for(path: Path) -> Path:
     return path.with_suffix(".err")
 
 
-def _default_git_runner(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Run one git command for demo worktree management."""
+def _default_git_runner(
+    args: list[str],
+    cwd: Path,
+    env: dict[str, str] | None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one git command for demo project provisioning."""
 
     return subprocess.run(
         args,
@@ -594,6 +608,7 @@ def _default_git_runner(args: list[str], cwd: Path) -> subprocess.CompletedProce
         check=False,
         capture_output=True,
         text=True,
+        env=None if env is None else {**os.environ, **env},
     )
 
 
@@ -609,19 +624,18 @@ def _resolved_git_reported_path(raw_path: str, *, cwd: Path) -> Path:
 def _git_output(*, args: list[str], cwd: Path, run_git: GitRunner) -> str | None:
     """Run one git command and return stripped stdout on success."""
 
-    result = run_git(args, cwd)
+    result = run_git(args, cwd, None)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
-def is_repo_project_worktree(
+def is_standalone_git_repo(
     *,
-    repo_root: Path,
     project_workdir: Path,
     run_git: GitRunner = _default_git_runner,
 ) -> bool:
-    """Return whether the path is a git worktree attached to the main repository."""
+    """Return whether the path is a standalone git repository rooted at itself."""
 
     if not project_workdir.exists():
         return False
@@ -639,67 +653,174 @@ def is_repo_project_worktree(
         cwd=project_workdir,
         run_git=run_git,
     )
-    repo_common = _git_output(
-        args=["git", "rev-parse", "--git-common-dir"],
-        cwd=repo_root,
-        run_git=run_git,
-    )
     project_common = _git_output(
         args=["git", "rev-parse", "--git-common-dir"],
         cwd=project_workdir,
         run_git=run_git,
     )
-    if project_top is None or repo_common is None or project_common is None:
+    if project_top is None or project_common is None:
         return False
 
     return _resolved_git_reported_path(
-        project_top, cwd=project_workdir
+        project_top,
+        cwd=project_workdir,
     ) == project_workdir.resolve() and _resolved_git_reported_path(
-        project_common, cwd=project_workdir
-    ) == _resolved_git_reported_path(repo_common, cwd=repo_root)
+        project_common,
+        cwd=project_workdir,
+    ) == (project_workdir.resolve() / ".git")
 
 
-def ensure_project_worktree(
+def _managed_project_metadata_path(project_workdir: Path) -> Path:
+    """Return the metadata path used to mark demo-managed dummy project repos."""
+
+    return project_workdir / _MANAGED_PROJECT_METADATA_NAME
+
+
+def _is_managed_dummy_project_repo(
     *,
-    repo_root: Path,
     project_workdir: Path,
     run_git: GitRunner = _default_git_runner,
-) -> Path:
-    """Ensure the demo project workdir exists as a git worktree of the repository."""
+) -> bool:
+    """Return whether the existing project directory is a managed dummy-project repo."""
 
-    resolved_repo_root = repo_root.resolve()
-    resolved_project_workdir = project_workdir.resolve()
-
-    if is_repo_project_worktree(
-        repo_root=resolved_repo_root,
-        project_workdir=resolved_project_workdir,
+    return _managed_project_metadata_path(project_workdir).is_file() and is_standalone_git_repo(
+        project_workdir=project_workdir,
         run_git=run_git,
-    ):
-        return resolved_project_workdir
+    )
 
-    if resolved_project_workdir.exists():
+
+def _project_fixture_dir(*, parameters: DemoParameters, repo_root: Path) -> Path:
+    """Resolve the selected tracked dummy-project fixture directory."""
+
+    return resolve_repo_relative_path(parameters.project_fixture, repo_root=repo_root)
+
+
+def _write_managed_project_metadata(*, project_workdir: Path, fixture_dir: Path) -> None:
+    """Write one marker payload for a managed copied dummy-project workdir."""
+
+    _write_json(
+        _managed_project_metadata_path(project_workdir),
+        {
+            "schema_version": 1,
+            "managed_by": "gateway-mail-wakeup-demo-pack",
+            "fixture_dir": str(fixture_dir.resolve()),
+            "prepared_at": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+        },
+    )
+
+
+def _run_required_git_command(
+    *,
+    args: list[str],
+    cwd: Path,
+    run_git: GitRunner,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Run one required git command or raise with a clear detail string."""
+
+    result = run_git(args, cwd, env)
+    if result.returncode == 0:
+        return
+    detail = result.stderr.strip() or result.stdout.strip() or "git command failed"
+    raise RuntimeError(f"`{' '.join(args)}` failed: {detail}")
+
+
+def _initialize_demo_git_repo(
+    *,
+    project_workdir: Path,
+    run_git: GitRunner = _default_git_runner,
+) -> None:
+    """Initialize one copied dummy project as a fresh pinned-metadata git repo."""
+
+    fixed_identity_env = {
+        "GIT_AUTHOR_NAME": _FIXED_DEMO_PROJECT_AUTHOR_NAME,
+        "GIT_AUTHOR_EMAIL": _FIXED_DEMO_PROJECT_AUTHOR_EMAIL,
+        "GIT_COMMITTER_NAME": _FIXED_DEMO_PROJECT_AUTHOR_NAME,
+        "GIT_COMMITTER_EMAIL": _FIXED_DEMO_PROJECT_AUTHOR_EMAIL,
+        "GIT_AUTHOR_DATE": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+        "GIT_COMMITTER_DATE": _FIXED_DEMO_PROJECT_COMMIT_UTC,
+    }
+
+    _run_required_git_command(
+        args=["git", "init", "--initial-branch", "main"],
+        cwd=project_workdir,
+        run_git=run_git,
+    )
+    _run_required_git_command(
+        args=["git", "add", "--all"],
+        cwd=project_workdir,
+        run_git=run_git,
+    )
+    _run_required_git_command(
+        args=[
+            "git",
+            "commit",
+            "--allow-empty",
+            "--no-gpg-sign",
+            "-m",
+            _FIXED_DEMO_PROJECT_COMMIT_MESSAGE,
+        ],
+        cwd=project_workdir,
+        run_git=run_git,
+        env=fixed_identity_env,
+    )
+
+
+def ensure_project_workdir_from_fixture(
+    *,
+    repo_root: Path,
+    project_fixture: Path,
+    project_workdir: Path,
+    allow_reprovision: bool,
+    run_git: GitRunner = _default_git_runner,
+) -> Path:
+    """Copy one tracked dummy project fixture and initialize a fresh git-backed workdir."""
+
+    del repo_root
+    resolved_fixture = project_fixture.resolve()
+    resolved_project_workdir = project_workdir.resolve()
+    if not resolved_fixture.is_dir():
+        raise ValueError(f"dummy project fixture directory not found: {resolved_fixture}")
+    if (resolved_fixture / ".git").exists():
         raise ValueError(
-            "demo project directory exists but is not a git worktree of the repository: "
-            f"{resolved_project_workdir}"
+            "dummy project fixture must remain source-only and may not include tracked `.git`: "
+            f"{resolved_fixture}"
         )
 
-    resolved_project_workdir.parent.mkdir(parents=True, exist_ok=True)
-    result = run_git(
-        ["git", "worktree", "add", "--detach", str(resolved_project_workdir), "HEAD"],
-        resolved_repo_root,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "git worktree add failed"
-        raise RuntimeError(f"failed to provision demo project worktree: {detail}")
+    if resolved_project_workdir.exists():
+        if not allow_reprovision:
+            raise ValueError(
+                "demo project directory already exists before a stopped demo state was found: "
+                f"{resolved_project_workdir}"
+            )
+        if not _is_managed_dummy_project_repo(
+            project_workdir=resolved_project_workdir,
+            run_git=run_git,
+        ):
+            raise ValueError(
+                "demo project directory exists but is not a demo-managed dummy-project repo: "
+                f"{resolved_project_workdir}"
+            )
+        shutil.rmtree(resolved_project_workdir)
 
-    if not is_repo_project_worktree(
-        repo_root=resolved_repo_root,
+    resolved_project_workdir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(resolved_fixture, resolved_project_workdir)
+    _write_managed_project_metadata(
+        project_workdir=resolved_project_workdir,
+        fixture_dir=resolved_fixture,
+    )
+    _initialize_demo_git_repo(
+        project_workdir=resolved_project_workdir,
+        run_git=run_git,
+    )
+
+    if not is_standalone_git_repo(
         project_workdir=resolved_project_workdir,
         run_git=run_git,
     ):
         raise RuntimeError(
-            "git worktree provisioning finished but the resulting project directory did not "
-            f"validate as a repository worktree: {resolved_project_workdir}"
+            "dummy project provisioning finished but the resulting project directory did not "
+            f"validate as a standalone git repository: {resolved_project_workdir}"
         )
     return resolved_project_workdir
 
@@ -973,7 +1094,7 @@ def _freshen_demo_output(
     pack_dir: Path,
     layout: DemoLayout,
 ) -> None:
-    """Reset fresh-run artifacts while preserving the demo project worktree."""
+    """Reset fresh-run artifacts while preserving the demo project directory."""
 
     for path in (
         layout.runtime_root,
@@ -984,6 +1105,9 @@ def _freshen_demo_output(
     ):
         if path.exists():
             shutil.rmtree(path)
+    stop_demo_path = layout.demo_output_dir / "stop_demo.json"
+    if stop_demo_path.exists():
+        stop_demo_path.unlink()
     for path in _artifact_paths(layout).values():
         if path.exists():
             path.unlink()
@@ -1788,8 +1912,25 @@ def start_demo(
 
     parameters = load_demo_parameters(parameters_path)
     layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    project_fixture = _project_fixture_dir(parameters=parameters, repo_root=repo_root)
+    stop_demo_path = layout.demo_output_dir / "stop_demo.json"
+    allow_project_reprovision = False
+
+    if layout.state_path.exists():
+        if not stop_demo_path.exists():
+            raise ValueError(
+                "demo state already exists for this output directory and has not been stopped; "
+                "run `run_demo.sh stop` first"
+            )
+        allow_project_reprovision = True
+
     _freshen_demo_output(pack_dir=pack_dir, layout=layout)
-    ensure_project_worktree(repo_root=repo_root, project_workdir=layout.project_workdir)
+    ensure_project_workdir_from_fixture(
+        repo_root=repo_root,
+        project_fixture=project_fixture,
+        project_workdir=layout.project_workdir,
+        allow_reprovision=allow_project_reprovision,
+    )
     layout.runtime_root.mkdir(parents=True, exist_ok=True)
     layout.deliveries_dir.mkdir(parents=True, exist_ok=True)
     layout.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1878,6 +2019,7 @@ def start_demo(
         "parameters_path": str(parameters_path.resolve()),
         "demo_output_dir": str(layout.demo_output_dir),
         "project_workdir": str(layout.project_workdir),
+        "project_fixture": str(project_fixture.resolve()),
         "runtime_root": str(layout.runtime_root),
         "mailbox_root": str(
             render_mailbox_root(parameters, demo_output_dir=layout.demo_output_dir)
@@ -2110,10 +2252,17 @@ def _cmd_resolve_path(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_ensure_project_worktree(args: argparse.Namespace) -> int:
-    """Provision or validate the demo project worktree."""
+def _cmd_ensure_project_workdir(args: argparse.Namespace) -> int:
+    """Provision one copied dummy-project workdir from a tracked fixture."""
 
-    print(ensure_project_worktree(repo_root=args.repo_root, project_workdir=args.project_workdir))
+    print(
+        ensure_project_workdir_from_fixture(
+            repo_root=args.repo_root,
+            project_fixture=args.project_fixture,
+            project_workdir=args.project_workdir,
+            allow_reprovision=args.allow_reprovision,
+        )
+    )
     return 0
 
 
@@ -2272,10 +2421,15 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_path.add_argument("raw_path", nargs="?")
     resolve_path.set_defaults(func=_cmd_resolve_path)
 
-    worktree = subparsers.add_parser("ensure-project-worktree")
-    worktree.add_argument("--repo-root", type=Path, required=True)
-    worktree.add_argument("--project-workdir", type=Path, required=True)
-    worktree.set_defaults(func=_cmd_ensure_project_worktree)
+    workdir = subparsers.add_parser(
+        "ensure-project-workdir",
+        aliases=["ensure-project-worktree"],
+    )
+    workdir.add_argument("--repo-root", type=Path, required=True)
+    workdir.add_argument("--project-fixture", type=Path, required=True)
+    workdir.add_argument("--project-workdir", type=Path, required=True)
+    workdir.add_argument("--allow-reprovision", action="store_true")
+    workdir.set_defaults(func=_cmd_ensure_project_workdir)
 
     start_cao = subparsers.add_parser("start-demo-cao")
     start_cao.add_argument("--repo-root", type=Path, required=True)

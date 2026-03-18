@@ -98,7 +98,7 @@
   "parameters": {
     "agent": {
       "agent_identity": "AGENTSYS-gateway-mailbox-agent",
-      "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
+      "blueprint": "blueprints/mailbox-demo-codex.yaml",
       "mailbox_address": "AGENTSYS-gateway-mailbox-agent@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent"
     },
@@ -122,6 +122,7 @@
       "idle_poll_interval_seconds": 3,
       "notifier_interval_seconds": 1
     },
+    "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
     "schema_version": 1,
     "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox"
   },

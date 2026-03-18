@@ -2,11 +2,12 @@
   "schema_version": 1,
   "demo_id": "gateway-mail-wakeup-demo-pack",
   "agent_def_dir": "tests/fixtures/agents",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
   "backend": "cao_rest",
   "cao_base_url": "http://localhost:9889",
   "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
   "agent": {
-    "blueprint": "blueprints/gpu-kernel-coder-codex.yaml",
+    "blueprint": "blueprints/mailbox-demo-codex.yaml",
     "agent_identity": "AGENTSYS-gateway-mailbox-agent",
     "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent",
     "mailbox_address": "AGENTSYS-gateway-mailbox-agent@agents.localhost"

@@ -837,7 +837,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["runtime_root"] == "<RUNTIME_ROOT>"
     assert sanitized["chat_log_path"] == "<CHAT_LOG_PATH>"
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
-    assert sanitized["parameters"]["project_fixture"] == "tests/fixtures/dummy-projects/mailbox-demo-python"
+    assert (
+        sanitized["parameters"]["project_fixture"]
+        == "tests/fixtures/dummy-projects/mailbox-demo-python"
+    )
     assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
     assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
     assert (
@@ -899,12 +902,7 @@ def test_inspect_demo_agent_tolerates_unavailable_live_state(
             "cao": {
                 "base_url": "http://localhost:9889",
                 "home_dir": str(
-                    demo_output_dir
-                    / "cao"
-                    / "runtime"
-                    / "cao_servers"
-                    / "localhost-9889"
-                    / "home"
+                    demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "home"
                 ),
             },
             "sender": {
@@ -1015,6 +1013,128 @@ def test_inspect_roundtrip_mailbox_reports_canonical_content_and_projections(
     assert evidence["reply_message_path"].endswith(
         "/msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md"
     )
+    assert evidence["sender_mailbox_dir"].endswith(
+        "/mailboxes/AGENTSYS-mailbox-sender@agents.localhost"
+    )
+    assert evidence["receiver_mailbox_dir"].endswith(
+        "/mailboxes/AGENTSYS-mailbox-receiver@agents.localhost"
+    )
+
+
+def test_resolve_real_agent_preflight_reports_success_for_demo_local_requirements(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real-agent preflight should report the resolved demo-local live prerequisites."""
+
+    demo_output_dir = tmp_path / "autotest-demo"
+
+    monkeypatch.delenv("CAO_BASE_URL", raising=False)
+    monkeypatch.delenv("CAO_PROFILE_STORE", raising=False)
+    monkeypatch.setattr(
+        HELPERS.shutil,
+        "which",
+        lambda command: f"/fake-bin/{command}",
+    )
+
+    payload = HELPERS.resolve_real_agent_preflight(
+        repo_root=_repo_root(),
+        pack_dir=PACK_DIR,
+        parameters_path=PACK_DIR / "inputs" / "demo_parameters.json",
+        demo_output_dir=demo_output_dir,
+    )
+
+    assert payload["ok"] is True
+    assert payload["output_root"]["status"] == "fresh"
+    assert payload["isolation"]["jobs_dir"] == str(demo_output_dir / "runtime" / "jobs")
+    assert payload["isolation"]["registry_root"] == str(demo_output_dir / "runtime" / "registry")
+    assert payload["cao"]["supports_demo_local_loopback_management"] is True
+    assert payload["participants"]["sender"]["tool"] == "claude"
+    assert payload["participants"]["receiver"]["tool"] == "codex"
+    assert payload["participants"]["sender"]["launch_executable_path"] == "/fake-bin/claude"
+    assert payload["participants"]["receiver"]["launch_executable_path"] == "/fake-bin/codex"
+    assert payload["blockers"] == []
+
+
+def test_resolve_real_agent_preflight_blocks_missing_live_tool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real-agent preflight should fail before startup when a required tool is missing."""
+
+    demo_output_dir = tmp_path / "autotest-demo"
+
+    def fake_which(command: str) -> str | None:
+        if command == "codex":
+            return None
+        return f"/fake-bin/{command}"
+
+    monkeypatch.delenv("CAO_BASE_URL", raising=False)
+    monkeypatch.delenv("CAO_PROFILE_STORE", raising=False)
+    monkeypatch.setattr(HELPERS.shutil, "which", fake_which)
+
+    payload = HELPERS.resolve_real_agent_preflight(
+        repo_root=_repo_root(),
+        pack_dir=PACK_DIR,
+        parameters_path=PACK_DIR / "inputs" / "demo_parameters.json",
+        demo_output_dir=demo_output_dir,
+    )
+
+    assert payload["ok"] is False
+    assert any("`codex`" in blocker for blocker in payload["blockers"])
+    assert payload["participants"]["receiver"]["launch_executable_path"] is None
+
+
+def test_build_autotest_case_result_reports_post_stop_mailbox_evidence(tmp_path: Path) -> None:
+    """Autotest result snapshots should record final mailbox paths and inspect commands."""
+
+    demo_output_dir = tmp_path / "demo"
+    layout = HELPERS.build_demo_layout(demo_output_dir=demo_output_dir)
+    sender, receiver = _deliver_roundtrip_mailbox_messages(layout.mailbox_root)
+    _write_json(
+        layout.state_path,
+        {
+            "schema_version": 3,
+            "steps": {
+                "start_complete": True,
+                "roundtrip_complete": True,
+                "verify_complete": True,
+                "stop_complete": True,
+            },
+            "sender": {
+                "mailbox_address": sender.address,
+            },
+            "receiver": {
+                "mailbox_address": receiver.address,
+            },
+            "message": {
+                "initial_body_file": str(PACK_DIR / "inputs" / "initial_message.md"),
+                "send_message_id": "msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "reply_message_id": "msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            },
+        },
+    )
+    _write_json(layout.verify_result_path, {"ok": True})
+    _write_json(layout.stop_result_path, {"stopped": True})
+
+    payload, ok = HELPERS.build_autotest_case_result(
+        pack_dir=PACK_DIR,
+        demo_output_dir=demo_output_dir,
+        case_id="real-agent-mailbox-persistence",
+        status="success",
+        phase="mailbox-persistence",
+        enforce_mailbox_persistence=True,
+    )
+
+    assert ok is True
+    assert payload["ok"] is True
+    assert payload["mailbox_persistence_ok"] is True
+    assert payload["mailbox_evidence"]["sender_mailbox_dir"].endswith(sender.address)
+    assert payload["mailbox_evidence"]["receiver_mailbox_dir"].endswith(receiver.address)
+    assert payload["mailbox_evidence"]["send_message_readable"] is True
+    assert payload["mailbox_evidence"]["reply_message_readable"] is True
+    assert "inspect --demo-output-dir" in payload["inspect_commands"]["sender"]
+    assert payload["stop_result"]["stopped"] is True
 
 
 def test_verify_sanitized_report_detects_mismatch() -> None:

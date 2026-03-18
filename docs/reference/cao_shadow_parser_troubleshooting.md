@@ -43,6 +43,8 @@ Inspect `done.payload.parser_metadata`:
 
 Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` when you need to reason about state vs visible transcript separately.
 
+If downstream automation needs the reply text itself, do not treat `dialog_projection.dialog_text` as an exact answer API. Prefer schema-shaped prompting plus explicit sentinels, then search the available text surfaces (`normalized_text`, `raw_text`, `output_text`, or `done.message`) for that contract.
+
 `shadow_parser_anomalies` entries for stalled lifecycle include:
 
 - `phase`: `readiness` or `completion`
@@ -155,6 +157,7 @@ Fixes in runtime/parser:
 - Baseline capture anchors readiness/completion monitoring and `baseline_invalidated` diagnostics.
 - Runtime terminality is driven by `TurnMonitor`, not parser-owned answer extraction.
 - The caller should read `dialog_projection` as projected visible transcript, not as an authoritative prompt answer.
+- Exact downstream extraction should be caller-owned and contract-shaped, for example by requiring one sentinel-delimited payload in the prompt.
 
 ### 4) Stalled terminal mode fails fast
 

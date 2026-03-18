@@ -996,3 +996,120 @@ def test_mailbox_roundtrip_runner_skips_external_cao_without_explicit_profile_st
     assert result.returncode == 0
     assert "SKIP: external CAO requires explicit CAO_PROFILE_STORE" in result.stdout
     assert _launcher_calls(_load_command_log(log_path)) == []
+
+
+def test_mailbox_roundtrip_autotest_harness_runs_roundtrip_case(tmp_path: Path) -> None:
+    """The real-agent autotest harness should dispatch the canonical roundtrip case."""
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts" / "demo").mkdir(parents=True)
+    (repo_root / "tests" / "fixtures").mkdir(parents=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    _copy_agent_defs(repo_root)
+
+    fake_bin_dir = tmp_path / "fake-bin"
+    fake_bin_dir.mkdir()
+    _write_fake_tools(fake_bin_dir)
+
+    state_path = tmp_path / "pixi-state.json"
+    log_path = tmp_path / "pixi-command-log.jsonl"
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
+    )
+    demo_output_dir = tmp_path / "autotest-demo"
+    result = subprocess.run(
+        [
+            str(demo_pack_dir / "autotest" / "run_autotest.sh"),
+            "--case",
+            "real-agent-roundtrip",
+            "--demo-output-dir",
+            str(demo_output_dir),
+            "--phase-timeout-seconds",
+            "30",
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    case_result = json.loads(
+        (
+            demo_output_dir / "control" / "testplans" / "case-real-agent-roundtrip.result.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert case_result["status"] == "success"
+    assert case_result["ok"] is True
+    assert case_result["mailbox_persistence_ok"] is True
+    assert case_result["mailbox_evidence"]["send_message_path"].endswith(
+        "/msg-20260316T120000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
+    )
+    assert case_result["mailbox_evidence"]["reply_message_path"].endswith(
+        "/msg-20260316T120500Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md"
+    )
+    assert "inspect --demo-output-dir" in case_result["inspect_commands"]["sender"]
+    assert (
+        demo_output_dir / "control" / "testplans" / "case-real-agent-roundtrip.preflight.json"
+    ).is_file()
+    assert (
+        demo_output_dir
+        / "control"
+        / "testplans"
+        / "logs"
+        / "case-real-agent-roundtrip"
+        / "01-start.stdout.txt"
+    ).is_file()
+
+
+def test_mailbox_roundtrip_autotest_preflight_fails_for_external_cao(tmp_path: Path) -> None:
+    """The real-agent autotest harness should fail fast on unsupported external CAO."""
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts" / "demo").mkdir(parents=True)
+    (repo_root / "tests" / "fixtures").mkdir(parents=True)
+    demo_pack_dir = _copy_demo_pack(repo_root)
+    _copy_agent_defs(repo_root)
+
+    fake_bin_dir = tmp_path / "fake-bin"
+    fake_bin_dir.mkdir()
+    _write_fake_tools(fake_bin_dir)
+
+    state_path = tmp_path / "pixi-state.json"
+    log_path = tmp_path / "pixi-command-log.jsonl"
+    env = _base_env(
+        fake_bin_dir=fake_bin_dir,
+        repo_root=repo_root,
+        state_path=state_path,
+        log_path=log_path,
+    )
+    env["CAO_BASE_URL"] = "http://cao.example.com:9889"
+
+    demo_output_dir = tmp_path / "autotest-demo"
+    result = subprocess.run(
+        [
+            str(demo_pack_dir / "autotest" / "run_autotest.sh"),
+            "--case",
+            "real-agent-preflight",
+            "--demo-output-dir",
+            str(demo_output_dir),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    preflight_result = json.loads(
+        (
+            demo_output_dir / "control" / "testplans" / "case-real-agent-preflight.result.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert preflight_result["ok"] is False
+    assert any("loopback CAO URLs" in blocker for blocker in preflight_result["blockers"])

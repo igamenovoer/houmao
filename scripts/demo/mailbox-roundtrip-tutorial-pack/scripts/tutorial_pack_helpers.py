@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from houmao.agents.brain_builder import _load_tool_adapter, load_brain_recipe
+from houmao.agents.realm_controller.loaders import load_blueprint
 from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
 from houmao.cao.rest_client import CaoRestClient
 from houmao.cao.server_launcher import (
@@ -37,6 +40,7 @@ from houmao.mailbox.filesystem import (
     resolve_active_mailbox_local_sqlite_path,
 )
 from houmao.mailbox.protocol import parse_message_document
+from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
@@ -184,6 +188,25 @@ class DemoLayout:
     sanitized_report_path: Path
     verify_result_path: Path
     stop_result_path: Path
+
+
+@dataclass(frozen=True)
+class AutotestParticipantRequirement:
+    """Resolved real-agent participant prerequisites for one tutorial pack run."""
+
+    role: str
+    blueprint_path: Path
+    brain_recipe_path: Path
+    tool_adapter_path: Path
+    tool: str
+    launch_executable: str
+    config_profile: str
+    config_profile_dir: Path
+    credential_profile: str
+    credential_profile_dir: Path
+    credential_env_path: Path
+    required_credential_paths: tuple[Path, ...]
+    optional_credential_paths: tuple[Path, ...]
 
 
 def _read_json(path: Path) -> Any:
@@ -482,6 +505,322 @@ def build_demo_layout(*, demo_output_dir: Path) -> DemoLayout:
     )
 
 
+def _default_autotest_jobs_dir(*, demo_output_dir: Path) -> Path:
+    """Return the default demo-local jobs root for real-agent autotests."""
+
+    return (build_demo_layout(demo_output_dir=demo_output_dir).runtime_root / "jobs").resolve()
+
+
+def _default_autotest_registry_root(*, demo_output_dir: Path) -> Path:
+    """Return the default demo-local registry root for real-agent autotests."""
+
+    return (build_demo_layout(demo_output_dir=demo_output_dir).runtime_root / "registry").resolve()
+
+
+def _path_is_within(path: Path, *, parent: Path) -> bool:
+    """Return whether one resolved path stays under the selected parent root."""
+
+    try:
+        return path.resolve().is_relative_to(parent.resolve())
+    except ValueError:
+        return False
+
+
+def _tool_check_payload(command_name: str) -> dict[str, Any]:
+    """Return one structured local executable check."""
+
+    resolved = shutil.which(command_name)
+    return {
+        "command": command_name,
+        "path": resolved,
+        "ok": resolved is not None,
+    }
+
+
+def _path_check_payload(path: Path, *, required: bool, kind: str) -> dict[str, Any]:
+    """Return one structured path/readability check."""
+
+    resolved = path.expanduser().resolve()
+    exists = resolved.exists()
+    is_expected_kind = resolved.is_dir() if kind == "dir" else resolved.is_file()
+    readable = exists and os.access(resolved, os.R_OK)
+    return {
+        "path": str(resolved),
+        "required": required,
+        "kind": kind,
+        "exists": exists,
+        "readable": readable,
+        "ok": (exists and is_expected_kind and readable) or (not required and not exists),
+    }
+
+
+def _resolve_autotest_participant_requirement(
+    *,
+    agent_def_dir: Path,
+    participant: DemoParticipant,
+    role: str,
+) -> AutotestParticipantRequirement:
+    """Resolve the concrete real-agent prerequisite paths for one participant."""
+
+    blueprint_path = (agent_def_dir / participant.blueprint).resolve()
+    blueprint = load_blueprint(blueprint_path)
+    recipe = load_brain_recipe(blueprint.brain_recipe_path)
+    tool_adapter_path = (
+        agent_def_dir / "brains" / "tool-adapters" / f"{recipe.tool}.yaml"
+    ).resolve()
+    adapter = _load_tool_adapter(tool_adapter_path)
+    credential_profile_dir = (
+        agent_def_dir / "brains" / "api-creds" / recipe.tool / recipe.credential_profile
+    ).resolve()
+    config_profile_dir = (
+        agent_def_dir / "brains" / "cli-configs" / recipe.tool / recipe.config_profile
+    ).resolve()
+    credential_files_dir = (credential_profile_dir / adapter.credential_files_dir).resolve()
+    required_credential_paths: list[Path] = []
+    optional_credential_paths: list[Path] = []
+    for mapping in adapter.credential_file_mappings:
+        source_path = (credential_files_dir / mapping.source).resolve()
+        if mapping.required:
+            required_credential_paths.append(source_path)
+        else:
+            optional_credential_paths.append(source_path)
+    return AutotestParticipantRequirement(
+        role=role,
+        blueprint_path=blueprint_path,
+        brain_recipe_path=blueprint.brain_recipe_path.resolve(),
+        tool_adapter_path=tool_adapter_path,
+        tool=recipe.tool,
+        launch_executable=adapter.launch_executable,
+        config_profile=recipe.config_profile,
+        config_profile_dir=config_profile_dir,
+        credential_profile=recipe.credential_profile,
+        credential_profile_dir=credential_profile_dir,
+        credential_env_path=(credential_profile_dir / adapter.credential_env_source).resolve(),
+        required_credential_paths=tuple(required_credential_paths),
+        optional_credential_paths=tuple(optional_credential_paths),
+    )
+
+
+def _autotest_output_root_status(layout: DemoLayout) -> dict[str, Any]:
+    """Return whether the selected demo-output root is fresh or safely reusable."""
+
+    if not layout.demo_output_dir.exists():
+        return {
+            "status": "fresh",
+            "ok": True,
+            "reason": "demo output directory does not exist yet",
+        }
+
+    entries = sorted(child.name for child in layout.demo_output_dir.iterdir())
+    if layout.state_path.exists():
+        state = _require_mapping(_read_json(layout.state_path), context=str(layout.state_path))
+        steps = _require_mapping(state.get("steps"), context="steps")
+        stop_complete = bool(steps.get("stop_complete"))
+        return {
+            "status": "reusable" if stop_complete else "blocked",
+            "ok": stop_complete,
+            "reason": (
+                "existing stopped demo state may be reprovisioned"
+                if stop_complete
+                else "demo state exists and the previous run has not completed `stop`"
+            ),
+            "state_path": str(layout.state_path),
+            "entries": entries,
+        }
+
+    if entries:
+        return {
+            "status": "blocked",
+            "ok": False,
+            "reason": "demo output directory already contains files without a stopped demo state",
+            "entries": entries,
+        }
+
+    return {
+        "status": "fresh",
+        "ok": True,
+        "reason": "demo output directory exists but is empty",
+        "entries": entries,
+    }
+
+
+def resolve_real_agent_preflight(
+    *,
+    repo_root: Path,
+    pack_dir: Path,
+    parameters_path: Path,
+    demo_output_dir: Path,
+    jobs_dir: Path | None = None,
+    registry_root: Path | None = None,
+    case_id: str = "real-agent-preflight",
+) -> dict[str, Any]:
+    """Collect fail-fast prerequisite checks for one real-agent autotest case."""
+
+    del pack_dir
+    parameters = load_demo_parameters(parameters_path)
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    agent_def_dir = resolve_repo_relative_path(
+        parameters.agent_def_dir,
+        repo_root=repo_root,
+    )
+    selected_jobs_dir = (
+        jobs_dir.resolve()
+        if jobs_dir is not None
+        else _default_autotest_jobs_dir(demo_output_dir=layout.demo_output_dir)
+    )
+    selected_registry_root = (
+        registry_root.resolve()
+        if registry_root is not None
+        else _default_autotest_registry_root(demo_output_dir=layout.demo_output_dir)
+    )
+
+    blockers: list[str] = []
+    tools: dict[str, dict[str, Any]] = {}
+    for command_name in ("pixi", "tmux"):
+        check = _tool_check_payload(command_name)
+        tools[command_name] = check
+        if not check["ok"]:
+            blockers.append(f"missing required executable `{command_name}` on PATH")
+
+    participants_payload: dict[str, dict[str, Any]] = {}
+    for role, participant in (("sender", parameters.sender), ("receiver", parameters.receiver)):
+        try:
+            requirement = _resolve_autotest_participant_requirement(
+                agent_def_dir=agent_def_dir,
+                participant=participant,
+                role=role,
+            )
+        except Exception as exc:
+            blockers.append(f"{role}: {exc}")
+            participants_payload[role] = {
+                "role": role,
+                "ok": False,
+                "error": str(exc),
+            }
+            continue
+
+        launch_check = _tool_check_payload(requirement.launch_executable)
+        tools.setdefault(requirement.launch_executable, launch_check)
+        if not launch_check["ok"]:
+            blockers.append(
+                f"{role}: required executable `{requirement.launch_executable}` is not on PATH"
+            )
+
+        config_check = _path_check_payload(
+            requirement.config_profile_dir, required=True, kind="dir"
+        )
+        env_check = _path_check_payload(requirement.credential_env_path, required=True, kind="file")
+        required_file_checks = [
+            _path_check_payload(path, required=True, kind="file")
+            for path in requirement.required_credential_paths
+        ]
+        optional_file_checks = [
+            _path_check_payload(path, required=False, kind="file")
+            for path in requirement.optional_credential_paths
+        ]
+
+        failed_checks = [
+            check["path"]
+            for check in [config_check, env_check, *required_file_checks]
+            if not bool(check["ok"])
+        ]
+        if failed_checks:
+            blockers.append(
+                f"{role}: missing or unreadable prerequisite paths: {', '.join(failed_checks)}"
+            )
+
+        participants_payload[role] = {
+            "role": role,
+            "ok": not failed_checks and bool(launch_check["ok"]),
+            "tool": requirement.tool,
+            "launch_executable": requirement.launch_executable,
+            "launch_executable_path": launch_check["path"],
+            "blueprint_path": str(requirement.blueprint_path),
+            "brain_recipe_path": str(requirement.brain_recipe_path),
+            "tool_adapter_path": str(requirement.tool_adapter_path),
+            "config_profile": requirement.config_profile,
+            "config_profile_dir": config_check,
+            "credential_profile": requirement.credential_profile,
+            "credential_profile_dir": str(requirement.credential_profile_dir),
+            "credential_env": env_check,
+            "required_credential_files": required_file_checks,
+            "optional_credential_files": optional_file_checks,
+        }
+
+    output_root = _autotest_output_root_status(layout)
+    if not bool(output_root["ok"]):
+        blockers.append(str(output_root["reason"]))
+
+    isolation = {
+        "jobs_dir": str(selected_jobs_dir),
+        "jobs_dir_ok": _path_is_within(selected_jobs_dir, parent=layout.demo_output_dir),
+        "registry_root": str(selected_registry_root),
+        "registry_root_ok": _path_is_within(selected_registry_root, parent=layout.demo_output_dir),
+        "env_var_name": AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    }
+    if not isolation["jobs_dir_ok"]:
+        blockers.append(
+            f"autotest jobs dir must stay under the selected demo output directory: {selected_jobs_dir}"
+        )
+    if not isolation["registry_root_ok"]:
+        blockers.append(
+            "autotest registry root must stay under the selected demo output directory: "
+            f"{selected_registry_root}"
+        )
+
+    selected_cao_base_url = _normalize_cao_base_url(
+        os.environ.get("CAO_BASE_URL", parameters.cao_base_url)
+    )
+    supports_loopback = supports_loopback_cao_launcher_management(selected_cao_base_url)
+    expected_cao_home = (
+        _cao_server_root(layout.cao_runtime_root, base_url=selected_cao_base_url) / "home"
+    ).resolve()
+    expected_cao_profile_store = default_cao_profile_store(cao_home=expected_cao_home)
+    requested_profile_store_raw = os.environ.get("CAO_PROFILE_STORE")
+    requested_profile_store = (
+        Path(requested_profile_store_raw).expanduser().resolve()
+        if requested_profile_store_raw and requested_profile_store_raw.strip()
+        else None
+    )
+    cao_payload = {
+        "base_url": selected_cao_base_url,
+        "supports_demo_local_loopback_management": supports_loopback,
+        "expected_profile_store": str(expected_cao_profile_store),
+        "requested_profile_store": (
+            None if requested_profile_store is None else str(requested_profile_store)
+        ),
+        "ownership_mode": "demo-local-loopback" if supports_loopback else "unsupported-external",
+    }
+    if not supports_loopback:
+        blockers.append(
+            "real-agent autotest only supports loopback CAO URLs owned through the demo-local "
+            f"launcher flow; received `{selected_cao_base_url}`"
+        )
+    if (
+        requested_profile_store is not None
+        and requested_profile_store != expected_cao_profile_store
+    ):
+        blockers.append(
+            "CAO_PROFILE_STORE does not match the demo-managed loopback profile store expected "
+            f"for `{selected_cao_base_url}`"
+        )
+
+    ok = not blockers
+    return {
+        "case_id": case_id,
+        "ok": ok,
+        "demo_output_dir": str(layout.demo_output_dir),
+        "parameters_path": str(parameters_path.resolve()),
+        "agent_def_dir": str(agent_def_dir),
+        "tools": tools,
+        "participants": participants_payload,
+        "output_root": output_root,
+        "isolation": isolation,
+        "cao": cao_payload,
+        "blockers": blockers,
+    }
+
+
 def render_mailbox_root(parameters: DemoParameters, *, demo_output_dir: Path) -> Path:
     """Render the shared mailbox root from the demo-output-dir template."""
 
@@ -559,6 +898,14 @@ def inspect_roundtrip_mailbox(
 
     sender_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=sender_address)
     receiver_mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=receiver_address)
+    sender_local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+        mailbox_root,
+        address=sender_address,
+    )
+    receiver_local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+        mailbox_root,
+        address=receiver_address,
+    )
     sender_sent_projection = sender_mailbox_dir / "sent" / f"{send_message_id}.md"
     receiver_inbox_projection = receiver_mailbox_dir / "inbox" / f"{send_message_id}.md"
     receiver_sent_projection = receiver_mailbox_dir / "sent" / f"{reply_message_id}.md"
@@ -569,6 +916,10 @@ def inspect_roundtrip_mailbox(
         "reply_message_id": reply_message.message_id,
         "send_message_path": str(send_message_path),
         "reply_message_path": str(reply_message_path),
+        "sender_mailbox_dir": str(sender_mailbox_dir),
+        "sender_local_sqlite_path": str(sender_local_sqlite_path),
+        "receiver_mailbox_dir": str(receiver_mailbox_dir),
+        "receiver_local_sqlite_path": str(receiver_local_sqlite_path),
         "send_body_markdown": send_message.body_markdown,
         "reply_body_markdown": reply_message.body_markdown,
         "send_body_matches_input": send_message.body_markdown == initial_body,
@@ -698,6 +1049,219 @@ def inspect_chat_log(
         "reply_event_parent_matches_send": isinstance(reply_event, dict)
         and reply_event.get("in_reply_to") == send_message_id,
     }
+
+
+def _autotest_inspect_commands(*, pack_dir: Path, demo_output_dir: Path) -> dict[str, str]:
+    """Return stable inspect command strings for both tutorial participants."""
+
+    run_demo = (pack_dir.resolve() / "run_demo.sh").resolve()
+    demo_arg = shlex.quote(str(demo_output_dir.resolve()))
+    run_demo_quoted = shlex.quote(str(run_demo))
+    return {
+        "sender": (f"{run_demo_quoted} inspect --demo-output-dir {demo_arg} --agent sender"),
+        "receiver": (
+            f"{run_demo_quoted} inspect --demo-output-dir {demo_arg} "
+            "--agent receiver --json --with-output-text 400"
+        ),
+    }
+
+
+def _read_optional_json_object(path: Path) -> dict[str, Any] | None:
+    """Load one optional JSON object when the file exists."""
+
+    if not path.is_file():
+        return None
+    return _require_mapping(_read_json(path), context=str(path))
+
+
+def _phase_logs_payload(log_dir: Path | None) -> dict[str, str]:
+    """Return one stable mapping of autotest phase-log paths."""
+
+    if log_dir is None or not log_dir.is_dir():
+        return {}
+    payload: dict[str, str] = {}
+    for path in sorted(log_dir.iterdir()):
+        if path.is_file():
+            payload[path.name] = str(path.resolve())
+    return payload
+
+
+def build_autotest_case_result(
+    *,
+    pack_dir: Path,
+    demo_output_dir: Path,
+    case_id: str,
+    status: str,
+    phase: str,
+    error_message: str | None = None,
+    timed_out: bool = False,
+    log_dir: Path | None = None,
+    preflight_result_path: Path | None = None,
+    enforce_mailbox_persistence: bool = False,
+) -> tuple[dict[str, Any], bool]:
+    """Build one machine-readable autotest result snapshot from current demo artifacts."""
+
+    if status not in {"success", "failure"}:
+        raise ValueError(f"unsupported autotest result status: {status}")
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    inspect_commands = _autotest_inspect_commands(
+        pack_dir=pack_dir,
+        demo_output_dir=layout.demo_output_dir,
+    )
+    payload: dict[str, Any] = {
+        "case_id": case_id,
+        "status": status,
+        "phase": phase,
+        "ok": status == "success",
+        "timed_out": timed_out,
+        "error_message": error_message,
+        "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+        "demo_output_dir": str(layout.demo_output_dir),
+        "control_dir": str(layout.control_dir),
+        "inspect_commands": inspect_commands,
+        "phase_logs": _phase_logs_payload(log_dir),
+    }
+    if preflight_result_path is not None:
+        payload["preflight_result_path"] = str(preflight_result_path.resolve())
+        payload["preflight_result"] = _read_optional_json_object(preflight_result_path)
+
+    state = _read_optional_json_object(layout.state_path)
+    if state is not None:
+        payload["state_path"] = str(layout.state_path.resolve())
+        payload["steps"] = _require_mapping(state.get("steps"), context="steps")
+        payload["sender"] = {
+            "mailbox_address": _require_non_empty_string(
+                _require_mapping(state.get("sender"), context="sender").get("mailbox_address"),
+                context="sender.mailbox_address",
+            ),
+            "inspect_command": inspect_commands["sender"],
+        }
+        payload["receiver"] = {
+            "mailbox_address": _require_non_empty_string(
+                _require_mapping(state.get("receiver"), context="receiver").get("mailbox_address"),
+                context="receiver.mailbox_address",
+            ),
+            "inspect_command": inspect_commands["receiver"],
+        }
+
+    verify_result = _read_optional_json_object(layout.verify_result_path)
+    stop_result = _read_optional_json_object(layout.stop_result_path)
+    if verify_result is not None:
+        payload["verify_result_path"] = str(layout.verify_result_path.resolve())
+        payload["verify_result"] = verify_result
+    if stop_result is not None:
+        payload["stop_result_path"] = str(layout.stop_result_path.resolve())
+        payload["stop_result"] = stop_result
+
+    mailbox_evidence: dict[str, Any] | None = None
+    mailbox_errors: list[str] = []
+    if state is not None:
+        try:
+            sender_state = _require_mapping(state.get("sender"), context="sender")
+            receiver_state = _require_mapping(state.get("receiver"), context="receiver")
+            message_state = _require_mapping(state.get("message"), context="message")
+            send_message_id = message_state.get("send_message_id")
+            reply_message_id = message_state.get("reply_message_id")
+            if (
+                isinstance(send_message_id, str)
+                and send_message_id.strip()
+                and isinstance(reply_message_id, str)
+                and reply_message_id.strip()
+            ):
+                mailbox_evidence = inspect_roundtrip_mailbox(
+                    mailbox_root=layout.mailbox_root,
+                    sender_address=_require_non_empty_string(
+                        sender_state.get("mailbox_address"),
+                        context="sender.mailbox_address",
+                    ),
+                    receiver_address=_require_non_empty_string(
+                        receiver_state.get("mailbox_address"),
+                        context="receiver.mailbox_address",
+                    ),
+                    send_message_id=send_message_id,
+                    reply_message_id=reply_message_id,
+                    initial_body_path=Path(
+                        _require_non_empty_string(
+                            message_state.get("initial_body_file"),
+                            context="message.initial_body_file",
+                        )
+                    ),
+                )
+                mailbox_evidence["sender_mailbox_dir_exists"] = Path(
+                    mailbox_evidence["sender_mailbox_dir"]
+                ).is_dir()
+                mailbox_evidence["receiver_mailbox_dir_exists"] = Path(
+                    mailbox_evidence["receiver_mailbox_dir"]
+                ).is_dir()
+                mailbox_evidence["send_message_readable"] = Path(
+                    mailbox_evidence["send_message_path"]
+                ).is_file() and os.access(mailbox_evidence["send_message_path"], os.R_OK)
+                mailbox_evidence["reply_message_readable"] = Path(
+                    mailbox_evidence["reply_message_path"]
+                ).is_file() and os.access(mailbox_evidence["reply_message_path"], os.R_OK)
+                chat_evidence = inspect_chat_log(
+                    chats_path=layout.chats_path,
+                    send_message_id=send_message_id,
+                    reply_message_id=reply_message_id,
+                    sender_address=_require_non_empty_string(
+                        sender_state.get("mailbox_address"),
+                        context="sender.mailbox_address",
+                    ),
+                    receiver_address=_require_non_empty_string(
+                        receiver_state.get("mailbox_address"),
+                        context="receiver.mailbox_address",
+                    ),
+                    initial_body_path=Path(
+                        _require_non_empty_string(
+                            message_state.get("initial_body_file"),
+                            context="message.initial_body_file",
+                        )
+                    ),
+                    reply_body_markdown=_require_non_empty_string(
+                        mailbox_evidence.get("reply_body_markdown"),
+                        context="mailbox.reply_body_markdown",
+                    ),
+                )
+                mailbox_evidence["chat_log"] = chat_evidence
+        except Exception as exc:
+            mailbox_errors.append(str(exc))
+
+    payload["mailbox_evidence"] = mailbox_evidence
+    if mailbox_errors:
+        payload["mailbox_errors"] = mailbox_errors
+
+    if status == "success":
+        if mailbox_evidence is None:
+            payload["ok"] = False
+            payload.setdefault("validation_errors", []).append(
+                "successful autotest result is missing roundtrip mailbox evidence"
+            )
+        if enforce_mailbox_persistence and mailbox_evidence is not None:
+            persistence_checks = [
+                bool(mailbox_evidence["sender_mailbox_dir_exists"]),
+                bool(mailbox_evidence["receiver_mailbox_dir_exists"]),
+                bool(mailbox_evidence["send_message_readable"]),
+                bool(mailbox_evidence["reply_message_readable"]),
+            ]
+            payload["mailbox_persistence_ok"] = all(persistence_checks)
+            if not all(persistence_checks):
+                payload["ok"] = False
+                payload.setdefault("validation_errors", []).append(
+                    "post-stop mailbox evidence is missing or unreadable"
+                )
+        elif enforce_mailbox_persistence:
+            payload["mailbox_persistence_ok"] = False
+    else:
+        payload["mailbox_persistence_ok"] = (
+            bool(mailbox_evidence)
+            and bool(mailbox_evidence.get("sender_mailbox_dir_exists"))
+            and bool(mailbox_evidence.get("receiver_mailbox_dir_exists"))
+            and bool(mailbox_evidence.get("send_message_readable"))
+            and bool(mailbox_evidence.get("reply_message_readable"))
+        )
+
+    return payload, bool(payload["ok"])
 
 
 def _artifact_path(layout: DemoLayout, label: str) -> Path:
@@ -1415,8 +1979,7 @@ def _resolve_demo_cao_parsing_mode(
         if normalized_requested == "shadow_only":
             return normalized_requested
         raise ValueError(
-            "mailbox tutorial pack only supports `shadow_only`; "
-            f"received {normalized_requested!r}"
+            f"mailbox tutorial pack only supports `shadow_only`; received {normalized_requested!r}"
         )
 
     if persisted_mode is not None:
@@ -2792,6 +3355,14 @@ def _cmd_message_id(args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit_json_payload(path: Path | None, payload: dict[str, Any]) -> None:
+    """Optionally write one JSON payload to disk, then print it to stdout."""
+
+    if path is not None:
+        _write_json(path, payload)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
 def _cmd_start_demo_cao(args: argparse.Namespace) -> int:
     """Start or reuse one demo-local loopback CAO service."""
 
@@ -2800,9 +3371,7 @@ def _cmd_start_demo_cao(args: argparse.Namespace) -> int:
         demo_output_dir=args.demo_output_dir,
         cao_base_url=args.cao_base_url,
     )
-    if args.output is not None:
-        _write_json(args.output, payload)
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    _emit_json_payload(args.output, payload)
     return 0
 
 
@@ -2814,9 +3383,7 @@ def _cmd_stop_demo_cao(args: argparse.Namespace) -> int:
         demo_output_dir=args.demo_output_dir,
         cao_base_url=args.cao_base_url,
     )
-    if args.output is not None:
-        _write_json(args.output, payload)
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    _emit_json_payload(args.output, payload)
     return 0
 
 
@@ -2848,6 +3415,77 @@ def _cmd_detect_cao_profile_store(args: argparse.Namespace) -> int:
     if detected is not None:
         print(detected)
     return 0
+
+
+def _cmd_real_agent_preflight(args: argparse.Namespace) -> int:
+    """Write one structured real-agent preflight result."""
+
+    payload = resolve_real_agent_preflight(
+        repo_root=args.repo_root,
+        pack_dir=args.pack_dir,
+        parameters_path=args.parameters,
+        demo_output_dir=args.demo_output_dir,
+        jobs_dir=args.jobs_dir,
+        registry_root=args.registry_dir,
+        case_id=args.case_id,
+    )
+    _emit_json_payload(args.output, payload)
+    return 0 if bool(payload["ok"]) else 1
+
+
+def _cmd_write_autotest_result(args: argparse.Namespace) -> int:
+    """Write one machine-readable autotest result payload."""
+
+    payload, ok = build_autotest_case_result(
+        pack_dir=args.pack_dir,
+        demo_output_dir=args.demo_output_dir,
+        case_id=args.case_id,
+        status=args.status,
+        phase=args.phase,
+        error_message=args.error_message,
+        timed_out=args.timed_out,
+        log_dir=args.log_dir,
+        preflight_result_path=args.preflight_result_path,
+        enforce_mailbox_persistence=args.enforce_mailbox_persistence,
+    )
+    _emit_json_payload(args.output, payload)
+    if args.status == "failure":
+        return 0
+    return 0 if ok else 1
+
+
+def _cmd_run_with_timeout(args: argparse.Namespace) -> int:
+    """Run one subprocess with timeout-bounded stdout/stderr capture."""
+
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise ValueError("run-with-timeout requires a command after `--`")
+
+    args.stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    args.stderr_path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        args.stdout_path.open("w", encoding="utf-8") as stdout_handle,
+        args.stderr_path.open(
+            "w",
+            encoding="utf-8",
+        ) as stderr_handle,
+    ):
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(args.cwd.resolve()),
+                check=False,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                text=True,
+                timeout=float(args.timeout_seconds),
+            )
+        except subprocess.TimeoutExpired:
+            stderr_handle.write(f"TIMEOUT: exceeded {args.timeout_seconds} seconds\n")
+            return 124
+    return int(result.returncode)
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
@@ -3022,6 +3660,39 @@ def _build_parser() -> argparse.ArgumentParser:
     detect_profile_store_parser.add_argument("--cao-base-url", required=True)
     detect_profile_store_parser.add_argument("--launcher-config-path")
     detect_profile_store_parser.set_defaults(func=_cmd_detect_cao_profile_store)
+
+    real_agent_preflight_parser = subparsers.add_parser("real-agent-preflight")
+    real_agent_preflight_parser.add_argument("--output", type=Path)
+    real_agent_preflight_parser.add_argument("--repo-root", type=Path, required=True)
+    real_agent_preflight_parser.add_argument("--pack-dir", type=Path, required=True)
+    real_agent_preflight_parser.add_argument("--parameters", type=Path, required=True)
+    real_agent_preflight_parser.add_argument("--demo-output-dir", type=Path, required=True)
+    real_agent_preflight_parser.add_argument("--jobs-dir", type=Path)
+    real_agent_preflight_parser.add_argument("--registry-dir", type=Path)
+    real_agent_preflight_parser.add_argument("--case-id", default="real-agent-preflight")
+    real_agent_preflight_parser.set_defaults(func=_cmd_real_agent_preflight)
+
+    autotest_result_parser = subparsers.add_parser("write-autotest-result")
+    autotest_result_parser.add_argument("--output", type=Path)
+    autotest_result_parser.add_argument("--pack-dir", type=Path, required=True)
+    autotest_result_parser.add_argument("--demo-output-dir", type=Path, required=True)
+    autotest_result_parser.add_argument("--case-id", required=True)
+    autotest_result_parser.add_argument("--status", choices=["success", "failure"], required=True)
+    autotest_result_parser.add_argument("--phase", required=True)
+    autotest_result_parser.add_argument("--error-message")
+    autotest_result_parser.add_argument("--timed-out", action="store_true")
+    autotest_result_parser.add_argument("--log-dir", type=Path)
+    autotest_result_parser.add_argument("--preflight-result-path", type=Path)
+    autotest_result_parser.add_argument("--enforce-mailbox-persistence", action="store_true")
+    autotest_result_parser.set_defaults(func=_cmd_write_autotest_result)
+
+    run_with_timeout_parser = subparsers.add_parser("run-with-timeout")
+    run_with_timeout_parser.add_argument("--cwd", type=Path, required=True)
+    run_with_timeout_parser.add_argument("--stdout-path", type=Path, required=True)
+    run_with_timeout_parser.add_argument("--stderr-path", type=Path, required=True)
+    run_with_timeout_parser.add_argument("--timeout-seconds", type=float, required=True)
+    run_with_timeout_parser.add_argument("command", nargs=argparse.REMAINDER)
+    run_with_timeout_parser.set_defaults(func=_cmd_run_with_timeout)
 
     for command_name, func in (
         ("start", _cmd_start),

@@ -25,6 +25,7 @@ The default output root is `scripts/demo/mailbox-roundtrip-tutorial-pack/outputs
 Fresh full runs recreate that output root from scratch; stepwise commands reuse the same selected root.
 
 This tutorial pack only supports shadow_only for both agents.
+Use `scripts/demo/mailbox-roundtrip-tutorial-pack/autotest/run_autotest.sh` for real-agent HTT cases.
 EOF
 }
 
