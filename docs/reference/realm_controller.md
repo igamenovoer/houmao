@@ -485,6 +485,9 @@ when they are missing from `PATH`.
 - Uses direct terminal input only (no inbox).
 - Shadow parsers (when `parsing_mode=shadow_only`) produce frozen
   `surface_assessment` and `dialog_projection` value objects.
+- `dialog_projection.normalized_text` remains closer to the captured TUI surface.
+- `dialog_projection.dialog_text` is a best-effort heuristic projection for lifecycle diffing, operator inspection, and caller-owned extraction patterns; it is not an exact recovered transcript.
+- Provider parsers own version-aware projector selection, and `projection_metadata.projector_id` identifies the selected projector instance.
 - Shared surface assessment facets are:
   - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
   - `business_state`: `idle`, `working`, `awaiting_operator`, `unknown`

@@ -8,10 +8,12 @@ from typing import Final, Literal
 
 from .shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
+    DialogProjectorResult,
     DialogProjection,
     ParsedShadowSnapshot,
     PresetResolution,
     ProjectionMetadata,
+    ShadowDialogProjector,
     ShadowAvailability,
     ShadowBusinessState,
     ShadowInputMode,
@@ -22,6 +24,7 @@ from .shadow_parser_core import (
     VersionedParserPreset,
     VersionedPresetRegistry,
     ansi_stripped_tail_excerpt,
+    finalize_projected_dialog,
     normalize_shadow_output,
     projection_head_tail,
     strip_ansi,
@@ -56,6 +59,7 @@ _OUTPUT_VARIANT_PROMPT_IDLE_V1: Final[str] = "claude_prompt_idle_v1"
 _OUTPUT_VARIANT_RESPONSE_MARKER_V1: Final[str] = "claude_response_marker_v1"
 _OUTPUT_VARIANT_WAITING_MENU_V1: Final[str] = "claude_waiting_menu_v1"
 _OUTPUT_VARIANT_SPINNER_V1: Final[str] = "claude_spinner_v1"
+_CLAUDE_LEGACY_PROJECTOR_ID: Final[str] = "claude_dialog_projection_legacy_v1"
 _CLAUDE_PROJECTOR_ID: Final[str] = "claude_dialog_projection_v1"
 
 ClaudeUiContext = Literal[
@@ -123,6 +127,90 @@ class _SurfaceAxes:
     ui_context: ClaudeUiContext
 
 
+@dataclass(frozen=True)
+class ClaudeProjectionContext:
+    """Provider-owned projection context for one normalized Claude snapshot."""
+
+    compiled: _CompiledPreset
+
+
+ClaudeDialogProjector = ShadowDialogProjector[ClaudeProjectionContext]
+
+
+@dataclass(frozen=True)
+class _ClaudeRegexDialogProjector:
+    """Best-effort regex projector over normalized Claude TUI snapshots."""
+
+    projector_id: str
+
+    def project(
+        self,
+        *,
+        normalized_text: str,
+        context: ClaudeProjectionContext,
+    ) -> DialogProjectorResult:
+        projected_lines: list[str] = []
+        evidence: list[str] = []
+
+        for line in normalized_text.splitlines():
+            projected_line = self._project_line(
+                line=line,
+                compiled=context.compiled,
+                evidence=evidence,
+            )
+            _append_projection_line(projected_lines, projected_line)
+
+        return DialogProjectorResult(
+            dialog_text="\n".join(projected_lines),
+            evidence=tuple(evidence),
+        )
+
+    def _project_line(
+        self,
+        *,
+        line: str,
+        compiled: _CompiledPreset,
+        evidence: list[str],
+    ) -> str | None:
+        clean_line = line.rstrip("\r")
+        stripped = clean_line.strip()
+        if not stripped:
+            return ""
+        if _BANNER_VERSION_RE.search(clean_line):
+            evidence.append("DROP_BANNER_VERSION")
+            return None
+        if compiled.preset.separator_token in clean_line:
+            evidence.append("DROP_SEPARATOR")
+            return None
+        if ClaudeCodeShadowParser._contains_processing_spinner([clean_line], compiled):
+            evidence.append("DROP_PROCESSING_SPINNER")
+            return None
+
+        response_payload = ClaudeCodeShadowParser._response_payload(clean_line, compiled)
+        if response_payload is not None:
+            evidence.append("KEEP_RESPONSE_MARKER_PAYLOAD")
+            return response_payload
+
+        prompt_payload = ClaudeCodeShadowParser._prompt_payload(clean_line, compiled.preset)
+        if prompt_payload is not None:
+            if not prompt_payload:
+                evidence.append("DROP_IDLE_PROMPT")
+                return None
+            evidence.append("KEEP_PROMPT_PAYLOAD")
+            return prompt_payload
+
+        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_SELECTED_WAITING_OPTION")
+            return clean_line.replace("❯", "", 1).strip()
+
+        if _WAITING_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_WAITING_OPTION")
+            return clean_line.strip()
+
+        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
+        return clean_line.rstrip()
+
+
 class ClaudeCodeShadowParseError(ShadowParserError):
     """Raised when Claude snapshot parsing hits an unexpected internal error."""
 
@@ -178,17 +266,28 @@ class ClaudeCodeShadowParser:
         ),
     }
 
-    def __init__(self, *, status_tail_lines: int = _DEFAULT_STATUS_TAIL_LINES) -> None:
+    def __init__(
+        self,
+        *,
+        status_tail_lines: int = _DEFAULT_STATUS_TAIL_LINES,
+        projector_override: ClaudeDialogProjector | None = None,
+    ) -> None:
         if status_tail_lines <= 0:
             raise ValueError("status_tail_lines must be positive")
 
         self._status_tail_lines = status_tail_lines
+        self._projector_override = projector_override
         self._registry = VersionedPresetRegistry(
             provider_id="claude",
             override_env_var=_ENV_PRESET_OVERRIDE,
             presets=tuple(preset.identity for preset in self._PRESETS.values()),
         )
         self._compiled_preset_cache: dict[str, _CompiledPreset] = {}
+        self._projector_by_preset_version: dict[str, ClaudeDialogProjector] = {
+            "0.0.0": _ClaudeRegexDialogProjector(projector_id=_CLAUDE_LEGACY_PROJECTOR_ID),
+            "2.1.0": _ClaudeRegexDialogProjector(projector_id=_CLAUDE_LEGACY_PROJECTOR_ID),
+            "2.1.62": _ClaudeRegexDialogProjector(projector_id=_CLAUDE_PROJECTOR_ID),
+        }
 
     def resolve_preset_version(self, scrollback: str) -> str:
         """Resolve the preset version for a scrollback snapshot."""
@@ -244,11 +343,16 @@ class ClaudeCodeShadowParser:
             compiled=compiled,
             metadata=metadata,
         )
+        projector = self._select_projector(
+            preset=preset,
+            output_variant=output_variant,
+        )
         dialog_projection = self._build_dialog_projection(
             raw_text=scrollback,
             clean_output=clean_output,
-            compiled=compiled,
             metadata=metadata,
+            projector=projector,
+            context=ClaudeProjectionContext(compiled=compiled),
         )
         return ParsedShadowSnapshot(
             surface_assessment=surface_assessment,
@@ -304,6 +408,21 @@ class ClaudeCodeShadowParser:
         )
         self._compiled_preset_cache[preset.identity.version] = compiled
         return compiled
+
+    def _select_projector(
+        self,
+        *,
+        preset: ClaudeCodeParsingPreset,
+        output_variant: str | None,
+    ) -> ClaudeDialogProjector:
+        del output_variant
+        if self._projector_override is not None:
+            return self._projector_override
+
+        projector = self._projector_by_preset_version.get(preset.identity.version)
+        if projector is not None:
+            return projector
+        return self._projector_by_preset_version["2.1.62"]
 
     def _build_surface_assessment(
         self,
@@ -394,19 +513,18 @@ class ClaudeCodeShadowParser:
         *,
         raw_text: str,
         clean_output: str,
-        compiled: _CompiledPreset,
         metadata: ShadowParserMetadata,
+        projector: ClaudeDialogProjector,
+        context: ClaudeProjectionContext,
     ) -> ClaudeDialogProjection:
-        projected_lines: list[str] = []
-        evidence: list[str] = []
-
-        for line in clean_output.splitlines():
-            projected_line = self._project_line(line=line, compiled=compiled, evidence=evidence)
-            _append_projection_line(projected_lines, projected_line)
-
-        dialog_text = "\n".join(projected_lines).strip()
-        if not dialog_text and clean_output.strip():
-            dialog_text = clean_output.strip()
+        projector_result = projector.project(
+            normalized_text=clean_output,
+            context=context,
+        )
+        dialog_text = finalize_projected_dialog(
+            normalized_text=clean_output,
+            dialog_text=projector_result.dialog_text,
+        )
 
         head, tail = projection_head_tail(
             dialog_text,
@@ -415,7 +533,7 @@ class ClaudeCodeShadowParser:
         projection_metadata = ProjectionMetadata(
             provider_id="claude",
             source_kind="tui_snapshot",
-            projector_id=_CLAUDE_PROJECTOR_ID,
+            projector_id=projector.projector_id,
             parser_metadata=metadata,
             dialog_line_count=len(dialog_text.splitlines()) if dialog_text else 0,
             head_line_count=len(head.splitlines()) if head else 0,
@@ -428,54 +546,9 @@ class ClaudeCodeShadowParser:
             head=head,
             tail=tail,
             projection_metadata=projection_metadata,
-            anomalies=metadata.anomalies,
-            evidence=tuple(evidence),
+            anomalies=tuple([*metadata.anomalies, *projector_result.anomalies]),
+            evidence=projector_result.evidence,
         )
-
-    def _project_line(
-        self,
-        *,
-        line: str,
-        compiled: _CompiledPreset,
-        evidence: list[str],
-    ) -> str | None:
-        clean_line = line.rstrip("\r")
-        stripped = clean_line.strip()
-        if not stripped:
-            return ""
-        if _BANNER_VERSION_RE.search(clean_line):
-            evidence.append("DROP_BANNER_VERSION")
-            return None
-        if compiled.preset.separator_token in clean_line:
-            evidence.append("DROP_SEPARATOR")
-            return None
-        if self._contains_processing_spinner([clean_line], compiled):
-            evidence.append("DROP_PROCESSING_SPINNER")
-            return None
-
-        response_payload = self._response_payload(clean_line, compiled)
-        if response_payload is not None:
-            evidence.append("KEEP_RESPONSE_MARKER_PAYLOAD")
-            return response_payload
-
-        prompt_payload = self._prompt_payload(clean_line, compiled.preset)
-        if prompt_payload is not None:
-            if not prompt_payload:
-                evidence.append("DROP_IDLE_PROMPT")
-                return None
-            evidence.append("KEEP_PROMPT_PAYLOAD")
-            return prompt_payload
-
-        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
-            evidence.append("KEEP_SELECTED_WAITING_OPTION")
-            return clean_line.replace("❯", "", 1).strip()
-
-        if _WAITING_OPTION_RE.match(clean_line):
-            evidence.append("KEEP_WAITING_OPTION")
-            return clean_line.strip()
-
-        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
-        return clean_line.rstrip()
 
     def _metadata_for(
         self,
@@ -597,8 +670,8 @@ class ClaudeCodeShadowParser:
         matches.sort(key=lambda item: item.start)
         return matches
 
+    @staticmethod
     def _response_payload(
-        self,
         clean_line: str,
         compiled: _CompiledPreset,
     ) -> str | None:

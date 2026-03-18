@@ -1,4 +1,9 @@
-"""Runtime-owned mailbox prompt and result helpers."""
+"""Runtime-owned mailbox prompt and result helpers.
+
+Mailbox result parsing is machine-critical. Shadow-mode parsing therefore
+prefers explicit schema/sentinel extraction over available text surfaces rather
+than assuming best-effort dialog projection fidelity.
+"""
 
 from __future__ import annotations
 
@@ -33,6 +38,14 @@ class MailPromptRequest:
     request_id: str
     operation: MailOperation
     prompt: str
+
+
+@dataclass(frozen=True)
+class _MailResultTextSurface:
+    """One candidate text surface that may contain a sentinel-delimited result."""
+
+    surface_id: str
+    text: str
 
 
 def prepare_mail_prompt(
@@ -133,36 +146,20 @@ def parse_mail_result(
 ) -> dict[str, Any]:
     """Extract and validate one mailbox result payload from session events."""
 
-    non_done_text = "\n".join(
-        event.message for event in events if event.message and event.kind != "done"
-    )
-    done_text = "\n".join(
-        event.message for event in events if event.message and event.kind == "done"
-    )
-
-    attempted_inputs: list[str] = []
+    attempted_inputs: list[_MailResultTextSurface] = []
     seen_inputs: set[str] = set()
-    for candidate in (
-        non_done_text,
-        done_text,
-        "\n".join(filter(None, (non_done_text, done_text))),
-        *(
-            payload_text
-            for event in events
-            for payload_text in _event_payload_text_candidates(event)
-        ),
-    ):
-        normalized = candidate.strip()
+    for surface in _mail_result_text_surfaces(events):
+        normalized = surface.text.strip()
         if not normalized or normalized in seen_inputs:
             continue
-        attempted_inputs.append(candidate)
+        attempted_inputs.append(surface)
         seen_inputs.add(normalized)
 
     last_error: MailboxResultParseError | None = None
-    for candidate in attempted_inputs:
+    for surface in attempted_inputs:
         try:
             return _parse_mail_result_text(
-                candidate,
+                surface.text,
                 request_id=request_id,
                 operation=operation,
                 mailbox=mailbox,
@@ -212,11 +209,72 @@ def _event_payload_text_candidates(event: SessionEvent) -> tuple[str, ...]:
 
     dialog_projection = payload.get("dialog_projection")
     if isinstance(dialog_projection, dict):
+        normalized_text = dialog_projection.get("normalized_text")
+        if isinstance(normalized_text, str) and normalized_text.strip():
+            candidates.append(normalized_text)
+
+        raw_text = dialog_projection.get("raw_text")
+        if isinstance(raw_text, str) and raw_text.strip():
+            candidates.append(raw_text)
+
         dialog_text = dialog_projection.get("dialog_text")
         if isinstance(dialog_text, str) and dialog_text.strip():
             candidates.append(dialog_text)
 
     return tuple(candidates)
+
+
+def _mail_result_text_surfaces(events: list[SessionEvent]) -> tuple[_MailResultTextSurface, ...]:
+    """Return ordered candidate surfaces for sentinel extraction.
+
+    Ordering prefers explicit structured payload surfaces first, especially
+    closer-to-source shadow surfaces such as ``normalized_text`` and
+    ``raw_text``. Event-message aggregates remain available as a fallback for
+    CAO-native flows or providers that stream the sentinel block across multiple
+    assistant events.
+    """
+
+    surfaces: list[_MailResultTextSurface] = []
+
+    for index, event in enumerate(events):
+        for payload_index, payload_text in enumerate(_event_payload_text_candidates(event), start=1):
+            surfaces.append(
+                _MailResultTextSurface(
+                    surface_id=f"event[{index}].payload[{payload_index}]",
+                    text=payload_text,
+                )
+            )
+
+    done_messages = [event.message for event in events if event.kind == "done" and event.message]
+    if done_messages:
+        surfaces.append(
+            _MailResultTextSurface(
+                surface_id="done_messages_combined",
+                text="\n".join(done_messages),
+            )
+        )
+
+    assistant_messages = [
+        event.message for event in events if event.kind != "done" and event.message
+    ]
+    if assistant_messages:
+        surfaces.append(
+            _MailResultTextSurface(
+                surface_id="assistant_messages_combined",
+                text="\n".join(assistant_messages),
+            )
+        )
+
+    all_messages = [event.message for event in events if event.message]
+    if all_messages:
+        surfaces.append(
+            _MailResultTextSurface(
+                surface_id="all_messages_combined",
+                text="\n".join(all_messages),
+            )
+        )
+
+    return tuple(surfaces)
 
 
 def generate_mail_request_id() -> str:

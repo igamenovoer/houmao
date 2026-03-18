@@ -5,12 +5,14 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.backends.claude_code_shadow import (
+    ClaudeProjectionContext,
     ClaudeCodeShadowParser,
 )
 from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
     ANOMALY_PRESET_OVERRIDE_USED,
     ANOMALY_UNKNOWN_VERSION_FLOOR_USED,
+    DialogProjectorResult,
 )
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures" / "shadow_parser" / "claude"
@@ -193,3 +195,28 @@ def test_claude_shadow_reports_baseline_invalidation_on_projection() -> None:
     assert snapshot.surface_assessment.parser_metadata.baseline_invalidated is True
     assert ANOMALY_BASELINE_INVALIDATED in anomaly_codes
     assert "Added unified parser stack." in snapshot.dialog_projection.dialog_text
+
+
+def test_claude_shadow_parser_accepts_projector_override() -> None:
+    class OverrideProjector:
+        projector_id = "test_claude_override"
+
+        def project(
+            self,
+            *,
+            normalized_text: str,
+            context: ClaudeProjectionContext,
+        ) -> DialogProjectorResult:
+            del normalized_text, context
+            return DialogProjectorResult(
+                dialog_text="override line",
+                evidence=("OVERRIDE_USED",),
+            )
+
+    parser = ClaudeCodeShadowParser(projector_override=OverrideProjector())
+
+    snapshot = parser.parse_snapshot(_fixture("exact_preset_match.txt"), baseline_pos=0)
+
+    assert snapshot.dialog_projection.dialog_text == "override line"
+    assert snapshot.dialog_projection.projection_metadata.projector_id == "test_claude_override"
+    assert snapshot.dialog_projection.evidence == ("OVERRIDE_USED",)

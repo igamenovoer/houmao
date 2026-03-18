@@ -1163,6 +1163,7 @@ def test_send_turn_records_turn_artifact_and_updates_state(tmp_path: Path) -> No
 
     assert turn.turn_index == 1
     assert turn.response_text == "echo: say hello"
+    assert turn.response_text_source == "done_message"
 
     state = load_demo_state(paths.state_path)
     assert state is not None
@@ -1266,6 +1267,7 @@ def test_send_turn_succeeds_after_recovered_model_switch_history(tmp_path: Path)
 
     assert turn.turn_index == 4
     assert turn.response_text == "Yes, there is a claude.md file."
+    assert turn.response_text_source == "dialog_projection_last_line_best_effort"
     assert turn.events[-1]["payload"]["surface_assessment"]["ui_context"] == "normal_prompt"
     assert "/model" in turn.events[-1]["payload"]["dialog_projection"]["dialog_text"]
 
@@ -1462,11 +1464,11 @@ def test_inspect_demo_human_output_handles_live_lookup_failures(
         "terminal_log_tail: tail -f "
         f"{paths.workspace_root / '.aws' / 'cli-agent-orchestrator' / 'logs' / 'terminal' / 'term-001.log'}"
     ) in output
-    assert "Output Text Tail (last 80 chars)" in output
-    assert "clean projected Claude dialog tail unavailable" in output
+    assert "Best-Effort Output Text Tail (last 80 chars)" in output
+    assert "best-effort projected Claude dialog tail unavailable" in output
 
 
-def test_send_turn_fails_on_empty_response_but_still_writes_turn_artifact(
+def test_send_turn_records_empty_best_effort_response_when_no_text_surface_is_available(
     tmp_path: Path,
 ) -> None:
     paths = _make_paths(tmp_path)
@@ -1494,17 +1496,19 @@ def test_send_turn_fails_on_empty_response_but_still_writes_turn_artifact(
             stderr_path=stderr_path,
         )
 
-    with pytest.raises(DemoWorkflowError, match="empty response"):
-        send_turn(
-            paths=paths,
-            env=env,
-            prompt="empty please",
-            run_command=_runner,
-        )
+    turn = send_turn(
+        paths=paths,
+        env=env,
+        prompt="empty please",
+        run_command=_runner,
+    )
 
     records = load_turn_records(paths.turns_dir)
     assert len(records) == 1
+    assert turn.response_text == ""
+    assert turn.response_text_source == "unavailable"
     assert records[0].response_text == ""
+    assert records[0].response_text_source == "unavailable"
 
 
 def test_stop_demo_marks_state_inactive_when_session_is_missing(tmp_path: Path) -> None:
@@ -1575,6 +1579,7 @@ def test_verify_demo_requires_reused_agent_identity_across_two_turns(tmp_path: P
     assert report.unique_agent_identity_count == 1
     assert report.terminal_id == "term-001"
     assert [turn.turn_index for turn in report.turns] == [1, 2]
+    assert [turn.response_text_present for turn in report.turns] == [True, True]
 
 
 def test_verify_demo_resolves_terminal_log_path_from_launcher_home(tmp_path: Path) -> None:

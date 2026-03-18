@@ -309,7 +309,11 @@ _TurnMonitorState = Literal[
 
 @dataclass
 class _TurnMonitor:
-    """Runtime-owned lifecycle monitor for shadow-mode readiness and turns."""
+    """Runtime-owned lifecycle monitor for shadow-mode readiness and turns.
+
+    The completion path treats projection changes as coarse evidence that the TUI
+    moved after submission. It is intentionally not a semantic answer extractor.
+    """
 
     phase: _TurnMonitorPhase
     m_state: _TurnMonitorState
@@ -321,7 +325,11 @@ class _TurnMonitor:
     m_anomalies: list[ShadowParserAnomaly] = field(default_factory=list)
 
     def record_submit(self, *, baseline_projection: DialogProjection) -> None:
-        """Record the pre-submit projection baseline for completion monitoring."""
+        """Record the pre-submit projection baseline for coarse completion diffing.
+
+        The stored projection is only used to detect that the visible dialog
+        changed after submission. It is not treated as a reliable extracted reply.
+        """
 
         self.m_state = "submitted_waiting_activity"
         self.m_baseline_projection_text = baseline_projection.dialog_text
@@ -371,12 +379,18 @@ class _TurnMonitor:
         now_monotonic: float,
         timeout_seconds: float,
     ) -> _TurnMonitorState:
-        """Advance post-submit lifecycle monitoring from one parsed snapshot."""
+        """Advance post-submit lifecycle monitoring from one parsed snapshot.
+
+        A projection delta is used as best-effort activity evidence alongside
+        business-state transitions. Completion still remains a lifecycle judgment,
+        not semantic interpretation of the projected text.
+        """
 
         baseline_projection_text = self.m_baseline_projection_text
         if baseline_projection_text is None:
             raise RuntimeError("Completion monitor requires a recorded baseline projection.")
 
+        # Treat projection drift as coarse "something changed in the TUI" evidence.
         if dialog_projection.dialog_text != baseline_projection_text:
             self.m_saw_projection_change_after_submit = True
 

@@ -546,7 +546,7 @@ def _best_effort_output_text_tail(
     output_text_tail_chars: int,
     client: CaoRestClient,
 ) -> OutputTextTailResult:
-    """Return a clean projected dialog tail for live inspection."""
+    """Return a best-effort projected dialog tail for live inspection."""
 
     tool_label = _tool_display_name(tool)
 
@@ -556,7 +556,7 @@ def _best_effort_output_text_tail(
         return OutputTextTailResult(
             output_text_tail=None,
             note=(
-                f"clean projected {tool_label} dialog tail unavailable: "
+                f"best-effort projected {tool_label} dialog tail unavailable: "
                 f"live CAO output could not be fetched ({exc})"
             ),
         )
@@ -570,7 +570,8 @@ def _best_effort_output_text_tail(
         return OutputTextTailResult(
             output_text_tail=None,
             note=(
-                f"clean projected {tool_label} dialog tail unavailable: projection failed ({exc})"
+                f"best-effort projected {tool_label} dialog tail unavailable: "
+                f"projection failed ({exc})"
             ),
         )
 
@@ -578,7 +579,7 @@ def _best_effort_output_text_tail(
         return OutputTextTailResult(
             output_text_tail=None,
             note=(
-                f"clean projected {tool_label} dialog tail unavailable: "
+                f"best-effort projected {tool_label} dialog tail unavailable: "
                 f"live output did not match a supported {tool_label} surface"
             ),
         )

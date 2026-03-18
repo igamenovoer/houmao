@@ -172,6 +172,40 @@ def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_pat
     assert payload["unread_count"] == 3
 
 
+def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payload(
+    tmp_path: Path,
+) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    "dialog_projection": {
+                        "normalized_text": (
+                            "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":7}\n'
+                            "AGENTSYS_MAIL_RESULT_END"
+                        ),
+                        "dialog_text": "messy tui chrome without sentinels",
+                    }
+                },
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 7
+
+
 def test_mail_check_cli_prints_structured_result(
     monkeypatch,
     capsys,

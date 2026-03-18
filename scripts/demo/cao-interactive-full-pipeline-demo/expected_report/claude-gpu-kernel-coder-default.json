@@ -17,13 +17,15 @@
     {
       "agent_identity": "<AGENT_IDENTITY>",
       "exit_status": 0,
-      "response_text": "<NON_EMPTY_RESPONSE>",
+      "response_text_present": true,
+      "response_text_source": "done_message",
       "turn_index": 1
     },
     {
       "agent_identity": "<AGENT_IDENTITY>",
       "exit_status": 0,
-      "response_text": "<NON_EMPTY_RESPONSE>",
+      "response_text_present": true,
+      "response_text_source": "done_message",
       "turn_index": 2
     }
   ],

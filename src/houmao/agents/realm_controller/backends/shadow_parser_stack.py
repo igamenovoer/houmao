@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from .claude_code_shadow import (
+    ClaudeDialogProjector,
     ClaudeCodeShadowParseError,
     ClaudeCodeShadowParser,
 )
 from .codex_shadow import (
+    CodexDialogProjector,
     CodexShadowParseError,
     CodexShadowParser,
 )
@@ -35,14 +38,24 @@ ShadowParser = ClaudeCodeShadowParser | CodexShadowParser
 class ShadowParserStack:
     """Provider-aware adapter for runtime-owned shadow parsers."""
 
-    def __init__(self, *, tool: str) -> None:
+    def __init__(
+        self,
+        *,
+        tool: str,
+        projector_override: ClaudeDialogProjector | CodexDialogProjector | None = None,
+    ) -> None:
         self._tool = tool
+        self._parser: ShadowParser
         if tool == "claude":
-            self._parser: ShadowParser = ClaudeCodeShadowParser()
+            self._parser = ClaudeCodeShadowParser(
+                projector_override=cast(ClaudeDialogProjector | None, projector_override)
+            )
             self._parser_family = _PARSER_FAMILY_CLAUDE_SHADOW
             return
         if tool == "codex":
-            self._parser = CodexShadowParser()
+            self._parser = CodexShadowParser(
+                projector_override=cast(CodexDialogProjector | None, projector_override)
+            )
             self._parser_family = _PARSER_FAMILY_CODEX_SHADOW
             return
         raise ValueError(f"Shadow parsing is unsupported for tool {tool!r}")

@@ -16,6 +16,7 @@ The important boundary is:
 - the Claude shadow parser owns snapshot parsing,
 - the runtime owns turn lifecycle, and
 - caller-side answer association is optional and explicit.
+- `normalized_text` stays closer to the captured TUI snapshot, while `dialog_text` is only a best-effort heuristic cleanup surface.
 
 For resumed CAO operations, session addressing is manifest-driven: runtime uses the persisted `session_manifest.cao.api_base_url` and terminal identity from the session manifest rather than a resume-time CAO base URL override.
 
@@ -81,8 +82,8 @@ sequenceDiagram
 
 - `SurfaceAssessment` answers whether the surface is supported and what it appears to be doing right now.
 - Slash-command readiness follows the currently active input surface, not historical `/...` lines still visible in scrollback or projected dialog.
-- `DialogProjection` returns cleaned visible dialog, not an authoritative answer for the current prompt.
+- `DialogProjection` returns best-effort cleaned visible dialog, not an authoritative answer for the current prompt and not an exact recovered transcript.
 - `TurnMonitor` decides success terminality from ordered snapshots, not from parser-owned answer extraction.
-- `TailRegexExtractAssociator` is an example of caller-owned extraction layered on top of projected dialog.
+- `TailRegexExtractAssociator` is an example of caller-owned best-effort extraction layered on top of projected dialog. Reliable downstream machine use should prefer schema-shaped prompting plus explicit sentinels or patterns.
 
 Use the developer guide for the detailed state vocabulary, runtime lifecycle graph, and provider contract breakdown.

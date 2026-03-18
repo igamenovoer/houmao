@@ -5,11 +5,14 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.backends.codex_shadow import (
+    CodexProjectionContext,
     CodexShadowParser,
 )
+from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
 from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
     ANOMALY_UNKNOWN_VERSION_FLOOR_USED,
+    DialogProjectorResult,
 )
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures" / "shadow_parser" / "codex"
@@ -227,3 +230,28 @@ def test_codex_shadow_classifies_working_modal_surface() -> None:
     assert snapshot.surface_assessment.business_state == "working"
     assert snapshot.surface_assessment.input_mode == "modal"
     assert snapshot.surface_assessment.ui_context == "slash_command"
+
+
+def test_shadow_parser_stack_passes_projector_override_to_provider_parser() -> None:
+    class OverrideProjector:
+        projector_id = "test_codex_override"
+
+        def project(
+            self,
+            *,
+            normalized_text: str,
+            context: CodexProjectionContext,
+        ) -> DialogProjectorResult:
+            del normalized_text, context
+            return DialogProjectorResult(
+                dialog_text="override result",
+                evidence=("OVERRIDE_USED",),
+            )
+
+    stack = ShadowParserStack(tool="codex", projector_override=OverrideProjector())
+
+    snapshot = stack.parse_snapshot(_fixture("label_completed.txt"), baseline_pos=0)
+
+    assert snapshot.dialog_projection.dialog_text == "override result"
+    assert snapshot.dialog_projection.projection_metadata.projector_id == "test_codex_override"
+    assert snapshot.dialog_projection.evidence == ("OVERRIDE_USED",)

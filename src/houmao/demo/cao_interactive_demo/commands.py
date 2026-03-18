@@ -19,7 +19,6 @@ from houmao.demo.cao_interactive_demo.cao_server import (
 from houmao.demo.cao_interactive_demo.models import (
     DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
     DEFAULT_WORKTREE_DIRNAME,
-    EMPTY_RESPONSE_ERROR,
     FIXED_CAO_BASE_URL,
     CommandRunner,
     ControlInputRecord,
@@ -33,7 +32,7 @@ from houmao.demo.cao_interactive_demo.models import (
 )
 from houmao.demo.cao_interactive_demo.rendering import (
     _emit_startup_progress,
-    _extract_done_message,
+    _extract_turn_response_text,
     _load_json_file,
     _parse_control_action_summary,
     _parse_events,
@@ -213,7 +212,7 @@ def send_turn(
     )
     completed_at_utc = _utc_now()
     events = _parse_events(stdout=result.stdout)
-    response_text = _extract_done_message(events)
+    response_text, response_text_source = _extract_turn_response_text(events)
     turn = TurnRecord(
         turn_index=turn_index,
         agent_identity=state.agent_identity,
@@ -222,6 +221,7 @@ def send_turn(
         completed_at_utc=completed_at_utc,
         exit_status=result.returncode,
         response_text=response_text,
+        response_text_source=response_text_source,
         events=events,
         stdout_path=str(stdout_path),
         stderr_path=str(stderr_path),
@@ -232,8 +232,6 @@ def send_turn(
         raise DemoWorkflowError(
             f"send-turn failed via `realm_controller send-prompt` (see `{stderr_path}`)"
         )
-    if not response_text.strip():
-        raise DemoWorkflowError(EMPTY_RESPONSE_ERROR)
 
     updated_state = state.model_copy(
         update={
@@ -405,14 +403,14 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
             raise DemoWorkflowError(
                 f"Turn {record.turn_index} exited non-zero ({record.exit_status})."
             )
-        if not record.response_text.strip():
-            raise DemoWorkflowError(f"Turn {record.turn_index} has an empty response_text.")
         summaries.append(
             VerificationTurnSummary(
                 turn_index=record.turn_index,
                 agent_identity=record.agent_identity,
                 exit_status=record.exit_status,
                 response_text=record.response_text,
+                response_text_source=record.response_text_source,
+                response_text_present=bool(record.response_text.strip()),
             )
         )
 

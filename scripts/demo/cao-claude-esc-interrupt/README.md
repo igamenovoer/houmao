@@ -23,7 +23,7 @@ This demo validates that a CAO-managed Claude Code session can be interrupted th
    - resolve CAO/shadow-parser observation fields from the session manifest and live terminal metadata,
    - send `Esc` using runtime `send-keys` / `send_input_ex("<[Escape]>")`,
    - wait for `idle`,
-   - submit a second prompt and extract a non-empty answer.
+   - submit a second prompt and extract a sentinel-shaped answer from shadow-aware projection surfaces.
 4. Writes `report.json` and verifies it against `expected_report/report.json`.
 
 ## Run

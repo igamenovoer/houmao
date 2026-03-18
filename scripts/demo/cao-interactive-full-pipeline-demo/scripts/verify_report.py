@@ -54,15 +54,17 @@ def _sanitize_turn(turn: dict[str, Any], *, expected_index: int) -> dict[str, An
     if int(turn.get("exit_status", -1)) != 0:
         raise ValueError("verified turn.exit_status must be 0")
 
-    response_text = str(turn.get("response_text", "")).strip()
-    if not response_text:
-        raise ValueError("verified turn.response_text must be non-empty")
+    response_text_source = str(turn.get("response_text_source", "")).strip()
+    if not response_text_source:
+        raise ValueError("verified turn.response_text_source must be non-empty")
+    response_text_present = bool(str(turn.get("response_text", "")).strip())
 
     return {
         "turn_index": expected_index,
         "agent_identity": "<AGENT_IDENTITY>",
         "exit_status": 0,
-        "response_text": "<NON_EMPTY_RESPONSE>",
+        "response_text_present": response_text_present,
+        "response_text_source": response_text_source,
     }
 
 
@@ -132,8 +134,9 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
         seen_identities.add(current_identity)
         if int(raw_turn.get("exit_status", -1)) != 0:
             raise ValueError("report.turns entry exit_status must be 0")
-        if not str(raw_turn.get("response_text", "")).strip():
-            raise ValueError("report.turns entry response_text must be non-empty")
+        response_text_source = str(raw_turn.get("response_text_source", "")).strip()
+        if not response_text_source:
+            raise ValueError("report.turns entry response_text_source must be non-empty")
         normalized_turns.append(raw_turn)
 
     if seen_identities != {agent_identity}:

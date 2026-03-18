@@ -16,4 +16,7 @@ Rules:
 - Only create/update `{{OUTPUT_FILE_REL}}`.
 - Do not run git commands.
 
-After writing the file, reply with one short line that starts with `DONE:` and includes the file path.
+After writing the file, reply with exactly one short line that starts with `DONE:` and includes the file path.
+Put only that reply line between these exact sentinel lines:
+AGENTSYS_DEMO_RESPONSE_BEGIN
+AGENTSYS_DEMO_RESPONSE_END

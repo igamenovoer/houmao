@@ -49,7 +49,12 @@ def _render_human_inspect_output(*, payload: dict[str, object]) -> str:
 
     output_text_tail_chars = payload.get("output_text_tail_chars_requested")
     if isinstance(output_text_tail_chars, int):
-        lines.extend(["", f"Output Text Tail (last {output_text_tail_chars} chars)"])
+        lines.extend(
+            [
+                "",
+                f"Best-Effort Output Text Tail (last {output_text_tail_chars} chars)",
+            ]
+        )
         note = payload.get("output_text_tail_note")
         if isinstance(note, str) and note.strip():
             lines.append(note)
@@ -193,14 +198,32 @@ def _parse_events(*, stdout: str) -> list[dict[str, object]]:
     return events
 
 
-def _extract_done_message(events: list[dict[str, object]]) -> str:
-    """Extract the final `done` event message from parsed runtime events."""
+def _extract_turn_response_text(events: list[dict[str, object]]) -> tuple[str, str]:
+    """Extract one human-facing turn summary plus its source label.
 
-    response_text = ""
-    for event in events:
-        if event.get("kind") == "done":
-            response_text = str(event.get("message", "")).strip()
-    return response_text
+    For shadow-mode turns this prefers an explicit shadow-aware best-effort path
+    over the final ``done.message``.
+    """
+
+    for event in reversed(events):
+        if event.get("kind") != "done":
+            continue
+
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            dialog_projection = payload.get("dialog_projection")
+            if isinstance(dialog_projection, dict):
+                dialog_text = dialog_projection.get("dialog_text")
+                if isinstance(dialog_text, str):
+                    lines = [line.strip() for line in dialog_text.splitlines() if line.strip()]
+                    if lines:
+                        return (lines[-1], "dialog_projection_last_line_best_effort")
+
+        done_message = str(event.get("message", "")).strip()
+        if done_message:
+            return (done_message, "done_message")
+
+    return ("", "unavailable")
 
 
 def _parse_control_action_summary(text: str, *, context: str) -> ControlActionSummary:

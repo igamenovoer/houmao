@@ -43,7 +43,7 @@ Subcommands:
       key stream when it contains spaces or shell metacharacters.
   inspect [--json] [--with-output-text <num-tail-chars>]
       Show tmux/log inspection commands for the current state and optionally
-      include a clean projected tool dialog tail.
+      include a best-effort projected tool dialog tail.
   verify [--snapshot-report]
       Generate report.json and optionally refresh the tracked snapshot.
   stop

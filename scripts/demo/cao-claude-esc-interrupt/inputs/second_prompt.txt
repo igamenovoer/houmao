@@ -1,1 +1,4 @@
 Reply with exactly one short sentence confirming recovery after an interrupt.
+Put only that sentence between these exact sentinel lines:
+AGENTSYS_DEMO_RESPONSE_BEGIN
+AGENTSYS_DEMO_RESPONSE_END

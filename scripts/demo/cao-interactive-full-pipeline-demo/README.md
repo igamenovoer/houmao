@@ -72,7 +72,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh start \
   --brain-recipe codex/gpu-kernel-coder-yunwu-openai \
   --agent-name gpu-demo
 
-# 5) Inspect the active session and optionally include clean projected dialog text.
+# 5) Inspect the active session and optionally include a best-effort projected dialog tail.
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect --with-output-text 400
 
@@ -280,3 +280,4 @@ Implementation files:
 - `src/houmao/demo/cao_interactive_demo/runtime.py`
 - `src/houmao/demo/cao_interactive_demo/rendering.py`
 - `src/houmao/demo/cao_interactive_demo/cao_server.py`
+When `--with-output-text` is present, the inspect surface reports a best-effort projected dialog tail for operator diagnostics. It is not an exact extracted reply API.

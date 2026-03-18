@@ -8,10 +8,12 @@ from typing import Final, Literal
 
 from .shadow_parser_core import (
     ANOMALY_BASELINE_INVALIDATED,
+    DialogProjectorResult,
     DialogProjection,
     ParsedShadowSnapshot,
     PresetResolution,
     ProjectionMetadata,
+    ShadowDialogProjector,
     ShadowAvailability,
     ShadowBusinessState,
     ShadowInputMode,
@@ -22,6 +24,7 @@ from .shadow_parser_core import (
     VersionedParserPreset,
     VersionedPresetRegistry,
     ansi_stripped_tail_excerpt,
+    finalize_projected_dialog,
     normalize_shadow_output,
     projection_head_tail,
     strip_ansi,
@@ -71,6 +74,7 @@ _OUTPUT_VARIANT_LABEL_V1: Final[str] = "codex_label_v1"
 _OUTPUT_VARIANT_TUI_BULLET_V1: Final[str] = "codex_tui_bullet_v1"
 _OUTPUT_VARIANT_WAITING_APPROVAL_V1: Final[str] = "codex_waiting_approval_v1"
 _OUTPUT_VARIANT_PROMPT_IDLE_V1: Final[str] = "codex_prompt_idle_v1"
+_CODEX_LEGACY_PROJECTOR_ID: Final[str] = "codex_dialog_projection_legacy_v1"
 _CODEX_PROJECTOR_ID: Final[str] = "codex_dialog_projection_v1"
 
 CodexUiContext = Literal[
@@ -128,6 +132,96 @@ class _SurfaceAxes:
     ui_context: CodexUiContext
 
 
+@dataclass(frozen=True)
+class CodexProjectionContext:
+    """Provider-owned projection context for one normalized Codex snapshot."""
+
+    output_variant: str | None
+
+
+CodexDialogProjector = ShadowDialogProjector[CodexProjectionContext]
+
+
+@dataclass(frozen=True)
+class _CodexRegexDialogProjector:
+    """Best-effort regex projector over normalized Codex TUI snapshots."""
+
+    projector_id: str
+
+    def project(
+        self,
+        *,
+        normalized_text: str,
+        context: CodexProjectionContext,
+    ) -> DialogProjectorResult:
+        del context
+        projected_lines: list[str] = []
+        evidence: list[str] = []
+
+        for line in normalized_text.splitlines():
+            projected_line = self._project_line(line=line, evidence=evidence)
+            _append_projection_line(projected_lines, projected_line)
+
+        return DialogProjectorResult(
+            dialog_text="\n".join(projected_lines),
+            evidence=tuple(evidence),
+        )
+
+    def _project_line(self, *, line: str, evidence: list[str]) -> str | None:
+        clean_line = line.rstrip("\r")
+        stripped = clean_line.strip()
+        if not stripped:
+            return ""
+        if _BANNER_VERSION_RE.search(clean_line):
+            evidence.append("DROP_BANNER_VERSION")
+            return None
+        if clean_line.startswith(("╭", "╰", "│")):
+            evidence.append("DROP_TUI_FRAME")
+            return None
+        if _FOOTER_TOKEN_RE.search(clean_line):
+            evidence.append("DROP_FOOTER_CHROME")
+            return None
+        if CodexShadowParser._is_processing_line(clean_line):
+            evidence.append("DROP_PROCESSING_SIGNAL")
+            return None
+        if _IDLE_PROMPT_STRICT_RE.match(clean_line):
+            evidence.append("DROP_IDLE_PROMPT")
+            return None
+
+        label_match = _ASSISTANT_LABEL_RE.match(clean_line)
+        if label_match is not None:
+            evidence.append("KEEP_ASSISTANT_LABEL_PAYLOAD")
+            return label_match.group(1).rstrip()
+
+        bullet_match = _ASSISTANT_BULLET_RE.match(clean_line)
+        if bullet_match is not None:
+            payload = bullet_match.group(1).rstrip()
+            if _PROCESSING_RE.search(payload):
+                evidence.append("DROP_ASSISTANT_PROGRESS_BULLET")
+                return None
+            evidence.append("KEEP_ASSISTANT_BULLET_PAYLOAD")
+            return payload
+
+        prompt_payload = CodexShadowParser._prompt_payload(clean_line)
+        if prompt_payload is not None:
+            if not prompt_payload:
+                evidence.append("DROP_IDLE_PROMPT")
+                return None
+            evidence.append("KEEP_PROMPT_PAYLOAD")
+            return prompt_payload
+
+        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_SELECTED_WAITING_OPTION")
+            return clean_line.replace("❯", "", 1).replace("›", "", 1).replace(">", "", 1).strip()
+
+        if _WAITING_OPTION_RE.match(clean_line):
+            evidence.append("KEEP_WAITING_OPTION")
+            return clean_line.strip()
+
+        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
+        return clean_line.rstrip()
+
+
 class CodexShadowParser:
     """Parse Codex output from CAO ``mode=full`` scrollback."""
 
@@ -157,15 +251,25 @@ class CodexShadowParser:
         ),
     }
 
-    def __init__(self, *, status_tail_lines: int = _DEFAULT_STATUS_TAIL_LINES) -> None:
+    def __init__(
+        self,
+        *,
+        status_tail_lines: int = _DEFAULT_STATUS_TAIL_LINES,
+        projector_override: CodexDialogProjector | None = None,
+    ) -> None:
         if status_tail_lines <= 0:
             raise ValueError("status_tail_lines must be positive")
         self._status_tail_lines = status_tail_lines
+        self._projector_override = projector_override
         self._registry = VersionedPresetRegistry(
             provider_id="codex",
             override_env_var=_ENV_PRESET_OVERRIDE,
             presets=tuple(preset.identity for preset in self._PRESETS.values()),
         )
+        self._projector_by_preset_version: dict[str, CodexDialogProjector] = {
+            "0.1.0": _CodexRegexDialogProjector(projector_id=_CODEX_LEGACY_PROJECTOR_ID),
+            "0.98.0": _CodexRegexDialogProjector(projector_id=_CODEX_PROJECTOR_ID),
+        }
 
     def resolve_preset_version(self, scrollback: str) -> str:
         """Resolve Codex preset version using registry selection order."""
@@ -219,10 +323,16 @@ class CodexShadowParser:
             clean_output=clean_output,
             metadata=metadata,
         )
+        projector = self._select_projector(
+            preset=preset,
+            output_variant=output_variant,
+        )
         dialog_projection = self._build_dialog_projection(
             raw_text=scrollback,
             clean_output=clean_output,
             metadata=metadata,
+            projector=projector,
+            context=CodexProjectionContext(output_variant=output_variant),
         )
         return ParsedShadowSnapshot(
             surface_assessment=surface_assessment,
@@ -255,6 +365,21 @@ class CodexShadowParser:
                 f"{resolution.preset.version!r}."
             )
         return preset, resolution
+
+    def _select_projector(
+        self,
+        *,
+        preset: CodexParsingPreset,
+        output_variant: str | None,
+    ) -> CodexDialogProjector:
+        del output_variant
+        if self._projector_override is not None:
+            return self._projector_override
+
+        projector = self._projector_by_preset_version.get(preset.identity.version)
+        if projector is not None:
+            return projector
+        return self._projector_by_preset_version["0.98.0"]
 
     def _build_surface_assessment(
         self,
@@ -338,17 +463,17 @@ class CodexShadowParser:
         raw_text: str,
         clean_output: str,
         metadata: ShadowParserMetadata,
+        projector: CodexDialogProjector,
+        context: CodexProjectionContext,
     ) -> CodexDialogProjection:
-        projected_lines: list[str] = []
-        evidence: list[str] = []
-
-        for line in clean_output.splitlines():
-            projected_line = self._project_line(line=line, evidence=evidence)
-            _append_projection_line(projected_lines, projected_line)
-
-        dialog_text = "\n".join(projected_lines).strip()
-        if not dialog_text and clean_output.strip():
-            dialog_text = clean_output.strip()
+        projector_result = projector.project(
+            normalized_text=clean_output,
+            context=context,
+        )
+        dialog_text = finalize_projected_dialog(
+            normalized_text=clean_output,
+            dialog_text=projector_result.dialog_text,
+        )
 
         head, tail = projection_head_tail(
             dialog_text,
@@ -357,7 +482,7 @@ class CodexShadowParser:
         projection_metadata = ProjectionMetadata(
             provider_id="codex",
             source_kind="tui_snapshot",
-            projector_id=_CODEX_PROJECTOR_ID,
+            projector_id=projector.projector_id,
             parser_metadata=metadata,
             dialog_line_count=len(dialog_text.splitlines()) if dialog_text else 0,
             head_line_count=len(head.splitlines()) if head else 0,
@@ -370,63 +495,9 @@ class CodexShadowParser:
             head=head,
             tail=tail,
             projection_metadata=projection_metadata,
-            anomalies=metadata.anomalies,
-            evidence=tuple(evidence),
+            anomalies=tuple([*metadata.anomalies, *projector_result.anomalies]),
+            evidence=projector_result.evidence,
         )
-
-    def _project_line(self, *, line: str, evidence: list[str]) -> str | None:
-        clean_line = line.rstrip("\r")
-        stripped = clean_line.strip()
-        if not stripped:
-            return ""
-        if _BANNER_VERSION_RE.search(clean_line):
-            evidence.append("DROP_BANNER_VERSION")
-            return None
-        if clean_line.startswith(("╭", "╰", "│")):
-            evidence.append("DROP_TUI_FRAME")
-            return None
-        if _FOOTER_TOKEN_RE.search(clean_line):
-            evidence.append("DROP_FOOTER_CHROME")
-            return None
-        if self._is_processing_line(clean_line):
-            evidence.append("DROP_PROCESSING_SIGNAL")
-            return None
-        if _IDLE_PROMPT_STRICT_RE.match(clean_line):
-            evidence.append("DROP_IDLE_PROMPT")
-            return None
-
-        label_match = _ASSISTANT_LABEL_RE.match(clean_line)
-        if label_match is not None:
-            evidence.append("KEEP_ASSISTANT_LABEL_PAYLOAD")
-            return label_match.group(1).rstrip()
-
-        bullet_match = _ASSISTANT_BULLET_RE.match(clean_line)
-        if bullet_match is not None:
-            payload = bullet_match.group(1).rstrip()
-            if _PROCESSING_RE.search(payload):
-                evidence.append("DROP_ASSISTANT_PROGRESS_BULLET")
-                return None
-            evidence.append("KEEP_ASSISTANT_BULLET_PAYLOAD")
-            return payload
-
-        prompt_payload = self._prompt_payload(clean_line)
-        if prompt_payload is not None:
-            if not prompt_payload:
-                evidence.append("DROP_IDLE_PROMPT")
-                return None
-            evidence.append("KEEP_PROMPT_PAYLOAD")
-            return prompt_payload
-
-        if _WAITING_SELECTED_OPTION_RE.match(clean_line):
-            evidence.append("KEEP_SELECTED_WAITING_OPTION")
-            return clean_line.replace("❯", "", 1).replace("›", "", 1).replace(">", "", 1).strip()
-
-        if _WAITING_OPTION_RE.match(clean_line):
-            evidence.append("KEEP_WAITING_OPTION")
-            return clean_line.strip()
-
-        evidence.append("KEEP_VISIBLE_DIALOG_LINE")
-        return clean_line.rstrip()
 
     def _metadata_for(
         self,

@@ -14,12 +14,16 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
     response = str(report.get("response_text", "")).strip()
     if not response:
         raise ValueError("report.response_text must be non-empty")
+    response_text_source = str(report.get("response_text_source", "")).strip()
+    if not response_text_source:
+        raise ValueError("report.response_text_source must be non-empty")
 
     return {
         "status": "ok",
         "backend": str(report.get("backend", "")),
         "tool": str(report.get("tool", "")),
         "response_text": "<NON_EMPTY_RESPONSE>",
+        "response_text_source": response_text_source,
         "session_manifest": "<SESSION_MANIFEST_PATH>",
         "workspace": "<WORKSPACE_PATH>",
         "generated_at_utc": "<TIMESTAMP>",

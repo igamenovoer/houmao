@@ -854,7 +854,11 @@ def _add_cao_parsing_mode_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--cao-parsing-mode",
         choices=["cao_only", "shadow_only"],
-        help="CAO parsing mode override for resumed control commands.",
+        help=(
+            "CAO parsing mode override for resumed control commands. "
+            "Default posture is shadow_only; use cao_only only for advanced debugging "
+            "or native CAO-path validation."
+        ),
     )
 
 
