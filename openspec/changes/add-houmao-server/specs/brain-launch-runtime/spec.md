@@ -9,6 +9,7 @@ When that mode is selected, the runtime SHALL:
 - persist the `houmao-server` base URL plus session and terminal identity in the session manifest
 - treat `houmao-server` as the server authority for later control operations
 - keep any `houmao-server` upstream-adapter details out of the public runtime backend identity
+- treat `houmao-server` as part of the supported `houmao-server + houmao-srv-ctrl` pair rather than as a mixed-pair bridge to raw `cao`
 
 For supported loopback `houmao-server` base URLs, runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
@@ -18,6 +19,11 @@ When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
 - **WHEN** a developer starts a new interactive session using the `houmao-server` REST-backed mode
 - **THEN** the runtime persists a session manifest that records the `houmao-server` base URL and terminal identity needed for resume and later control
 - **AND THEN** subsequent runtime control does not need a separate CAO base URL override for that session
+
+#### Scenario: Runtime does not promise mixed-pair bridging through `houmao-server`
+- **WHEN** a developer uses the `houmao-server` REST-backed mode
+- **THEN** the runtime treats that session as part of the `houmao-server` Houmao-managed path
+- **AND THEN** it does not claim support for mixing that path with raw `cao` client workflows behind the scenes
 
 #### Scenario: Loopback `houmao-server` communication bypasses ambient proxy env by default
 - **WHEN** a developer starts or resumes a `houmao-server`-backed session using loopback base URL `http://127.0.0.1:9890`

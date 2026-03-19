@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
-### Requirement: `houmao-server` maps the targeted CAO HTTP endpoint surface
+### Requirement: `houmao-server` matches the full supported `cao-server` HTTP API
 The system SHALL provide a first-party HTTP service named `houmao-server`.
 
-`houmao-server` SHALL expose an HTTP API shaped closely enough to `cao-server` that current Houmao-side session and terminal control flows can migrate with minimal changes.
+`houmao-server` SHALL expose an HTTP API that is fully compatible with the public HTTP API of the supported `cao-server` version.
 
-For the targeted CAO version supported by this change, `houmao-server` SHALL map the CAO HTTP endpoint surface through corresponding `houmao-server` routes, preserving methods, paths, request parameter names, and response shapes closely enough to support drop-in replacement.
+For the supported `cao-server` version pinned by this change, every public `cao-server` HTTP endpoint SHALL have a corresponding `houmao-server` behavior that preserves route paths, methods, request argument names, request-body semantics, response status codes, and response bodies closely enough that work that succeeds against `cao-server` also succeeds against `houmao-server`.
 
-At minimum, the mapped compatibility routes SHALL include:
+The following routes are explicitly called out because current Houmao usage already depends on them, but compatibility SHALL NOT be limited to this subset:
 
 - `GET /health`
 - `GET /sessions`
@@ -23,15 +23,48 @@ At minimum, the mapped compatibility routes SHALL include:
 - `POST /terminals/{terminal_id}/inbox/messages`
 - `GET /terminals/{terminal_id}/inbox/messages`
 
-#### Scenario: Compatibility routes cover the current CAO session and terminal surface
-- **WHEN** a caller uses the targeted CAO session, terminal, input, output, interrupt, deletion, or inbox routes against `houmao-server`
-- **THEN** `houmao-server` accepts the same route family with CAO-compatible request semantics
-- **AND THEN** the caller does not need a separate route rewrite layer just to switch from `cao-server` to `houmao-server`
+#### Scenario: Any supported `cao-server` endpoint continues to work through `houmao-server`
+- **WHEN** a caller uses any public HTTP endpoint supported by the pinned `cao-server` version against `houmao-server`
+- **THEN** `houmao-server` accepts the same call pattern with CAO-compatible semantics
+- **AND THEN** work that succeeds against `cao-server` also succeeds against `houmao-server` without a separate route rewrite layer
 
 #### Scenario: Health endpoint works as the basic liveness probe
 - **WHEN** a caller queries `GET /health` on a running `houmao-server`
 - **THEN** the server returns a structured health payload indicating the server is alive
 - **AND THEN** callers can use that route as the basic liveness check before trusting the server
+
+### Requirement: `houmao-server` compatibility is defined within the supported Houmao pair
+The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
+
+This change SHALL NOT require `houmao-server` to support arbitrary external `cao` clients as a public compatibility contract.
+
+Mixed-pair usage such as `houmao-server + cao` SHALL be treated as unsupported in this change.
+
+#### Scenario: Mixed server-plus-raw-CAO usage is not part of the compatibility promise
+- **WHEN** an operator points a raw `cao` client at `houmao-server`
+- **THEN** that combination is outside the supported compatibility contract for this change
+- **AND THEN** parity verification for the change does not need to claim that mixed pair works
+
+### Requirement: Houmao extensions on CAO-compatible routes are additive only
+When `houmao-server` extends an existing CAO-compatible route, those extensions SHALL be additive only.
+
+Additive extensions MAY include:
+
+- additional optional request arguments or body fields
+- additional optional response fields
+- additional new endpoints outside the CAO-compatible route set
+
+`houmao-server` SHALL NOT require Houmao-only arguments or fields in order for a CAO-compatible request to succeed, and it SHALL NOT remove or repurpose CAO-defined fields or behaviors on compatibility routes.
+
+#### Scenario: CAO-compatible clients ignore additive response fields safely
+- **WHEN** `houmao-server` returns a CAO-compatible response body with additional Houmao-owned optional fields
+- **THEN** a CAO-compatible client that only reads CAO-defined fields still succeeds
+- **AND THEN** the additive fields do not break the compatibility contract
+
+#### Scenario: Houmao-only request arguments remain optional on compatibility routes
+- **WHEN** a caller sends a CAO-compatible request body or argument set without any Houmao-only extension fields
+- **THEN** `houmao-server` still processes the request successfully according to CAO-compatible semantics
+- **AND THEN** Houmao-only extensions do not become mandatory for compatibility
 
 ### Requirement: `houmao-server` supervises a child `cao-server` in the shallow cut
 In v1, `houmao-server` SHALL start and supervise a child `cao-server` subprocess as part of its own managed runtime.
@@ -41,6 +74,10 @@ For most mapped CAO-compatible HTTP routes in the shallow cut, `houmao-server` S
 The child `cao-server` SHALL listen on a loopback endpoint whose port is derived mechanically as `houmao-server` port `+1`.
 
 User-facing interfaces for `houmao-server` SHALL NOT expose a separate option to configure that internal child CAO port.
+
+When the child `cao-server` requires `HOME` or other on-disk support state, `houmao-server` SHALL provision and manage that state under Houmao-owned server storage rather than exposing a separate user-facing CAO-home contract.
+
+The detailed layout and contents of that internal child-CAO storage SHALL be treated as opaque implementation detail rather than as a supported public filesystem surface.
 
 Direct use of the child CAO endpoint by an external caller who already knows that derived port SHALL be treated as an unsupported debug or user hack rather than as a supported public interface.
 
@@ -55,6 +92,11 @@ Direct use of the child CAO endpoint by an external caller who already knows tha
 - **WHEN** `houmao-server` starts on loopback port `9890`
 - **THEN** the child `cao-server` listens on loopback port `9891`
 - **AND THEN** callers cannot configure that internal child port through a separate user-facing option
+
+#### Scenario: Child CAO filesystem state stays behind Houmao-owned storage
+- **WHEN** the supervised child `cao-server` needs a home directory or adapter-private support files
+- **THEN** `houmao-server` provisions those files under Houmao-owned server storage
+- **AND THEN** callers do not manage a separate CAO-home path as part of the public contract
 
 #### Scenario: Direct child CAO access is not a supported operator contract
 - **WHEN** an external caller reaches the child `cao-server` directly by manually targeting the derived internal port
@@ -78,10 +120,53 @@ The server SHALL stop or detach those watch workers in a way consistent with ter
 - **THEN** the server stops or releases the corresponding watch worker
 - **AND THEN** it does not leave a detached background watcher running for that deleted terminal
 
-### Requirement: `houmao-server` publishes Houmao-owned terminal state and history as explicit extension routes
-`houmao-server` SHALL expose Houmao-specific HTTP extension routes for terminal watch state and history in addition to the CAO-like core API.
+### Requirement: `houmao-server` classifies persistence into filesystem-authoritative, transitional compatibility, and memory-primary state
+`houmao-server` SHALL distinguish between durable filesystem-authoritative artifacts that remain canonical on disk, transitional compatibility artifacts that remain filesystem-backed in v1 but are intended to move behind server-owned query APIs later, and live control-plane state that becomes server-owned memory even when compatibility files still exist.
 
-Those extension routes SHALL keep Houmao-owned features explicit rather than silently overloading CAO-compatible payloads.
+At minimum, the filesystem-authoritative bucket SHALL include:
+
+- runtime home roots and runtime manifests
+- durable session roots and session manifests
+- mailbox storage
+- workspace-local job directories
+- Houmao-owned server roots
+- logs
+
+At minimum, the transitional compatibility bucket SHALL include shared registry live-agent records for v1.
+
+At minimum, the memory-primary bucket SHALL include:
+
+- live request and terminal registries
+- watch-worker bindings and latest in-memory reductions
+- gateway-like hot control-plane views such as queue, current-instance, pid, and live state artifacts
+- child-CAO launcher bookkeeping such as pid and ownership records
+
+When `houmao-server` emits filesystem mirrors for memory-primary state, those mirrors SHALL be treated as compatibility, debug, or migration views rather than as the authoritative live control plane once `houmao-server` owns that state.
+
+#### Scenario: Mailbox remains filesystem-authoritative
+- **WHEN** `houmao-server` starts and indexes existing mailbox artifacts
+- **THEN** it treats those filesystem locations as canonical durable data
+- **AND THEN** the server may cache or index them without redefining them as memory-only state
+
+#### Scenario: Shared registry remains on disk in v1 but is not the long-term discovery authority
+- **WHEN** `houmao-server` starts and indexes existing shared registry records
+- **THEN** it may keep using those filesystem records as the current compatibility bridge
+- **AND THEN** the intended discovery contract remains future `houmao-server` query endpoints rather than raw registry-file lookup as the architectural center
+
+#### Scenario: Gateway-like live control state becomes server-owned memory
+- **WHEN** `houmao-server` tracks live terminal workers, queues, and current request ownership
+- **THEN** the primary truth for that hot control-plane state lives in server memory
+- **AND THEN** any emitted filesystem views for queue, pid, or current-instance compatibility are not treated as the canonical authority
+
+#### Scenario: Child adapter files stay hidden under Houmao-owned storage
+- **WHEN** `houmao-server` supervises a child `cao-server`
+- **THEN** any child-required filesystem state lives under Houmao-owned server storage rather than a separate public CAO-home surface
+- **AND THEN** child launcher pid, ownership, or support files are treated as internal implementation detail or server compatibility views rather than as the public control plane
+
+### Requirement: `houmao-server` publishes Houmao-owned terminal state and history as explicit extension routes
+`houmao-server` SHALL expose Houmao-specific HTTP extension routes for terminal watch state and history in addition to the CAO-compatible core API.
+
+Those extension routes SHALL keep Houmao-owned features explicit rather than using breaking changes on CAO-compatible payloads.
 
 At minimum, the Houmao-owned terminal state contract SHALL distinguish:
 
@@ -140,3 +225,18 @@ Future native Houmao-owned terminal backends SHALL be able to replace the CAO-ba
 - **WHEN** a future implementation replaces the CAO-backed adapter with a native Houmao-owned backend
 - **THEN** the public server remains `houmao-server`
 - **AND THEN** callers do not need to switch back to CAO-branded service identities to keep using the server
+
+### Requirement: `houmao-server` compatibility SHALL be verified against a real `cao-server`
+The implementation SHALL include verification that exercises the supported `cao-server` HTTP API against both `cao-server` and `houmao-server` and compares the compatibility-significant results.
+
+That verification SHALL cover at minimum:
+
+- endpoint availability and routing
+- request argument and request-body handling
+- response status codes and CAO-defined response fields
+- basic lifecycle behavior for session and terminal operations
+
+#### Scenario: Compatibility verification catches non-additive divergences
+- **WHEN** a `houmao-server` compatibility route changes in a way that breaks a CAO-compatible request or CAO-defined response contract
+- **THEN** parity verification against a real `cao-server` detects the divergence
+- **AND THEN** the implementation can reject that change before claiming API compatibility

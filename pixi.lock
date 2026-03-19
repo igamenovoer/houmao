@@ -78,6 +78,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a9/21/9b05698b46f218fc0e118e1f8168395c65c8a2c750ae2bab54fc4bd4e0e8/markupsafe-3.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/06/38/f2eeaa5d1c13e64a4dc18b5c6e28b9d5f8b20f5450ba8c3a694e4a78893d/mdutils-1.8.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/2a/fa/ce0466d9f088199f780ab39a09f830a437fc8aaccc885a6ccaf9a4a17401/memory_fs-0.41.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2c/19/04f9b178c2d8a15b076c8b5140708fa6ffc5601fb6f1e975537072df5b2a/mergedeep-1.3.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/22/5b/dbc6a8cddc9cfa9c4971d59fb12bb8d42e161b7e7f8cc89e49137c5b279c/mkdocs-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/88/29/744136411e785c4b0b744d5413e56555265939ab3a104c6a4b719dad33fd/mkdocs_get_deps-0.2.2-py3-none-any.whl
@@ -87,6 +88,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/6f/84/c0dc75c7fb596135f999e59a410d9f45bdabb989f1cb911f0016d22b747b/nh3-0.3.3-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/7e/eb/7daecbea84ec935b7fc732e18f532073064a3816f0932a40a17f3349185f/numpy-2.4.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e3/94/1843518e420fa3ed6919835845df698c7e27e183cb997394e4a670973a65/omegaconf-2.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fb/0a/05c582d45b42d19f6dbf3891b96220b0e28b257c08c4ca5b7978d70bfd76/osbot_utils-3.72.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/90/96/04b8e52da071d28f5e21a805b19cb9390aa17a47462ac87f5e2696b9566d/paginate-0.5.7-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/d7/97f7e3a6abb67d8080dd406fd4df842c2be0efaf712d1c899c32a075027c/platformdirs-4.9.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
@@ -516,7 +518,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: 0203ae2527ac5c2fa32e93c5d3fee840e647278cbc3fedb990be0d33c7efaf1d
+  sha256: bae0ba8c9e74c4749800f32ecf86b6d03350130b05529928b1f19dc1ec8bddc9
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7
@@ -535,6 +537,8 @@ packages:
   - platformdirs>=4.9.4,<5
   - rxpy>=0.1.0,<0.2
   - typer>=0.24.1,<0.25
+  - click>=8.3.1,<9
+  - memory-fs>=0.41.0,<0.42
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/c6/50/e0edd38dcd63fb26a8547f13d28f7a008bc4a3fd4eb4ff030673f22ad41a/hydra_core-1.3.2-py3-none-any.whl
   name: hydra-core
@@ -1096,6 +1100,13 @@ packages:
   name: mdutils
   version: 1.8.1
   sha256: 3d62d0a4d19fcd68d1daf956d1832f4a598663c73022bd95b09fae69c994b5ac
+- pypi: https://files.pythonhosted.org/packages/2a/fa/ce0466d9f088199f780ab39a09f830a437fc8aaccc885a6ccaf9a4a17401/memory_fs-0.41.0-py3-none-any.whl
+  name: memory-fs
+  version: 0.41.0
+  sha256: 85671797c5109b6da321f7d814b2e18e484d95426bdba0e0d46bfa37f8bc549a
+  requires_dist:
+  - osbot-utils
+  requires_python: '>=3.12,<4.0'
 - pypi: https://files.pythonhosted.org/packages/2c/19/04f9b178c2d8a15b076c8b5140708fa6ffc5601fb6f1e975537072df5b2a/mergedeep-1.3.4-py3-none-any.whl
   name: mergedeep
   version: 1.3.4
@@ -1266,6 +1277,11 @@ packages:
   purls: []
   size: 3164551
   timestamp: 1769555830639
+- pypi: https://files.pythonhosted.org/packages/fb/0a/05c582d45b42d19f6dbf3891b96220b0e28b257c08c4ca5b7978d70bfd76/osbot_utils-3.72.0-py3-none-any.whl
+  name: osbot-utils
+  version: 3.72.0
+  sha256: 0dda6cdd3e0359d74e33ff63c30b7d2386fe099c021691c16ac0b0af144dfe6a
+  requires_python: '>=3.7,<4.0'
 - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-26.0-pyhcf101f3_0.conda
   sha256: c1fc0f953048f743385d31c468b4a678b3ad20caffdeaa94bed85ba63049fd58
   md5: b76541e68fea4d511b1ac46a28dcd2c6
