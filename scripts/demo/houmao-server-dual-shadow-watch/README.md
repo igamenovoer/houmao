@@ -2,12 +2,14 @@
 
 This pack is the Houmao-owned replacement for the older CAO dual shadow-watch demo.
 
-It validates the supported public pair directly:
+Its purpose is straightforward: start dedicated server-backed Claude Code and Codex sessions, interactively prompt the live TUIs, and watch how `houmao-server` tracked state changes while you work.
+
+It demonstrates the supported public pair directly:
 
 - `houmao-server` is the live tracking authority
 - `houmao-srv-ctrl` is the delegated launch CLI
 
-The monitor in this pack does not poll raw CAO output and does not run a demo-local parser or lifecycle reducer. It renders only what `houmao-server` reports.
+The monitor in this pack does not poll raw CAO output and does not run a demo-local parser, lifecycle reducer, or state tracker. It is a server-state observation surface that renders only what `houmao-server` reports.
 
 ## Prerequisites
 
@@ -41,7 +43,7 @@ That command:
 
 - provisions isolated Claude and Codex dummy-project workdirs
 - builds demo-owned provider homes from the tracked projection-demo recipes
-- starts a demo-owned `houmao-server`
+- starts a dedicated `houmao-server` for the run
 - installs the tracked `projection-demo` profile through `houmao-srv-ctrl install --port <public-port>`
 - launches one Claude session and one Codex session through `houmao-srv-ctrl launch`
 - starts one monitor tmux session
@@ -52,11 +54,19 @@ Attach to the live sessions:
 - Codex: `tmux attach -t <codex-session>`
 - Monitor: `tmux attach -t <monitor-session>`
 
+Once attached, interactively prompt Claude Code and Codex inside their live TUIs and use the monitor to watch server-tracked state change in real time.
+The monitor remains a thin consumer surface: it renders only the tracked state and recent transitions that `houmao-server` publishes for those live sessions.
+
 Inspect a running demo:
 
 ```bash
 scripts/demo/houmao-server-dual-shadow-watch/run_demo.sh inspect --json
 ```
+
+`inspect --json` reports timing by ownership:
+
+- `monitor.poll_interval_seconds` is the monitor refresh cadence
+- `server.timing_posture.completion_stability_seconds` and `server.timing_posture.unknown_to_stalled_timeout_seconds` are the server posture configured for that run
 
 Stop the run:
 
@@ -74,9 +84,16 @@ The monitor shows server-owned fields for each agent:
 - parser availability, business state, input mode, and UI context
 - readiness state
 - completion state
+- lifecycle authority (`turn_anchored` vs. `unanchored_background`)
+- visible-state stability (`stable` / `changing` plus elapsed stable-for time)
 - projection-change indicator
 - lifecycle timing for unknown and candidate-complete windows
 - recent anomaly codes
+
+The dashboard header also separates ownership:
+
+- `monitor: poll=...` is the monitor refresh cadence
+- `server posture: completion_debounce=... unknown->stalled=...` is the server posture configured for the run
 
 The important lifecycle meanings are:
 
@@ -87,6 +104,13 @@ The important lifecycle meanings are:
 - `blocked`: operator interaction is required
 - `unknown`: parser surface is not yet classifiable
 - `stalled`: unknown remained continuous long enough to cross `unknown_to_stalled_timeout_seconds`
+
+The important ownership and stability meanings are:
+
+- `turn_anchored`: `houmao-server` currently has an active server-owned turn anchor for authoritative completion monitoring
+- `unanchored_background`: `houmao-server` is still tracking the live session, but it is not inferring authoritative completion for a current anchored turn
+- visible stability: whether the current server-tracked signature has stopped changing, separate from completion debounce timing
+- completion debounce: the server-owned timer that controls `candidate_complete -> completed`, not the same thing as general visible-state stability
 
 ## Artifacts
 
@@ -121,4 +145,5 @@ Guides:
 - `autotest/case-preflight-start-stop.md`
 - `autotest/case-interactive-shadow-validation.md`
 
-The automatic case is for fast blocker discovery. The interactive guide remains the primary validation path for live state transitions.
+The automatic case is for fast blocker discovery. The interactive guide remains the primary prompt-and-observe path for watching live server-tracked state transitions.
+The helper keeps the historical `case-interactive-shadow-validation` identifier, but the workflow it stages is prompt-and-observe rather than the older validation framing.

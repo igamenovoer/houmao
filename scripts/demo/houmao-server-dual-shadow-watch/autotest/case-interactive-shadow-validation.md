@@ -1,6 +1,6 @@
-# Case: Interactive Shadow Validation
+# Case: Interactive Prompt-and-Observe
 
-Purpose: run the real operator journey against the demo-owned `houmao-server`, then manually validate live parser and lifecycle transitions while interacting with both TUIs.
+Purpose: run the real operator journey against a demo-started `houmao-server`, interactively prompt both live TUIs, and observe how server-tracked state changes in the monitor.
 
 Default output root:
 
@@ -22,11 +22,13 @@ scripts/demo/houmao-server-dual-shadow-watch/run_demo.sh start --json
 - Codex: `tmux attach -t <codex-session>`
 - Monitor: `tmux attach -t <monitor-session>`
 
-3. In each agent session, drive short prompts that exercise distinct states:
+3. In each agent session, drive short prompts that exercise distinct states and keep the turns easy to watch in the monitor:
 
-- submit a short question and watch `ready -> in_progress -> candidate_complete -> completed`
-- trigger an operator-blocked interaction and watch `blocked`
-- if the parser surface becomes unknown long enough, watch `unknown -> stalled`
+- submit a short question and watch the server-tracked state move through `ready -> in_progress -> candidate_complete -> completed`
+- trigger an operator-blocked interaction and watch the server report `blocked`
+- if the parser surface becomes unknown long enough, watch the server report `unknown -> stalled`
+- when the prompt looks quiet again, compare visible stability in the monitor with completion debounce timing instead of treating them as the same signal
+- keep the monitor header in view so you can distinguish `monitor: poll=...` from `server posture: completion_debounce=... unknown->stalled=...`
 
 4. Inspect the persisted evidence:
 
@@ -46,4 +48,5 @@ Optional staging helper:
 scripts/demo/houmao-server-dual-shadow-watch/autotest/run_autotest.sh case-interactive-shadow-validation
 ```
 
-That helper only stages the run and writes `result.json` with `"status": "ready_for_manual"`. The manual validation remains the primary procedure; it is not reduced to “just run the automatic script”.
+That helper only stages the run and writes `result.json` with `"status": "ready_for_manual"`. The manual prompt-and-observe workflow remains the primary procedure; it is not reduced to “just run the automatic script”.
+The case identifier stays `case-interactive-shadow-validation` for automation compatibility even though the operator workflow is now described as prompt-and-observe.

@@ -49,6 +49,8 @@ class AgentDisplayState:
     readiness_unknown_elapsed_seconds: float | None
     completion_unknown_elapsed_seconds: float | None
     completion_candidate_elapsed_seconds: float | None
+    visible_stable: bool | None
+    visible_stable_for_seconds: float | None
     projection_changed: bool
     anomaly_codes: tuple[str, ...]
     dialog_tail: str
@@ -83,7 +85,7 @@ class ServerTransitionEvent:
 
 
 class ShadowWatchMonitor:
-    """Own the polling loop, NDJSON evidence, and live Rich dashboard."""
+    """Poll server-owned tracked state, persist consumed evidence, and render the dashboard."""
 
     def __init__(self, *, state_file: Path, dashboard_log_path: Path | None = None) -> None:
         self.m_state_file = state_file.resolve()
@@ -146,6 +148,8 @@ class ShadowWatchMonitor:
                                 readiness_unknown_elapsed_seconds=None,
                                 completion_unknown_elapsed_seconds=None,
                                 completion_candidate_elapsed_seconds=None,
+                                visible_stable=None,
+                                visible_stable_for_seconds=None,
                                 projection_changed=False,
                                 anomaly_codes=(),
                                 dialog_tail="",
@@ -273,11 +277,15 @@ def _display_state_from_terminal(
         readiness_unknown_elapsed_seconds=state.lifecycle_timing.readiness_unknown_elapsed_seconds,
         completion_unknown_elapsed_seconds=state.lifecycle_timing.completion_unknown_elapsed_seconds,
         completion_candidate_elapsed_seconds=state.lifecycle_timing.completion_candidate_elapsed_seconds,
+        visible_stable=state.stability.stable,
+        visible_stable_for_seconds=state.stability.stable_for_seconds,
         projection_changed=state.operator_state.projection_changed,
         anomaly_codes=tuple(parsed_surface.anomaly_codes) if parsed_surface is not None else (),
         dialog_tail=parsed_surface.dialog_tail if parsed_surface is not None else "",
         detail=state.operator_state.detail,
-        last_transition_at_utc=last_transition.recorded_at_utc if last_transition is not None else None,
+        last_transition_at_utc=last_transition.recorded_at_utc
+        if last_transition is not None
+        else None,
         last_transition_summary=last_transition.summary if last_transition is not None else None,
         error_detail=error_detail.message if error_detail is not None else None,
     )
@@ -293,8 +301,8 @@ def _render_dashboard(
 
     layout = Layout()
     layout.split_column(
-        Layout(name="header", size=5),
-        Layout(name="agents", size=16),
+        Layout(name="header", size=6),
+        Layout(name="agents", size=22),
         Layout(name="transitions"),
     )
     layout["header"].update(
@@ -320,15 +328,11 @@ def _render_header_panel(
     )
     lines = [
         Text(f"server: {demo_state.server.api_base_url}"),
-        Text(
-            "poll="
-            f"{demo_state.poll_interval_seconds:.1f}s  "
-            f"stable={demo_state.completion_stability_seconds:.1f}s  "
-            f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
-        ),
+        Text(_monitor_cadence_summary(demo_state)),
+        Text(_server_posture_summary(demo_state)),
         Text(f"current: {current_states or 'no agents'}"),
     ]
-    return Panel(Group(*lines), title="Houmao Shadow Watch")
+    return Panel(Group(*lines), title="Houmao Server State Watch")
 
 
 def _render_agent_panel(state: AgentDisplayState) -> Panel:
@@ -339,7 +343,12 @@ def _render_agent_panel(state: AgentDisplayState) -> Panel:
         Text(f"ready/complete: {state.readiness_state} / {state.completion_state}"),
         Text(f"authority: {state.completion_authority} / {state.turn_anchor_state}"),
         Text(f"health: {state.transport_state} / {state.process_state} / {state.parse_status}"),
-        Text(f"surface: {state.availability} / {state.business_state} / {state.ui_context}"),
+        Text(
+            "surface: "
+            f"{state.availability} / {state.business_state} / {state.input_mode} / {state.ui_context}"
+        ),
+        Text(f"projection: {_projection_summary(state)}"),
+        Text(f"visible stability: {_stability_summary(state)}"),
         Text(f"detail: {_truncate_text(state.detail, limit=120)}"),
     ]
     timing_text = _timing_summary(state)
@@ -377,7 +386,11 @@ def _agent_panel_lines(state: AgentDisplayState) -> list[Text]:
             f"{state.transport_state}/{state.process_state}/{state.parse_status}"
         ),
         Text(f"  authority: {state.completion_authority} / {state.turn_anchor_state}"),
-        Text(f"  surface: {state.availability} / {state.business_state} / {state.ui_context}"),
+        Text(
+            "  surface: "
+            f"{state.availability} / {state.business_state} / {state.input_mode} / {state.ui_context}"
+        ),
+        Text(f"  projection/stability: {_projection_summary(state)} | {_stability_summary(state)}"),
         Text(f"  detail: {_truncate_text(state.detail, limit=120)}"),
     ]
     timing_text = _timing_summary(state)
@@ -400,12 +413,8 @@ def _render_transition_panel(
     """Render the rolling transition log."""
 
     body_lines = [
-        Text(
-            "poll="
-            f"{demo_state.poll_interval_seconds:.1f}s "
-            f"stable={demo_state.completion_stability_seconds:.1f}s "
-            f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
-        )
+        Text(_monitor_cadence_summary(demo_state)),
+        Text(_server_posture_summary(demo_state)),
     ]
     if not transitions:
         body_lines.append(Text("No server-authored transitions yet."))
@@ -414,7 +423,23 @@ def _render_transition_panel(
         body_lines.append(
             Text(f"{short_ts} {event.slot}: {_truncate_text(event.summary, limit=120)}")
         )
-    return Panel(Group(*body_lines), title="Recent Transitions")
+    return Panel(Group(*body_lines), title="Recent Server Transitions")
+
+
+def _monitor_cadence_summary(demo_state: HoumaoServerDualShadowWatchState) -> str:
+    """Render the monitor-local polling cadence."""
+
+    return f"monitor: poll={demo_state.poll_interval_seconds:.1f}s"
+
+
+def _server_posture_summary(demo_state: HoumaoServerDualShadowWatchState) -> str:
+    """Render the server-owned timing posture for the run."""
+
+    return (
+        "server posture: "
+        f"completion_debounce={demo_state.completion_stability_seconds:.1f}s  "
+        f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
+    )
 
 
 def _append_ndjson(path: Path, payload: dict[str, Any]) -> None:
@@ -447,10 +472,27 @@ def _timing_summary(state: AgentDisplayState) -> str:
     if unknown_seconds is None:
         unknown_seconds = state.completion_unknown_elapsed_seconds
     if unknown_seconds is not None:
-        parts.append(f"unknown={_format_seconds(unknown_seconds)}s")
+        parts.append(f"unknown_for={_format_seconds(unknown_seconds)}s")
     if state.completion_candidate_elapsed_seconds is not None:
-        parts.append(f"candidate={_format_seconds(state.completion_candidate_elapsed_seconds)}s")
+        parts.append(
+            f"candidate_for={_format_seconds(state.completion_candidate_elapsed_seconds)}s"
+        )
     return ", ".join(parts)
+
+
+def _projection_summary(state: AgentDisplayState) -> str:
+    """Render whether the latest server-owned projection changed."""
+
+    return "changed" if state.projection_changed else "steady"
+
+
+def _stability_summary(state: AgentDisplayState) -> str:
+    """Render the server-owned visible-state stability summary."""
+
+    if state.visible_stable is None or state.visible_stable_for_seconds is None:
+        return "-"
+    posture = "stable" if state.visible_stable else "changing"
+    return f"{posture} for {_format_seconds(state.visible_stable_for_seconds)}s"
 
 
 def _last_transition_summary(state: AgentDisplayState) -> str:

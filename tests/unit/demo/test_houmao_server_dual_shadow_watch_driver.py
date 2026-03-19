@@ -25,6 +25,76 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _demo_state(tmp_path: Path) -> HoumaoServerDualShadowWatchState:
+    """Return a representative persisted demo state."""
+
+    return HoumaoServerDualShadowWatchState(
+        schema_version=1,
+        active=True,
+        created_at_utc="2026-03-19T12:00:00+00:00",
+        stopped_at_utc=None,
+        repo_root="/repo",
+        run_root="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run",
+        agent_def_dir="/repo/tests/fixtures/agents",
+        project_fixture="/repo/tests/fixtures/dummy-projects/projection-demo-python",
+        profile_path="/repo/scripts/demo/houmao-server-dual-shadow-watch/profiles/projection-demo.md",
+        poll_interval_seconds=0.5,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        server_start_timeout_seconds=20.0,
+        launch_timeout_seconds=45.0,
+        stop_timeout_seconds=20.0,
+        server=ServerProcessState(
+            api_base_url="http://127.0.0.1:19989",
+            port=19989,
+            runtime_root="/repo/tmp/demo/server/runtime",
+            home_dir="/repo/tmp/demo/server/home",
+            pid=4242,
+            started_by_demo=True,
+            stdout_log_path="/repo/tmp/demo/logs/houmao-server.stdout.log",
+            stderr_log_path="/repo/tmp/demo/logs/houmao-server.stderr.log",
+        ),
+        agents={
+            "claude": AgentSessionState(
+                slot="claude",
+                tool="claude",
+                provider="claude_code",
+                profile_name="projection-demo",
+                session_name="cao-demo-claude",
+                terminal_id="abcd1234",
+                tmux_session_name="cao-demo-claude",
+                workdir="/repo/tmp/demo/projects/claude",
+                agent_name="cao-demo-claude",
+                agent_id="AGENTSYS-cao-demo-claude",
+                blueprint_path="/repo/tests/fixtures/agents/blueprints/projection-demo-claude.yaml",
+                brain_recipe_path="/repo/tests/fixtures/agents/brains/brain-recipes/claude/projection-demo-default.yaml",
+                role_name="projection-demo",
+                config_profile="default",
+                credential_profile="personal-a-default",
+                brain_home_path="/repo/tmp/demo/runtime/homes/projection-demo-claude",
+                brain_manifest_path="/repo/tmp/demo/runtime/manifests/projection-demo-claude.yaml",
+                launch_helper_path="/repo/tmp/demo/runtime/homes/projection-demo-claude/launch.sh",
+                session_manifest_path="/repo/tmp/demo/runtime/sessions/houmao_server_rest/cao-demo-claude/manifest.json",
+                session_root="/repo/tmp/demo/runtime/sessions/houmao_server_rest/cao-demo-claude",
+                launch_stdout_path="/repo/tmp/demo/logs/launch-claude.stdout.log",
+                launch_stderr_path="/repo/tmp/demo/logs/launch-claude.stderr.log",
+            )
+        },
+        monitor=MonitorSessionState(
+            tmux_session_name="houmao-shadow-watch-monitor-demo-run",
+            command=(
+                "/usr/bin/python",
+                "/repo/scripts/demo/houmao-server-dual-shadow-watch/scripts/watch_dashboard.py",
+                "--state-file",
+                "/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/control/demo_state.json",
+            ),
+            samples_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/monitor/samples.ndjson",
+            transitions_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/monitor/transitions.ndjson",
+            dashboard_log_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/logs/monitor-dashboard.log",
+        ),
+    )
+
+
 def test_demo_paths_resolve_expected_layout() -> None:
     """The demo layout should derive deterministic subpaths from one run root."""
 
@@ -118,71 +188,7 @@ def test_demo_state_round_trip_preserves_houmao_server_contract(tmp_path: Path) 
     """Persisted demo state should round-trip with the expected server-owned posture."""
 
     state_path = tmp_path / "demo_state.json"
-    state = HoumaoServerDualShadowWatchState(
-        schema_version=1,
-        active=True,
-        created_at_utc="2026-03-19T12:00:00+00:00",
-        stopped_at_utc=None,
-        repo_root="/repo",
-        run_root="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run",
-        agent_def_dir="/repo/tests/fixtures/agents",
-        project_fixture="/repo/tests/fixtures/dummy-projects/projection-demo-python",
-        profile_path="/repo/scripts/demo/houmao-server-dual-shadow-watch/profiles/projection-demo.md",
-        poll_interval_seconds=0.5,
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-        server_start_timeout_seconds=20.0,
-        launch_timeout_seconds=45.0,
-        stop_timeout_seconds=20.0,
-        server=ServerProcessState(
-            api_base_url="http://127.0.0.1:19989",
-            port=19989,
-            runtime_root="/repo/tmp/demo/server/runtime",
-            home_dir="/repo/tmp/demo/server/home",
-            pid=4242,
-            started_by_demo=True,
-            stdout_log_path="/repo/tmp/demo/logs/houmao-server.stdout.log",
-            stderr_log_path="/repo/tmp/demo/logs/houmao-server.stderr.log",
-        ),
-        agents={
-            "claude": AgentSessionState(
-                slot="claude",
-                tool="claude",
-                provider="claude_code",
-                profile_name="projection-demo",
-                session_name="cao-demo-claude",
-                terminal_id="abcd1234",
-                tmux_session_name="cao-demo-claude",
-                workdir="/repo/tmp/demo/projects/claude",
-                agent_name="cao-demo-claude",
-                agent_id="AGENTSYS-cao-demo-claude",
-                blueprint_path="/repo/tests/fixtures/agents/blueprints/projection-demo-claude.yaml",
-                brain_recipe_path="/repo/tests/fixtures/agents/brains/brain-recipes/claude/projection-demo-default.yaml",
-                role_name="projection-demo",
-                config_profile="default",
-                credential_profile="personal-a-default",
-                brain_home_path="/repo/tmp/demo/runtime/homes/projection-demo-claude",
-                brain_manifest_path="/repo/tmp/demo/runtime/manifests/projection-demo-claude.yaml",
-                launch_helper_path="/repo/tmp/demo/runtime/homes/projection-demo-claude/launch.sh",
-                session_manifest_path="/repo/tmp/demo/runtime/sessions/houmao_server_rest/cao-demo-claude/manifest.json",
-                session_root="/repo/tmp/demo/runtime/sessions/houmao_server_rest/cao-demo-claude",
-                launch_stdout_path="/repo/tmp/demo/logs/launch-claude.stdout.log",
-                launch_stderr_path="/repo/tmp/demo/logs/launch-claude.stderr.log",
-            )
-        },
-        monitor=MonitorSessionState(
-            tmux_session_name="houmao-shadow-watch-monitor-demo-run",
-            command=(
-                "/usr/bin/python",
-                "/repo/scripts/demo/houmao-server-dual-shadow-watch/scripts/watch_dashboard.py",
-                "--state-file",
-                "/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/control/demo_state.json",
-            ),
-            samples_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/monitor/samples.ndjson",
-            transitions_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/monitor/transitions.ndjson",
-            dashboard_log_path="/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run/logs/monitor-dashboard.log",
-        ),
-    )
+    state = _demo_state(tmp_path)
 
     save_demo_state(state_path, state)
     loaded = load_demo_state(state_path)
@@ -190,6 +196,64 @@ def test_demo_state_round_trip_preserves_houmao_server_contract(tmp_path: Path) 
     assert loaded.server.api_base_url == "http://127.0.0.1:19989"
     assert loaded.agents["claude"].provider == "claude_code"
     assert loaded.monitor.tmux_session_name == "houmao-shadow-watch-monitor-demo-run"
+
+
+def test_inspect_demo_reports_monitor_cadence_separately_from_server_posture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Inspect output should group monitor cadence separately from server timing posture."""
+
+    del tmp_path
+    state = _demo_state(Path("/unused"))
+
+    class _PayloadDouble:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.m_payload = payload
+
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            del mode
+            return self.m_payload
+
+    class _ClientDouble:
+        def __init__(self, base_url: str, timeout_seconds: float = 3.0) -> None:
+            del base_url, timeout_seconds
+
+        def get_session(self, session_name: str) -> _PayloadDouble:
+            return _PayloadDouble({"session_name": session_name, "status": "ready"})
+
+        def terminal_state(self, terminal_id: str) -> _PayloadDouble:
+            return _PayloadDouble(
+                {
+                    "terminal_id": terminal_id,
+                    "operator_state": {"completion_state": "candidate_complete"},
+                    "stability": {"stable": False, "stable_for_seconds": 0.7},
+                }
+            )
+
+    monkeypatch.setattr(demo_driver, "_load_selected_demo_state", lambda **kwargs: state)
+    monkeypatch.setattr(demo_driver, "_server_health_payload", lambda base_url: {"ok": True})
+    monkeypatch.setattr(
+        demo_driver,
+        "_tmux_session_exists",
+        lambda session_name: session_name == state.monitor.tmux_session_name,
+    )
+    monkeypatch.setattr(demo_driver, "HoumaoServerClient", _ClientDouble)
+
+    payload = demo_driver.inspect_demo(
+        repo_root=Path("/repo"),
+        run_root=Path("/repo/tmp/demo/houmao-server-dual-shadow-watch/demo-run"),
+        json_output=True,
+    )
+
+    assert "poll_interval_seconds" not in payload
+    assert payload["monitor"]["poll_interval_seconds"] == 0.5
+    assert payload["server"]["timing_posture"] == {
+        "completion_stability_seconds": 1.0,
+        "unknown_to_stalled_timeout_seconds": 30.0,
+    }
+    assert payload["server"]["healthy"] == {"ok": True}
+    assert payload["agents"]["claude"]["tracked_state"]["stability"]["stable"] is False
 
 
 def test_wait_for_session_registration_times_out() -> None:

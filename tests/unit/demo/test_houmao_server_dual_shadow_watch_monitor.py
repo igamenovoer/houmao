@@ -110,6 +110,46 @@ def _terminal_state(terminal_id: str, *, tool: str, slot: str) -> HoumaoTerminal
     )
 
 
+def _render_demo_state(tmp_path: Path) -> HoumaoServerDualShadowWatchState:
+    """Return a minimal persisted demo state for render-only tests."""
+
+    return HoumaoServerDualShadowWatchState(
+        schema_version=1,
+        active=True,
+        created_at_utc="2026-03-19T12:00:00+00:00",
+        stopped_at_utc=None,
+        repo_root="/repo",
+        run_root=str(tmp_path),
+        agent_def_dir="/repo/tests/fixtures/agents",
+        project_fixture="/repo/tests/fixtures/dummy-projects/projection-demo-python",
+        profile_path="/repo/scripts/demo/houmao-server-dual-shadow-watch/profiles/projection-demo.md",
+        poll_interval_seconds=0.5,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        server_start_timeout_seconds=20.0,
+        launch_timeout_seconds=45.0,
+        stop_timeout_seconds=20.0,
+        server=ServerProcessState(
+            api_base_url="http://127.0.0.1:19989",
+            port=19989,
+            runtime_root=str(tmp_path / "server" / "runtime"),
+            home_dir=str(tmp_path / "server" / "home"),
+            pid=4242,
+            started_by_demo=True,
+            stdout_log_path=str(tmp_path / "logs" / "houmao-server.stdout.log"),
+            stderr_log_path=str(tmp_path / "logs" / "houmao-server.stderr.log"),
+        ),
+        agents={},
+        monitor=MonitorSessionState(
+            tmux_session_name="houmao-shadow-watch-monitor-demo",
+            command=("python", "watch_dashboard.py"),
+            samples_path=str(tmp_path / "monitor" / "samples.ndjson"),
+            transitions_path=str(tmp_path / "monitor" / "transitions.ndjson"),
+            dashboard_log_path=str(tmp_path / "logs" / "monitor-dashboard.log"),
+        ),
+    )
+
+
 def test_monitor_consumes_server_state_and_writes_samples_and_transitions(
     tmp_path: Path,
     monkeypatch,
@@ -262,8 +302,8 @@ def test_monitor_consumes_server_state_and_writes_samples_and_transitions(
     assert transitions[0]["summary"].endswith("became candidate_complete")
 
 
-def test_render_agent_panel_uses_compact_status_card() -> None:
-    """The agent panel should show a short current-state card."""
+def test_render_agent_panel_uses_server_owned_status_fields() -> None:
+    """The agent panel should show the server-consumer display contract."""
 
     display_state = monitor_module._display_state_from_terminal(
         slot="codex",
@@ -278,9 +318,55 @@ def test_render_agent_panel_uses_compact_status_card() -> None:
     assert "ready/complete: ready / candidate_complete" in output
     assert "authority: turn_anchored / active" in output
     assert "health: tmux_up / tui_up / parsed" in output
+    assert "surface: supported / idle / freeform / normal_prompt" in output
+    assert "projection: changed" in output
+    assert "visible stability: changing for 0.7s" in output
+    assert "timing: candidate_for=0.7s" in output
     assert "last transition:" in output
     assert "transport/process/parse:" not in output
     assert "tmux:" not in output
+
+
+def test_render_header_and_transition_panels_separate_monitor_and_server_posture(
+    tmp_path: Path,
+) -> None:
+    """Header and transition panels should separate monitor cadence from server posture."""
+
+    demo_state = _render_demo_state(tmp_path)
+    display_state = monitor_module._display_state_from_terminal(
+        slot="codex",
+        state=_terminal_state("dcba4321", tool="codex", slot="codex"),
+    )
+    transition = monitor_module.ServerTransitionEvent(
+        ts_utc="2026-03-19T10:00:00+00:00",
+        slot="codex",
+        tool="codex",
+        terminal_id="dcba4321",
+        summary="codex became candidate_complete",
+        changed_fields=("completion_state",),
+    )
+
+    header_console = Console(record=True, width=140)
+    header_console.print(
+        monitor_module._render_header_panel(demo_state=demo_state, display_states=[display_state])
+    )
+    header_output = header_console.export_text()
+
+    assert "Houmao Server State Watch" in header_output
+    assert "monitor: poll=0.5s" in header_output
+    assert "server posture: completion_debounce=1.0s  unknown->stalled=30.0s" in header_output
+    assert "current: codex: ready (ready/candidate_complete)" in header_output
+
+    transition_console = Console(record=True, width=140)
+    transition_console.print(
+        monitor_module._render_transition_panel(demo_state=demo_state, transitions=[transition])
+    )
+    transition_output = transition_console.export_text()
+
+    assert "Recent Server Transitions" in transition_output
+    assert "monitor: poll=0.5s" in transition_output
+    assert "server posture: completion_debounce=1.0s  unknown->stalled=30.0s" in transition_output
+    assert "10:00:00 codex: codex became candidate_complete" in transition_output
 
 
 def test_compact_dialog_excerpt_keeps_only_meaningful_tail_lines() -> None:

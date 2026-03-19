@@ -519,9 +519,6 @@ def inspect_demo(
         "stopped_at_utc": state.stopped_at_utc,
         "run_root": state.run_root,
         "profile_path": state.profile_path,
-        "poll_interval_seconds": state.poll_interval_seconds,
-        "completion_stability_seconds": state.completion_stability_seconds,
-        "unknown_to_stalled_timeout_seconds": state.unknown_to_stalled_timeout_seconds,
         "server": {
             "api_base_url": state.server.api_base_url,
             "port": state.server.port,
@@ -529,6 +526,10 @@ def inspect_demo(
             "started_by_demo": state.server.started_by_demo,
             "stdout_log_path": state.server.stdout_log_path,
             "stderr_log_path": state.server.stderr_log_path,
+            "timing_posture": {
+                "completion_stability_seconds": state.completion_stability_seconds,
+                "unknown_to_stalled_timeout_seconds": state.unknown_to_stalled_timeout_seconds,
+            },
             "healthy": _server_health_payload(state.server.api_base_url),
         },
         "agents": {},
@@ -536,6 +537,7 @@ def inspect_demo(
             "tmux_session_name": state.monitor.tmux_session_name,
             "tmux_alive": _tmux_session_exists(state.monitor.tmux_session_name),
             "attach_command": f"tmux attach -t {state.monitor.tmux_session_name}",
+            "poll_interval_seconds": state.poll_interval_seconds,
             "samples_path": state.monitor.samples_path,
             "transitions_path": state.monitor.transitions_path,
             "dashboard_log_path": state.monitor.dashboard_log_path,
