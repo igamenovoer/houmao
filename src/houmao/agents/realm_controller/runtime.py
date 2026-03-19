@@ -115,7 +115,6 @@ from .launch_plan import (
 from .loaders import load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
-    MAILBOX_TRANSPORT_FILESYSTEM,
     bootstrap_resolved_mailbox,
     mailbox_env_bindings,
     parse_declarative_mailbox_config,
@@ -124,8 +123,10 @@ from houmao.agents.mailbox_runtime_support import (
     resolved_mailbox_config_from_payload,
 )
 from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
     MailboxDeclarativeConfig,
     MailboxResolvedConfig,
+    StalwartMailboxResolvedConfig,
 )
 from .manifest import (
     SessionManifestRequest,
@@ -150,6 +151,8 @@ from .registry_models import (
     LiveAgentRegistryRecordV2,
     RegistryGatewayV1,
     RegistryIdentityV1,
+    RegistryMailboxFilesystemV1,
+    RegistryMailboxStalwartV1,
     RegistryMailboxV1,
     RegistryRuntimeV1,
     RegistryTerminalV1,
@@ -354,7 +357,7 @@ class RuntimeSessionController:
         mailbox = self.launch_plan.mailbox
         if mailbox is None:
             raise SessionManifestError("Session does not have mailbox support enabled.")
-        if mailbox.transport != MAILBOX_TRANSPORT_FILESYSTEM:
+        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
             raise SessionManifestError(
                 f"Mailbox binding refresh is not implemented for transport={mailbox.transport!r}."
             )
@@ -364,12 +367,12 @@ class RuntimeSessionController:
             filesystem_root=filesystem_root,
         )
         try:
-            bootstrap_resolved_mailbox(
+            refreshed = bootstrap_resolved_mailbox(
                 refreshed,
                 manifest_path_hint=self.manifest_path,
                 role_name=self.role_name,
             )
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
 
         updated_launch_plan = _launch_plan_with_mailbox(
@@ -583,6 +586,10 @@ def start_runtime_session(
     mailbox_root: Path | None = None,
     mailbox_principal_id: str | None = None,
     mailbox_address: str | None = None,
+    mailbox_stalwart_base_url: str | None = None,
+    mailbox_stalwart_jmap_url: str | None = None,
+    mailbox_stalwart_management_url: str | None = None,
+    mailbox_stalwart_login_identity: str | None = None,
     blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
@@ -668,6 +675,10 @@ def start_runtime_session(
             filesystem_root_override=mailbox_root,
             principal_id_override=mailbox_principal_id,
             address_override=mailbox_address,
+            stalwart_base_url_override=mailbox_stalwart_base_url,
+            stalwart_jmap_url_override=mailbox_stalwart_jmap_url,
+            stalwart_management_url_override=mailbox_stalwart_management_url,
+            stalwart_login_identity_override=mailbox_stalwart_login_identity,
         )
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
@@ -676,12 +687,12 @@ def start_runtime_session(
     manifest_path = manifest_path.resolve()
     if resolved_mailbox is not None:
         try:
-            bootstrap_resolved_mailbox(
+            resolved_mailbox = bootstrap_resolved_mailbox(
                 resolved_mailbox,
                 manifest_path_hint=manifest_path,
                 role_name=role_name,
             )
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
 
     launch_plan = build_launch_plan(
@@ -861,7 +872,10 @@ def resume_runtime_session(
             role_package=role_package,
             backend=backend,
             working_directory=Path(manifest_payload.working_directory),
-            mailbox=_resolved_mailbox_from_manifest_payload(manifest_payload),
+            mailbox=_resolved_mailbox_from_manifest_payload(
+                manifest_payload,
+                session_manifest_path=session_manifest_path,
+            ),
         )
     )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
@@ -1306,9 +1320,14 @@ def _declared_mailbox_from_manifest(
 
 def _resolved_mailbox_from_manifest_payload(
     payload: SessionManifestPayloadV3,
+    *,
+    session_manifest_path: Path,
 ) -> MailboxResolvedConfig | None:
     try:
-        return resolved_mailbox_config_from_payload(payload.launch_plan.mailbox)
+        return resolved_mailbox_config_from_payload(
+            payload.launch_plan.mailbox,
+            manifest_path=session_manifest_path.resolve(),
+        )
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
 
@@ -1930,17 +1949,27 @@ def _build_shared_registry_record_for_controller(
     mailbox = controller.launch_plan.mailbox
 
     gateway_payload = _shared_registry_gateway_payload(controller)
-    mailbox_payload = (
-        RegistryMailboxV1(
-            transport=mailbox.transport,
+    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        mailbox_payload: RegistryMailboxV1 | None = RegistryMailboxFilesystemV1(
+            transport="filesystem",
             principal_id=mailbox.principal_id,
             address=mailbox.address,
             filesystem_root=str(mailbox.filesystem_root.resolve()),
             bindings_version=mailbox.bindings_version,
         )
-        if mailbox is not None
-        else None
-    )
+    elif isinstance(mailbox, StalwartMailboxResolvedConfig):
+        mailbox_payload = RegistryMailboxStalwartV1(
+            transport="stalwart",
+            principal_id=mailbox.principal_id,
+            address=mailbox.address,
+            bindings_version=mailbox.bindings_version,
+            jmap_url=mailbox.jmap_url,
+            management_url=mailbox.management_url,
+            login_identity=mailbox.login_identity,
+            credential_ref=mailbox.credential_ref,
+        )
+    else:
+        mailbox_payload = None
 
     return LiveAgentRegistryRecordV2(
         agent_name=canonicalize_registry_agent_name(canonical_agent_name),

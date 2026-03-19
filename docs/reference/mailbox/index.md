@@ -1,6 +1,6 @@
 # Mailbox Reference
 
-This section explains the runtime-owned filesystem mailbox from two angles at once: how to use it safely, and how it works under the hood.
+This section explains the runtime-owned mailbox system from two angles at once: how to use it safely, and how it works under the hood across the filesystem and `stalwart` transports.
 
 If you are new to the subsystem, start with [Quickstart](quickstart.md). If you already know the workflow and need exact contracts, jump into the contract pages. If you are debugging or extending mailbox behavior, use the operations and internals pages.
 
@@ -9,10 +9,10 @@ If you are new to the subsystem, start with [Quickstart](quickstart.md). If you 
 The mailbox system is an async message transport owned by the runtime, not a loose collection of helper scripts.
 
 - The runtime resolves one mailbox binding for a session.
-- The filesystem transport stores canonical messages as immutable Markdown documents under `messages/`.
-- Mailbox-visible `inbox/` and `sent/` entries are projections that point back to those canonical files.
-- Mutable per-recipient state such as read or starred lives in `index.sqlite`.
-- Sensitive mutations are funneled through managed scripts published into the mailbox-local `rules/` tree.
+- Shared mailbox operations such as `check`, `send`, and `reply` may flow through the live gateway `/v1/mail/*` facade when it is attached.
+- The filesystem transport stores canonical messages as immutable Markdown documents under `messages/` and keeps mailbox-view state in SQLite.
+- The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
+- Sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
 
 ## Key Terms
 
@@ -51,6 +51,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
+- [`src/houmao/agents/realm_controller/gateway_mailbox.py`](../../../src/houmao/agents/realm_controller/gateway_mailbox.py)
 - [`src/houmao/mailbox/protocol.py`](../../../src/houmao/mailbox/protocol.py)
 - [`src/houmao/mailbox/filesystem.py`](../../../src/houmao/mailbox/filesystem.py)
 - [`src/houmao/mailbox/managed.py`](../../../src/houmao/mailbox/managed.py)
+- [`src/houmao/mailbox/stalwart.py`](../../../src/houmao/mailbox/stalwart.py)

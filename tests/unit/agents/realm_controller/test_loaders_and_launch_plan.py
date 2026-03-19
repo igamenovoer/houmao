@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
@@ -139,7 +139,7 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     }
 
     role = load_role_package(tmp_path / "repo", "test-role")
-    mailbox = MailboxResolvedConfig(
+    mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id="AGENTSYS-research",
         address="AGENTSYS-research@agents.localhost",

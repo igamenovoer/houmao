@@ -1130,7 +1130,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
             enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
             assert enqueued_rows
             assert enqueued_rows[-1].unread_count == 1
-            assert enqueued_rows[-1].unread_summary[0].message_id == message_id
+            assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
             assert enqueued_rows[-1].enqueued_request_id is not None
             assert fake_cao.messages()
             assert message_id in fake_cao.messages()[-1][1]

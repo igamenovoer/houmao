@@ -149,10 +149,10 @@ pixi run python -m houmao.agents.realm_controller start-session \
 
 Runtime behavior for mailbox-enabled sessions:
 
-- bootstrap or validate the filesystem mailbox root before the session begins,
-- safely register the active mailbox for the session address,
-- project the runtime-owned skill `.system/mailbox/email-via-filesystem`,
-- expose `AGENTSYS_MAILBOX_*` and `AGENTSYS_MAILBOX_FS_*` bindings to the launched session,
+- bootstrap or validate the selected mailbox transport before the session begins,
+- safely register the active mailbox for filesystem sessions or provision the active mailbox for `stalwart` sessions,
+- project the runtime-owned mailbox skill for the selected transport,
+- expose `AGENTSYS_MAILBOX_*` plus transport-specific `AGENTSYS_MAILBOX_FS_*` or `AGENTSYS_MAILBOX_EMAIL_*` bindings to the launched session,
 - persist the resolved mailbox binding in the session manifest so resume uses the same mailbox configuration.
 
 `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration path for the session's full mailbox address, so it may resolve through a symlink-backed `mailboxes/<address>` entry into a private mailbox directory.
@@ -169,7 +169,8 @@ Notes:
 
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require explicit body content through `--body-file` or `--body-content`.
-- `mail` currently supports the filesystem mailbox transport only.
+- `mail reply` now prefers shared opaque `message_ref` values and accepts the legacy `--message-id` flag only as a compatibility alias.
+- `mail` supports both the filesystem mailbox transport and the `stalwart` transport, and shared mailbox operations prefer the live gateway `/v1/mail/*` facade when it is attached.
 - For the mailbox quickstart, contracts, managed helper rules, lifecycle modes, repair expectations, and internals, see [Mailbox Reference](./mailbox/index.md).
 
 ## Local Codex Session (Default: `codex_headless`)

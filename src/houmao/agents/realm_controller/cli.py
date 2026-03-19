@@ -156,7 +156,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     start.add_argument(
         "--mailbox-transport",
-        choices=["filesystem", "none"],
+        choices=["filesystem", "stalwart", "none"],
         help="Optional mailbox transport override",
     )
     start.add_argument(
@@ -170,6 +170,22 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--mailbox-address",
         help="Optional mailbox address override",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-base-url",
+        help="Optional Stalwart base URL override used to derive JMAP and management URLs.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-jmap-url",
+        help="Optional Stalwart JMAP URL override.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-management-url",
+        help="Optional Stalwart management API URL override.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-login-identity",
+        help="Optional Stalwart login identity override.",
     )
     start.add_argument(
         "--gateway-auto-attach",
@@ -370,7 +386,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Ask a session to reply to an existing mailbox message",
     )
     _add_mail_common_args(mail_reply)
-    mail_reply.add_argument("--message-id", required=True)
+    reply_target_group = mail_reply.add_mutually_exclusive_group(required=True)
+    reply_target_group.add_argument(
+        "--message-ref",
+        dest="message_ref",
+        help="Opaque message reference from shared mailbox check results",
+    )
+    reply_target_group.add_argument(
+        "--message-id",
+        dest="message_ref",
+        help=argparse.SUPPRESS,
+    )
     mail_reply.add_argument("--body-file")
     mail_reply.add_argument("--body-content")
     mail_reply.add_argument("--attach", action="append", default=[], dest="attachments")
@@ -465,6 +491,10 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         mailbox_root=_optional_path(args.mailbox_root, base=cwd),
         mailbox_principal_id=args.mailbox_principal_id,
         mailbox_address=args.mailbox_address,
+        mailbox_stalwart_base_url=args.mailbox_stalwart_base_url,
+        mailbox_stalwart_jmap_url=args.mailbox_stalwart_jmap_url,
+        mailbox_stalwart_management_url=args.mailbox_stalwart_management_url,
+        mailbox_stalwart_login_identity=args.mailbox_stalwart_login_identity,
         blueprint_gateway_defaults=blueprint.gateway if blueprint is not None else None,
         gateway_auto_attach=bool(args.gateway_auto_attach),
         gateway_host=args.gateway_host,
@@ -743,10 +773,19 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         cao_parsing_mode=args.cao_parsing_mode,
     )
     mailbox = ensure_mailbox_command_ready(controller.launch_plan)
+    prefer_live_gateway = False
+    try:
+        gateway_status = controller.gateway_status()
+        prefer_live_gateway = (
+            gateway_status.gateway_health == "healthy" and gateway_status.gateway_host == "127.0.0.1"
+        )
+    except Exception:
+        prefer_live_gateway = False
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
         operation=args.mail_command,
         args=_mail_args_from_cli(args, cwd=cwd),
+        prefer_live_gateway=prefer_live_gateway,
     )
     result = run_mail_prompt(
         send_prompt=controller.send_prompt,
@@ -909,7 +948,7 @@ def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, obj
         }
     if args.mail_command == "reply":
         return {
-            "message_id": str(args.message_id),
+            "message_ref": str(args.message_ref),
             "body_content": body_markdown,
             "attachments": attachments,
         }

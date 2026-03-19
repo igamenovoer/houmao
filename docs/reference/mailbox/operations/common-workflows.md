@@ -1,6 +1,6 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, reading mail, sending mail, replying, and deciding when mailbox-local rules need to be inspected first.
+This page explains the practical v1 procedures for bootstrapping a mailbox, reading mail, sending mail, replying, and deciding when transport-local filesystem rules need to be inspected first.
 
 ## Mental Model
 
@@ -9,7 +9,8 @@ The safest workflow is simple:
 1. Let the runtime create or validate the mailbox root.
 2. Treat `rules/` as the mailbox-local operating manual.
 3. Use runtime-owned `mail` commands for session-facing actions.
-4. Use managed helpers for direct filesystem operations that touch locks or SQLite.
+4. Prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached.
+5. Use managed helpers only for direct filesystem operations that touch locks or SQLite.
 
 That order matters because the mailbox root may have mailbox-local rules, a private mailbox registration path, or managed helper requirements that are not obvious from a single path listing.
 
@@ -99,17 +100,18 @@ sequenceDiagram
 
 ## Reply To Existing Mail
 
-Use `mail reply` when you already know the parent `message_id`.
+Use `mail reply` when you already know the parent shared `message_ref`.
 
 ```bash
 pixi run python -m houmao.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
-  --message-id msg-20260312T050000Z-parent \
+  --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
 
 Reply-specific guidance:
 
+- Treat the reply target as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
 - Preserve the existing `thread_id`.
 - Set `in_reply_to` to the direct parent.
 - Extend `references`; do not infer threading from subject text alone.

@@ -20,10 +20,19 @@
       "title": "LaunchPlanHomeSelectorV1",
       "type": "object"
     },
-    "LaunchPlanMailboxV1": {
+    "LaunchPlanMailboxFilesystemV1": {
       "additionalProperties": false,
-      "description": "Persisted resolved mailbox binding for `launch_plan.v1`.",
+      "description": "Persisted filesystem mailbox binding for `launch_plan.v1`.",
       "properties": {
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
         "address": {
           "title": "Address",
           "type": "string"
@@ -35,15 +44,6 @@
         "filesystem_root": {
           "title": "Filesystem Root",
           "type": "string"
-        },
-        "principal_id": {
-          "title": "Principal Id",
-          "type": "string"
-        },
-        "transport": {
-          "const": "filesystem",
-          "title": "Transport",
-          "type": "string"
         }
       },
       "required": [
@@ -53,7 +53,58 @@
         "bindings_version",
         "filesystem_root"
       ],
-      "title": "LaunchPlanMailboxV1",
+      "title": "LaunchPlanMailboxFilesystemV1",
+      "type": "object"
+    },
+    "LaunchPlanMailboxStalwartV1": {
+      "additionalProperties": false,
+      "description": "Persisted Stalwart mailbox binding for `launch_plan.v1`.",
+      "properties": {
+        "transport": {
+          "const": "stalwart",
+          "title": "Transport",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "jmap_url": {
+          "title": "Jmap Url",
+          "type": "string"
+        },
+        "management_url": {
+          "title": "Management Url",
+          "type": "string"
+        },
+        "login_identity": {
+          "title": "Login Identity",
+          "type": "string"
+        },
+        "credential_ref": {
+          "title": "Credential Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "principal_id",
+        "address",
+        "bindings_version",
+        "jmap_url",
+        "management_url",
+        "login_identity",
+        "credential_ref"
+      ],
+      "title": "LaunchPlanMailboxStalwartV1",
       "type": "object"
     },
     "LaunchPlanRoleInjectionV1": {
@@ -86,13 +137,6 @@
   "additionalProperties": false,
   "description": "Persisted `launch_plan.v1` payload.",
   "properties": {
-    "args": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Args",
-      "type": "array"
-    },
     "backend": {
       "enum": [
         "codex_headless",
@@ -105,6 +149,28 @@
       "title": "Backend",
       "type": "string"
     },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "string"
+    },
+    "args": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Args",
+      "type": "array"
+    },
+    "working_directory": {
+      "title": "Working Directory",
+      "type": "string"
+    },
+    "home_selector": {
+      "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+    },
     "env_var_names": {
       "items": {
         "type": "string"
@@ -112,23 +178,8 @@
       "title": "Env Var Names",
       "type": "array"
     },
-    "executable": {
-      "title": "Executable",
-      "type": "string"
-    },
-    "home_selector": {
-      "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
-    },
-    "mailbox": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/LaunchPlanMailboxV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+    "role_injection": {
+      "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
     },
     "metadata": {
       "additionalProperties": {
@@ -161,16 +212,31 @@
       "title": "Metadata",
       "type": "object"
     },
-    "role_injection": {
-      "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
-    },
-    "tool": {
-      "title": "Tool",
-      "type": "string"
-    },
-    "working_directory": {
-      "title": "Working Directory",
-      "type": "string"
+    "mailbox": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "filesystem": "#/$defs/LaunchPlanMailboxFilesystemV1",
+              "stalwart": "#/$defs/LaunchPlanMailboxStalwartV1"
+            },
+            "propertyName": "transport"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LaunchPlanMailboxFilesystemV1"
+            },
+            {
+              "$ref": "#/$defs/LaunchPlanMailboxStalwartV1"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mailbox"
     }
   },
   "required": [

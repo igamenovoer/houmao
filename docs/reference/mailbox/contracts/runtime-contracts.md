@@ -24,10 +24,12 @@ The declarative mailbox payload supports these fields:
 Current rules:
 
 - `transport` is required when `mailbox` is present.
-- Only `filesystem` is implemented in v1.
+- `filesystem` and `stalwart` are implemented in v1.
 - If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
 - If `address` is omitted, it defaults to `<principal_id>@agents.localhost`.
 - If `filesystem_root` is omitted, it defaults to `<runtime_root>/mailbox`.
+- `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
+- Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
 
 The resolved session payload persists:
 
@@ -60,6 +62,14 @@ Filesystem-specific env vars:
 - `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH`
 - `AGENTSYS_MAILBOX_FS_INBOX_DIR`
 
+Email-transport env vars:
+
+- `AGENTSYS_MAILBOX_EMAIL_JMAP_URL`
+- `AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL`
+- `AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY`
+- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF`
+- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE`
+
 Important rules:
 
 - Re-read the env vars before each mailbox action.
@@ -69,6 +79,7 @@ Important rules:
 - `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` is the authoritative mailbox-view SQLite database for the current mailbox.
 - `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration, so it may resolve through a symlinked `mailboxes/<address>` entry into a private directory.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes, discard cached assumptions and reload the current bindings.
+- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` is session-local secret material derived from the persisted secret-free `credential_ref`.
 
 ## Shared Catalog Versus Mailbox-Local State
 
@@ -82,15 +93,29 @@ The filesystem transport now splits durable state between a shared catalog and m
 
 ## Projected Skill Contract
 
-The runtime projects `.system/mailbox/email-via-filesystem` into the brain home during brain build. That skill tells the session to:
+The runtime projects one transport-specific mailbox skill into the brain home during brain build:
+
+- `.system/mailbox/email-via-filesystem`
+- `.system/mailbox/email-via-stalwart`
+
+Shared runtime rules:
 
 - require the runtime-managed env vars,
+- prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached,
+- treat `message_ref` as the shared reply target contract,
+- only mark a message read after successful processing.
+
+Filesystem-specific rules:
+
 - inspect `rules/` before touching shared mailbox state,
 - inspect `rules/scripts/requirements.txt` before invoking Python helpers,
 - use shared managed scripts for steps that touch `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`,
-- treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for mailbox-view read or unread and thread-summary state,
-- only mark a message read after successful processing,
-- refuse unsupported transports.
+- treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for mailbox-view read or unread and thread-summary state.
+
+Stalwart-specific rules:
+
+- use the runtime-managed `AGENTSYS_MAILBOX_EMAIL_*` bindings for direct mailbox access when no live gateway mailbox facade is available,
+- do not assume filesystem mailbox rules, SQLite paths, locks, or projection symlinks exist for this transport.
 
 This keeps mailbox behavior runtime-owned rather than role-authored.
 
@@ -106,9 +131,10 @@ CLI argument rules:
 
 - `mail check` accepts `--unread-only`, `--limit`, and `--since`.
 - `mail send` requires at least one `--to`, a `--subject`, and exactly one of `--body-file` or `--body-content`.
-- `mail reply` requires `--message-id` and exactly one of `--body-file` or `--body-content`.
+- `mail reply` requires `--message-ref` and exactly one of `--body-file` or `--body-content`.
 - `mail send` and `mail reply` accept repeatable `--attach`.
 - Recipients must be full mailbox addresses, not short names.
+- `--message-id` remains accepted as a compatibility alias for `--message-ref`.
 
 The runtime converts CLI input into an `args` payload before prompting the session.
 
@@ -167,7 +193,7 @@ Representative result:
   "operation": "send",
   "transport": "filesystem",
   "principal_id": "AGENTSYS-research",
-  "message_id": "msg-20260313T091531Z-a1b2c3d4e5f64798aabbccddeeff0011"
+  "message_ref": "filesystem:msg-20260313T091531Z-a1b2c3d4e5f64798aabbccddeeff0011"
 }
 ```
 
@@ -180,3 +206,5 @@ Representative result:
 - [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
 - [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
 - [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/references/env-vars.md)

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import re
-from typing import TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     ValidationError,
     field_validator,
     model_validator,
 )
-
-from houmao.agents.mailbox_runtime_models import MailboxTransport
 
 from .agent_identity import normalize_agent_identity_name
 from .errors import SessionManifestError
@@ -62,10 +61,10 @@ class LaunchPlanRoleInjectionV1(_StrictBoundaryModel):
         return value
 
 
-class LaunchPlanMailboxV1(_StrictBoundaryModel):
-    """Persisted resolved mailbox binding for `launch_plan.v1`."""
+class LaunchPlanMailboxFilesystemV1(_StrictBoundaryModel):
+    """Persisted filesystem mailbox binding for `launch_plan.v1`."""
 
-    transport: MailboxTransport
+    transport: Literal["filesystem"]
     principal_id: str
     address: str
     bindings_version: str
@@ -82,6 +81,40 @@ class LaunchPlanMailboxV1(_StrictBoundaryModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):
+    """Persisted Stalwart mailbox binding for `launch_plan.v1`."""
+
+    transport: Literal["stalwart"]
+    principal_id: str
+    address: str
+    bindings_version: str
+    jmap_url: str
+    management_url: str
+    login_identity: str
+    credential_ref: str
+
+    @field_validator(
+        "principal_id",
+        "address",
+        "bindings_version",
+        "jmap_url",
+        "management_url",
+        "login_identity",
+        "credential_ref",
+    )
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+LaunchPlanMailboxV1: TypeAlias = Annotated[
+    LaunchPlanMailboxFilesystemV1 | LaunchPlanMailboxStalwartV1,
+    Field(discriminator="transport"),
+]
 
 
 class LaunchPlanPayloadV1(_StrictBoundaryModel):
@@ -417,3 +450,8 @@ def _format_error_location(location: object) -> str:
             continue
         path += f".{item}"
     return path
+
+
+LaunchPlanPayloadV1.model_rebuild()
+SessionManifestPayloadV2.model_rebuild()
+SessionManifestPayloadV3.model_rebuild()

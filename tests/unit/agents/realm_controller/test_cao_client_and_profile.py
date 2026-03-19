@@ -36,7 +36,7 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_STALLED_ENTERED,
@@ -132,7 +132,7 @@ def _sample_mailbox_launch_plan(tmp_path: Path, *, tool: str = "codex") -> Launc
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
     )
-    mailbox = MailboxResolvedConfig(
+    mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
         address=address,
@@ -1989,7 +1989,7 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
                     "operation": "send",
                     "transport": "filesystem",
                     "principal_id": "AGENTSYS-research",
-                    "message_id": "msg-20260318T120000Z-shadow",
+                    "message_ref": "filesystem:msg-20260318T120000Z-shadow",
                 }
             )
             output_sequence = [
@@ -2064,7 +2064,7 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
     )
     done_payload = events[-1].payload or {}
 
-    assert payload["message_id"] == "msg-20260318T120000Z-shadow"
+    assert payload["message_ref"] == "filesystem:msg-20260318T120000Z-shadow"
     assert done_payload["canonical_runtime_status"] == "completed"
     assert "mail_result_surfaces" in done_payload
     assert session._client.output_calls == 3  # noqa: SLF001
@@ -2137,7 +2137,7 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
                     "operation": "send",
                     "transport": "filesystem",
                     "principal_id": "AGENTSYS-research",
-                    "message_id": "msg-20260318T120000Z-shadow",
+                    "message_ref": "filesystem:msg-20260318T120000Z-shadow",
                 }
             )
             output_sequence = [
@@ -2212,7 +2212,7 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
     )
     done_payload = events[-1].payload or {}
 
-    assert payload["message_id"] == "msg-20260318T120000Z-shadow"
+    assert payload["message_ref"] == "filesystem:msg-20260318T120000Z-shadow"
     assert done_payload["canonical_runtime_status"] == "completed"
     assert "mail_result_surfaces" in done_payload
     assert session._client.output_calls == 3  # noqa: SLF001

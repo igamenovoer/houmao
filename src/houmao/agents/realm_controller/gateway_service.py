@@ -21,6 +21,11 @@ from pydantic import ValidationError
 from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
+from houmao.agents.realm_controller.gateway_mailbox import (
+    GatewayMailboxAdapter,
+    GatewayMailboxError,
+    build_gateway_mailbox_adapter,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
@@ -32,6 +37,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayExecutionState,
     GatewayHealthResponseV1,
     GatewayHost,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
     GatewayJsonObject,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -64,7 +75,6 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
-from houmao.mailbox import resolve_active_mailbox_local_sqlite_path
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
@@ -97,10 +107,10 @@ class _QueuedGatewayRequestRecord:
 
 @dataclass(frozen=True)
 class _UnreadMailboxMessage:
-    """Unread mailbox-local message summary used for notifier prompts."""
+    """Unread mailbox message summary used for notifier prompts."""
 
-    message_id: str
-    thread_id: str
+    message_ref: str
+    thread_ref: str | None
     created_at_utc: str
     subject: str
 
@@ -230,6 +240,8 @@ class GatewayServiceRuntime:
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
         self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
+        self.m_mailbox_adapter: GatewayMailboxAdapter | None = None
+        self.m_mailbox_bindings_version: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -378,6 +390,99 @@ class GatewayServiceRuntime:
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
 
+    def get_mail_status(self) -> GatewayMailStatusV1:
+        """Return shared mailbox availability for the attached session."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                return self._mailbox_adapter_locked().status()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def check_mail(self, request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
+        """Run one shared mailbox check request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                messages = adapter.check(
+                    unread_only=request_payload.unread_only,
+                    limit=request_payload.limit,
+                    since=request_payload.since,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            unread_count = sum(1 for message in messages if message.unread is True)
+            return GatewayMailCheckResponseV1(
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                unread_only=request_payload.unread_only,
+                message_count=len(messages),
+                unread_count=unread_count,
+                messages=messages,
+            )
+
+    def send_mail(self, request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox send request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                message = adapter.send(
+                    to_addresses=request_payload.to,
+                    cc_addresses=request_payload.cc,
+                    subject=request_payload.subject,
+                    body_content=request_payload.body_content,
+                    attachments=request_payload.attachments,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailActionResponseV1(
+                operation="send",
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
+            )
+
+    def reply_mail(self, request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox reply request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                message = adapter.reply(
+                    message_ref=request_payload.message_ref,
+                    body_content=request_payload.body_content,
+                    attachments=request_payload.attachments,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailActionResponseV1(
+                operation="reply",
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
+            )
+
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
         """Return the current notifier configuration and runtime status."""
 
@@ -392,7 +497,7 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             try:
-                self._load_notifier_mailbox_config()
+                self._mailbox_adapter_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             record = write_gateway_mail_notifier_record(
@@ -442,38 +547,67 @@ class GatewayServiceRuntime:
         """Return whether notifier behavior is currently supported."""
 
         try:
-            self._load_notifier_mailbox_config()
+            self._mailbox_adapter_locked()
         except GatewayError as exc:
             return False, str(exc)
         return True, None
 
-    def _load_notifier_mailbox_config(self) -> MailboxResolvedConfig:
-        """Load the manifest-backed mailbox config required by the notifier."""
+    def _load_mailbox_config(self) -> MailboxResolvedConfig:
+        """Load the manifest-backed mailbox config required by mailbox routes."""
 
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
             raise GatewayError(
-                "Gateway attach contract is missing runtime-owned `manifest_path`; mail notifier is unsupported."
+                "Gateway attach contract is missing runtime-owned `manifest_path`; mailbox support is unavailable."
             )
         try:
             handle = load_session_manifest(Path(manifest_path))
             payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         except SessionManifestError as exc:
             raise GatewayError(
-                f"Runtime-owned session manifest is unreadable for mail notifier support: {exc}"
+                f"Runtime-owned session manifest is unreadable for mailbox support: {exc}"
             ) from exc
 
         try:
-            mailbox = resolved_mailbox_config_from_payload(payload.launch_plan.mailbox)
+            mailbox = resolved_mailbox_config_from_payload(
+                payload.launch_plan.mailbox,
+                manifest_path=handle.path,
+            )
         except ValueError as exc:
             raise GatewayError(
                 f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
             ) from exc
         if mailbox is None:
             raise GatewayError(
-                "Runtime-owned session manifest launch plan has no mailbox binding; mail notifier is unsupported."
+                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
             )
         return mailbox
+
+    def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
+        """Return the cached mailbox adapter while the runtime lock is held."""
+
+        mailbox = self._load_mailbox_config()
+        if (
+            self.m_mailbox_adapter is not None
+            and self.m_mailbox_bindings_version == mailbox.bindings_version
+        ):
+            return self.m_mailbox_adapter
+        try:
+            adapter = build_gateway_mailbox_adapter(mailbox)
+        except GatewayMailboxError as exc:
+            raise GatewayError(str(exc)) from exc
+        self.m_mailbox_adapter = adapter
+        self.m_mailbox_bindings_version = mailbox.bindings_version
+        return adapter
+
+    def _require_loopback_mail_surface(self) -> None:
+        """Reject mailbox HTTP routes when the gateway is not loopback-bound."""
+
+        if self.m_host != "127.0.0.1":
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway mailbox routes are unavailable when the listener is bound to 0.0.0.0.",
+            )
 
     def _notifier_loop(self) -> None:
         """Poll mailbox-local unread state when the notifier is enabled."""
@@ -518,7 +652,7 @@ class GatewayServiceRuntime:
             poll_time_utc = now_utc_iso()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             try:
-                mailbox = self._load_notifier_mailbox_config()
+                adapter = self._mailbox_adapter_locked()
             except GatewayError as exc:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
@@ -539,8 +673,16 @@ class GatewayServiceRuntime:
                 return
 
             try:
-                unread_messages = self._load_unread_mailbox_messages(mailbox)
-            except GatewayError as exc:
+                unread_messages = [
+                    _UnreadMailboxMessage(
+                        message_ref=message.message_ref,
+                        thread_ref=message.thread_ref,
+                        created_at_utc=message.created_at_utc,
+                        subject=message.subject,
+                    )
+                    for message in adapter.check(unread_only=True, limit=None, since=None)
+                ]
+            except GatewayMailboxError as exc:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
@@ -654,60 +796,24 @@ class GatewayServiceRuntime:
                 f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
             )
 
-    def _load_unread_mailbox_messages(self, mailbox) -> list[_UnreadMailboxMessage]:  # type: ignore[no-untyped-def]
-        """Load unread mailbox-local messages for notifier polling."""
-
-        try:
-            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
-                mailbox.filesystem_root,
-                address=mailbox.address,
-            )
-        except Exception as exc:
-            raise GatewayError(f"Failed to resolve mailbox-local SQLite path: {exc}") from exc
-
-        try:
-            with sqlite3.connect(local_sqlite_path) as connection:
-                rows = connection.execute(
-                    """
-                    SELECT message_id, thread_id, created_at_utc, subject
-                    FROM message_state
-                    WHERE is_read = 0
-                    ORDER BY created_at_utc ASC, message_id ASC
-                    """
-                ).fetchall()
-        except sqlite3.DatabaseError as exc:
-            raise GatewayError(
-                f"Mailbox-local SQLite is unreadable for notifier polling: {local_sqlite_path}"
-            ) from exc
-
-        return [
-            _UnreadMailboxMessage(
-                message_id=str(row[0]),
-                thread_id=str(row[1]),
-                created_at_utc=str(row[2]),
-                subject=str(row[3]),
-            )
-            for row in rows
-        ]
-
     def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build a stable digest for one unread-mail snapshot."""
 
-        digest_source = "\n".join(message.message_id for message in unread_messages)
+        digest_source = "\n".join(message.message_ref for message in unread_messages)
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
     def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         lines = [
-            "You have unread filesystem mailbox messages.",
+            "You have unread mailbox messages.",
             "Use the runtime-owned mailbox skill to inspect and process them.",
             "Only mark a message read after you have processed it successfully.",
             "",
             "Unread messages:",
         ]
         for message in unread_messages[:10]:
-            lines.append(f"- {message.created_at_utc} | {message.message_id} | {message.subject}")
+            lines.append(f"- {message.created_at_utc} | {message.message_ref} | {message.subject}")
         if len(unread_messages) > 10:
             lines.append(f"- ... and {len(unread_messages) - 10} more unread messages")
         return "\n".join(lines)
@@ -773,8 +879,8 @@ class GatewayServiceRuntime:
             unread_digest=unread_digest,
             unread_summary=tuple(
                 GatewayNotifierAuditUnreadMessage(
-                    message_id=message.message_id,
-                    thread_id=message.thread_id,
+                    message_ref=message.message_ref,
+                    thread_ref=message.thread_ref,
                     created_at_utc=message.created_at_utc,
                     subject=message.subject,
                 )
@@ -1140,6 +1246,30 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Accept one gateway-managed request."""
 
         return runtime.create_request(request_payload)
+
+    @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
+    def _mail_status() -> GatewayMailStatusV1:
+        """Serve shared mailbox availability for the attached session."""
+
+        return runtime.get_mail_status()
+
+    @app.post("/v1/mail/check", response_model=GatewayMailCheckResponseV1)
+    def _mail_check(request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
+        """Run one shared mailbox check request."""
+
+        return runtime.check_mail(request_payload)
+
+    @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
+    def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox send request."""
+
+        return runtime.send_mail(request_payload)
+
+    @app.post("/v1/mail/reply", response_model=GatewayMailActionResponseV1)
+    def _mail_reply(request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox reply request."""
+
+        return runtime.reply_mail(request_payload)
 
     @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
     def _get_mail_notifier() -> GatewayMailNotifierStatusV1:

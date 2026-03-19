@@ -6,15 +6,15 @@ This page shows the shortest safe path to a working mailbox-enabled session and 
 
 You do not wire mailbox behavior into prompts by hand. The runtime does three jobs for you:
 
-1. Resolve one filesystem mailbox binding for the session.
-2. Bootstrap or validate the mailbox root and register the session address.
+1. Resolve one mailbox binding for the session.
+2. Bootstrap or validate the selected transport binding and register or provision the session address.
 3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding.
 
 After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill, and the session returns one structured result payload.
 
 ## Enable Mailbox Support
 
-You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the only implemented transport is `filesystem`.
+You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the implemented transports are `filesystem` and `stalwart`.
 
 Implicit filesystem mailbox state now defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one launch.
 
@@ -113,16 +113,17 @@ Important details:
 ```bash
 pixi run python -m houmao.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
-  --message-id msg-20260312T050000Z-parent \
+  --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
 
 Important details:
 
-- `--message-id` is required.
+- `--message-ref` is required.
+- `--message-id` remains accepted as a compatibility alias.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - Attachments are allowed on replies too.
-- Replies keep the original `thread_id`; they do not create a new thread because the subject changed.
+- Replies target the shared opaque `message_ref` contract; do not derive behavior from transport-prefixed values embedded inside the ref.
 
 ## What The Runtime Expects From The Session
 

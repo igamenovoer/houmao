@@ -24,8 +24,8 @@ from houmao.agents.realm_controller.runtime import (
     start_runtime_session,
 )
 from houmao.agents.mailbox_runtime_models import (
-    MailboxDeclarativeConfig,
-    MailboxResolvedConfig,
+    FilesystemMailboxDeclarativeConfig,
+    FilesystemMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
@@ -88,7 +88,7 @@ def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
     )
-    mailbox = MailboxResolvedConfig(
+    mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
         address=address,
@@ -136,7 +136,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=MailboxDeclarativeConfig(
+            mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
                 address="AGENTSYS-research@agents.localhost",
@@ -313,8 +313,8 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "reply",
             "--agent-identity",
             "AGENTSYS-research",
-            "--message-id",
-            "msg-20260312T050000Z-parent",
+            "--message-ref",
+            "filesystem:msg-20260312T050000Z-parent",
             "--body-content",
             "Reply with next steps",
         ]
@@ -324,7 +324,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
     assert reply_exit == 0
     assert "# Hello" in prompts[0]
     assert str(attachment.resolve()) in prompts[0]
-    assert '"message_id": "msg-20260312T050000Z-parent"' in prompts[1]
+    assert '"message_ref": "filesystem:msg-20260312T050000Z-parent"' in prompts[1]
     assert '"body_content": "Reply with next steps"' in prompts[1]
     assert '"instruction"' not in prompts[1]
 
@@ -389,7 +389,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "operation": "send",
                     "transport": "filesystem",
                     "principal_id": "AGENTSYS-research",
-                    "message_id": "msg-20260318T130000Z-integration",
+                    "message_ref": "filesystem:msg-20260318T130000Z-integration",
                 }
             )
             output_sequence = [
@@ -493,6 +493,6 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert '"message_id": "msg-20260318T130000Z-integration"' in output
+    assert '"message_ref": "filesystem:msg-20260318T130000Z-integration"' in output
     assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
