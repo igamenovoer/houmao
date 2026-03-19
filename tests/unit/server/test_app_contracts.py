@@ -14,6 +14,7 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
+    HoumaoLifecycleAuthorityMetadata,
     HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
@@ -228,6 +229,12 @@ class _AppServiceDouble:
                 completion_candidate_elapsed_seconds=None,
                 unknown_to_stalled_timeout_seconds=30.0,
                 completion_stability_seconds=1.0,
+            ),
+            lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
+                completion_authority="unanchored_background",
+                turn_anchor_state="absent",
+                completion_monitoring_armed=False,
+                detail="No active server-owned turn anchor is armed.",
             ),
             stability=HoumaoStabilityMetadata(
                 signature="deadbeef",

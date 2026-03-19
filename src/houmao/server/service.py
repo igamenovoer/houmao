@@ -346,10 +346,17 @@ class HoumaoServerService:
         self.m_supervisor.request_reconcile()
 
     def note_prompt_submission(self, *, terminal_id: str, message: str) -> None:
-        """Accept prompt-submission notifications for compatibility."""
+        """Record one server-owned turn anchor after a successful input submission."""
 
-        del terminal_id
-        del message
+        try:
+            tracker = self._tracker_for_terminal_alias(terminal_id)
+        except HTTPException:
+            return
+        tracker.note_prompt_submission(
+            message=message,
+            observed_at_utc=utc_now_iso(),
+            monotonic_ts=time.monotonic(),
+        )
 
     def register_launch(
         self, request_model: HoumaoRegisterLaunchRequest

@@ -16,6 +16,7 @@ from houmao.demo.houmao_server_dual_shadow_watch.models import (
     save_demo_state,
 )
 from houmao.server.models import (
+    HoumaoLifecycleAuthorityMetadata,
     HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
@@ -81,6 +82,13 @@ def _terminal_state(terminal_id: str, *, tool: str, slot: str) -> HoumaoTerminal
             completion_candidate_elapsed_seconds=0.7,
             unknown_to_stalled_timeout_seconds=30.0,
             completion_stability_seconds=1.0,
+        ),
+        lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
+            completion_authority="turn_anchored",
+            turn_anchor_state="active",
+            completion_monitoring_armed=True,
+            detail="Server-owned turn anchor is active for completion monitoring.",
+            anchor_armed_at_utc="2026-03-19T09:59:58+00:00",
         ),
         stability=HoumaoStabilityMetadata(
             signature="deadbeef",
@@ -268,6 +276,7 @@ def test_render_agent_panel_uses_compact_status_card() -> None:
 
     assert "current: ready" in output
     assert "ready/complete: ready / candidate_complete" in output
+    assert "authority: turn_anchored / active" in output
     assert "health: tmux_up / tui_up / parsed" in output
     assert "last transition:" in output
     assert "transport/process/parse:" not in output

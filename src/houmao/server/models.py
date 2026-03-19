@@ -47,6 +47,8 @@ CompletionState = Literal[
     "unknown",
     "stalled",
 ]
+CompletionAuthority = Literal["turn_anchored", "unanchored_background"]
+TurnAnchorState = Literal["active", "absent", "lost"]
 
 
 class _HoumaoModel(BaseModel):
@@ -223,6 +225,18 @@ class HoumaoLifecycleTimingMetadata(_HoumaoModel):
     completion_stability_seconds: float
 
 
+class HoumaoLifecycleAuthorityMetadata(_HoumaoModel):
+    """Structured lifecycle-authority metadata for tracked-state consumers."""
+
+    completion_authority: CompletionAuthority
+    turn_anchor_state: TurnAnchorState
+    completion_monitoring_armed: bool
+    detail: str
+    anchor_armed_at_utc: str | None = None
+    anchor_lost_at_utc: str | None = None
+    anchor_loss_reason: str | None = None
+
+
 class HoumaoStabilityMetadata(_HoumaoModel):
     """Stability timing for the current visible live-state signature."""
 
@@ -258,6 +272,7 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     parsed_surface: HoumaoParsedSurface | None = None
     operator_state: HoumaoOperatorState
     lifecycle_timing: HoumaoLifecycleTimingMetadata
+    lifecycle_authority: HoumaoLifecycleAuthorityMetadata
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
 

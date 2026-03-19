@@ -43,6 +43,9 @@ class AgentDisplayState:
     ui_context: str
     readiness_state: str
     completion_state: str
+    completion_authority: str
+    turn_anchor_state: str
+    completion_monitoring_armed: bool
     readiness_unknown_elapsed_seconds: float | None
     completion_unknown_elapsed_seconds: float | None
     completion_candidate_elapsed_seconds: float | None
@@ -137,6 +140,9 @@ class ShadowWatchMonitor:
                                 ui_context="error",
                                 readiness_state="error",
                                 completion_state="error",
+                                completion_authority="error",
+                                turn_anchor_state="error",
+                                completion_monitoring_armed=False,
                                 readiness_unknown_elapsed_seconds=None,
                                 completion_unknown_elapsed_seconds=None,
                                 completion_candidate_elapsed_seconds=None,
@@ -195,7 +201,7 @@ class ShadowWatchMonitor:
         slot: str,
         terminal_id: str,
         tool: str,
-        transitions: tuple[HoumaoRecentTransition, ...],
+        transitions: list[HoumaoRecentTransition],
         transitions_path: Path,
     ) -> None:
         """Record unseen server-authored transitions."""
@@ -211,7 +217,7 @@ class ShadowWatchMonitor:
                 tool=tool,
                 terminal_id=terminal_id,
                 summary=transition.summary,
-                changed_fields=transition.changed_fields,
+                changed_fields=tuple(transition.changed_fields),
             )
             self.m_transition_log.append(event)
             self.m_transition_log = self.m_transition_log[-20:]
@@ -245,6 +251,7 @@ def _display_state_from_terminal(
 
     parsed_surface = state.parsed_surface
     last_transition = state.recent_transitions[-1] if state.recent_transitions else None
+    error_detail = state.parse_error or state.probe_error
     return AgentDisplayState(
         slot=slot,
         tool=state.tracked_session.tool,
@@ -260,18 +267,19 @@ def _display_state_from_terminal(
         ui_context=parsed_surface.ui_context if parsed_surface is not None else "-",
         readiness_state=state.operator_state.readiness_state,
         completion_state=state.operator_state.completion_state,
+        completion_authority=state.lifecycle_authority.completion_authority,
+        turn_anchor_state=state.lifecycle_authority.turn_anchor_state,
+        completion_monitoring_armed=state.lifecycle_authority.completion_monitoring_armed,
         readiness_unknown_elapsed_seconds=state.lifecycle_timing.readiness_unknown_elapsed_seconds,
         completion_unknown_elapsed_seconds=state.lifecycle_timing.completion_unknown_elapsed_seconds,
         completion_candidate_elapsed_seconds=state.lifecycle_timing.completion_candidate_elapsed_seconds,
         projection_changed=state.operator_state.projection_changed,
-        anomaly_codes=parsed_surface.anomaly_codes if parsed_surface is not None else (),
+        anomaly_codes=tuple(parsed_surface.anomaly_codes) if parsed_surface is not None else (),
         dialog_tail=parsed_surface.dialog_tail if parsed_surface is not None else "",
         detail=state.operator_state.detail,
         last_transition_at_utc=last_transition.recorded_at_utc if last_transition is not None else None,
         last_transition_summary=last_transition.summary if last_transition is not None else None,
-        error_detail=(state.parse_error or state.probe_error).message
-        if (state.parse_error or state.probe_error) is not None
-        else None,
+        error_detail=error_detail.message if error_detail is not None else None,
     )
 
 
@@ -329,6 +337,7 @@ def _render_agent_panel(state: AgentDisplayState) -> Panel:
     lines = [
         Text(f"current: {state.operator_status}"),
         Text(f"ready/complete: {state.readiness_state} / {state.completion_state}"),
+        Text(f"authority: {state.completion_authority} / {state.turn_anchor_state}"),
         Text(f"health: {state.transport_state} / {state.process_state} / {state.parse_status}"),
         Text(f"surface: {state.availability} / {state.business_state} / {state.ui_context}"),
         Text(f"detail: {_truncate_text(state.detail, limit=120)}"),
@@ -367,6 +376,7 @@ def _agent_panel_lines(state: AgentDisplayState) -> list[Text]:
             f"{state.operator_status} | {state.readiness_state}/{state.completion_state} | "
             f"{state.transport_state}/{state.process_state}/{state.parse_status}"
         ),
+        Text(f"  authority: {state.completion_authority} / {state.turn_anchor_state}"),
         Text(f"  surface: {state.availability} / {state.business_state} / {state.ui_context}"),
         Text(f"  detail: {_truncate_text(state.detail, limit=120)}"),
     ]

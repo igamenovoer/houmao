@@ -5,13 +5,27 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections import deque
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
+from reactivex import abc
+from reactivex.scheduler import HistoricalScheduler
+from reactivex.subject import Subject
+
+from houmao.lifecycle import (
+    AnchoredCompletionSnapshot,
+    LifecycleObservation,
+    ReadinessSnapshot,
+    TurnAnchor,
+    build_anchored_completion_pipeline,
+    build_readiness_pipeline,
+    normalize_projection_text,
+)
 from houmao.server.models import (
     CompletionState,
     HoumaoErrorDetail,
+    HoumaoLifecycleAuthorityMetadata,
     HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
@@ -37,7 +51,7 @@ def utc_now_iso() -> str:
 
 @dataclass(frozen=True)
 class SurfaceReduction:
-    """Derived readiness/completion state for one parsed surface cycle."""
+    """Derived readiness/completion state for one tracked observation."""
 
     readiness_state: ReadinessState
     completion_state: CompletionState
@@ -48,18 +62,11 @@ class SurfaceReduction:
 
 
 @dataclass(frozen=True)
-class SurfaceObservation:
-    """Input observation for continuous parsed-surface reduction."""
+class _LostTurnAnchor:
+    """Metadata for the most recent lost or invalidated turn anchor."""
 
-    availability: str
-    business_state: str
-    input_mode: str
-    ui_context: str
-    normalized_projection_text: str
-    operator_blocked_excerpt: str | None
-    baseline_invalidated: bool
-    monotonic_ts: float
-    error_detail: str | None = None
+    lost_at_utc: str
+    reason: str
 
 
 class LiveSessionTracker:
@@ -82,15 +89,28 @@ class LiveSessionTracker:
         self.m_completion_stability_seconds = completion_stability_seconds
         self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
         self.m_lock = threading.RLock()
-        self.m_surface_reducer = _SurfaceStateReducer(
-            completion_stability_seconds=completion_stability_seconds,
-            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
-        )
+        self.m_scheduler = HistoricalScheduler()
+        self.m_last_scheduler_monotonic: float | None = None
+        self.m_observation_subject: Subject[LifecycleObservation] = Subject()
+        self.m_readiness_snapshot_queue: deque[ReadinessSnapshot] = deque()
+        self.m_completion_snapshot_queue: deque[AnchoredCompletionSnapshot] = deque()
+        self.m_readiness_subscription: abc.DisposableBase = build_readiness_pipeline(
+            self.m_observation_subject,
+            stall_timeout_seconds=unknown_to_stalled_timeout_seconds,
+            scheduler=self.m_scheduler,
+        ).subscribe(self.m_readiness_snapshot_queue.append)
+        self.m_completion_subscription: abc.DisposableBase | None = None
+        self.m_last_readiness_snapshot: ReadinessSnapshot | None = None
+        self.m_last_completion_snapshot: AnchoredCompletionSnapshot | None = None
         self.m_recent_transitions: list[HoumaoRecentTransition] = []
         self.m_last_signature_payload: str | None = None
         self.m_stable_since_monotonic: float | None = None
         self.m_stable_since_utc: str = utc_now_iso()
         self.m_baseline_pos: int | None = None
+        self.m_next_anchor_id = 1
+        self.m_active_turn_anchor: TurnAnchor | None = None
+        self.m_lost_turn_anchor: _LostTurnAnchor | None = None
+        self.m_anchor_should_expire_after_publish = False
         self.m_last_state = _build_initial_state(
             identity=identity,
             completion_stability_seconds=completion_stability_seconds,
@@ -139,6 +159,73 @@ class LiveSessionTracker:
                 entries=entries,
             )
 
+    def note_prompt_submission(
+        self,
+        *,
+        message: str,
+        observed_at_utc: str,
+        monotonic_ts: float,
+    ) -> HoumaoTerminalStateResponse:
+        """Arm one server-owned turn anchor after a successful input submission."""
+
+        with self.m_lock:
+            self._advance_scheduler(monotonic_ts=monotonic_ts)
+            self._drain_pipeline_snapshots()
+            self._dispose_completion_subscription()
+
+            baseline_projection_text = ""
+            if self.m_last_state.parsed_surface is not None:
+                baseline_projection_text = normalize_projection_text(
+                    self.m_last_state.parsed_surface.normalized_projection_text
+                )
+            self.m_active_turn_anchor = TurnAnchor(
+                anchor_id=self.m_next_anchor_id,
+                source="terminal_input",
+                baseline_projection_text=baseline_projection_text,
+                armed_at_utc=observed_at_utc,
+                armed_monotonic_ts=monotonic_ts,
+                message_excerpt=_message_excerpt(message),
+            )
+            self.m_next_anchor_id += 1
+            self.m_lost_turn_anchor = None
+            self.m_last_completion_snapshot = None
+            self.m_anchor_should_expire_after_publish = False
+            self.m_completion_subscription = build_anchored_completion_pipeline(
+                self.m_observation_subject,
+                baseline_projection_text=baseline_projection_text,
+                stability_seconds=self.m_completion_stability_seconds,
+                stall_timeout_seconds=self.m_unknown_to_stalled_timeout_seconds,
+                scheduler=self.m_scheduler,
+            ).subscribe(self.m_completion_snapshot_queue.append)
+
+            operator_state = self.m_last_state.operator_state
+            if operator_state.completion_state in {"candidate_complete", "completed"}:
+                operator_status: OperatorStatus = operator_state.status
+                if operator_status == "completed" and operator_state.readiness_state == "ready":
+                    operator_status = "ready"
+                operator_state = operator_state.model_copy(
+                    update={
+                        "status": operator_status,
+                        "completion_state": "inactive",
+                        "detail": "Server accepted input and armed turn-anchored completion monitoring.",
+                        "projection_changed": False,
+                        "updated_at_utc": observed_at_utc,
+                    }
+                )
+
+            lifecycle_authority = self._current_lifecycle_authority()
+            updated = self.m_last_state.model_copy(
+                update={
+                    "operator_state": operator_state,
+                    "lifecycle_timing": self.m_last_state.lifecycle_timing.model_copy(
+                        update={"completion_candidate_elapsed_seconds": None}
+                    ),
+                    "lifecycle_authority": lifecycle_authority,
+                }
+            )
+            updated = self._publish_state(response=updated, monotonic_ts=monotonic_ts)
+            return updated
+
     def record_cycle(
         self,
         *,
@@ -157,22 +244,32 @@ class LiveSessionTracker:
 
         with self.m_lock:
             self.m_identity = identity
+            self._advance_scheduler(monotonic_ts=monotonic_ts)
+            self._drain_pipeline_snapshots()
+
             reduction = _default_surface_reduction()
             if parsed_surface is not None:
-                reduction = self.m_surface_reducer.observe(
-                    SurfaceObservation(
-                        availability=parsed_surface.availability,
-                        business_state=parsed_surface.business_state,
-                        input_mode=parsed_surface.input_mode,
-                        ui_context=parsed_surface.ui_context,
-                        normalized_projection_text=parsed_surface.normalized_projection_text,
-                        operator_blocked_excerpt=parsed_surface.operator_blocked_excerpt,
-                        baseline_invalidated=parsed_surface.baseline_invalidated,
+                self.m_observation_subject.on_next(
+                    _lifecycle_observation_from_parsed_surface(
+                        parsed_surface=parsed_surface,
                         monotonic_ts=monotonic_ts,
-                        error_detail=None,
                     )
                 )
+                self._drain_pipeline_snapshots()
+                reduction = self._reduction_from_current_snapshots(parsed_surface=parsed_surface)
+            elif self.m_active_turn_anchor is not None:
+                self._lose_turn_anchor(
+                    lost_at_utc=observed_at_utc,
+                    reason=_anchor_loss_reason(
+                        transport_state=transport_state,
+                        process_state=process_state,
+                        parse_status=parse_status,
+                        probe_error=probe_error,
+                        parse_error=parse_error,
+                    ),
+                )
 
+            lifecycle_authority = self._current_lifecycle_authority()
             operator_state = _build_operator_state(
                 identity=identity,
                 observed_at_utc=observed_at_utc,
@@ -184,30 +281,17 @@ class LiveSessionTracker:
                 parsed_surface=parsed_surface,
                 reduction=reduction,
             )
-            signature_payload = json.dumps(
-                _visible_signature_payload(
-                    transport_state=transport_state,
-                    process_state=process_state,
-                    parse_status=parse_status,
-                    probe_error=probe_error,
-                    parse_error=parse_error,
-                    parsed_surface=parsed_surface,
-                    operator_state=operator_state,
-                ),
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            if signature_payload != self.m_last_signature_payload:
-                self.m_last_signature_payload = signature_payload
-                self.m_stable_since_monotonic = monotonic_ts
-                self.m_stable_since_utc = observed_at_utc
-            assert self.m_stable_since_monotonic is not None
-            stable_for_seconds = max(monotonic_ts - self.m_stable_since_monotonic, 0.0)
-            stability = HoumaoStabilityMetadata(
-                signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
-                stable=stable_for_seconds >= self.m_stability_threshold_seconds,
-                stable_for_seconds=stable_for_seconds,
-                stable_since_utc=self.m_stable_since_utc,
+            stability = self._build_stability(
+                transport_state=transport_state,
+                process_state=process_state,
+                parse_status=parse_status,
+                probe_error=probe_error,
+                parse_error=parse_error,
+                parsed_surface=parsed_surface,
+                operator_state=operator_state,
+                lifecycle_authority=lifecycle_authority,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
             )
             response = HoumaoTerminalStateResponse(
                 terminal_id=_terminal_alias(identity),
@@ -227,213 +311,200 @@ class LiveSessionTracker:
                     unknown_to_stalled_timeout_seconds=self.m_unknown_to_stalled_timeout_seconds,
                     completion_stability_seconds=self.m_completion_stability_seconds,
                 ),
+                lifecycle_authority=lifecycle_authority,
                 stability=stability,
                 recent_transitions=list(self.m_recent_transitions),
             )
-            transition = _build_transition(previous=self.m_last_state, current=response)
-            if transition is not None:
-                self.m_recent_transitions.append(transition)
-                self.m_recent_transitions = self.m_recent_transitions[
-                    -self.m_recent_transition_limit :
-                ]
-                response = response.model_copy(
-                    update={"recent_transitions": list(self.m_recent_transitions)}
-                )
-            self.m_last_state = response
+            response = self._publish_state(response=response, monotonic_ts=monotonic_ts)
+            if self.m_anchor_should_expire_after_publish:
+                self._expire_turn_anchor_after_publish()
             return response
 
-
-class _SurfaceStateReducer:
-    """Continuous readiness/completion reducer adapted for live tracking."""
-
-    def __init__(
+    def _reduction_from_current_snapshots(
         self,
         *,
-        completion_stability_seconds: float,
-        unknown_to_stalled_timeout_seconds: float,
-    ) -> None:
-        """Initialize the reducer."""
+        parsed_surface: HoumaoParsedSurface,
+    ) -> SurfaceReduction:
+        """Build the current surface reduction from the latest shared-kernel snapshots."""
 
-        self.m_completion_stability_seconds = completion_stability_seconds
-        self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
-        self.m_last_business_state: str | None = None
-        self.m_readiness_unknown_started_at: float | None = None
-        self.m_readiness_stalled = False
-        self.m_completion_unknown_started_at: float | None = None
-        self.m_completion_stalled = False
-        self.m_last_ready_projection_key: str | None = None
-        self.m_last_ready_projection_streak = 0
-        self.m_cycle_baseline_projection_key: str | None = None
-        self.m_cycle_frozen_projection_key: str | None = None
-        self.m_cycle_saw_working = False
-        self.m_cycle_saw_projection_change = False
-        self.m_candidate_started_at: float | None = None
-        self.m_candidate_signature: tuple[Any, ...] | None = None
+        readiness_snapshot = self.m_last_readiness_snapshot
+        if readiness_snapshot is None:
+            raise RuntimeError("Readiness snapshot is missing after parsed observation emission.")
 
-    def observe(self, observation: SurfaceObservation) -> SurfaceReduction:
-        """Consume one parsed-surface observation."""
+        if self.m_active_turn_anchor is not None and self.m_last_completion_snapshot is not None:
+            completion_snapshot = self.m_last_completion_snapshot
+            completion_state: CompletionState = completion_snapshot.status
+            completion_unknown_elapsed_seconds = completion_snapshot.unknown_elapsed_seconds
+            completion_candidate_elapsed_seconds = completion_snapshot.candidate_elapsed_seconds
+            projection_changed = completion_snapshot.projection_changed
+            if completion_state in {"completed", "blocked", "failed", "stalled"}:
+                self.m_anchor_should_expire_after_publish = True
+            return SurfaceReduction(
+                readiness_state=readiness_snapshot.status,
+                completion_state=completion_state,
+                projection_changed=projection_changed,
+                readiness_unknown_elapsed_seconds=readiness_snapshot.unknown_elapsed_seconds,
+                completion_unknown_elapsed_seconds=completion_unknown_elapsed_seconds,
+                completion_candidate_elapsed_seconds=completion_candidate_elapsed_seconds,
+            )
 
-        readiness_state, readiness_unknown_elapsed_seconds = self._reduce_readiness(observation)
-        (
-            completion_state,
-            completion_unknown_elapsed_seconds,
-            completion_candidate_elapsed_seconds,
-            projection_changed,
-        ) = self._reduce_completion(observation)
-        self.m_last_business_state = observation.business_state
+        background_completion_state = _background_completion_state(
+            parsed_surface=parsed_surface,
+            readiness_state=readiness_snapshot.status,
+        )
+        completion_unknown_elapsed_seconds = (
+            readiness_snapshot.unknown_elapsed_seconds
+            if background_completion_state in {"unknown", "stalled"}
+            else None
+        )
         return SurfaceReduction(
-            readiness_state=readiness_state,
-            completion_state=completion_state,
-            projection_changed=projection_changed,
-            readiness_unknown_elapsed_seconds=readiness_unknown_elapsed_seconds,
+            readiness_state=readiness_snapshot.status,
+            completion_state=background_completion_state,
+            projection_changed=False,
+            readiness_unknown_elapsed_seconds=readiness_snapshot.unknown_elapsed_seconds,
             completion_unknown_elapsed_seconds=completion_unknown_elapsed_seconds,
-            completion_candidate_elapsed_seconds=completion_candidate_elapsed_seconds,
+            completion_candidate_elapsed_seconds=None,
         )
 
-    def _reduce_readiness(
-        self,
-        observation: SurfaceObservation,
-    ) -> tuple[ReadinessState, float | None]:
-        """Update readiness state from one observation."""
+    def _current_lifecycle_authority(self) -> HoumaoLifecycleAuthorityMetadata:
+        """Return the current lifecycle-authority metadata for the tracker."""
 
-        classification = _classify_readiness(observation)
-        if classification == "unknown":
-            if self.m_readiness_unknown_started_at is None:
-                self.m_readiness_unknown_started_at = observation.monotonic_ts
-            elapsed = observation.monotonic_ts - self.m_readiness_unknown_started_at
-            if elapsed >= self.m_unknown_to_stalled_timeout_seconds:
-                self.m_readiness_stalled = True
-                return "stalled", elapsed
-            return "unknown", elapsed
-
-        self.m_readiness_unknown_started_at = None
-        self.m_readiness_stalled = False
-        return classification, None
-
-    def _reduce_completion(
-        self,
-        observation: SurfaceObservation,
-    ) -> tuple[CompletionState, float | None, float | None, bool]:
-        """Update completion state from one observation."""
-
-        classification = _classify_completion_surface(observation)
-        was_submit_ready = _is_submit_ready(observation)
-        previous_ready_projection_key = self.m_last_ready_projection_key
-        previous_ready_projection_streak = self.m_last_ready_projection_streak
-        if classification == "unknown":
-            if self.m_completion_unknown_started_at is None:
-                self.m_completion_unknown_started_at = observation.monotonic_ts
-            elapsed = observation.monotonic_ts - self.m_completion_unknown_started_at
-            if elapsed >= self.m_unknown_to_stalled_timeout_seconds:
-                self.m_completion_stalled = True
-                return "stalled", elapsed, None, self.m_cycle_saw_projection_change
-            return "unknown", elapsed, None, self.m_cycle_saw_projection_change
-
-        self.m_completion_unknown_started_at = None
-        self.m_completion_stalled = False
-
-        if classification in {"failed", "blocked"}:
-            self.m_candidate_started_at = None
-            self.m_candidate_signature = None
-            if was_submit_ready:
-                self.m_last_ready_projection_key = observation.normalized_projection_text
-            return classification, None, None, self.m_cycle_saw_projection_change
-
-        if observation.business_state == "working" and self.m_last_business_state != "working":
-            self.m_cycle_baseline_projection_key = (
-                self.m_last_ready_projection_key or observation.normalized_projection_text
+        if self.m_active_turn_anchor is not None:
+            return HoumaoLifecycleAuthorityMetadata(
+                completion_authority="turn_anchored",
+                turn_anchor_state="active",
+                completion_monitoring_armed=True,
+                detail="Server-owned turn anchor is active for completion monitoring.",
+                anchor_armed_at_utc=self.m_active_turn_anchor.armed_at_utc,
             )
-            self.m_cycle_frozen_projection_key = None
-            self.m_cycle_saw_working = False
-            self.m_cycle_saw_projection_change = False
-            self.m_candidate_started_at = None
-            self.m_candidate_signature = None
-
-        effective_projection_key = observation.normalized_projection_text
-        if observation.baseline_invalidated:
-            if self.m_cycle_frozen_projection_key is None:
-                self.m_cycle_frozen_projection_key = effective_projection_key
-            effective_projection_key = self.m_cycle_frozen_projection_key
-        elif self.m_cycle_frozen_projection_key is not None:
-            effective_projection_key = self.m_cycle_frozen_projection_key
-
-        if (
-            was_submit_ready
-            and self.m_cycle_baseline_projection_key is None
-            and previous_ready_projection_key is not None
-            and previous_ready_projection_streak >= 2
-            and effective_projection_key != previous_ready_projection_key
-        ):
-            self.m_cycle_baseline_projection_key = previous_ready_projection_key
-            self.m_cycle_saw_projection_change = True
-
-        if observation.business_state == "working":
-            if self.m_cycle_baseline_projection_key is None:
-                self.m_cycle_baseline_projection_key = (
-                    self.m_last_ready_projection_key or observation.normalized_projection_text
-                )
-            self.m_cycle_saw_working = True
-            self.m_candidate_started_at = None
-            self.m_candidate_signature = None
-            return "in_progress", None, None, self.m_cycle_saw_projection_change
-
-        if self.m_cycle_baseline_projection_key is not None:
-            self.m_cycle_saw_projection_change = self.m_cycle_saw_projection_change or (
-                effective_projection_key != self.m_cycle_baseline_projection_key
+        if self.m_lost_turn_anchor is not None:
+            return HoumaoLifecycleAuthorityMetadata(
+                completion_authority="unanchored_background",
+                turn_anchor_state="lost",
+                completion_monitoring_armed=False,
+                detail=(
+                    "Server-owned turn anchor was lost before completion monitoring reached a "
+                    "terminal outcome."
+                ),
+                anchor_lost_at_utc=self.m_lost_turn_anchor.lost_at_utc,
+                anchor_loss_reason=self.m_lost_turn_anchor.reason,
             )
+        return HoumaoLifecycleAuthorityMetadata(
+            completion_authority="unanchored_background",
+            turn_anchor_state="absent",
+            completion_monitoring_armed=False,
+            detail=(
+                "No active server-owned turn anchor is armed; background watch suppresses "
+                "authoritative candidate-complete and completed states."
+            ),
+        )
 
-        if was_submit_ready and (
-            self.m_cycle_saw_working or self.m_cycle_saw_projection_change
-        ):
-            signature = (
-                observation.availability,
-                observation.business_state,
-                observation.input_mode,
-                effective_projection_key,
-                self.m_cycle_saw_working,
-                self.m_cycle_saw_projection_change,
-            )
-            if signature != self.m_candidate_signature:
-                self.m_candidate_signature = signature
-                self.m_candidate_started_at = observation.monotonic_ts
-            assert self.m_candidate_started_at is not None
-            candidate_elapsed_seconds = observation.monotonic_ts - self.m_candidate_started_at
-            if candidate_elapsed_seconds >= self.m_completion_stability_seconds:
-                self._remember_submit_ready_projection(effective_projection_key)
-                return (
-                    "completed",
-                    None,
-                    candidate_elapsed_seconds,
-                    self.m_cycle_saw_projection_change,
-                )
-            self._remember_submit_ready_projection(effective_projection_key)
-            return (
-                "candidate_complete",
-                None,
-                candidate_elapsed_seconds,
-                self.m_cycle_saw_projection_change,
-            )
-        elif self.m_cycle_baseline_projection_key is None:
-            self.m_candidate_started_at = None
-            self.m_candidate_signature = None
-            if was_submit_ready:
-                self._remember_submit_ready_projection(effective_projection_key)
-            return "inactive", None, None, self.m_cycle_saw_projection_change
-        else:
-            self.m_candidate_started_at = None
-            self.m_candidate_signature = None
-            if was_submit_ready:
-                self._remember_submit_ready_projection(effective_projection_key)
-            return "waiting", None, None, self.m_cycle_saw_projection_change
+    def _advance_scheduler(self, *, monotonic_ts: float) -> None:
+        """Advance the internal scheduler to the provided monotonic timestamp."""
 
-    def _remember_submit_ready_projection(self, projection_key: str) -> None:
-        """Track consecutive ready observations for one projection surface."""
-
-        if self.m_last_ready_projection_key == projection_key:
-            self.m_last_ready_projection_streak += 1
+        previous_monotonic = self.m_last_scheduler_monotonic
+        if previous_monotonic is None:
+            self.m_last_scheduler_monotonic = monotonic_ts
             return
-        self.m_last_ready_projection_key = projection_key
-        self.m_last_ready_projection_streak = 1
+        elapsed_seconds = max(monotonic_ts - previous_monotonic, 0.0)
+        if elapsed_seconds > 0:
+            self.m_scheduler.advance_by(timedelta(seconds=elapsed_seconds))
+        self.m_last_scheduler_monotonic = monotonic_ts
+
+    def _drain_pipeline_snapshots(self) -> None:
+        """Drain queued shared-kernel snapshots into the latest in-memory state."""
+
+        while self.m_readiness_snapshot_queue:
+            self.m_last_readiness_snapshot = self.m_readiness_snapshot_queue.popleft()
+        while self.m_completion_snapshot_queue:
+            self.m_last_completion_snapshot = self.m_completion_snapshot_queue.popleft()
+
+    def _build_stability(
+        self,
+        *,
+        transport_state: TransportState,
+        process_state: ProcessState,
+        parse_status: ParseStatus,
+        probe_error: HoumaoErrorDetail | None,
+        parse_error: HoumaoErrorDetail | None,
+        parsed_surface: HoumaoParsedSurface | None,
+        operator_state: HoumaoOperatorState,
+        lifecycle_authority: HoumaoLifecycleAuthorityMetadata,
+        monotonic_ts: float,
+        observed_at_utc: str,
+    ) -> HoumaoStabilityMetadata:
+        """Build stability metadata for the current visible response signature."""
+
+        signature_payload = json.dumps(
+            _visible_signature_payload(
+                transport_state=transport_state,
+                process_state=process_state,
+                parse_status=parse_status,
+                probe_error=probe_error,
+                parse_error=parse_error,
+                parsed_surface=parsed_surface,
+                operator_state=operator_state,
+                lifecycle_authority=lifecycle_authority,
+            ),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if signature_payload != self.m_last_signature_payload:
+            self.m_last_signature_payload = signature_payload
+            self.m_stable_since_monotonic = monotonic_ts
+            self.m_stable_since_utc = observed_at_utc
+        assert self.m_stable_since_monotonic is not None
+        stable_for_seconds = max(monotonic_ts - self.m_stable_since_monotonic, 0.0)
+        return HoumaoStabilityMetadata(
+            signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
+            stable=stable_for_seconds >= self.m_stability_threshold_seconds,
+            stable_for_seconds=stable_for_seconds,
+            stable_since_utc=self.m_stable_since_utc,
+        )
+
+    def _publish_state(
+        self,
+        *,
+        response: HoumaoTerminalStateResponse,
+        monotonic_ts: float,
+    ) -> HoumaoTerminalStateResponse:
+        """Store one response as the current state and append visible transitions."""
+
+        del monotonic_ts
+        transition = _build_transition(previous=self.m_last_state, current=response)
+        if transition is not None:
+            self.m_recent_transitions.append(transition)
+            self.m_recent_transitions = self.m_recent_transitions[-self.m_recent_transition_limit :]
+            response = response.model_copy(
+                update={"recent_transitions": list(self.m_recent_transitions)}
+            )
+        self.m_last_state = response
+        return response
+
+    def _lose_turn_anchor(self, *, lost_at_utc: str, reason: str) -> None:
+        """Invalidate the current turn anchor and return to unanchored semantics."""
+
+        self._dispose_completion_subscription()
+        self.m_active_turn_anchor = None
+        self.m_last_completion_snapshot = None
+        self.m_anchor_should_expire_after_publish = False
+        self.m_lost_turn_anchor = _LostTurnAnchor(lost_at_utc=lost_at_utc, reason=reason)
+
+    def _expire_turn_anchor_after_publish(self) -> None:
+        """Expire the current turn anchor after publishing its terminal outcome."""
+
+        self._dispose_completion_subscription()
+        self.m_active_turn_anchor = None
+        self.m_last_completion_snapshot = None
+        self.m_anchor_should_expire_after_publish = False
+
+    def _dispose_completion_subscription(self) -> None:
+        """Dispose the active anchored completion subscription if present."""
+
+        if self.m_completion_subscription is not None:
+            self.m_completion_subscription.dispose()
+            self.m_completion_subscription = None
+        self.m_completion_snapshot_queue.clear()
 
 
 def _build_initial_state(
@@ -469,6 +540,15 @@ def _build_initial_state(
             completion_candidate_elapsed_seconds=None,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             completion_stability_seconds=completion_stability_seconds,
+        ),
+        lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
+            completion_authority="unanchored_background",
+            turn_anchor_state="absent",
+            completion_monitoring_armed=False,
+            detail=(
+                "No active server-owned turn anchor is armed; background watch suppresses "
+                "authoritative candidate-complete and completed states."
+            ),
         ),
         stability=HoumaoStabilityMetadata(
             signature="",
@@ -566,6 +646,7 @@ def _visible_signature_payload(
     parse_error: HoumaoErrorDetail | None,
     parsed_surface: HoumaoParsedSurface | None,
     operator_state: HoumaoOperatorState,
+    lifecycle_authority: HoumaoLifecycleAuthorityMetadata,
 ) -> dict[str, object]:
     """Return the operator-visible signature payload used for stability timing."""
 
@@ -585,6 +666,7 @@ def _visible_signature_payload(
             "detail": operator_state.detail,
             "projection_changed": operator_state.projection_changed,
         },
+        "lifecycle_authority": lifecycle_authority.model_dump(mode="json"),
     }
 
 
@@ -614,6 +696,21 @@ def _build_transition(
             "projection_changed",
             previous.operator_state.projection_changed,
             current.operator_state.projection_changed,
+        ),
+        (
+            "completion_authority",
+            previous.lifecycle_authority.completion_authority,
+            current.lifecycle_authority.completion_authority,
+        ),
+        (
+            "turn_anchor_state",
+            previous.lifecycle_authority.turn_anchor_state,
+            current.lifecycle_authority.turn_anchor_state,
+        ),
+        (
+            "completion_monitoring_armed",
+            previous.lifecycle_authority.completion_monitoring_armed,
+            current.lifecycle_authority.completion_monitoring_armed,
         ),
         ("probe_error", _error_message(previous.probe_error), _error_message(current.probe_error)),
         ("parse_error", _error_message(previous.parse_error), _error_message(current.parse_error)),
@@ -674,59 +771,96 @@ def _default_surface_reduction() -> SurfaceReduction:
     )
 
 
-def _classify_readiness(observation: SurfaceObservation) -> str:
-    """Return readiness classification for one parsed observation."""
+def _lifecycle_observation_from_parsed_surface(
+    *,
+    parsed_surface: HoumaoParsedSurface,
+    monotonic_ts: float,
+) -> LifecycleObservation:
+    """Convert one parsed surface into the shared lifecycle observation shape."""
 
-    if observation.availability in {"unsupported", "disconnected"}:
+    return LifecycleObservation(
+        availability=parsed_surface.availability,
+        business_state=parsed_surface.business_state,
+        input_mode=parsed_surface.input_mode,
+        ui_context=parsed_surface.ui_context,
+        normalized_projection_text=normalize_projection_text(
+            parsed_surface.normalized_projection_text
+        ),
+        baseline_invalidated=parsed_surface.baseline_invalidated,
+        operator_blocked_excerpt=parsed_surface.operator_blocked_excerpt,
+        monotonic_ts=monotonic_ts,
+        parser_family=parsed_surface.parser_family,
+    )
+
+
+def _background_completion_state(
+    *,
+    parsed_surface: HoumaoParsedSurface,
+    readiness_state: ReadinessState,
+) -> CompletionState:
+    """Return the conservative unanchored completion state for one parsed surface."""
+
+    if readiness_state == "failed":
         return "failed"
-    if _is_operator_blocked(observation):
+    if readiness_state == "blocked":
         return "blocked"
-    if _is_unknown_for_stall(observation):
+    if readiness_state == "unknown":
         return "unknown"
-    if _is_submit_ready(observation):
-        return "ready"
-    return "waiting"
-
-
-def _classify_completion_surface(observation: SurfaceObservation) -> str:
-    """Return base completion classification before stability timing."""
-
-    if observation.availability in {"unsupported", "disconnected"}:
-        return "failed"
-    if _is_operator_blocked(observation):
-        return "blocked"
-    if _is_unknown_for_stall(observation):
-        return "unknown"
-    if observation.business_state == "working":
+    if readiness_state == "stalled":
+        return "stalled"
+    if parsed_surface.business_state == "working":
         return "in_progress"
+    if _is_submit_ready(parsed_surface):
+        return "inactive"
     return "waiting"
 
 
-def _is_submit_ready(observation: SurfaceObservation) -> bool:
-    """Return whether the parsed surface is prompt-submit ready."""
+def _is_submit_ready(parsed_surface: HoumaoParsedSurface) -> bool:
+    """Return whether one parsed surface is submit-ready."""
 
     return (
-        observation.availability == "supported"
-        and observation.business_state == "idle"
-        and observation.input_mode == "freeform"
+        parsed_surface.availability == "supported"
+        and parsed_surface.business_state == "idle"
+        and parsed_surface.input_mode == "freeform"
     )
 
 
-def _is_operator_blocked(observation: SurfaceObservation) -> bool:
-    """Return whether the parsed surface requires operator attention."""
+def _anchor_loss_reason(
+    *,
+    transport_state: TransportState,
+    process_state: ProcessState,
+    parse_status: ParseStatus,
+    probe_error: HoumaoErrorDetail | None,
+    parse_error: HoumaoErrorDetail | None,
+) -> str:
+    """Return a human-readable turn-anchor loss reason for the current cycle."""
 
-    return (
-        observation.availability == "supported"
-        and observation.business_state == "awaiting_operator"
-    )
+    if probe_error is not None:
+        return probe_error.message
+    if parse_error is not None:
+        return parse_error.message
+    if transport_state == "tmux_missing":
+        return "Tracked tmux session disappeared before the anchored cycle reached a terminal outcome."
+    if transport_state == "probe_error":
+        return "A tmux probe error invalidated the anchored cycle before terminal outcome."
+    if process_state == "tui_down":
+        return "Supported TUI process exited before the anchored cycle reached a terminal outcome."
+    if process_state == "probe_error":
+        return "A process probe error invalidated the anchored cycle before terminal outcome."
+    if parse_status == "parse_error":
+        return "Parsed surface became unavailable before the anchored cycle reached a terminal outcome."
+    return "Anchored completion monitoring lost its authoritative parsed surface before terminal outcome."
 
 
-def _is_unknown_for_stall(observation: SurfaceObservation) -> bool:
-    """Return whether the parsed surface is effectively unknown."""
+def _message_excerpt(message: str) -> str | None:
+    """Return a short message excerpt for anchor diagnostics."""
 
-    return observation.availability == "unknown" or (
-        observation.availability == "supported" and observation.business_state == "unknown"
-    )
+    collapsed = " ".join(message.split())
+    if not collapsed:
+        return None
+    if len(collapsed) <= 120:
+        return collapsed
+    return f"{collapsed[:119]}…"
 
 
 def _error_message(detail: HoumaoErrorDetail | None) -> str | None:

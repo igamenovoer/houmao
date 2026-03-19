@@ -6,6 +6,8 @@ P1 — False completion on transient idle; stall false positives; projector chan
 ## Status
 Fixed on `devel` via `openspec/changes/rx-shadow-turn-monitor`.
 
+**Note (2026-03-19):** The same Rx timing model now also backs `houmao-server` tracked-state reduction via `openspec/changes/fix-houmao-server-rx-lifecycle-tracking`, which adds explicit lifecycle authority so background watch no longer claims submit-anchored completion without a server-owned turn anchor.
+
 **Note (2026-03-18):** Issue-007's fix adds `saw_post_submit_activity()` to `_TurnMonitor` — one more mutable field in the hand-rolled state machine. The future Rx rewrite needs to incorporate "run mailbox observer on every post-submit emission" as a stream operator. This slightly expands the migration scope but further justifies the Rx approach.
 
 ## Review Reference

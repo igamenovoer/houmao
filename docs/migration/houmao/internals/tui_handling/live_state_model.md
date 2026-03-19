@@ -30,6 +30,8 @@ The top-level groups are:
 - raw evidence: `probe_snapshot`, `probe_error`, `parse_error`
 - parsed TUI surface: `parsed_surface`
 - operator-facing reduction: `operator_state`
+- lifecycle timing metadata: `lifecycle_timing`
+- lifecycle authority metadata: `lifecycle_authority`
 - stability metadata: `stability`
 - bounded recent history: `recent_transitions`
 
@@ -46,6 +48,8 @@ The initial values are:
 - `parse_status="transport_unavailable"`
 - `operator_state.status="unknown"`
 - `operator_state.completion_state="inactive"`
+- `lifecycle_authority.completion_authority="unanchored_background"`
+- `lifecycle_authority.turn_anchor_state="absent"`
 - empty `recent_transitions`
 
 That state means “the tracker exists, but no successful live observation has been recorded yet.”
@@ -76,7 +80,7 @@ The operator-facing state also carries:
 
 ## Readiness And Completion Reduction
 
-The reducer is `_SurfaceStateReducer`, which consumes parsed observations over time instead of deciding readiness or completion from one snapshot in isolation.
+`LiveSessionTracker` now feeds parsed observations into the shared ReactiveX lifecycle kernel in [`../../../../../src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../../../src/houmao/lifecycle/rx_lifecycle_kernel.py). The server still owns the tmux/process polling loop imperatively, but timer-driven lifecycle semantics are now shared with the CAO runtime instead of being implemented by a server-local mutable reducer.
 
 Current readiness rules are:
 
@@ -91,11 +95,32 @@ Current completion rules are:
 - `failed`, `blocked`, or `unknown` when the parsed surface is already in one of those conditions
 - `in_progress` while the surface reports `business_state="working"`
 - `waiting` when the cycle has not yet satisfied completion conditions
-- `candidate_complete` when the surface looks submit-ready after real work or projection change, but has not stayed stable long enough yet
-- `completed` once that candidate state remains stable for at least `stability_threshold_seconds`
-- `inactive` when no parsed activity baseline has been established yet
+- `candidate_complete` when an active server-owned turn anchor exists, the surface looks submit-ready after real work or projection change, and the anchored cycle has not stayed stable long enough yet
+- `completed` once that anchored candidate state remains stable for at least `completion_stability_seconds`
+- `inactive` when no anchored completion cycle is active or when background watch is intentionally conservative
+
+The important contract split is:
+
+- continuous background watch is always authoritative for `ready`, `waiting`, `blocked`, `failed`, `unknown`, `stalled`, and the generic visible-state `stability` metadata
+- turn-anchored completion is authoritative for `candidate_complete` and `completed` only after the server itself accepts a supported input submission through `POST /terminals/{terminal_id}/input`
+- unanchored background watch does not infer `candidate_complete` or `completed` from ready-surface churn alone
+
+Anchors are scoped to one completion cycle. A successful server-owned submission arms one anchor, blocked/failed/stalled/completed outcomes expire it for later observations, and broken observation ownership paths mark it as `lost` instead of pretending the cycle completed.
 
 `projection_changed` tracks whether the normalized dialog projection changed relative to the working-cycle baseline. This keeps “the model actually advanced” separate from “the surface is merely idle again.”
+
+## Lifecycle Authority
+
+`lifecycle_authority` tells consumers whether the current completion semantics are background-best-effort or submit-anchored.
+
+The structured fields are:
+
+- `completion_authority`: `turn_anchored` or `unanchored_background`
+- `turn_anchor_state`: `active`, `absent`, or `lost`
+- `completion_monitoring_armed`: whether the server currently has an active completion anchor
+- anchor timestamps and loss reason fields for diagnostics
+
+The default for passive tracked sessions is `unanchored_background` plus `absent`. Consumers such as the Houmao dual-shadow monitor should read these fields directly instead of recreating completion timers locally.
 
 ## Stability Metadata
 

@@ -66,6 +66,14 @@ def _processing_surface() -> HoumaoParsedSurface:
     )
 
 
+def _arm_anchor(tracker: LiveSessionTracker, *, at: float, observed_at_utc: str) -> None:
+    tracker.note_prompt_submission(
+        message="Explain the failure.",
+        observed_at_utc=observed_at_utc,
+        monotonic_ts=at,
+    )
+
+
 def test_official_parser_adapter_parses_direct_tmux_fixture() -> None:
     fixture_path = (
         Path(__file__).resolve().parents[2]
@@ -160,6 +168,8 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
     assert first.stability.stable is False
     assert first.lifecycle_timing.completion_stability_seconds == 1.0
     assert first.lifecycle_timing.unknown_to_stalled_timeout_seconds == 30.0
+    assert first.lifecycle_authority.completion_authority == "unanchored_background"
+    assert first.lifecycle_authority.turn_anchor_state == "absent"
     assert second.operator_state.status == "processing"
     assert third.operator_state.status == "tui_down"
     assert fourth.stability.stable is True
@@ -222,6 +232,7 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
+    _arm_anchor(tracker, at=10.2, observed_at_utc="2026-03-19T10:00:00+00:00")
     tracker.record_cycle(
         identity=_identity(),
         observed_at_utc="2026-03-19T10:00:01+00:00",
@@ -251,6 +262,8 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
     assert candidate.operator_state.completion_state == "candidate_complete"
     assert candidate.operator_state.status == "ready"
     assert candidate.lifecycle_timing.completion_candidate_elapsed_seconds == 0.0
+    assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
+    assert candidate.lifecycle_authority.turn_anchor_state == "active"
 
     completed = tracker.record_cycle(
         identity=_identity(),
@@ -267,6 +280,7 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
 
     assert completed.operator_state.completion_state == "completed"
     assert completed.lifecycle_timing.completion_candidate_elapsed_seconds == pytest.approx(1.6)
+    assert completed.lifecycle_authority.completion_authority == "turn_anchored"
 
 
 def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> None:
@@ -308,6 +322,7 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("prompt ready"),
     )
+    _arm_anchor(tracker, at=10.25, observed_at_utc="2026-03-19T10:00:00+00:00")
 
     candidate = tracker.record_cycle(
         identity=_identity(),
@@ -326,6 +341,7 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
     assert candidate.operator_state.completion_state == "candidate_complete"
     assert candidate.operator_state.projection_changed is True
     assert candidate.lifecycle_timing.completion_candidate_elapsed_seconds == 0.0
+    assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
 
     completed = tracker.record_cycle(
         identity=_identity(),
@@ -343,6 +359,7 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
     assert completed.operator_state.status == "completed"
     assert completed.operator_state.completion_state == "completed"
     assert completed.lifecycle_timing.completion_candidate_elapsed_seconds == pytest.approx(1.7)
+    assert completed.lifecycle_authority.turn_anchor_state == "active"
 
 
 def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
@@ -402,6 +419,7 @@ def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
     assert second.operator_state.projection_changed is False
     assert third.operator_state.completion_state == "inactive"
     assert third.operator_state.status == "ready"
+    assert third.lifecycle_authority.turn_anchor_state == "absent"
 
 
 def test_live_session_tracker_promotes_continuous_unknown_to_stalled() -> None:
@@ -466,3 +484,114 @@ def test_live_session_tracker_promotes_continuous_unknown_to_stalled() -> None:
     assert stalled.operator_state.completion_state == "stalled"
     assert stalled.lifecycle_timing.readiness_unknown_elapsed_seconds == 6.0
     assert stalled.lifecycle_timing.completion_unknown_elapsed_seconds == 6.0
+
+
+def test_live_session_tracker_note_prompt_submission_arms_turn_anchor() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=3,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+
+    state = tracker.note_prompt_submission(
+        message="Explain the failure.",
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+    )
+
+    assert state.lifecycle_authority.completion_authority == "turn_anchored"
+    assert state.lifecycle_authority.turn_anchor_state == "active"
+    assert state.lifecycle_authority.completion_monitoring_armed is True
+
+
+def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    _arm_anchor(tracker, at=10.1, observed_at_utc="2026-03-19T10:00:00+00:00")
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+    )
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.4,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    completed = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:03+00:00",
+        monotonic_ts=13.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    next_cycle = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:04+00:00",
+        monotonic_ts=14.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+
+    assert completed.operator_state.completion_state == "completed"
+    assert completed.lifecycle_authority.completion_authority == "turn_anchored"
+    assert next_cycle.operator_state.completion_state == "inactive"
+    assert next_cycle.lifecycle_authority.completion_authority == "unanchored_background"
+    assert next_cycle.lifecycle_authority.turn_anchor_state == "absent"

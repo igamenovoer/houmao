@@ -360,6 +360,71 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert parser_adapter.m_parse_calls == [("codex", 17)]
 
 
+def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monotonic_values = iter([10.0, 10.1, 11.0, 11.4])
+    monkeypatch.setattr("houmao.server.service.time.monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    parser_adapter = _FakeParserAdapter(
+        [
+            OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None),
+            OfficialParseResult(parsed_surface=_processing_surface(), parse_error=None),
+            OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None),
+        ]
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text="visible tmux text"),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=["codex"],
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+
+    first = service.refresh_terminal_state("abcd1234")
+    service.note_prompt_submission(terminal_id="abcd1234", message="Explain the failure.")
+    armed = service.terminal_state("abcd1234")
+    processing = service.refresh_terminal_state("abcd1234")
+    candidate = service.refresh_terminal_state("abcd1234")
+
+    assert first.lifecycle_authority.turn_anchor_state == "absent"
+    assert armed.lifecycle_authority.completion_authority == "turn_anchored"
+    assert armed.lifecycle_authority.turn_anchor_state == "active"
+    assert processing.operator_state.completion_state == "in_progress"
+    assert candidate.operator_state.completion_state == "candidate_complete"
+    assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
+
+
 def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
