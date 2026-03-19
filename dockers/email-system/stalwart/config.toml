@@ -1,0 +1,36 @@
+server.hostname = "%{env:STALWART_HOSTNAME}%"
+lookup.default.domain = "%{env:MAIL_DOMAIN}%"
+
+server.listener.http.bind = ["[::]:%{env:STALWART_HTTP_PORT}%"]
+server.listener.http.protocol = "http"
+
+server.listener.imap.bind = ["[::]:%{env:STALWART_IMAP_PORT}%"]
+server.listener.imap.protocol = "imap"
+
+server.listener.submission.bind = ["[::]:%{env:STALWART_SUBMISSION_PORT}%"]
+server.listener.submission.protocol = "smtp"
+
+session.auth.mechanisms = "[plain, login, oauthbearer, xoauth2]"
+
+imap.auth.allow-plain-text = true
+
+storage.data = "rocksdb"
+storage.fts = "rocksdb"
+storage.blob = "rocksdb"
+storage.lookup = "rocksdb"
+storage.directory = "internal"
+
+store.rocksdb.type = "rocksdb"
+store.rocksdb.path = "/var/lib/stalwart/data"
+store.rocksdb.compression = "lz4"
+
+directory.internal.type = "internal"
+directory.internal.store = "rocksdb"
+
+tracer.stdout.type = "stdout"
+tracer.stdout.level = "info"
+tracer.stdout.ansi = false
+tracer.stdout.enable = true
+
+authentication.fallback-admin.user = "%{env:STALWART_BOOTSTRAP_USER}%"
+authentication.fallback-admin.secret = "%{env:STALWART_BOOTSTRAP_PASSWORD}%"

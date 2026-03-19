@@ -1,0 +1,111 @@
+name: ${STACK_PROJECT_NAME}
+
+services:
+  stalwart:
+    image: ${STALWART_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    entrypoint:
+      - /usr/local/bin/stalwart
+      - --config
+      - /etc/stalwart/config.toml
+    environment:
+      MAIL_DOMAIN: ${MAIL_DOMAIN}
+      STALWART_ADMIN_PASSWORD: ${STALWART_ADMIN_PASSWORD}
+      STALWART_ADMIN_USER: ${STALWART_ADMIN_USER}
+      STALWART_BOOTSTRAP_PASSWORD: ${STALWART_BOOTSTRAP_PASSWORD}
+      STALWART_BOOTSTRAP_USER: ${STALWART_BOOTSTRAP_USER}
+      STALWART_HOSTNAME: ${STALWART_HOSTNAME}
+      STALWART_HTTP_PORT: ${STALWART_HTTP_PORT}
+      STALWART_IMAP_PORT: ${STALWART_IMAP_PORT}
+      STALWART_SUBMISSION_PORT: ${STALWART_SUBMISSION_PORT}
+    ports:
+      - "${STALWART_HTTP_PORT}:${STALWART_HTTP_PORT}"
+    volumes:
+      - ./.data/stalwart:/var/lib/stalwart
+      - ./stalwart/config.toml:/etc/stalwart/config.toml:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - stalwart-cli -u http://127.0.0.1:${STALWART_HTTP_PORT} -c ${STALWART_BOOTSTRAP_USER}:${STALWART_BOOTSTRAP_PASSWORD} server healthcheck >/dev/null 2>&1 || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    command:
+      - postgres
+      - -p
+      - "${POSTGRES_PORT}"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -p ${POSTGRES_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  cypht:
+    image: ${CYPHT_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      stalwart:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - /usr/local/bin/houmao-cypht-entrypoint.sh
+    environment:
+      ATTACHMENT_DIR: ${CYPHT_ATTACHMENT_DIR}
+      AUTH_TYPE: ${CYPHT_AUTH_TYPE}
+      AUTO_CREATE_PROFILE: ${CYPHT_AUTO_CREATE_PROFILE}
+      CYPHT_HTTP_PORT: ${CYPHT_HTTP_PORT}
+      DB_CONNECTION_TYPE: host
+      DB_DRIVER: ${CYPHT_DB_DRIVER}
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB}
+      DB_PASS: ${POSTGRES_PASSWORD}
+      DB_PORT: ${POSTGRES_PORT}
+      DB_USER: ${POSTGRES_USER}
+      DEFAULT_EMAIL_DOMAIN: ${MAIL_DOMAIN}
+      DEFAULT_SMTP_NAME: ${CYPHT_DEFAULT_SMTP_NAME}
+      DEFAULT_SMTP_NO_AUTH: ${CYPHT_DEFAULT_SMTP_NO_AUTH}
+      DEFAULT_SMTP_PORT: ${STALWART_SUBMISSION_PORT}
+      DEFAULT_SMTP_SERVER: stalwart
+      DEFAULT_SMTP_TLS: ${CYPHT_DEFAULT_SMTP_TLS}
+      DISABLE_ORIGIN_CHECK: ${CYPHT_DISABLE_ORIGIN_CHECK}
+      IMAP_AUTH_NAME: ${CYPHT_IMAP_AUTH_NAME}
+      IMAP_AUTH_PORT: ${STALWART_IMAP_PORT}
+      IMAP_AUTH_SERVER: stalwart
+      IMAP_AUTH_TLS: ${CYPHT_IMAP_AUTH_TLS}
+      SESSION_TYPE: ${CYPHT_SESSION_TYPE}
+      SINGLE_SERVER_MODE: ${CYPHT_SINGLE_SERVER_MODE}
+      USER_CONFIG_TYPE: ${CYPHT_USER_CONFIG_TYPE}
+      USER_SETTINGS_DIR: ${CYPHT_USER_SETTINGS_DIR}
+    ports:
+      - "${CYPHT_HTTP_PORT}:${CYPHT_HTTP_PORT}"
+    volumes:
+      - ./.data/cypht/attachments:/var/lib/hm3/attachments
+      - ./.data/cypht/users:/var/lib/hm3/users
+      - ./cypht/entrypoint.sh:/usr/local/bin/houmao-cypht-entrypoint.sh:ro
+      - ./cypht/nginx.conf.template:/etc/cypht/nginx.conf.template:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl --fail --silent http://127.0.0.1:${CYPHT_HTTP_PORT}/ >/dev/null || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
