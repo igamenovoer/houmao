@@ -25,6 +25,7 @@ The fix must therefore address both problems together:
 - Reuse one shared lifecycle timing kernel across CAO runtime and `houmao-server` instead of maintaining two drifting timing implementations.
 - Keep the existing server worker/polling ownership imperative and synchronous where it already works well.
 - Make the public tracked-state contract explicit about lifecycle authority so clients can interpret completion states correctly.
+- Keep this as one change while sequencing implementation so the safety fix lands before the broader kernel convergence.
 
 **Non-Goals:**
 - Not rewriting tmux probing, parser selection, or worker supervision into Rx.
@@ -35,20 +36,21 @@ The fix must therefore address both problems together:
 
 ## Decisions
 
-### 1. Use a shared Rx lifecycle kernel, not a second server-local state machine
+### 1. Use a shared Rx lifecycle kernel under a neutral lifecycle module, not a second server-local state machine
 
-**Choice:** Extract a shared lifecycle timing layer that accepts ordered parsed observations plus optional anchor events, and let both CAO runtime and `houmao-server` adapt into it.
+**Choice:** Extract a shared lifecycle timing layer at `src/houmao/lifecycle/rx_lifecycle_kernel.py` that accepts ordered parsed observations plus optional anchor events, and let both CAO runtime and `houmao-server` adapt into it.
 
 That shared layer should own:
+- observation typing and scheduler-aware timing primitives,
 - readiness classification timing,
 - unknown-to-stalled timing,
 - completion candidate debounce,
-- anchor-aware post-submit evidence accumulation,
+- anchor-scoped post-submit evidence accumulation,
 - deterministic scheduler injection for tests.
 
-CAO runtime and `houmao-server` should remain separate adapters around that kernel because their ownership boundaries differ.
+CAO runtime and `houmao-server` should remain separate adapters around that kernel because their ownership boundaries differ. The full terminal-result wrapper from [cao_rx_monitor.py](/data1/huangzhe/code/houmao/src/houmao/agents/realm_controller/backends/cao_rx_monitor.py) is not itself the shared kernel. CAO keeps a single-shot terminal-result adapter around the shared lifecycle primitives, while `houmao-server` keeps a continuous tracked-state adapter around those same primitives.
 
-**Rationale:** The CAO history already established that time-based lifecycle semantics are where imperative reducers drift. Rewriting only the server reducer into a different hand-rolled form would repeat the same mistake. A shared kernel keeps one timing model for both the submit-owned runtime path and the always-on server path.
+**Rationale:** The CAO history already established that time-based lifecycle semantics are where imperative reducers drift. Rewriting only the server reducer into a different hand-rolled form would repeat the same mistake. A shared kernel keeps one timing model for both the submit-owned runtime path and the always-on server path without forcing the server to pretend it has the same single-shot API shape as the CAO runtime.
 
 **Alternatives considered:**
 - Reuse [cao_rx_monitor.py](/data1/huangzhe/code/houmao/src/houmao/agents/realm_controller/backends/cao_rx_monitor.py) directly inside `houmao-server`.
@@ -71,11 +73,15 @@ CAO runtime and `houmao-server` should remain separate adapters around that kern
 - **turn-anchored lifecycle**
   - active only when `houmao-server` owns or has been given a concrete turn anchor
   - reuses CAO-style post-submit evidence and stability-window semantics
+  - scopes completion evidence to one anchored cycle at a time
   - may emit `candidate_complete` and `completed`
+  - expires the current anchor on terminal outcome and returns authority to `unanchored_background`
 
 Without an active anchor, background watch SHALL NOT manufacture authoritative `candidate_complete` or `completed` from ready-surface churn alone.
 
-**Rationale:** This is the minimum design that respects both the continuous-watch contract and the original CAO Rx rationale. A background watcher can know a session is working or stalled. It cannot always know which ready-to-ready change belongs to which prompt unless it owns the submit boundary.
+For the server adapter, the cleanest v1 shape is an anchor-scoped completion subscription or equivalent anchor-scoped reducer state per anchor event. Each anchor starts a fresh completion cycle, and terminal outcomes such as `completed`, `blocked`, `failed`, or `stalled` end that cycle and clear its accumulated evidence.
+
+**Rationale:** This is the minimum design that respects both the continuous-watch contract and the original CAO Rx rationale. A background watcher can know a session is working or stalled. It cannot always know which ready-to-ready change belongs to which prompt unless it owns the submit boundary. Anchor-scoped completion also matches the CAO runtime's single-shot completion semantics and prevents stale post-submit evidence from leaking into later turns.
 
 **Alternatives considered:**
 - Treat continuous watch as equivalent to turn monitoring and keep inferring completion heuristically.
@@ -85,11 +91,11 @@ Without an active anchor, background watch SHALL NOT manufacture authoritative `
 
 ### 3. Turn anchors come only from server-owned control events or explicit future anchor sources
 
-**Choice:** `houmao-server` should arm turn-anchored completion only from explicit anchor inputs it owns, starting with Houmao-owned terminal input submission through the public server surface. Future anchor sources can be added later, but passive tmux observation alone must not fabricate them.
+**Choice:** `houmao-server` should arm turn-anchored completion only from explicit anchor inputs it owns. In v1, that means successful terminal input submission through `POST /terminals/{terminal_id}/input` on the public server surface, wired through the existing `note_prompt_submission()` service hook. Future anchor sources can be added later through an internal `arm_turn_anchor()`-style seam, but passive tmux observation alone must not fabricate them.
 
 When a server-owned anchor exists, the server records anchor metadata in memory and feeds the anchored observation stream into the shared Rx kernel.
 
-When no anchor exists, the session remains in continuous-watch mode only.
+When no anchor exists, the session remains in continuous-watch mode only. If an anchor is invalidated before terminal outcome because the tracked session disappears or the anchor can no longer be matched safely, the server reports that as lost/invalidated metadata rather than pretending the cycle completed.
 
 **Rationale:** This keeps the meaning of completion honest. A server that saw the submit event can talk about post-submit activity and completion. A server that only saw periodic snapshots cannot.
 
@@ -106,9 +112,10 @@ When no anchor exists, the session remains in continuous-watch mode only.
 At minimum the server should expose:
 - whether completion is currently `turn_anchored` or `unanchored_background`,
 - whether an anchor is active, absent, or lost/invalidated,
+- default no-anchor authority values of `unanchored_background` plus `absent`,
 - enough timing metadata for clients to interpret stalled and candidate-complete semantics correctly.
 
-The server should keep the existing terminal-keyed route family, but the route payload must tell clients when completion semantics are conservative background state rather than submit-owned turn state.
+The server should keep the existing terminal-keyed route family, but the route payload must tell clients when completion semantics are conservative background state rather than submit-owned turn state. The same tracked-state payload revision that suppresses unanchored `candidate_complete` and `completed` must expose this lifecycle authority metadata so the behavior change is explicit to consumers.
 
 **Rationale:** Without this, clients will continue to over-trust `completed` or assume that `inactive` means "nothing happened" when the real answer is "no anchor existed."
 
@@ -145,27 +152,38 @@ The server should not turn the whole watch plane into an Rx-controlled scheduler
 - Rely on integration tests with real polling delays.
   Rejected because they are too coarse and too slow to protect subtle temporal semantics.
 
+### 7. Keep one change, but execute it in safety-first order
+
+**Choice:** Do not split this into a separate "safety fix now, architecture later" change. Instead, execute the work in one change with explicit ordering:
+
+1. lifecycle authority metadata and unanchored completion suppression,
+2. server-owned anchor management through the existing input hook,
+3. shared Rx kernel and server adapter migration,
+4. deterministic parity tests, then
+5. CAO runtime re-point as the final convergence step.
+
+**Rationale:** The immediate false-completion bug is real and should land early, but the repository has already diagnosed timing drift between CAO and server as the underlying design problem. Keeping the work in one change avoids institutionalizing two timing systems while still letting the highest-value safety fix land first in implementation order.
+
+**Alternatives considered:**
+- Split into two changes.
+  Rejected because it would formalize a temporary dual-timing architecture immediately after diagnosing that architecture as the bug source.
+
 ## Risks / Trade-offs
 
 - [Shared Rx kernel introduces cross-module refactor pressure] → Keep the kernel narrowly scoped to timing semantics and let runtime/server remain separate adapters.
 - [Consumers may dislike more conservative completion behavior in unanchored sessions] → Expose lifecycle authority explicitly so clients can distinguish "not anchored" from "no activity."
 - [Anchor capture from server-owned input surfaces will not cover manually typed tmux prompts] → Accept that limitation explicitly rather than hiding it behind false precision.
 - [Overlap with `add-shadow-watch-state-stability-window`] → Treat that change as consumer smoothing and dashboard behavior only; it must not become a second authority for lifecycle timing.
-- [Temporary runtime/server dual-path complexity during migration] → Keep CAO runtime behavior stable, move the server first, and converge both adapters onto the shared kernel behind tests.
+- [Temporary runtime/server dual-path complexity during migration] → Keep CAO runtime behavior stable, land the server-side safety fix first, and re-point CAO only after shared-kernel parity tests pass.
 
 ## Migration Plan
 
-1. Define the shared Rx lifecycle contract and its observation/anchor inputs.
-2. Port server lifecycle timing from the imperative reducer to the shared Rx kernel while preserving existing worker ownership.
-3. Add lifecycle authority metadata to server state models, routes, and client surfaces.
-4. Capture server-owned turn anchors from supported control paths and wire anchored completion through the new kernel.
-5. Re-point or refactor CAO runtime to consume the shared kernel without changing its external behavior.
-6. Update the demo and overlapping stability work to consume the server contract rather than recreating timing semantics locally.
+1. Add lifecycle authority metadata to server state models, routes, and client surfaces with explicit default `unanchored_background` and `absent` values.
+2. Suppress unanchored `candidate_complete` and `completed` in the server-tracked state contract in the same payload revision that introduces lifecycle authority metadata.
+3. Wire server-owned turn anchoring through the existing `POST /terminals/{terminal_id}/input` → `note_prompt_submission()` seam, including anchor-active, anchor-absent, anchor-lost, and anchor-expiry rules.
+4. Define the shared Rx lifecycle contract and shared kernel under `src/houmao/lifecycle/`, including anchor-scoped evidence accumulation.
+5. Port server lifecycle timing from the imperative reducer to the shared Rx kernel while preserving existing worker ownership and continuous-watch readiness authority.
+6. Add deterministic parity tests for the shared kernel and server adapter, then re-point CAO runtime to the shared kernel without changing its external behavior.
+7. Update the demo, overlapping stability work, and docs to consume the server contract rather than recreating timing semantics locally, including a forward reference from issue-002.
 
 Rollback is straightforward: revert the server to the prior reducer and remove the new lifecycle authority fields. No persistent data migration is required because tracked state remains in memory.
-
-## Open Questions
-
-- Should the shared lifecycle kernel live under a new neutral subtree or remain adjacent to the existing CAO runtime backend helpers with a more neutral module name?
-- Do we want a separate explicit "anchor lost" public state, or is structured metadata alongside existing lifecycle enums sufficient?
-- Should server-owned turn anchoring start only from `POST /terminals/{terminal_id}/input`, or do we also want an explicit internal hook for future non-HTTP control paths in the same change?

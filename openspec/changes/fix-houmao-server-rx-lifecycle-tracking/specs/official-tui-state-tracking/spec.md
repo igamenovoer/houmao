@@ -49,7 +49,11 @@ At minimum, that server-owned lifecycle view SHALL include:
 
 The system SHALL treat readiness, blocked, failed, unknown, stalled, and visible-state stability as authoritative continuous-watch outputs.
 
+The same tracked-state payload revision that suppresses unanchored `candidate_complete` and `completed` SHALL expose lifecycle authority metadata explaining whether completion is `turn_anchored` or `unanchored_background`.
+
 The system SHALL emit `candidate_complete` and `completed` only when completion monitoring is armed from a server-owned turn anchor. When no turn anchor exists, continuous background watch SHALL NOT infer authoritative completion from ready-surface churn alone.
+
+Completion evidence and completion debounce timing SHALL be scoped to one anchored cycle at a time. When turn-anchored monitoring reaches a terminal outcome for that cycle, the system SHALL expire the anchor for completion authority purposes and return later observations to `unanchored_background` semantics until a new server-owned anchor is armed.
 
 The system SHALL treat those lifecycle states, timings, and authority signals as part of the authoritative server-owned tracked state rather than as a demo-local interpretation layer.
 
@@ -70,6 +74,12 @@ The system SHALL treat those lifecycle states, timings, and authority signals as
 - **AND WHEN** the parsed surface remains a completion candidate but has not yet satisfied `completion_stability_seconds`
 - **THEN** the server-owned tracked state reports completion as `candidate_complete`
 - **AND THEN** the tracked-state payload exposes the elapsed candidate-complete timing for that anchored cycle
+
+#### Scenario: Terminal anchored outcome expires completion authority for the next cycle
+- **WHEN** a tracked session has armed completion monitoring from an active server-owned turn anchor
+- **AND WHEN** that anchored cycle reaches a terminal outcome such as `completed`, `blocked`, `failed`, or `stalled`
+- **THEN** the server-owned tracked state expires the current turn anchor for completion authority purposes
+- **AND THEN** later tracked-state payloads return to `unanchored_background` semantics until a new server-owned anchor is armed
 
 #### Scenario: State queries can consume lifecycle timing and authority without local recomputation
 - **WHEN** a caller queries the authoritative tracked state for a live supported session
