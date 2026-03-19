@@ -25,7 +25,7 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionEvent,
 )
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
@@ -40,7 +40,7 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
             principal=MailboxPrincipal(principal_id=principal_id, address=address),
         )
 
-    mailbox = MailboxResolvedConfig(
+    mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
         address=address,
@@ -347,7 +347,7 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
                                 "operation": "send",
                                 "transport": "filesystem",
                                 "principal_id": "AGENTSYS-research",
-                                "message_id": "msg-20260312T050000Z-abc",
+                                "message_ref": "filesystem:msg-20260312T050000Z-abc",
                             }
                         )
                         + "\nAGENTSYS_MAIL_RESULT_END"

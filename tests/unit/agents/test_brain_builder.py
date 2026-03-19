@@ -13,7 +13,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
-from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 
 
 def _write(path: Path, content: str) -> None:
@@ -218,7 +218,7 @@ mailbox:
 
     recipe = load_brain_recipe(recipe_path)
 
-    assert recipe.mailbox == MailboxDeclarativeConfig(
+    assert recipe.mailbox == FilesystemMailboxDeclarativeConfig(
         transport="filesystem",
         principal_id="AGENTSYS-research",
         address="AGENTSYS-research@agents.localhost",
@@ -260,7 +260,7 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=MailboxDeclarativeConfig(
+            mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
                 address="AGENTSYS-research@agents.localhost",

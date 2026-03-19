@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.agent_identity import normalize_agent_identity_name
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
@@ -120,10 +119,10 @@ class RegistryGatewayV1(_StrictRegistryModel):
         return self
 
 
-class RegistryMailboxV1(_StrictRegistryModel):
-    """Mailbox identity metadata for one live published session."""
+class RegistryMailboxFilesystemV1(_StrictRegistryModel):
+    """Filesystem mailbox identity metadata for one live published session."""
 
-    transport: MailboxTransport
+    transport: Literal["filesystem"]
     principal_id: str
     address: str
     filesystem_root: str
@@ -137,6 +136,40 @@ class RegistryMailboxV1(_StrictRegistryModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class RegistryMailboxStalwartV1(_StrictRegistryModel):
+    """Stalwart mailbox identity metadata for one live published session."""
+
+    transport: Literal["stalwart"]
+    principal_id: str
+    address: str
+    bindings_version: str
+    jmap_url: str
+    management_url: str
+    login_identity: str
+    credential_ref: str
+
+    @field_validator(
+        "principal_id",
+        "address",
+        "bindings_version",
+        "jmap_url",
+        "management_url",
+        "login_identity",
+        "credential_ref",
+    )
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+RegistryMailboxV1 = Annotated[
+    RegistryMailboxFilesystemV1 | RegistryMailboxStalwartV1,
+    Field(discriminator="transport"),
+]
 
 
 class LiveAgentRegistryRecordV2(_StrictRegistryModel):
@@ -245,3 +278,6 @@ def _parse_iso8601_timestamp(value: str, *, field_name: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{field_name} must be a timezone-aware ISO-8601 timestamp")
     return parsed
+
+
+LiveAgentRegistryRecordV2.model_rebuild()

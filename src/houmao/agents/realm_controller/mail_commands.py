@@ -16,10 +16,12 @@ from typing import Any, Callable, Literal
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    MAILBOX_FILESYSTEM_SKILL_REFERENCE,
-    MAILBOX_TRANSPORT_FILESYSTEM,
+    mailbox_skill_reference,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+)
 
 from .backends.shadow_parser_core import DialogProjection
 from .errors import BackendExecutionError, MailboxCommandError, MailboxResultParseError
@@ -64,6 +66,7 @@ def prepare_mail_prompt(
     launch_plan: LaunchPlan,
     operation: MailOperation,
     args: dict[str, Any],
+    prefer_live_gateway: bool = False,
 ) -> MailPromptRequest:
     """Build one runtime-owned mailbox prompt for a live session."""
 
@@ -82,21 +85,12 @@ def prepare_mail_prompt(
             "sentinel_end": MAIL_RESULT_END_SENTINEL,
         },
     }
-
-    prompt = "\n".join(
+    prompt_lines = _mail_prompt_instruction_lines(
+        mailbox=mailbox,
+        prefer_live_gateway=prefer_live_gateway,
+    )
+    prompt_lines.extend(
         [
-            (
-                "Use the runtime-owned filesystem mailbox skill "
-                f"`{MAILBOX_FILESYSTEM_SKILL_REFERENCE}` for this mailbox operation."
-            ),
-            "Inspect the shared mailbox `rules/` directory first before touching shared mailbox state.",
-            "Inspect `rules/scripts/requirements.txt` before invoking a shared Python mailbox helper.",
-            (
-                "Use shared scripts from `rules/scripts/` for any mailbox step that touches "
-                "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
-            ),
-            "Follow the mailbox env bindings for the current session. Do not guess paths or sender identity.",
-            ("Only mark messages read after the message has actually been processed successfully."),
             (
                 "Return exactly one JSON result between "
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."
@@ -108,6 +102,7 @@ def prepare_mail_prompt(
             "```",
         ]
     )
+    prompt = "\n".join(prompt_lines)
     return MailPromptRequest(
         request_id=request_id,
         operation=operation,
@@ -121,31 +116,71 @@ def ensure_mailbox_command_ready(launch_plan: LaunchPlan) -> MailboxResolvedConf
     mailbox = launch_plan.mailbox
     if mailbox is None:
         raise MailboxCommandError("Target session is not mailbox-enabled.")
-    if mailbox.transport != MAILBOX_TRANSPORT_FILESYSTEM:
-        raise MailboxCommandError(
-            f"Mailbox commands only support transport={MAILBOX_TRANSPORT_FILESYSTEM!r} in v1."
+    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        paths = resolve_filesystem_mailbox_paths(mailbox.filesystem_root)
+        required_files = (
+            paths.protocol_version_file,
+            paths.sqlite_path,
+            paths.rules_dir / "README.md",
+            paths.rules_scripts_dir / "requirements.txt",
+            paths.rules_scripts_dir / "deliver_message.py",
+            paths.rules_scripts_dir / "register_mailbox.py",
+            paths.rules_scripts_dir / "deregister_mailbox.py",
+            paths.rules_scripts_dir / "insert_standard_headers.py",
+            paths.rules_scripts_dir / "update_mailbox_state.py",
+            paths.rules_scripts_dir / "repair_index.py",
         )
+        missing = [path for path in required_files if not path.is_file()]
+        if missing:
+            missing_labels = ", ".join(str(path.relative_to(paths.root)) for path in missing)
+            raise MailboxCommandError(
+                f"Filesystem mailbox bootstrap assets are missing or incomplete: {missing_labels}"
+            )
+        return mailbox
 
-    paths = resolve_filesystem_mailbox_paths(mailbox.filesystem_root)
-    required_files = (
-        paths.protocol_version_file,
-        paths.sqlite_path,
-        paths.rules_dir / "README.md",
-        paths.rules_scripts_dir / "requirements.txt",
-        paths.rules_scripts_dir / "deliver_message.py",
-        paths.rules_scripts_dir / "register_mailbox.py",
-        paths.rules_scripts_dir / "deregister_mailbox.py",
-        paths.rules_scripts_dir / "insert_standard_headers.py",
-        paths.rules_scripts_dir / "update_mailbox_state.py",
-        paths.rules_scripts_dir / "repair_index.py",
-    )
-    missing = [path for path in required_files if not path.is_file()]
-    if missing:
-        missing_labels = ", ".join(str(path.relative_to(paths.root)) for path in missing)
+    credential_file = mailbox.credential_file
+    if credential_file is None or not credential_file.is_file():
         raise MailboxCommandError(
-            f"Filesystem mailbox bootstrap assets are missing or incomplete: {missing_labels}"
+            "Stalwart mailbox bootstrap is incomplete: the session credential file is missing."
         )
     return mailbox
+
+
+def _mail_prompt_instruction_lines(
+    *,
+    mailbox: MailboxResolvedConfig,
+    prefer_live_gateway: bool,
+) -> list[str]:
+    skill_reference = mailbox_skill_reference(mailbox)
+    lines = [
+        f"Use the runtime-owned mailbox skill `{skill_reference}` for this mailbox operation.",
+        "Follow the mailbox env bindings for the current session. Do not guess sender identity or mailbox endpoints.",
+        "Only mark messages read after the message has actually been processed successfully.",
+    ]
+    if prefer_live_gateway:
+        lines.append(
+            "Prefer the live gateway mailbox facade exposed through the attached gateway env vars and `/v1/mail/*` routes for shared mailbox operations."
+        )
+
+    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        lines.extend(
+            [
+                "Inspect the shared mailbox `rules/` directory first before touching shared mailbox state.",
+                "Inspect `rules/scripts/requirements.txt` before invoking a shared Python mailbox helper.",
+                (
+                    "Use shared scripts from `rules/scripts/` for any mailbox step that touches "
+                    "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
+                ),
+            ]
+        )
+    elif not prefer_live_gateway:
+        lines.extend(
+            [
+                "Use the runtime-managed email mailbox env vars for direct mailbox access when no live gateway mailbox facade is available.",
+                "Do not use filesystem mailbox `rules/`, SQLite paths, lock files, or projection assumptions for this transport.",
+            ]
+        )
+    return lines
 
 
 def parse_mail_result(

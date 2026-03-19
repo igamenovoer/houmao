@@ -52,7 +52,7 @@ Current v1 scope:
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach is implemented first for `backend=cao_rest`.
 - Headless backends can still be gateway-capable at the attach-contract layer even though the live adapter boundary is narrower today.
-- `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mail notifier support.
+- `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
 
 ## Live Gateway Bindings
 
@@ -78,6 +78,10 @@ Current v1 routes:
 - `GET /health`
 - `GET /v1/status`
 - `POST /v1/requests`
+- `GET /v1/mail/status`
+- `POST /v1/mail/check`
+- `POST /v1/mail/send`
+- `POST /v1/mail/reply`
 - `GET /v1/mail-notifier`
 - `PUT /v1/mail-notifier`
 - `DELETE /v1/mail-notifier`
@@ -193,6 +197,116 @@ Observable current error semantics:
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
 
+### `GET /v1/mail/status`
+
+This route reports whether the attached session exposes the shared gateway mailbox facade and which transport-backed binding it is using.
+
+Representative response:
+
+```json
+{
+  "schema_version": 1,
+  "transport": "filesystem",
+  "principal_id": "AGENTSYS-gpu",
+  "address": "AGENTSYS-gpu@agents.localhost",
+  "bindings_version": "2026-03-19T08:00:00.000001Z"
+}
+```
+
+### `POST /v1/mail/check`
+
+This is the shared mailbox read path for both filesystem-backed and `stalwart`-backed sessions.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "unread_only": true,
+  "limit": 10
+}
+```
+
+Representative response:
+
+```json
+{
+  "schema_version": 1,
+  "transport": "filesystem",
+  "principal_id": "AGENTSYS-gpu",
+  "address": "AGENTSYS-gpu@agents.localhost",
+  "unread_only": true,
+  "message_count": 1,
+  "unread_count": 1,
+  "messages": [
+    {
+      "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+      "thread_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+      "created_at_utc": "2026-03-19T08:00:00Z",
+      "subject": "Gateway unread reminder",
+      "unread": true,
+      "body_preview": "Hello from the shared mailbox surface",
+      "sender": {
+        "address": "AGENTSYS-sender@agents.localhost"
+      },
+      "to": [
+        {
+          "address": "AGENTSYS-gpu@agents.localhost"
+        }
+      ],
+      "cc": [],
+      "reply_to": [],
+      "attachments": []
+    }
+  ]
+}
+```
+
+Shared mailbox reference rules:
+
+- `message_ref` is the stable reply target for the shared gateway mailbox surface.
+- `thread_ref` is optional and opaque for callers.
+- Callers must not derive behavior from transport-specific prefixes embedded in those refs.
+
+### `POST /v1/mail/send`
+
+This route sends a new shared mailbox message without consuming the terminal-mutation slot used by `POST /v1/requests`.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "to": ["AGENTSYS-orchestrator@agents.localhost"],
+  "cc": [],
+  "subject": "Investigate parser drift",
+  "body_content": "Hello from the gateway facade",
+  "attachments": []
+}
+```
+
+### `POST /v1/mail/reply`
+
+This route replies to an existing shared mailbox message using the opaque `message_ref` returned by `check`.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+  "body_content": "Reply with next steps",
+  "attachments": []
+}
+```
+
+Shared mailbox route availability rules:
+
+- `/v1/mail/*` is available only when the live gateway listener is bound to `127.0.0.1`.
+- A gateway listener bound to `0.0.0.0` rejects shared mailbox routes with HTTP `503`.
+- Sessions without a usable manifest-backed mailbox binding reject shared mailbox routes with HTTP `422`.
+- Transport adapter failures return HTTP `502`.
+
 ### `GET|PUT|DELETE /v1/mail-notifier`
 
 These routes manage the gateway-owned unread-mail reminder loop for mailbox-enabled sessions.
@@ -227,7 +341,8 @@ Support contract rules:
 - The gateway loads the runtime-owned session manifest referenced by `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest to determine whether notifier behavior is supported.
 - Enabling the notifier fails explicitly when the attach contract has no readable manifest or when the manifest launch plan has no mailbox binding.
-- Unread-mail truth comes from mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
 
 Detailed inspection note:
 

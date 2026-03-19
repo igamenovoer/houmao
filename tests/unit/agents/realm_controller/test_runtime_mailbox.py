@@ -19,7 +19,7 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox.filesystem import MailboxBootstrapError
 
@@ -247,7 +247,7 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             role_package=role,
             backend="claude_headless",
             working_directory=tmp_path,
-            mailbox=MailboxResolvedConfig(
+            mailbox=FilesystemMailboxResolvedConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
                 address="AGENTSYS-research@agents.localhost",
@@ -336,7 +336,7 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         match="no active mailbox registration exists",
     ):
         mailbox_env_bindings(
-            MailboxResolvedConfig(
+            FilesystemMailboxResolvedConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-mailbox-receiver",
                 address="AGENTSYS-mailbox-receiver@agents.localhost",
@@ -349,7 +349,7 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
 def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_path: Path) -> None:
     old_root = tmp_path / "mail-old"
     new_root = tmp_path / "mail-new"
-    old_mailbox = MailboxResolvedConfig(
+    old_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id="AGENTSYS-research",
         address="AGENTSYS-research@agents.localhost",

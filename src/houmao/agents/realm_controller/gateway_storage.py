@@ -125,8 +125,8 @@ GatewayNotifierAuditOutcome = Literal[
 class GatewayNotifierAuditUnreadMessage:
     """Compact unread-message summary stored in notifier audit history."""
 
-    message_id: str
-    thread_id: str
+    message_ref: str
+    thread_ref: str | None
     created_at_utc: str
     subject: str
 
@@ -912,8 +912,8 @@ def _serialize_gateway_notifier_unread_summary(
 
     payload = [
         {
-            "message_id": item.message_id,
-            "thread_id": item.thread_id,
+            "message_ref": item.message_ref,
+            "thread_ref": item.thread_ref,
             "created_at_utc": item.created_at_utc,
             "subject": item.subject,
         }
@@ -934,8 +934,8 @@ def _row_to_gateway_notifier_audit_record(
         )
     unread_summary = tuple(
         GatewayNotifierAuditUnreadMessage(
-            message_id=_require_json_string(item, key="message_id"),
-            thread_id=_require_json_string(item, key="thread_id"),
+            message_ref=_require_json_string(item, key="message_ref"),
+            thread_ref=_optional_json_string(item, key="thread_ref"),
             created_at_utc=_require_json_string(item, key="created_at_utc"),
             subject=_require_json_string(item, key="subject"),
         )
@@ -1051,6 +1051,23 @@ def _require_json_string(value: object, *, key: str) -> str:
     if not isinstance(field_value, str):
         raise SessionManifestError(
             f"Gateway notifier audit unread_summary_json is missing string field {key!r}."
+        )
+    return field_value
+
+
+def _optional_json_string(value: object, *, key: str) -> str | None:
+    """Return one optional JSON object string field."""
+
+    if not isinstance(value, dict):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must contain JSON objects."
+        )
+    field_value = value.get(key)
+    if field_value is None:
+        return None
+    if not isinstance(field_value, str):
+        raise SessionManifestError(
+            f"Gateway notifier audit unread_summary_json has non-string field {key!r}."
         )
     return field_value
 
