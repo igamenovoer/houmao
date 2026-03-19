@@ -2,6 +2,17 @@
 
 This page shows the shortest safe path to a working mailbox-enabled session and the three runtime-owned mailbox commands you will use first: `mail check`, `mail send`, and `mail reply`.
 
+## Choose Your Transport
+
+Choose the transport before you copy a startup example.
+
+| Transport | Use this when | Start here |
+| --- | --- | --- |
+| `filesystem` | you want the fully Houmao-owned mailbox transport with local rules, SQLite state, and projections | stay on this page |
+| `stalwart` | you want Stalwart to be the mailbox authority for delivery, unread state, and reply ancestry | [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md) |
+
+The rest of this page keeps the shortest inline filesystem example. The `mail check`, `mail send`, and `mail reply` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
+
 ## Mental Model
 
 You do not wire mailbox behavior into prompts by hand. The runtime does three jobs for you:
@@ -10,9 +21,9 @@ You do not wire mailbox behavior into prompts by hand. The runtime does three jo
 2. Bootstrap or validate the selected transport binding and register or provision the session address.
 3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding.
 
-After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill, and the session returns one structured result payload.
+After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill for the selected transport, and the session returns one structured result payload.
 
-## Enable Mailbox Support
+## Filesystem Quickstart
 
 You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the implemented transports are `filesystem` and `stalwart`.
 
@@ -127,7 +138,11 @@ Important details:
 
 ## What The Runtime Expects From The Session
 
-Every `mail` command uses the projected mailbox skill `.system/mailbox/email-via-filesystem` and expects exactly one sentinel-delimited JSON result payload back from the session.
+Every `mail` command uses the runtime-owned projected mailbox skill for the selected transport and expects exactly one sentinel-delimited JSON result payload back from the session.
+
+- Filesystem sessions use `.system/mailbox/email-via-filesystem`.
+- Stalwart sessions use `.system/mailbox/email-via-stalwart`.
+- When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 
 ```mermaid
 sequenceDiagram
@@ -135,17 +150,18 @@ sequenceDiagram
     participant CLI as mail send<br/>or reply
     participant RT as Runtime
     participant Ses as Session
-    participant FS as Mailbox<br/>rules/scripts
+    participant MB as Gateway facade<br/>or transport
     Op->>CLI: run mail command
     CLI->>RT: resume session<br/>and build request
     RT->>Ses: prompt with mailbox skill<br/>plus JSON contract
-    Ses->>FS: inspect rules and use<br/>managed helpers if needed
+    Ses->>MB: use live gateway facade<br/>or direct transport path
     Ses-->>RT: one sentinel-delimited<br/>JSON result
     RT-->>CLI: parsed JSON stdout
 ```
 
 ## When To Leave Quickstart
 
+- If you are using the `stalwart` transport, continue with [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md).
 - If you need the exact message schema, go to [Canonical Model](contracts/canonical-model.md).
 - If you need the exact env vars or request/result envelopes, go to [Runtime Contracts](contracts/runtime-contracts.md).
 - If you need stepwise operational guidance, go to [Common Workflows](operations/common-workflows.md).
@@ -157,3 +173,4 @@ sequenceDiagram
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md)

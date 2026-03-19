@@ -1,6 +1,6 @@
 # Agents And Runtime
 
-This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, and workspace-local job directories.
+This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and workspace-local job directories.
 
 ## Runtime Root Overview
 
@@ -14,10 +14,15 @@ Representative default layout:
       ...
   manifests/
     <home-id>.yaml
+  mailbox-credentials/
+    stalwart/
+      <credential-ref>.json
   sessions/
     <backend>/
       <session-id>/
         manifest.json
+        mailbox-secrets/
+          <credential-ref>.json
         gateway/
           attach.json
           protocol-version.txt
@@ -50,6 +55,15 @@ Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime 
 
 Important boundary: Houmao owns the generated-home path family and the build manifest contract, but some generated-home contents are projections of tool configs, projected skills, or projected credential wrappers rather than a stable file-by-file contract.
 
+## Runtime-Owned Mailbox Credential Artifacts
+
+Mailbox filesystem layout remains documented under [Mailbox Reference](../mailbox/index.md). This page only covers the runtime-owned credential artifacts that exist around a Stalwart-backed session.
+
+| Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
+| --- | --- | --- | --- | --- | --- |
+| `<runtime-root>/mailbox-credentials/stalwart/` | Stalwart mailbox bootstrap | runtime mailbox provisioning helpers | Durable runtime-owned secret store for Stalwart credential material keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Do not delete while sessions may resume against those bindings |
+| `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | Stalwart mailbox bootstrap | runtime mailbox provisioning helpers when credentials are first created or intentionally rotated | Durable secret-bearing record containing the mailbox password and login metadata for one Stalwart binding | Stable path, secret-bearing payload | Treat as durable secret material rather than scratch |
+
 ## Session-Time Artifacts
 
 Runtime-managed sessions are centered on one runtime-owned session root:
@@ -62,6 +76,8 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/sessions/<backend>/<session-id>/` | start/resume runtime flow | runtime and gateway helpers | Durable directory envelope for one runtime-managed session | Stable path family | Do not delete while the session is live |
 | `<session-root>/manifest.json` | `persist_manifest()` | runtime manifest persistence | Durable session record used for resume and control | Stable operator-facing artifact | Treat as durable state |
+| `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it |
+| `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material |
 | `<session-root>/gateway/` | gateway-capability publication | runtime and gateway lifecycle helpers | Session-owned gateway subtree | Stable path family for gateway-capable sessions | Subtree contents have mixed durability |
 | `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Stable attachability contract for the same logical session | Stable operator-facing artifact | Durable |
 | `<session-root>/gateway/protocol-version.txt` | gateway-capability publication | runtime refresh if protocol changes | Local version marker for gateway artifacts | Stable path, simple payload | Durable |
@@ -72,6 +88,18 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Append-only running log for lifecycle, queue execution, and notifier polling | Stable operator-facing artifact | Log-style cleanup only after the session is stopped |
 | `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process/binding snapshot | Current implementation detail | Ephemeral |
 | `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process | Current implementation detail | Ephemeral |
+
+## Mailbox Binding And Secret Lifecycle
+
+For Stalwart-backed sessions, the runtime deliberately splits mailbox capability from secret material.
+
+| Artifact | What it contains | Secret-free | Why it exists |
+| --- | --- | --- | --- |
+| `manifest.json` mailbox binding | `transport`, identity fields, endpoints, `login_identity`, `credential_ref`, `bindings_version` | yes | durable session record for resume, direct mailbox flows, and gateway adapter construction |
+| `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | durable password plus login metadata for one Stalwart mailbox binding | no | runtime-owned secret store reused across session starts and resumes |
+| `<session-root>/mailbox-secrets/<credential-ref>.json` | session-local materialized copy of the credential record | no | direct or gateway-backed mailbox access for one live session |
+
+The manifest is the operator-facing durable record. The secret-bearing files are runtime-owned implementation artifacts that matter for handling and cleanup, but their JSON contents are not the primary compatibility contract.
 
 ## Workspace-Local Job Directories
 
@@ -90,6 +118,8 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 ## Contract Boundaries
 
 - `manifest.json` is the durable runtime record for resume and control.
+- `manifest.json` stays secret-free for Stalwart-backed sessions and persists `credential_ref` instead of inline mailbox secrets.
+- Runtime-owned Stalwart credential material lives under the runtime root, while one session-local materialized copy lives under the session root when needed.
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
 - The workspace-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
 
@@ -97,6 +127,7 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 
 - [Runtime-Managed Agents Reference](../agents/index.md): Behavior, targeting, and recovery semantics layered on top of these files.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol and queue behavior for the nested `gateway/` subtree.
+- [Stalwart Setup And First Session](../mailbox/operations/stalwart-setup-and-first-session.md): Operator-facing mailbox path for the `stalwart` transport.
 - [Operator Preparation](operator-preparation.md): Writable-path, ignore-rule, and cleanup guidance for these path families.
 
 ## Source References
@@ -104,4 +135,6 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 - [`src/houmao/agents/brain_builder.py`](../../../src/houmao/agents/brain_builder.py)
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../src/houmao/agents/realm_controller/manifest.py)
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
+- [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../src/houmao/agents/realm_controller/gateway_storage.py)
+- [`src/houmao/mailbox/stalwart.py`](../../../src/houmao/mailbox/stalwart.py)
