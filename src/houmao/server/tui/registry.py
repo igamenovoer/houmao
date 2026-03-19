@@ -44,7 +44,7 @@ class KnownSessionRecord:
             tool=self.tool,
             tmux_session_name=self.tmux_session_name,
             tmux_window_name=self.tmux_window_name,
-            terminal_aliases=(self.terminal_id,),
+            terminal_aliases=[self.terminal_id],
             agent_name=self.agent_name,
             agent_id=self.agent_id,
             manifest_path=str(self.manifest_path) if self.manifest_path is not None else None,

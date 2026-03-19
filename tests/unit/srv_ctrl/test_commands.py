@@ -66,7 +66,7 @@ class _FakeHoumaoClient:
 
     def get_session(self, session_name: str) -> dict[str, object]:
         self.m_get_session_calls.append(session_name)
-        return {"terminals": [{"id": "abcd1234"}]}
+        return {"terminals": [{"id": "abcd1234", "tmux_window": "developer-1"}]}
 
     def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> None:
         self.m_register_requests.append(request_model)
@@ -238,6 +238,7 @@ def test_launch_forwards_args_and_registers_houmao_artifacts(
             "api_base_url": "http://127.0.0.1:9999",
             "session_name": "cao-gpu",
             "terminal_id": "abcd1234",
+            "tmux_window_name": "developer-1",
             "provider": "codex",
             "agent_profile": "gpu-kernel-coder",
             "working_directory": tmp_path.resolve(),
@@ -254,6 +255,7 @@ def test_launch_forwards_args_and_registers_houmao_artifacts(
             agent_name="AGENTSYS-gpu",
             agent_id="agent-1234",
             tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
         )
     ]
     assert "Houmao launch registration complete: session=cao-gpu terminal=abcd1234" in result.output

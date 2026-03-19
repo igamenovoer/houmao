@@ -94,14 +94,14 @@ def _parsed_surface_from_snapshot(
         dialog_text=projection.dialog_text,
         dialog_head=projection.head,
         dialog_tail=projection.tail,
-        anomaly_codes=tuple(
+        anomaly_codes=[
             anomaly.code
             for anomaly in (
                 *assessment.parser_metadata.anomalies,
                 *assessment.anomalies,
                 *projection.anomalies,
             )
-        ),
+        ],
         baseline_invalidated=assessment.parser_metadata.baseline_invalidated,
         operator_blocked_excerpt=assessment.operator_blocked_excerpt,
     )

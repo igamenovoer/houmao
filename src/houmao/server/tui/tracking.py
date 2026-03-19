@@ -10,7 +10,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from houmao.server.models import (
+    CompletionState,
     HoumaoErrorDetail,
+    HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
@@ -22,6 +24,7 @@ from houmao.server.models import (
     OperatorStatus,
     ParseStatus,
     ProcessState,
+    ReadinessState,
     TransportState,
 )
 
@@ -36,10 +39,12 @@ def utc_now_iso() -> str:
 class SurfaceReduction:
     """Derived readiness/completion state for one parsed surface cycle."""
 
-    readiness_state: str
-    completion_state: str
+    readiness_state: ReadinessState
+    completion_state: CompletionState
     projection_changed: bool
-    stable_elapsed_seconds: float | None
+    readiness_unknown_elapsed_seconds: float | None
+    completion_unknown_elapsed_seconds: float | None
+    completion_candidate_elapsed_seconds: float | None
 
 
 @dataclass(frozen=True)
@@ -66,20 +71,31 @@ class LiveSessionTracker:
         identity: HoumaoTrackedSessionIdentity,
         recent_transition_limit: int,
         stability_threshold_seconds: float,
+        completion_stability_seconds: float,
+        unknown_to_stalled_timeout_seconds: float,
     ) -> None:
         """Initialize the live session tracker."""
 
         self.m_identity = identity
         self.m_recent_transition_limit = recent_transition_limit
         self.m_stability_threshold_seconds = stability_threshold_seconds
+        self.m_completion_stability_seconds = completion_stability_seconds
+        self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
         self.m_lock = threading.RLock()
-        self.m_surface_reducer = _SurfaceStateReducer(stability_seconds=stability_threshold_seconds)
+        self.m_surface_reducer = _SurfaceStateReducer(
+            completion_stability_seconds=completion_stability_seconds,
+            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+        )
         self.m_recent_transitions: list[HoumaoRecentTransition] = []
         self.m_last_signature_payload: str | None = None
         self.m_stable_since_monotonic: float | None = None
         self.m_stable_since_utc: str = utc_now_iso()
         self.m_baseline_pos: int | None = None
-        self.m_last_state = _build_initial_state(identity=identity)
+        self.m_last_state = _build_initial_state(
+            identity=identity,
+            completion_stability_seconds=completion_stability_seconds,
+            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+        )
 
     @property
     def baseline_pos(self) -> int | None:
@@ -116,11 +132,7 @@ class LiveSessionTracker:
         """Return bounded recent in-memory transitions."""
 
         with self.m_lock:
-            entries = (
-                tuple(self.m_recent_transitions[-limit:])
-                if limit > 0
-                else tuple(self.m_recent_transitions)
-            )
+            entries = list(self.m_recent_transitions[-limit:] if limit > 0 else self.m_recent_transitions)
             return HoumaoTerminalHistoryResponse(
                 terminal_id=self.m_last_state.terminal_id,
                 tracked_session_id=self.m_identity.tracked_session_id,
@@ -208,8 +220,15 @@ class LiveSessionTracker:
                 parse_error=parse_error,
                 parsed_surface=parsed_surface,
                 operator_state=operator_state,
+                lifecycle_timing=HoumaoLifecycleTimingMetadata(
+                    readiness_unknown_elapsed_seconds=reduction.readiness_unknown_elapsed_seconds,
+                    completion_unknown_elapsed_seconds=reduction.completion_unknown_elapsed_seconds,
+                    completion_candidate_elapsed_seconds=reduction.completion_candidate_elapsed_seconds,
+                    unknown_to_stalled_timeout_seconds=self.m_unknown_to_stalled_timeout_seconds,
+                    completion_stability_seconds=self.m_completion_stability_seconds,
+                ),
                 stability=stability,
-                recent_transitions=tuple(self.m_recent_transitions),
+                recent_transitions=list(self.m_recent_transitions),
             )
             transition = _build_transition(previous=self.m_last_state, current=response)
             if transition is not None:
@@ -218,7 +237,7 @@ class LiveSessionTracker:
                     -self.m_recent_transition_limit :
                 ]
                 response = response.model_copy(
-                    update={"recent_transitions": tuple(self.m_recent_transitions)}
+                    update={"recent_transitions": list(self.m_recent_transitions)}
                 )
             self.m_last_state = response
             return response
@@ -227,11 +246,21 @@ class LiveSessionTracker:
 class _SurfaceStateReducer:
     """Continuous readiness/completion reducer adapted for live tracking."""
 
-    def __init__(self, *, stability_seconds: float) -> None:
+    def __init__(
+        self,
+        *,
+        completion_stability_seconds: float,
+        unknown_to_stalled_timeout_seconds: float,
+    ) -> None:
         """Initialize the reducer."""
 
-        self.m_stability_seconds = stability_seconds
-        self.m_previous_observation: SurfaceObservation | None = None
+        self.m_completion_stability_seconds = completion_stability_seconds
+        self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
+        self.m_last_business_state: str | None = None
+        self.m_readiness_unknown_started_at: float | None = None
+        self.m_readiness_stalled = False
+        self.m_completion_unknown_started_at: float | None = None
+        self.m_completion_stalled = False
         self.m_last_ready_projection_key: str | None = None
         self.m_cycle_baseline_projection_key: str | None = None
         self.m_cycle_frozen_projection_key: str | None = None
@@ -243,31 +272,71 @@ class _SurfaceStateReducer:
     def observe(self, observation: SurfaceObservation) -> SurfaceReduction:
         """Consume one parsed-surface observation."""
 
-        readiness_state = _classify_readiness(observation)
-        completion_state = _classify_completion_surface(observation)
-        stable_elapsed_seconds: float | None = None
-        projection_changed = self.m_cycle_saw_projection_change
+        readiness_state, readiness_unknown_elapsed_seconds = self._reduce_readiness(observation)
+        (
+            completion_state,
+            completion_unknown_elapsed_seconds,
+            completion_candidate_elapsed_seconds,
+            projection_changed,
+        ) = self._reduce_completion(observation)
+        self.m_last_business_state = observation.business_state
+        return SurfaceReduction(
+            readiness_state=readiness_state,
+            completion_state=completion_state,
+            projection_changed=projection_changed,
+            readiness_unknown_elapsed_seconds=readiness_unknown_elapsed_seconds,
+            completion_unknown_elapsed_seconds=completion_unknown_elapsed_seconds,
+            completion_candidate_elapsed_seconds=completion_candidate_elapsed_seconds,
+        )
+
+    def _reduce_readiness(
+        self,
+        observation: SurfaceObservation,
+    ) -> tuple[ReadinessState, float | None]:
+        """Update readiness state from one observation."""
+
+        classification = _classify_readiness(observation)
+        if classification == "unknown":
+            if self.m_readiness_unknown_started_at is None:
+                self.m_readiness_unknown_started_at = observation.monotonic_ts
+            elapsed = observation.monotonic_ts - self.m_readiness_unknown_started_at
+            if elapsed >= self.m_unknown_to_stalled_timeout_seconds:
+                self.m_readiness_stalled = True
+                return "stalled", elapsed
+            return "unknown", elapsed
+
+        self.m_readiness_unknown_started_at = None
+        self.m_readiness_stalled = False
+        return classification, None
+
+    def _reduce_completion(
+        self,
+        observation: SurfaceObservation,
+    ) -> tuple[CompletionState, float | None, float | None, bool]:
+        """Update completion state from one observation."""
+
+        classification = _classify_completion_surface(observation)
+        if classification == "unknown":
+            if self.m_completion_unknown_started_at is None:
+                self.m_completion_unknown_started_at = observation.monotonic_ts
+            elapsed = observation.monotonic_ts - self.m_completion_unknown_started_at
+            if elapsed >= self.m_unknown_to_stalled_timeout_seconds:
+                self.m_completion_stalled = True
+                return "stalled", elapsed, None, self.m_cycle_saw_projection_change
+            return "unknown", elapsed, None, self.m_cycle_saw_projection_change
+
+        self.m_completion_unknown_started_at = None
+        self.m_completion_stalled = False
 
         if _is_submit_ready(observation):
             self.m_last_ready_projection_key = observation.normalized_projection_text
 
-        if completion_state in {"failed", "blocked", "unknown"}:
+        if classification in {"failed", "blocked"}:
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
-            self.m_previous_observation = observation
-            return SurfaceReduction(
-                readiness_state=readiness_state,
-                completion_state=completion_state,
-                projection_changed=projection_changed,
-                stable_elapsed_seconds=None,
-            )
+            return classification, None, None, self.m_cycle_saw_projection_change
 
-        previous_business_state = (
-            self.m_previous_observation.business_state
-            if self.m_previous_observation is not None
-            else None
-        )
-        if observation.business_state == "working" and previous_business_state != "working":
+        if observation.business_state == "working" and self.m_last_business_state != "working":
             self.m_cycle_baseline_projection_key = (
                 self.m_last_ready_projection_key or observation.normalized_projection_text
             )
@@ -291,13 +360,9 @@ class _SurfaceStateReducer:
                     self.m_last_ready_projection_key or observation.normalized_projection_text
                 )
             self.m_cycle_saw_working = True
-            self.m_previous_observation = observation
-            return SurfaceReduction(
-                readiness_state=readiness_state,
-                completion_state="in_progress",
-                projection_changed=self.m_cycle_saw_projection_change,
-                stable_elapsed_seconds=None,
-            )
+            self.m_candidate_started_at = None
+            self.m_candidate_signature = None
+            return "in_progress", None, None, self.m_cycle_saw_projection_change
 
         if self.m_cycle_baseline_projection_key is not None:
             self.m_cycle_saw_projection_change = self.m_cycle_saw_projection_change or (
@@ -319,30 +384,36 @@ class _SurfaceStateReducer:
                 self.m_candidate_signature = signature
                 self.m_candidate_started_at = observation.monotonic_ts
             assert self.m_candidate_started_at is not None
-            stable_elapsed_seconds = observation.monotonic_ts - self.m_candidate_started_at
-            if stable_elapsed_seconds >= self.m_stability_seconds:
-                completion_state = "completed"
-            else:
-                completion_state = "candidate_complete"
+            candidate_elapsed_seconds = observation.monotonic_ts - self.m_candidate_started_at
+            if candidate_elapsed_seconds >= self.m_completion_stability_seconds:
+                return (
+                    "completed",
+                    None,
+                    candidate_elapsed_seconds,
+                    self.m_cycle_saw_projection_change,
+                )
+            return (
+                "candidate_complete",
+                None,
+                candidate_elapsed_seconds,
+                self.m_cycle_saw_projection_change,
+            )
         elif self.m_cycle_baseline_projection_key is None:
-            completion_state = "inactive"
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
+            return "inactive", None, None, self.m_cycle_saw_projection_change
         else:
-            completion_state = "waiting"
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
-
-        self.m_previous_observation = observation
-        return SurfaceReduction(
-            readiness_state=readiness_state,
-            completion_state=completion_state,
-            projection_changed=self.m_cycle_saw_projection_change,
-            stable_elapsed_seconds=stable_elapsed_seconds,
-        )
+            return "waiting", None, None, self.m_cycle_saw_projection_change
 
 
-def _build_initial_state(*, identity: HoumaoTrackedSessionIdentity) -> HoumaoTerminalStateResponse:
+def _build_initial_state(
+    *,
+    identity: HoumaoTrackedSessionIdentity,
+    completion_stability_seconds: float,
+    unknown_to_stalled_timeout_seconds: float,
+) -> HoumaoTerminalStateResponse:
     """Return the initial unknown state for a newly admitted tracked session."""
 
     observed_at_utc = utc_now_iso()
@@ -364,13 +435,20 @@ def _build_initial_state(*, identity: HoumaoTrackedSessionIdentity) -> HoumaoTer
             projection_changed=False,
             updated_at_utc=observed_at_utc,
         ),
+        lifecycle_timing=HoumaoLifecycleTimingMetadata(
+            readiness_unknown_elapsed_seconds=None,
+            completion_unknown_elapsed_seconds=None,
+            completion_candidate_elapsed_seconds=None,
+            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+            completion_stability_seconds=completion_stability_seconds,
+        ),
         stability=HoumaoStabilityMetadata(
             signature="",
             stable=False,
             stable_for_seconds=0.0,
             stable_since_utc=observed_at_utc,
         ),
-        recent_transitions=(),
+        recent_transitions=[],
     )
 
 
@@ -419,9 +497,15 @@ def _build_operator_state(
     elif reduction.completion_state == "completed":
         status = "completed"
         detail = "Parsed live state has remained stable long enough to be treated as complete."
+    elif reduction.readiness_state == "stalled" or reduction.completion_state == "stalled":
+        status = "unknown"
+        detail = "Parsed live state has remained unknown long enough to be treated as stalled."
     elif reduction.readiness_state == "blocked":
         status = "waiting_user_answer"
         detail = "Parsed live state requires operator interaction."
+    elif reduction.completion_state == "candidate_complete":
+        status = "ready"
+        detail = "Parsed live state looks complete but is still inside the stability window."
     elif reduction.completion_state == "in_progress" or parsed_surface.business_state == "working":
         status = "processing"
         detail = "Supported TUI is actively processing."
@@ -533,7 +617,7 @@ def _build_transition(
     return HoumaoRecentTransition(
         recorded_at_utc=current.operator_state.updated_at_utc,
         summary=summary,
-        changed_fields=tuple(changed_fields),
+        changed_fields=list(changed_fields),
         transport_state=current.transport_state,
         process_state=current.process_state,
         parse_status=current.parse_status,
@@ -556,7 +640,9 @@ def _default_surface_reduction() -> SurfaceReduction:
         readiness_state="unknown",
         completion_state="inactive",
         projection_changed=False,
-        stable_elapsed_seconds=None,
+        readiness_unknown_elapsed_seconds=None,
+        completion_unknown_elapsed_seconds=None,
+        completion_candidate_elapsed_seconds=None,
     )
 
 

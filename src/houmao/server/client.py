@@ -46,6 +46,22 @@ class HoumaoServerClient(CaoRestClient):
             )
         return payload
 
+    def delete_session(self, session_name: str) -> dict[str, object] | None:
+        """Call `DELETE /sessions/{session_name}`."""
+
+        escaped = parse.quote(session_name, safe="")
+        payload, _status_code, _url = self._request_json("DELETE", f"/sessions/{escaped}")
+        if payload is None:
+            return None
+        if not isinstance(payload, dict):
+            raise CaoApiError(
+                method="DELETE",
+                url=f"{self.base_url}/sessions/{escaped}",
+                detail="Expected JSON object response for session deletion",
+                payload=payload,
+            )
+        return payload
+
     def get_terminal_working_directory(self, terminal_id: str) -> WorkingDirectoryResponse:
         """Call `GET /terminals/{terminal_id}/working-directory`."""
 
@@ -94,7 +110,9 @@ class HoumaoServerClient(CaoRestClient):
             params=params,
         )
 
-    def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> HoumaoRegisterLaunchResponse:
+    def register_launch(
+        self, request_model: HoumaoRegisterLaunchRequest
+    ) -> HoumaoRegisterLaunchResponse:
         """Call `POST /houmao/launches/register`."""
 
         query_params = {

@@ -26,6 +26,18 @@ from .common import build_config, path_option_help
     show_default=True,
 )
 @click.option(
+    "--completion-stability-seconds",
+    default=1.0,
+    type=float,
+    show_default=True,
+)
+@click.option(
+    "--unknown-to-stalled-timeout-seconds",
+    default=30.0,
+    type=float,
+    show_default=True,
+)
+@click.option(
     "--supported-tui-process",
     "supported_tui_processes",
     multiple=True,
@@ -41,6 +53,8 @@ def serve_command(
     runtime_root: str | None,
     watch_poll_interval_seconds: float,
     recent_transition_limit: int,
+    completion_stability_seconds: float,
+    unknown_to_stalled_timeout_seconds: float,
     supported_tui_processes: tuple[str, ...],
     startup_child: bool,
 ) -> None:
@@ -51,6 +65,8 @@ def serve_command(
         runtime_root=runtime_root,
         watch_poll_interval_seconds=watch_poll_interval_seconds,
         recent_transition_limit=recent_transition_limit,
+        completion_stability_seconds=completion_stability_seconds,
+        unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
         supported_tui_processes=supported_tui_processes,
         startup_child=startup_child,
     )

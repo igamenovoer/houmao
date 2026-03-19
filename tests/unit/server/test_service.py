@@ -177,7 +177,7 @@ def _ready_surface() -> HoumaoParsedSurface:
         dialog_text="ready prompt",
         dialog_head="ready prompt",
         dialog_tail="ready prompt",
-        anomaly_codes=(),
+        anomaly_codes=[],
         baseline_invalidated=False,
         operator_blocked_excerpt=None,
     )
@@ -196,7 +196,7 @@ def _processing_surface() -> HoumaoParsedSurface:
         dialog_text="processing",
         dialog_head="processing",
         dialog_tail="processing",
-        anomaly_codes=(),
+        anomaly_codes=[],
         baseline_invalidated=False,
         operator_blocked_excerpt=None,
     )
@@ -288,7 +288,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     process_inspector = _FakeProcessInspector(
         PaneProcessInspection(
             process_state="tui_up",
-            matched_process_names=("codex",),
+            matched_process_names=["codex"],
             matched_processes=(),
         )
     )
@@ -324,7 +324,9 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert state.parsed_surface.normalized_projection_text == "ready prompt"
     assert state.probe_snapshot is not None
     assert state.probe_snapshot.pane_id == "%9"
-    assert state.probe_snapshot.matched_process_names == ("codex",)
+    assert state.probe_snapshot.matched_process_names == ["codex"]
+    assert state.lifecycle_timing.completion_stability_seconds == 1.0
+    assert state.lifecycle_timing.unknown_to_stalled_timeout_seconds == 30.0
     assert transport.m_calls == []
     assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None)]
     assert process_inspector.m_calls == [("codex", 4321)]
@@ -358,7 +360,7 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
                 process_state="tui_down",
-                matched_process_names=(),
+                matched_process_names=[],
                 matched_processes=(),
             )
         ),
@@ -453,7 +455,7 @@ def test_terminal_history_returns_recent_in_memory_transitions(
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
                 process_state="tui_up",
-                matched_process_names=("codex",),
+                matched_process_names=["codex"],
                 matched_processes=(),
             )
         ),
@@ -652,8 +654,12 @@ def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
         )
     }
     monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.start", lambda self: None)
-    monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.stop", lambda self, *, join=True: None)
-    monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.is_alive", lambda self: True)
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.SessionWatchWorker.stop", lambda self, *, join=True: None
+    )
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.SessionWatchWorker.is_alive", lambda self: True
+    )
 
     service.m_supervisor._reconcile_once()
     registry.m_records = {}
@@ -685,7 +691,7 @@ def test_refresh_terminal_state_uses_registration_window_name(
     process_inspector = _FakeProcessInspector(
         PaneProcessInspection(
             process_state="tui_up",
-            matched_process_names=("codex",),
+            matched_process_names=["codex"],
             matched_processes=(),
         )
     )

@@ -35,6 +35,18 @@ OperatorStatus = Literal[
     "error",
     "unknown",
 ]
+ReadinessState = Literal["ready", "waiting", "blocked", "failed", "unknown", "stalled"]
+CompletionState = Literal[
+    "inactive",
+    "in_progress",
+    "candidate_complete",
+    "completed",
+    "waiting",
+    "blocked",
+    "failed",
+    "unknown",
+    "stalled",
+]
 
 
 class _HoumaoModel(BaseModel):
@@ -108,7 +120,7 @@ class HoumaoTrackedSessionIdentity(_HoumaoModel):
     tool: str
     tmux_session_name: str
     tmux_window_name: str | None = None
-    terminal_aliases: tuple[str, ...] = ()
+    terminal_aliases: list[str] = Field(default_factory=list)
     agent_name: str | None = None
     agent_id: str | None = None
     manifest_path: str | None = None
@@ -146,7 +158,7 @@ class HoumaoProbeSnapshot(_HoumaoModel):
     captured_text_hash: str | None = None
     captured_text_length: int = 0
     captured_text_excerpt: str = ""
-    matched_process_names: tuple[str, ...] = ()
+    matched_process_names: list[str] = Field(default_factory=list)
 
 
 class HoumaoParsedSurface(_HoumaoModel):
@@ -163,7 +175,7 @@ class HoumaoParsedSurface(_HoumaoModel):
     dialog_text: str
     dialog_head: str
     dialog_tail: str
-    anomaly_codes: tuple[str, ...] = ()
+    anomaly_codes: list[str] = Field(default_factory=list)
     baseline_invalidated: bool = False
     operator_blocked_excerpt: str | None = None
 
@@ -194,11 +206,21 @@ class HoumaoOperatorState(_HoumaoModel):
     """Derived operator-facing live state."""
 
     status: OperatorStatus
-    readiness_state: str
-    completion_state: str
+    readiness_state: ReadinessState
+    completion_state: CompletionState
     detail: str
     projection_changed: bool = False
     updated_at_utc: str
+
+
+class HoumaoLifecycleTimingMetadata(_HoumaoModel):
+    """Lifecycle timing metadata for server-owned unknown and completion windows."""
+
+    readiness_unknown_elapsed_seconds: float | None = None
+    completion_unknown_elapsed_seconds: float | None = None
+    completion_candidate_elapsed_seconds: float | None = None
+    unknown_to_stalled_timeout_seconds: float
+    completion_stability_seconds: float
 
 
 class HoumaoStabilityMetadata(_HoumaoModel):
@@ -215,7 +237,7 @@ class HoumaoRecentTransition(_HoumaoModel):
 
     recorded_at_utc: str
     summary: str
-    changed_fields: tuple[str, ...] = ()
+    changed_fields: list[str] = Field(default_factory=list)
     transport_state: TransportState
     process_state: ProcessState
     parse_status: ParseStatus
@@ -235,8 +257,9 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     parse_error: HoumaoErrorDetail | None = None
     parsed_surface: HoumaoParsedSurface | None = None
     operator_state: HoumaoOperatorState
+    lifecycle_timing: HoumaoLifecycleTimingMetadata
     stability: HoumaoStabilityMetadata
-    recent_transitions: tuple[HoumaoRecentTransition, ...] = ()
+    recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
 
 
 class HoumaoTerminalHistoryResponse(_HoumaoModel):
@@ -244,7 +267,7 @@ class HoumaoTerminalHistoryResponse(_HoumaoModel):
 
     terminal_id: str
     tracked_session_id: str
-    entries: tuple[HoumaoRecentTransition, ...]
+    entries: list[HoumaoRecentTransition]
 
 
 class HoumaoRegisterLaunchRequest(_HoumaoModel):

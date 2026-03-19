@@ -26,6 +26,8 @@ class HoumaoServerConfig(BaseModel):
     watch_poll_interval_seconds: float = 1.0
     recent_transition_limit: int = 24
     stability_threshold_seconds: float = 1.0
+    completion_stability_seconds: float = 1.0
+    unknown_to_stalled_timeout_seconds: float = 30.0
     supported_tui_processes: dict[str, tuple[str, ...]] = Field(
         default_factory=lambda: dict(_DEFAULT_SUPPORTED_TUI_PROCESSES)
     )
@@ -45,6 +47,8 @@ class HoumaoServerConfig(BaseModel):
     @field_validator(
         "watch_poll_interval_seconds",
         "stability_threshold_seconds",
+        "completion_stability_seconds",
+        "unknown_to_stalled_timeout_seconds",
         "child_startup_timeout_seconds",
     )
     @classmethod

@@ -18,6 +18,8 @@ def build_config(
     runtime_root: str | None,
     watch_poll_interval_seconds: float,
     recent_transition_limit: int,
+    completion_stability_seconds: float,
+    unknown_to_stalled_timeout_seconds: float,
     supported_tui_processes: tuple[str, ...],
     startup_child: bool,
 ) -> HoumaoServerConfig:
@@ -32,6 +34,8 @@ def build_config(
             runtime_root=resolved_runtime_root,
             watch_poll_interval_seconds=watch_poll_interval_seconds,
             recent_transition_limit=recent_transition_limit,
+            completion_stability_seconds=completion_stability_seconds,
+            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             supported_tui_processes=_parse_supported_tui_processes(supported_tui_processes),
             startup_child=startup_child,
         )
@@ -40,6 +44,8 @@ def build_config(
         runtime_root=resolved_runtime_root,
         watch_poll_interval_seconds=watch_poll_interval_seconds,
         recent_transition_limit=recent_transition_limit,
+        completion_stability_seconds=completion_stability_seconds,
+        unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
         startup_child=startup_child,
     )
 

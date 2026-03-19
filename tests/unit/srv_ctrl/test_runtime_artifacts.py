@@ -34,6 +34,7 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
         api_base_url="http://127.0.0.1:9889",
         session_name="cao-gpu",
         terminal_id="abcd1234",
+        tmux_window_name="developer-1",
         provider="codex",
         agent_profile="gpu-kernel-coder",
         working_directory=tmp_path,
@@ -49,6 +50,7 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert manifest_payload["houmao_server"]["api_base_url"] == "http://127.0.0.1:9889"
     assert manifest_payload["houmao_server"]["session_name"] == "cao-gpu"
     assert manifest_payload["houmao_server"]["terminal_id"] == "abcd1234"
+    assert manifest_payload["houmao_server"]["tmux_window_name"] == "developer-1"
     assert manifest_payload["registry_generation_id"]
     assert (session_root / "agent_def" / "roles" / "gpu-kernel-coder" / "system-prompt.md").is_file()
     assert published_env["session_name"] == "cao-gpu"

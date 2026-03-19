@@ -12,6 +12,7 @@ from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
+    HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
@@ -167,7 +168,7 @@ class _AppServiceDouble:
                 session_name="cao-gpu",
                 tool="codex",
                 tmux_session_name="AGENTSYS-gpu",
-                terminal_aliases=(terminal_id,),
+                terminal_aliases=[terminal_id],
             ),
             transport_state="tmux_up",
             process_state="tui_up",
@@ -179,7 +180,7 @@ class _AppServiceDouble:
                 captured_text_hash="abc123",
                 captured_text_length=12,
                 captured_text_excerpt="hello world",
-                matched_process_names=("codex",),
+                matched_process_names=["codex"],
             ),
             probe_error=None,
             parse_error=None,
@@ -195,7 +196,7 @@ class _AppServiceDouble:
                 dialog_text="hello world",
                 dialog_head="hello world",
                 dialog_tail="hello world",
-                anomaly_codes=(),
+                anomaly_codes=[],
                 baseline_invalidated=False,
                 operator_blocked_excerpt=None,
             ),
@@ -207,13 +208,20 @@ class _AppServiceDouble:
                 projection_changed=False,
                 updated_at_utc="2026-03-19T10:00:00+00:00",
             ),
+            lifecycle_timing=HoumaoLifecycleTimingMetadata(
+                readiness_unknown_elapsed_seconds=None,
+                completion_unknown_elapsed_seconds=None,
+                completion_candidate_elapsed_seconds=None,
+                unknown_to_stalled_timeout_seconds=30.0,
+                completion_stability_seconds=1.0,
+            ),
             stability=HoumaoStabilityMetadata(
                 signature="deadbeef",
                 stable=True,
                 stable_for_seconds=3.0,
                 stable_since_utc="2026-03-19T09:59:57+00:00",
             ),
-            recent_transitions=(),
+            recent_transitions=[],
         )
 
     def terminal_history(self, terminal_id: str, *, limit: int) -> HoumaoTerminalHistoryResponse:
@@ -221,17 +229,17 @@ class _AppServiceDouble:
         return HoumaoTerminalHistoryResponse(
             terminal_id=terminal_id,
             tracked_session_id="cao-gpu",
-            entries=(
+            entries=[
                 HoumaoRecentTransition(
                     recorded_at_utc="2026-03-19T10:00:00+00:00",
                     summary=f"limit={limit}",
-                    changed_fields=("operator_status",),
+                    changed_fields=["operator_status"],
                     transport_state="tmux_up",
                     process_state="tui_up",
                     parse_status="parsed",
                     operator_status="ready",
                 ),
-            ),
+            ],
         )
 
 

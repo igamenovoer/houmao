@@ -391,6 +391,8 @@ class HoumaoServerService:
                     identity=identity,
                     recent_transition_limit=self.m_config.recent_transition_limit,
                     stability_threshold_seconds=self.m_config.stability_threshold_seconds,
+                    completion_stability_seconds=self.m_config.completion_stability_seconds,
+                    unknown_to_stalled_timeout_seconds=self.m_config.unknown_to_stalled_timeout_seconds,
                 )
                 self.m_trackers[record.tracked_session_id] = tracker
             else:
@@ -489,7 +491,7 @@ class HoumaoServerService:
             observed_at_utc=observed_at_utc,
             pane_id=target.pane.pane_id,
             pane_pid=target.pane.pane_pid,
-            matched_process_names=process_inspection.matched_process_names,
+            matched_process_names=list(process_inspection.matched_process_names),
         )
         if process_inspection.process_state == "probe_error":
             tracker.record_cycle(
