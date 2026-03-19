@@ -305,6 +305,33 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
         return value
 
 
+class HoumaoInstallAgentProfileRequest(_HoumaoModel):
+    """Pair-owned install request for child-managed agent profiles."""
+
+    agent_source: str
+    provider: str
+    working_directory: str | None = None
+
+    @field_validator("agent_source", "provider", "working_directory")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string inputs to be non-empty when present."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class HoumaoInstallAgentProfileResponse(CaoSuccessResponse):
+    """Success payload for pair-owned agent-profile install."""
+
+    agent_source: str
+    provider: str
+    detail: str
+
+
 class HoumaoRegisterLaunchResponse(CaoSuccessResponse):
     """Registration response for delegated CLI launches."""
 

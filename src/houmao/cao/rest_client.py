@@ -14,6 +14,7 @@ from .models import (
     CaoHealthResponse,
     CaoInboxCreateResponse,
     CaoInboxMessage,
+    CaoSessionDetail,
     CaoSessionInfo,
     CaoSuccessResponse,
     CaoTerminal,
@@ -106,6 +107,12 @@ class CaoRestClient:
 
         escaped = parse.quote(session_name, safe="")
         return self._request_model("DELETE", f"/sessions/{escaped}", CaoSuccessResponse)
+
+    def get_session_detail(self, session_name: str) -> CaoSessionDetail:
+        """Call `GET /sessions/{session_name}`."""
+
+        escaped = parse.quote(session_name, safe="")
+        return self._request_model("GET", f"/sessions/{escaped}", CaoSessionDetail)
 
     def list_session_terminals(self, session_name: str) -> list[CaoTerminal]:
         """Call `GET /sessions/{session_name}/terminals`."""

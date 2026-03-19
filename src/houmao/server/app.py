@@ -12,6 +12,8 @@ from .config import HoumaoServerConfig
 from .models import (
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
+    HoumaoInstallAgentProfileRequest,
+    HoumaoInstallAgentProfileResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
@@ -222,6 +224,19 @@ def create_app(
             tmux_window_name=tmux_window_name,
         )
         return resolved_service.register_launch(request_model)
+
+    @app.post("/houmao/agent-profiles/install")
+    def install_agent_profile(
+        agent_source: str,
+        provider: str,
+        working_directory: str | None = None,
+    ) -> HoumaoInstallAgentProfileResponse:
+        request_model = HoumaoInstallAgentProfileRequest(
+            agent_source=agent_source,
+            provider=provider,
+            working_directory=working_directory,
+        )
+        return resolved_service.install_agent_profile(request_model)
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:

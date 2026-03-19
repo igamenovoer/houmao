@@ -45,6 +45,9 @@ from houmao.agents.realm_controller.backends.shadow_parser_core import (
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.cao.models import (
     CaoHealthResponse,
+    CaoSessionDetail,
+    CaoSessionInfo,
+    CaoSessionTerminalSummary,
     CaoSuccessResponse,
     CaoTerminal,
     CaoTerminalOutputResponse,
@@ -263,6 +266,20 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
         payload: object = {"success": True}
         if req.full_url.endswith("/health"):
             payload = {"status": "ok", "service": "cli-agent-orchestrator"}
+        if req.full_url.endswith("/sessions/s1"):
+            payload = {
+                "session": {"id": "s1", "name": "s1", "status": "attached"},
+                "terminals": [
+                    {
+                        "id": "a1b2c3d4",
+                        "tmux_session": "s1",
+                        "tmux_window": "developer-1",
+                        "provider": "codex",
+                        "agent_profile": "role_profile",
+                        "last_active": None,
+                    }
+                ],
+            }
         if "/sessions/s1/terminals" in req.full_url:
             payload = {
                 "id": "a1b2c3d4",
@@ -289,6 +306,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
 
     client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
+    session_detail = client.get_session_detail("s1")
     terminal = client.create_terminal(
         "s1",
         provider="codex",
@@ -300,6 +318,19 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     fetched = client.get_terminal("a1b2c3d4")
 
     assert health == CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+    assert session_detail == CaoSessionDetail(
+        session=CaoSessionInfo(id="s1", name="s1", status="attached"),
+        terminals=[
+            CaoSessionTerminalSummary(
+                id="a1b2c3d4",
+                tmux_session="s1",
+                tmux_window="developer-1",
+                provider="codex",
+                agent_profile="role_profile",
+                last_active=None,
+            )
+        ],
+    )
     assert terminal.provider == "codex"
     assert sent == CaoSuccessResponse(success=True)
     assert output == CaoTerminalOutputResponse(output="hello", mode="last")
@@ -309,16 +340,17 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     urls = [item[1] for item in captured]
     payloads = [item[2] for item in captured]
 
-    assert methods == ["GET", "POST", "POST", "GET", "GET"]
+    assert methods == ["GET", "GET", "POST", "POST", "GET", "GET"]
     assert urls[0].endswith("/health")
+    assert urls[1].endswith("/sessions/s1")
     assert (
-        urls[1]
+        urls[2]
         == "http://127.0.0.1:9991/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
     )
-    assert urls[2].endswith("/terminals/a1b2c3d4/input?message=hello")
-    assert urls[3].endswith("/terminals/a1b2c3d4/output?mode=last")
-    assert urls[4].endswith("/terminals/a1b2c3d4")
-    assert payloads == [None, None, None, None, None]
+    assert urls[3].endswith("/terminals/a1b2c3d4/input?message=hello")
+    assert urls[4].endswith("/terminals/a1b2c3d4/output?mode=last")
+    assert urls[5].endswith("/terminals/a1b2c3d4")
+    assert payloads == [None, None, None, None, None, None]
 
 
 def test_cao_rest_client_injects_loopback_no_proxy_by_default(

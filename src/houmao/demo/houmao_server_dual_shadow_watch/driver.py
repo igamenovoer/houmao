@@ -42,8 +42,8 @@ from houmao.owned_paths import (
     AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
     AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
 )
-from houmao.server.config import HoumaoServerConfig
 from houmao.server.client import HoumaoServerClient
+from houmao.cao.models import CaoSessionDetail
 from houmao.cao.rest_client import CaoApiError
 
 from houmao.demo.houmao_server_dual_shadow_watch.models import (
@@ -407,22 +407,19 @@ def start_demo(
         env=server_env,
     )
 
-    install_env = _build_profile_install_environment(
-        api_base_url=api_base_url,
-        base_env=server_env,
-        paths=paths,
-    )
     _install_projection_profile(
+        api_base_url=api_base_url,
         profile_path=resolved_profile_path,
         provider="claude_code",
-        env=install_env,
+        env=server_env,
         stdout_path=paths.logs_dir / "install-claude.stdout.log",
         stderr_path=paths.logs_dir / "install-claude.stderr.log",
     )
     _install_projection_profile(
+        api_base_url=api_base_url,
         profile_path=resolved_profile_path,
         provider="codex",
-        env=install_env,
+        env=server_env,
         stdout_path=paths.logs_dir / "install-codex.stdout.log",
         stderr_path=paths.logs_dir / "install-codex.stderr.log",
     )
@@ -437,7 +434,7 @@ def start_demo(
                 lane=lane,
                 paths=paths,
                 timeout_seconds=launch_timeout_seconds,
-                env=install_env,
+                env=server_env,
             )
             agent_states[slot] = state
 
@@ -567,7 +564,9 @@ def inspect_demo(
             "error": None,
         }
         try:
-            agent_payload["session_payload"] = client.get_session(session.session_name)
+            agent_payload["session_payload"] = client.get_session(session.session_name).model_dump(
+                mode="json"
+            )
             agent_payload["tracked_state"] = client.terminal_state(session.terminal_id).model_dump(
                 mode="json"
             )
@@ -945,32 +944,6 @@ def _build_demo_environment(*, paths: DemoPaths, lanes: dict[str, PreparedLane])
     return env
 
 
-def _build_profile_install_environment(
-    *,
-    api_base_url: str,
-    base_env: dict[str, str],
-    paths: DemoPaths,
-) -> dict[str, str]:
-    """Return the environment used to install profiles for the child CAO authority."""
-
-    env = dict(base_env)
-    env["HOME"] = str(_child_cao_home_dir(api_base_url=api_base_url, paths=paths))
-    return env
-
-
-def _child_cao_home_dir(*, api_base_url: str, paths: DemoPaths) -> Path:
-    """Return the child CAO home used to resolve installed agent profiles."""
-
-    config = HoumaoServerConfig(
-        api_base_url=api_base_url,
-        runtime_root=paths.server_runtime_root,
-    )
-    child_port = config.public_port + 1
-    return (
-        config.child_runtime_root / "cao_servers" / f"{config.child_bind_host()}-{child_port}" / "home"
-    ).resolve()
-
-
 def _start_server_process(
     *,
     api_base_url: str,
@@ -1042,6 +1015,7 @@ def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> Non
 
 def _install_projection_profile(
     *,
+    api_base_url: str,
     profile_path: Path,
     provider: str,
     env: dict[str, str],
@@ -1059,6 +1033,8 @@ def _install_projection_profile(
             str(profile_path),
             "--provider",
             provider,
+            "--port",
+            api_base_url.rsplit(":", 1)[-1],
         ],
         cwd=str(_repo_root()),
         check=False,
@@ -1178,7 +1154,7 @@ def _wait_for_session_registration(
     client: HoumaoServerClient,
     session_name: str,
     timeout_seconds: float,
-) -> dict[str, Any]:
+) -> CaoSessionDetail:
     """Wait until a launched session is visible through Houmao server queries."""
 
     deadline = time.monotonic() + timeout_seconds
@@ -1190,8 +1166,7 @@ def _wait_for_session_registration(
             last_error = str(exc)
             time.sleep(0.25)
             continue
-        terminals = payload.get("terminals")
-        if isinstance(terminals, list) and terminals:
+        if payload.terminals:
             return payload
         last_error = f"session `{session_name}` had no terminals yet"
         time.sleep(0.25)
@@ -1223,20 +1198,15 @@ def _wait_for_session_absent(
     )
 
 
-def _terminal_id_from_session_payload(payload: dict[str, Any], *, session_name: str) -> str:
+def _terminal_id_from_session_payload(payload: CaoSessionDetail, *, session_name: str) -> str:
     """Extract the first terminal id from one session payload."""
 
-    terminals = payload.get("terminals")
-    if not isinstance(terminals, list) or not terminals:
+    terminals = payload.terminals
+    if not terminals:
         raise HoumaoServerDualShadowWatchError(
             f"houmao-server did not return terminals for `{session_name}`"
         )
-    first = terminals[0]
-    if not isinstance(first, dict):
-        raise HoumaoServerDualShadowWatchError(
-            f"houmao-server returned an invalid terminal payload for `{session_name}`"
-        )
-    terminal_id = str(first.get("id", "")).strip()
+    terminal_id = terminals[0].id.strip()
     if not terminal_id:
         raise HoumaoServerDualShadowWatchError(
             f"houmao-server terminal payload is missing `id` for `{session_name}`"

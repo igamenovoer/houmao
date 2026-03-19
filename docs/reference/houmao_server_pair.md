@@ -30,6 +30,7 @@ Representative usage:
 
 ```bash
 houmao-server serve --api-base-url http://127.0.0.1:9889
+houmao-srv-ctrl install projection-demo --provider codex --port 9889
 houmao-srv-ctrl info --port 9889
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
 ```
@@ -51,6 +52,12 @@ The public contract stays Houmao-owned:
 - terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity instead of making `terminal_id` the internal watch authority
 
 The child listener address is derived mechanically as `public_port + 1` and stays loopback-only. There is no separate user-facing child-port override in this design.
+
+Pair-targeted profile installation follows the same boundary:
+
+- `houmao-srv-ctrl install --port <public-port> ...` identifies one public `houmao-server`
+- `houmao-server` resolves the child-managed CAO home internally
+- callers do not compute or mutate hidden `child_cao` filesystem paths directly
 
 ## Persistence Boundary
 
@@ -108,6 +115,14 @@ The child-specific subtree is:
 ```
 
 This subtree is internal Houmao-managed support state. Operators may inspect it for debugging, but it is not the public control surface.
+
+That includes agent-profile installation. The supported pair-owned path is:
+
+```bash
+houmao-srv-ctrl install <agent-source> --provider <provider> --port <public-port>
+```
+
+The install request is routed through `houmao-server`, which performs the child-CAO mutation inside the managed support subtree without promoting that subtree into a caller-facing contract.
 
 ## Transitional Registry Bridge
 

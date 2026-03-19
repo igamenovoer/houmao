@@ -38,13 +38,15 @@ from houmao.server.tui import (
 )
 from houmao.server.tui.tracking import utc_now_iso
 
-from houmao.server.child_cao import ChildCaoManager
+from houmao.server.child_cao import ChildCaoInstallError, ChildCaoManager
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoErrorDetail,
     HoumaoHealthResponse,
+    HoumaoInstallAgentProfileRequest,
+    HoumaoInstallAgentProfileResponse,
     HoumaoProbeSnapshot,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
@@ -236,6 +238,71 @@ class HoumaoServerService:
             api_base_url=self.m_config.api_base_url,
             server_root=str(self.m_config.server_root),
             child_cao=self.child_status(),
+        )
+
+    def install_agent_profile(
+        self, request_model: HoumaoInstallAgentProfileRequest
+    ) -> HoumaoInstallAgentProfileResponse:
+        """Install one agent profile into the server-managed child CAO state."""
+
+        working_directory = (
+            Path(request_model.working_directory).expanduser().resolve()
+            if request_model.working_directory is not None
+            else None
+        )
+        if working_directory is not None and (
+            not working_directory.exists() or not working_directory.is_dir()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Pair-owned install requires an existing working directory when one is "
+                    "provided."
+                ),
+            )
+
+        try:
+            install_result = self.m_child_manager.install_agent_profile(
+                agent_source=request_model.agent_source,
+                provider=request_model.provider,
+                working_directory=working_directory,
+            )
+        except ChildCaoInstallError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        if install_result.returncode != 0:
+            LOGGER.warning(
+                "Pair-owned install failed for provider=%s agent_source=%s returncode=%s "
+                "stdout=%r stderr=%r",
+                request_model.provider,
+                request_model.agent_source,
+                install_result.returncode,
+                install_result.stdout,
+                install_result.stderr,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Pair-owned install failed through managed child CAO state for "
+                    f"provider `{request_model.provider}` and agent source "
+                    f"`{request_model.agent_source}` (exit code {install_result.returncode})."
+                ),
+            )
+
+        LOGGER.info(
+            "Pair-owned install completed for provider=%s agent_source=%s",
+            request_model.provider,
+            request_model.agent_source,
+        )
+        return HoumaoInstallAgentProfileResponse(
+            success=True,
+            agent_source=request_model.agent_source,
+            provider=request_model.provider,
+            detail=(
+                "Pair-owned install completed through managed child CAO state for "
+                f"provider `{request_model.provider}` and agent source "
+                f"`{request_model.agent_source}`."
+            ),
         )
 
     def child_status(self) -> ChildCaoStatus:

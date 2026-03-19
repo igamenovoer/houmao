@@ -12,6 +12,8 @@ from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
+    HoumaoInstallAgentProfileRequest,
+    HoumaoInstallAgentProfileResponse,
     HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
     HoumaoParsedSurface,
@@ -87,6 +89,7 @@ class _AppServiceDouble:
         self.m_prompt_submissions: list[tuple[str, str]] = []
         self.m_deleted_sessions: list[str] = []
         self.m_deleted_terminals: list[str] = []
+        self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_history_calls: list[tuple[str, int]] = []
 
@@ -147,6 +150,17 @@ class _AppServiceDouble:
                 derived_port=9890,
                 ownership_file="/tmp/child/ownership.json",
             ),
+        )
+
+    def install_agent_profile(
+        self, request_model: HoumaoInstallAgentProfileRequest
+    ) -> HoumaoInstallAgentProfileResponse:
+        self.m_install_requests.append(request_model)
+        return HoumaoInstallAgentProfileResponse(
+            success=True,
+            agent_source=request_model.agent_source,
+            provider=request_model.provider,
+            detail="Pair-owned install completed.",
         )
 
     def register_launch(
@@ -510,6 +524,13 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
         and candidate.path == "/houmao/launches/register"
         and "POST" in candidate.methods
     )
+    install_route = next(
+        candidate
+        for candidate in app.routes
+        if isinstance(candidate, APIRoute)
+        and candidate.path == "/houmao/agent-profiles/install"
+        and "POST" in candidate.methods
+    )
     state_route = next(
         candidate
         for candidate in app.routes
@@ -527,6 +548,11 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
 
     health_response = health_route.endpoint()
     current_instance_response = current_instance_route.endpoint()
+    install_response = install_route.endpoint(
+        agent_source="projection-demo",
+        provider="codex",
+        working_directory="/tmp/workspace",
+    )
     register_response = register_route.endpoint(
         session_name="cao-gpu",
         tool="codex",
@@ -541,6 +567,15 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert health_response.child_cao.derived_port == 9890
 
     assert current_instance_response.api_base_url == "http://127.0.0.1:9889"
+
+    assert install_response.success is True
+    assert service.m_install_requests == [
+        HoumaoInstallAgentProfileRequest(
+            agent_source="projection-demo",
+            provider="codex",
+            working_directory="/tmp/workspace",
+        )
+    ]
 
     assert register_response.success is True
     assert service.m_register_requests[0].session_name == "cao-gpu"

@@ -49,30 +49,46 @@ def test_demo_paths_resolve_expected_layout() -> None:
     )
 
 
-def test_child_cao_home_dir_resolves_expected_layout() -> None:
-    """Profile installs should target the child CAO home used by delegated launch."""
+def test_install_projection_profile_targets_public_pair_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Profile installs should target the public Houmao pair port, not a hidden child home."""
 
-    repo_root = Path("/repo-root")
-    run_root = Path("/repo-root/tmp/demo/houmao-server-dual-shadow-watch/demo-run")
-    paths = DemoPaths.from_run_root(repo_root=repo_root, run_root=run_root)
+    captured: dict[str, object] = {}
+    profile_path = tmp_path / "projection-demo.md"
+    profile_path.write_text("# projection-demo\n", encoding="utf-8")
+    stdout_path = tmp_path / "install.stdout.log"
+    stderr_path = tmp_path / "install.stderr.log"
 
-    child_home = demo_driver._child_cao_home_dir(
+    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        captured["args"] = args[0]
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(demo_driver.subprocess, "run", _fake_run)
+
+    demo_driver._install_projection_profile(
         api_base_url="http://127.0.0.1:19989",
-        paths=paths,
+        profile_path=profile_path,
+        provider="codex",
+        env={"HOME": "/demo/server/home"},
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
     )
 
-    assert child_home == (
-        run_root
-        / "server"
-        / "runtime"
-        / "houmao_servers"
-        / "127.0.0.1-19989"
-        / "child_cao"
-        / "runtime"
-        / "cao_servers"
-        / "127.0.0.1-19990"
-        / "home"
-    )
+    assert captured["args"] == [
+        demo_driver.sys.executable,
+        "-m",
+        "houmao.srv_ctrl",
+        "install",
+        str(profile_path),
+        "--provider",
+        "codex",
+        "--port",
+        "19989",
+    ]
+    assert captured["env"] == {"HOME": "/demo/server/home"}
 
 
 def test_provision_project_fixture_initializes_standalone_git_repo(tmp_path: Path) -> None:

@@ -10,10 +10,13 @@ from pydantic import BaseModel, ValidationError
 
 from houmao.cao.rest_client import CaoApiError, CaoRestClient, _format_validation_error
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
+from houmao.cao.models import CaoSessionDetail
 
 from .models import (
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
+    HoumaoInstallAgentProfileRequest,
+    HoumaoInstallAgentProfileResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
@@ -32,19 +35,10 @@ class HoumaoServerClient(CaoRestClient):
 
         return self._request_model("GET", "/health", HoumaoHealthResponse)
 
-    def get_session(self, session_name: str) -> dict[str, object]:
+    def get_session(self, session_name: str) -> CaoSessionDetail:
         """Call `GET /sessions/{session_name}`."""
 
-        escaped = parse.quote(session_name, safe="")
-        payload, _status_code, _url = self._request_json("GET", f"/sessions/{escaped}")
-        if not isinstance(payload, dict):
-            raise CaoApiError(
-                method="GET",
-                url=f"{self.base_url}/sessions/{escaped}",
-                detail="Expected JSON object response for session lookup",
-                payload=payload,
-            )
-        return payload
+        return self.get_session_detail(session_name)
 
     def delete_session(self, session_name: str) -> dict[str, object] | None:
         """Call `DELETE /sessions/{session_name}`."""
@@ -124,6 +118,23 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             "/houmao/launches/register",
             HoumaoRegisterLaunchResponse,
+            params={key: str(value) for key, value in query_params.items()},
+        )
+
+    def install_agent_profile(
+        self, request_model: HoumaoInstallAgentProfileRequest
+    ) -> HoumaoInstallAgentProfileResponse:
+        """Call `POST /houmao/agent-profiles/install`."""
+
+        query_params = {
+            key: value
+            for key, value in request_model.model_dump(mode="json").items()
+            if value is not None
+        }
+        return self._request_model(
+            "POST",
+            "/houmao/agent-profiles/install",
+            HoumaoInstallAgentProfileResponse,
             params={key: str(value) for key, value in query_params.items()},
         )
 

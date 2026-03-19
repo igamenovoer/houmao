@@ -18,7 +18,7 @@ def list_sessions_command(api_base_url: str) -> None:
     """List child-backed sessions through `houmao-server`."""
 
     client = client_for_base_url(api_base_url)
-    echo_json({"sessions": client.list_sessions()})
+    echo_json({"sessions": [session.model_dump(mode="json") for session in client.list_sessions()]})
 
 
 @sessions_group.command(name="get")
@@ -28,7 +28,7 @@ def get_session_command(api_base_url: str, session_name: str) -> None:
     """Get one session payload."""
 
     client = client_for_base_url(api_base_url)
-    echo_json(client.get_session(session_name))
+    echo_json(client.get_session(session_name).model_dump(mode="json"))
 
 
 @click.group(name="terminals")

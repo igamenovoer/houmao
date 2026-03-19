@@ -7,9 +7,11 @@ import pytest
 from fastapi import HTTPException
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+from houmao.server.child_cao import ChildCaoInstallResult
 import houmao.server.tui.registry as tui_registry_module
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
+    HoumaoInstallAgentProfileRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -65,6 +67,9 @@ class _FakeChildManager:
         service_name: str | None = "cli-agent-orchestrator",
         error: str | None = None,
         ownership_file: Path | None = None,
+        install_returncode: int = 0,
+        install_stdout: str = "",
+        install_stderr: str = "",
     ) -> None:
         self.m_base_url = base_url
         self.m_healthy = healthy
@@ -72,8 +77,12 @@ class _FakeChildManager:
         self.m_service_name = service_name
         self.m_error = error
         self.m_ownership_file = ownership_file or Path("/tmp/houmao-server-tests-no-ownership")
+        self.m_install_returncode = install_returncode
+        self.m_install_stdout = install_stdout
+        self.m_install_stderr = install_stderr
         self.start_calls = 0
         self.stop_calls = 0
+        self.install_calls: list[tuple[str, str, Path | None]] = []
 
     def start(self) -> None:
         self.start_calls += 1
@@ -97,6 +106,23 @@ class _FakeChildManager:
 
     def ownership_file_path(self) -> Path:
         return self.m_ownership_file
+
+    def install_agent_profile(
+        self,
+        *,
+        agent_source: str,
+        provider: str,
+        working_directory: Path | None = None,
+    ) -> ChildCaoInstallResult:
+        self.install_calls.append((agent_source, provider, working_directory))
+        return ChildCaoInstallResult(
+            agent_source=agent_source,
+            provider=provider,
+            working_directory=working_directory,
+            returncode=self.m_install_returncode,
+            stdout=self.m_install_stdout,
+            stderr=self.m_install_stderr,
+        )
 
 
 class _FakeTmuxTransportResolver:
@@ -531,6 +557,55 @@ def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
     service.shutdown()
 
     assert child_manager.stop_calls == 1
+
+
+def test_install_agent_profile_routes_through_child_manager(tmp_path: Path) -> None:
+    child_manager = _FakeChildManager()
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=child_manager,
+    )
+
+    response = service.install_agent_profile(
+        HoumaoInstallAgentProfileRequest(
+            agent_source="projection-demo",
+            provider="codex",
+            working_directory=str(tmp_path),
+        )
+    )
+
+    assert response.success is True
+    assert child_manager.install_calls == [("projection-demo", "codex", tmp_path.resolve())]
+    assert "Pair-owned install completed" in response.detail
+
+
+def test_install_agent_profile_returns_explicit_failure_without_child_path_leak(
+    tmp_path: Path,
+) -> None:
+    child_manager = _FakeChildManager(
+        install_returncode=7,
+        install_stdout="internal success path /tmp/hidden/home",
+        install_stderr="internal failure path /tmp/hidden/home",
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=child_manager,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.install_agent_profile(
+            HoumaoInstallAgentProfileRequest(
+                agent_source="projection-demo",
+                provider="codex",
+                working_directory=str(tmp_path),
+            )
+        )
+
+    assert exc_info.value.status_code == 502
+    assert "Pair-owned install failed through managed child CAO state" in str(exc_info.value.detail)
+    assert "/tmp/hidden/home" not in str(exc_info.value.detail)
 
 
 def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Path) -> None:

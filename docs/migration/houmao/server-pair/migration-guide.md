@@ -56,6 +56,7 @@ What changes when you do this:
 - live terminal tracking becomes server-owned and runs from direct tmux/process observation
 - the child listener stays internal and is derived as `public_port + 1`
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
+- pair-targeted installs go through `houmao-srv-ctrl install --port <public-port>` instead of direct `HOME` mutation
 
 ## 4. Switch Service-Management Commands To `houmao-srv-ctrl`
 
@@ -67,11 +68,14 @@ Examples:
 pixi run houmao-srv-ctrl info
 pixi run houmao-srv-ctrl init
 pixi run houmao-srv-ctrl install gpu-kernel-coder
+pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex --headless
 pixi run houmao-srv-ctrl shutdown --all
 ```
 
 If your workflow depends on the familiar `cao` command name, shell aliasing remains viable as long as the alias resolves to `houmao-srv-ctrl` in the supported pair.
+
+Use the additive `--port` form when you are intentionally targeting a running Houmao pair instance. That path routes install through the selected `houmao-server`, so the child-managed CAO home stays an internal implementation detail instead of a caller-computed path.
 
 ## 5. Use Houmao Inspection Commands
 
@@ -129,9 +133,10 @@ Recommended migration order:
 1. Start `houmao-server` on the CAO-facing public base URL you want to own.
 2. Replace operator command usage from `cao` to `houmao-srv-ctrl`.
 3. Verify `houmao-server health` and `houmao-srv-ctrl info`.
-4. Launch one new session through `houmao-srv-ctrl launch`.
-5. Inspect the session through `houmao-server sessions` and `houmao-server terminals`.
-6. Move runtime and follow-up tooling toward the persisted `houmao_server_rest` artifacts.
+4. If needed, install agent profiles through `houmao-srv-ctrl install --port <public-port> ...`.
+5. Launch one new session through `houmao-srv-ctrl launch`.
+6. Inspect the session through `houmao-server sessions` and `houmao-server terminals`.
+7. Move runtime and follow-up tooling toward the persisted `houmao_server_rest` artifacts.
 
 ## 9. Roll Back If Needed
 

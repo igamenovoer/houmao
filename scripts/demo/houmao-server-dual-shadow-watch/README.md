@@ -42,7 +42,7 @@ That command:
 - provisions isolated Claude and Codex dummy-project workdirs
 - builds demo-owned provider homes from the tracked projection-demo recipes
 - starts a demo-owned `houmao-server`
-- installs the tracked `projection-demo` profile into the demo-owned CAO home
+- installs the tracked `projection-demo` profile through `houmao-srv-ctrl install --port <public-port>`
 - launches one Claude session and one Codex session through `houmao-srv-ctrl launch`
 - starts one monitor tmux session
 

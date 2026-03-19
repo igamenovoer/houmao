@@ -37,18 +37,18 @@ def launch_command(ctx: click.Context) -> None:
         ctx.exit(result.returncode)
 
     after_sessions = {session.id for session in client.list_sessions()}
-    session_name = _resolve_session_name(ctx.args, before_sessions=before_sessions, after_sessions=after_sessions)
-    session_payload = client.get_session(session_name)
-    terminals = session_payload.get("terminals")
-    if not isinstance(terminals, list) or not terminals:
-        raise click.ClickException(f"`houmao-server` did not return terminals for session `{session_name}`.")
-    first_terminal = terminals[0]
-    if not isinstance(first_terminal, dict) or "id" not in first_terminal:
+    session_name = _resolve_session_name(
+        ctx.args, before_sessions=before_sessions, after_sessions=after_sessions
+    )
+    session_detail = client.get_session(session_name)
+    terminals = session_detail.terminals
+    if not terminals:
         raise click.ClickException(
-            f"`houmao-server` returned an invalid terminal payload for session `{session_name}`."
+            f"`houmao-server` did not return terminals for session `{session_name}`."
         )
-    terminal_id = str(first_terminal["id"])
-    tmux_window_name = _optional_terminal_string(first_terminal.get("tmux_window"))
+    first_terminal = terminals[0]
+    terminal_id = first_terminal.id
+    tmux_window_name = _optional_terminal_string(first_terminal.tmux_window)
 
     provider = extract_option_value(ctx.args, "--provider") or "kiro_cli"
     agent_profile = extract_option_value(ctx.args, "--agents")

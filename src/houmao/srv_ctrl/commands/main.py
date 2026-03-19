@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from .install import install_command
 from .launch import launch_command
 from .passthrough import passthrough_command
 
@@ -16,7 +17,7 @@ def cli() -> None:
 cli.add_command(passthrough_command("flow"))
 cli.add_command(passthrough_command("info", require_pair=True))
 cli.add_command(passthrough_command("init"))
-cli.add_command(passthrough_command("install"))
+cli.add_command(install_command)
 cli.add_command(launch_command)
 cli.add_command(passthrough_command("mcp-server"))
 cli.add_command(passthrough_command("shutdown", require_pair=True))

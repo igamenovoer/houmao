@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
+import subprocess
 
 from houmao.cao.server_launcher import (
     CaoServerLauncherConfig,
@@ -13,6 +15,7 @@ from houmao.cao.server_launcher import (
     CaoServerStatusResult,
     CaoServerStopResult,
     ProxyPolicy,
+    build_cao_server_environment,
     load_cao_server_launcher_config,
     read_cao_server_ownership,
     resolve_cao_server_runtime_artifacts,
@@ -31,6 +34,22 @@ class ChildCaoInstance:
     config: CaoServerLauncherConfig
     ownership: CaoServerOwnership | None
     status: CaoServerStatusResult
+
+
+@dataclass(frozen=True)
+class ChildCaoInstallResult:
+    """Outcome of a pair-owned agent-profile install command."""
+
+    agent_source: str
+    provider: str
+    working_directory: Path | None
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class ChildCaoInstallError(RuntimeError):
+    """Raised when pair-owned install cannot be attempted safely."""
 
 
 class ChildCaoManager:
@@ -92,3 +111,47 @@ class ChildCaoManager:
 
         launcher_config = self.ensure_launcher_config()
         return resolve_cao_server_runtime_artifacts(launcher_config).ownership_file
+
+    def install_agent_profile(
+        self,
+        *,
+        agent_source: str,
+        provider: str,
+        working_directory: Path | None = None,
+    ) -> ChildCaoInstallResult:
+        """Install one agent profile into the managed child-CAO home."""
+
+        launcher_config = self.ensure_launcher_config()
+        executable = shutil.which("cao")
+        if executable is None:
+            raise ChildCaoInstallError("`cao` is not available on PATH for pair-owned install.")
+
+        resolved_working_directory: Path | None = None
+        if working_directory is not None:
+            resolved_working_directory = working_directory.expanduser().resolve()
+            if not resolved_working_directory.exists() or not resolved_working_directory.is_dir():
+                raise ChildCaoInstallError(
+                    "Pair-owned install requires an existing working directory when one is "
+                    f"provided: `{resolved_working_directory}`."
+                )
+
+        completed = subprocess.run(
+            [executable, "install", agent_source, "--provider", provider],
+            check=False,
+            capture_output=True,
+            cwd=str(resolved_working_directory) if resolved_working_directory is not None else None,
+            env=build_cao_server_environment(
+                proxy_policy=launcher_config.proxy_policy,
+                home_dir=launcher_config.home_dir,
+                base_url=launcher_config.base_url,
+            ),
+            text=True,
+        )
+        return ChildCaoInstallResult(
+            agent_source=agent_source,
+            provider=provider,
+            working_directory=resolved_working_directory,
+            returncode=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
