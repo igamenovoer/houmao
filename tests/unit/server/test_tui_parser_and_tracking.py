@@ -25,6 +25,10 @@ def _identity() -> HoumaoTrackedSessionIdentity:
 
 
 def _ready_surface() -> HoumaoParsedSurface:
+    return _ready_surface_with_projection("ready")
+
+
+def _ready_surface_with_projection(text: str) -> HoumaoParsedSurface:
     return HoumaoParsedSurface(
         parser_family="codex_shadow",
         parser_preset_id="codex",
@@ -33,10 +37,10 @@ def _ready_surface() -> HoumaoParsedSurface:
         business_state="idle",
         input_mode="freeform",
         ui_context="normal_prompt",
-        normalized_projection_text="ready",
-        dialog_text="ready",
-        dialog_head="ready",
-        dialog_tail="ready",
+        normalized_projection_text=text,
+        dialog_text=text,
+        dialog_head=text,
+        dialog_tail=text,
         anomaly_codes=[],
         baseline_invalidated=False,
         operator_blocked_excerpt=None,
@@ -263,6 +267,141 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
 
     assert completed.operator_state.completion_state == "completed"
     assert completed.lifecycle_timing.completion_candidate_elapsed_seconds == pytest.approx(1.6)
+
+
+def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    probe_snapshot = HoumaoProbeSnapshot(
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        pane_id="%9",
+        pane_pid=4321,
+        matched_process_names=["codex"],
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.2,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+
+    candidate = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.3,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("assistant answered and prompt ready"),
+    )
+
+    assert candidate.operator_state.status == "ready"
+    assert candidate.operator_state.completion_state == "candidate_complete"
+    assert candidate.operator_state.projection_changed is True
+    assert candidate.lifecycle_timing.completion_candidate_elapsed_seconds == 0.0
+
+    completed = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("assistant answered and prompt ready"),
+    )
+
+    assert completed.operator_state.status == "completed"
+    assert completed.operator_state.completion_state == "completed"
+    assert completed.lifecycle_timing.completion_candidate_elapsed_seconds == pytest.approx(1.7)
+
+
+def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    probe_snapshot = HoumaoProbeSnapshot(
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        pane_id="%9",
+        pane_pid=4321,
+        matched_process_names=["codex"],
+    )
+
+    first = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("startup welcome"),
+    )
+    second = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.3,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("steady prompt"),
+    )
+    third = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("steady prompt"),
+    )
+
+    assert first.operator_state.completion_state == "inactive"
+    assert second.operator_state.completion_state == "inactive"
+    assert second.operator_state.projection_changed is False
+    assert third.operator_state.completion_state == "inactive"
+    assert third.operator_state.status == "ready"
 
 
 def test_live_session_tracker_promotes_continuous_unknown_to_stalled() -> None:

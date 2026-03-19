@@ -10,12 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rich.columns import Columns
 from rich.console import Console, Group
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from houmao.server.client import HoumaoServerClient
@@ -33,6 +31,7 @@ class AgentDisplayState:
 
     slot: str
     tool: str
+    operator_status: str
     terminal_id: str
     tmux_session_name: str
     transport_state: str
@@ -51,6 +50,8 @@ class AgentDisplayState:
     anomaly_codes: tuple[str, ...]
     dialog_tail: str
     detail: str
+    last_transition_at_utc: str | None
+    last_transition_summary: str | None
     error_detail: str | None = None
 
 
@@ -124,6 +125,7 @@ class ShadowWatchMonitor:
                             AgentDisplayState(
                                 slot=slot,
                                 tool=session.tool,
+                                operator_status="error",
                                 terminal_id=session.terminal_id,
                                 tmux_session_name=session.tmux_session_name,
                                 transport_state="error",
@@ -142,6 +144,8 @@ class ShadowWatchMonitor:
                                 anomaly_codes=(),
                                 dialog_tail="",
                                 detail="Failed to fetch terminal state from houmao-server.",
+                                last_transition_at_utc=None,
+                                last_transition_summary=None,
                                 error_detail=str(exc),
                             )
                         )
@@ -240,9 +244,11 @@ def _display_state_from_terminal(
     """Convert one terminal-state payload into display-friendly fields."""
 
     parsed_surface = state.parsed_surface
+    last_transition = state.recent_transitions[-1] if state.recent_transitions else None
     return AgentDisplayState(
         slot=slot,
         tool=state.tracked_session.tool,
+        operator_status=state.operator_state.status,
         terminal_id=state.terminal_id,
         tmux_session_name=state.tracked_session.tmux_session_name,
         transport_state=state.transport_state,
@@ -261,6 +267,8 @@ def _display_state_from_terminal(
         anomaly_codes=parsed_surface.anomaly_codes if parsed_surface is not None else (),
         dialog_tail=parsed_surface.dialog_tail if parsed_surface is not None else "",
         detail=state.operator_state.detail,
+        last_transition_at_utc=last_transition.recorded_at_utc if last_transition is not None else None,
+        last_transition_summary=last_transition.summary if last_transition is not None else None,
         error_detail=(state.parse_error or state.probe_error).message
         if (state.parse_error or state.probe_error) is not None
         else None,
@@ -277,92 +285,101 @@ def _render_dashboard(
 
     layout = Layout()
     layout.split_column(
-        Layout(name="summary", size=10),
-        Layout(name="details", size=16),
+        Layout(name="header", size=5),
+        Layout(name="agents", size=16),
         Layout(name="transitions"),
     )
-    layout["summary"].update(_render_summary_table(display_states=display_states))
-    layout["details"].update(
-        Columns(
-            [_render_detail_panel(state) for state in display_states],
-            equal=True,
-            expand=True,
-        )
+    layout["header"].update(
+        _render_header_panel(demo_state=demo_state, display_states=display_states)
     )
+    layout["agents"].update(_render_agents_panel(display_states))
     layout["transitions"].update(
         _render_transition_panel(demo_state=demo_state, transitions=transitions)
     )
     return layout
 
 
-def _render_summary_table(*, display_states: list[AgentDisplayState]) -> Panel:
-    """Render the compact top-level state table."""
+def _render_header_panel(
+    *,
+    demo_state: HoumaoServerDualShadowWatchState,
+    display_states: list[AgentDisplayState],
+) -> Panel:
+    """Render a short top-level monitor summary."""
 
-    table = Table(expand=True)
-    for column in (
-        "slot",
-        "transport",
-        "process",
-        "parse",
-        "availability",
-        "business",
-        "input",
-        "readiness",
-        "completion",
-        "unknown_s",
-        "candidate_s",
-        "projection_changed",
-        "anomalies",
-    ):
-        table.add_column(column)
-    for state in display_states:
-        unknown_seconds = state.readiness_unknown_elapsed_seconds
-        if unknown_seconds is None:
-            unknown_seconds = state.completion_unknown_elapsed_seconds
-        table.add_row(
-            state.slot,
-            state.transport_state,
-            state.process_state,
-            state.parse_status,
-            state.availability,
-            state.business_state,
-            state.input_mode,
-            state.readiness_state,
-            state.completion_state,
-            _format_seconds(unknown_seconds),
-            _format_seconds(state.completion_candidate_elapsed_seconds),
-            str(state.projection_changed),
-            ",".join(state.anomaly_codes[-4:]) if state.anomaly_codes else "-",
-        )
-    return Panel(table, title="Houmao Server Shadow Watch Summary")
+    current_states = " | ".join(
+        f"{state.slot}: {state.operator_status} ({state.readiness_state}/{state.completion_state})"
+        for state in display_states
+    )
+    lines = [
+        Text(f"server: {demo_state.server.api_base_url}"),
+        Text(
+            "poll="
+            f"{demo_state.poll_interval_seconds:.1f}s  "
+            f"stable={demo_state.completion_stability_seconds:.1f}s  "
+            f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
+        ),
+        Text(f"current: {current_states or 'no agents'}"),
+    ]
+    return Panel(Group(*lines), title="Houmao Shadow Watch")
 
 
-def _render_detail_panel(state: AgentDisplayState) -> Panel:
-    """Render one per-agent detail panel."""
+def _render_agent_panel(state: AgentDisplayState) -> Panel:
+    """Render one compact per-agent status card."""
 
     lines = [
-        Text(f"tmux: {state.tmux_session_name}"),
-        Text(f"terminal: {state.terminal_id}"),
-        Text(
-            "transport/process/parse: "
-            f"{state.transport_state} / {state.process_state} / {state.parse_status}"
-        ),
-        Text(
-            "parser surface: "
-            f"{state.availability} / {state.business_state} / {state.input_mode} / {state.ui_context}"
-        ),
-        Text(
-            "lifecycle: "
-            f"{state.readiness_state} / {state.completion_state} "
-            f"(unknown={_format_seconds(state.readiness_unknown_elapsed_seconds or state.completion_unknown_elapsed_seconds)}, "
-            f"candidate={_format_seconds(state.completion_candidate_elapsed_seconds)})"
-        ),
-        Text(f"detail: {state.detail}"),
-        Text(f"tail: {state.dialog_tail or '<empty>'}"),
+        Text(f"current: {state.operator_status}"),
+        Text(f"ready/complete: {state.readiness_state} / {state.completion_state}"),
+        Text(f"health: {state.transport_state} / {state.process_state} / {state.parse_status}"),
+        Text(f"surface: {state.availability} / {state.business_state} / {state.ui_context}"),
+        Text(f"detail: {_truncate_text(state.detail, limit=120)}"),
     ]
+    timing_text = _timing_summary(state)
+    if timing_text:
+        lines.append(Text(f"timing: {timing_text}"))
+    last_transition_text = _last_transition_summary(state)
+    lines.append(Text(f"last transition: {last_transition_text}"))
+    lines.append(Text(f"tail: {_compact_dialog_excerpt(state.dialog_tail)}"))
     if state.error_detail:
-        lines.append(Text(f"error: {state.error_detail}"))
-    return Panel(Group(*lines), title=f"{state.tool} ({state.slot})")
+        lines.append(Text(f"error: {_truncate_text(state.error_detail, limit=120)}"))
+    elif _should_show_anomalies(state):
+        lines.append(Text(f"anomalies: {','.join(state.anomaly_codes[-3:])}"))
+    return Panel(Group(*lines), title=f"{state.slot} ({state.tool})")
+
+
+def _render_agents_panel(display_states: list[AgentDisplayState]) -> Panel:
+    """Render all agents in one stacked status panel for narrow tmux panes."""
+
+    body_lines: list[Text] = []
+    for index, state in enumerate(display_states):
+        if index > 0:
+            body_lines.append(Text(""))
+        body_lines.extend(_agent_panel_lines(state))
+    return Panel(Group(*body_lines), title="Agent Status")
+
+
+def _agent_panel_lines(state: AgentDisplayState) -> list[Text]:
+    """Build compact status lines for one agent."""
+
+    lines = [
+        Text(f"{state.slot} ({state.tool})"),
+        Text(
+            "  current: "
+            f"{state.operator_status} | {state.readiness_state}/{state.completion_state} | "
+            f"{state.transport_state}/{state.process_state}/{state.parse_status}"
+        ),
+        Text(f"  surface: {state.availability} / {state.business_state} / {state.ui_context}"),
+        Text(f"  detail: {_truncate_text(state.detail, limit=120)}"),
+    ]
+    timing_text = _timing_summary(state)
+    if timing_text:
+        lines.append(Text(f"  timing: {timing_text}"))
+    lines.append(Text(f"  last: {_last_transition_summary(state)}"))
+    lines.append(Text(f"  tail: {_compact_dialog_excerpt(state.dialog_tail)}"))
+    if state.error_detail:
+        lines.append(Text(f"  error: {_truncate_text(state.error_detail, limit=120)}"))
+    elif _should_show_anomalies(state):
+        lines.append(Text(f"  anomalies: {','.join(state.anomaly_codes[-3:])}"))
+    return lines
 
 
 def _render_transition_panel(
@@ -372,18 +389,22 @@ def _render_transition_panel(
 ) -> Panel:
     """Render the rolling transition log."""
 
-    header = Text(
-        "poll="
-        f"{demo_state.poll_interval_seconds:.1f}s "
-        f"stable={demo_state.completion_stability_seconds:.1f}s "
-        f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
-    )
-    body_lines = [header, Text("")]
+    body_lines = [
+        Text(
+            "poll="
+            f"{demo_state.poll_interval_seconds:.1f}s "
+            f"stable={demo_state.completion_stability_seconds:.1f}s "
+            f"unknown->stalled={demo_state.unknown_to_stalled_timeout_seconds:.1f}s"
+        )
+    ]
     if not transitions:
         body_lines.append(Text("No server-authored transitions yet."))
-    for event in transitions[-10:]:
-        body_lines.append(Text(f"{event.ts_utc} [{event.slot}] {event.summary}"))
-    return Panel(Group(*body_lines), title="Server Transitions")
+    for event in transitions[-6:]:
+        short_ts = _short_timestamp(event.ts_utc)
+        body_lines.append(
+            Text(f"{short_ts} {event.slot}: {_truncate_text(event.summary, limit=120)}")
+        )
+    return Panel(Group(*body_lines), title="Recent Transitions")
 
 
 def _append_ndjson(path: Path, payload: dict[str, Any]) -> None:
@@ -406,3 +427,81 @@ def _format_seconds(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}"
+
+
+def _timing_summary(state: AgentDisplayState) -> str:
+    """Render only the timing fields that are currently relevant."""
+
+    parts: list[str] = []
+    unknown_seconds = state.readiness_unknown_elapsed_seconds
+    if unknown_seconds is None:
+        unknown_seconds = state.completion_unknown_elapsed_seconds
+    if unknown_seconds is not None:
+        parts.append(f"unknown={_format_seconds(unknown_seconds)}s")
+    if state.completion_candidate_elapsed_seconds is not None:
+        parts.append(f"candidate={_format_seconds(state.completion_candidate_elapsed_seconds)}s")
+    return ", ".join(parts)
+
+
+def _last_transition_summary(state: AgentDisplayState) -> str:
+    """Render a compact last-transition summary for one agent."""
+
+    if state.last_transition_summary is None:
+        return "none"
+    short_ts = _short_timestamp(state.last_transition_at_utc)
+    prefix = f"{short_ts} " if short_ts else ""
+    return prefix + _truncate_text(state.last_transition_summary, limit=110)
+
+
+def _short_timestamp(value: str | None) -> str:
+    """Return one HH:MM:SS view of an ISO timestamp when possible."""
+
+    if value is None:
+        return ""
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).astimezone(UTC).strftime("%H:%M:%S")
+    except ValueError:
+        return value
+
+
+def _compact_dialog_excerpt(text: str, *, limit: int = 120) -> str:
+    """Collapse one dialog tail into a short, readable snippet."""
+
+    if not text.strip():
+        return "<empty>"
+    kept_lines: list[str] = []
+    for raw_line in text.splitlines():
+        cleaned = " ".join(raw_line.strip().split())
+        cleaned = cleaned.strip("│╭╮╰╯─ ")
+        cleaned = " ".join(cleaned.split())
+        if not cleaned:
+            continue
+        kept_lines.append(cleaned)
+    if not kept_lines:
+        return "<empty>"
+    return _truncate_text(" | ".join(kept_lines[-2:]), limit=limit)
+
+
+def _truncate_text(value: str, *, limit: int) -> str:
+    """Truncate one long display string to a bounded width."""
+
+    collapsed = " ".join(value.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[: limit - 1]}…"
+
+
+def _should_show_anomalies(state: AgentDisplayState) -> bool:
+    """Show anomalies only when they add signal for the current state."""
+
+    if not state.anomaly_codes:
+        return False
+    if state.operator_status not in {"ready", "completed"}:
+        return True
+    interesting_codes = [
+        code
+        for code in state.anomaly_codes
+        if code not in {"baseline_invalidated", "unknown_version_floor_used"}
+    ]
+    return bool(interesting_codes)

@@ -262,6 +262,7 @@ class _SurfaceStateReducer:
         self.m_completion_unknown_started_at: float | None = None
         self.m_completion_stalled = False
         self.m_last_ready_projection_key: str | None = None
+        self.m_last_ready_projection_streak = 0
         self.m_cycle_baseline_projection_key: str | None = None
         self.m_cycle_frozen_projection_key: str | None = None
         self.m_cycle_saw_working = False
@@ -316,6 +317,9 @@ class _SurfaceStateReducer:
         """Update completion state from one observation."""
 
         classification = _classify_completion_surface(observation)
+        was_submit_ready = _is_submit_ready(observation)
+        previous_ready_projection_key = self.m_last_ready_projection_key
+        previous_ready_projection_streak = self.m_last_ready_projection_streak
         if classification == "unknown":
             if self.m_completion_unknown_started_at is None:
                 self.m_completion_unknown_started_at = observation.monotonic_ts
@@ -328,12 +332,11 @@ class _SurfaceStateReducer:
         self.m_completion_unknown_started_at = None
         self.m_completion_stalled = False
 
-        if _is_submit_ready(observation):
-            self.m_last_ready_projection_key = observation.normalized_projection_text
-
         if classification in {"failed", "blocked"}:
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
+            if was_submit_ready:
+                self.m_last_ready_projection_key = observation.normalized_projection_text
             return classification, None, None, self.m_cycle_saw_projection_change
 
         if observation.business_state == "working" and self.m_last_business_state != "working":
@@ -354,6 +357,16 @@ class _SurfaceStateReducer:
         elif self.m_cycle_frozen_projection_key is not None:
             effective_projection_key = self.m_cycle_frozen_projection_key
 
+        if (
+            was_submit_ready
+            and self.m_cycle_baseline_projection_key is None
+            and previous_ready_projection_key is not None
+            and previous_ready_projection_streak >= 2
+            and effective_projection_key != previous_ready_projection_key
+        ):
+            self.m_cycle_baseline_projection_key = previous_ready_projection_key
+            self.m_cycle_saw_projection_change = True
+
         if observation.business_state == "working":
             if self.m_cycle_baseline_projection_key is None:
                 self.m_cycle_baseline_projection_key = (
@@ -369,7 +382,7 @@ class _SurfaceStateReducer:
                 effective_projection_key != self.m_cycle_baseline_projection_key
             )
 
-        if _is_submit_ready(observation) and (
+        if was_submit_ready and (
             self.m_cycle_saw_working or self.m_cycle_saw_projection_change
         ):
             signature = (
@@ -386,12 +399,14 @@ class _SurfaceStateReducer:
             assert self.m_candidate_started_at is not None
             candidate_elapsed_seconds = observation.monotonic_ts - self.m_candidate_started_at
             if candidate_elapsed_seconds >= self.m_completion_stability_seconds:
+                self._remember_submit_ready_projection(effective_projection_key)
                 return (
                     "completed",
                     None,
                     candidate_elapsed_seconds,
                     self.m_cycle_saw_projection_change,
                 )
+            self._remember_submit_ready_projection(effective_projection_key)
             return (
                 "candidate_complete",
                 None,
@@ -401,11 +416,24 @@ class _SurfaceStateReducer:
         elif self.m_cycle_baseline_projection_key is None:
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
+            if was_submit_ready:
+                self._remember_submit_ready_projection(effective_projection_key)
             return "inactive", None, None, self.m_cycle_saw_projection_change
         else:
             self.m_candidate_started_at = None
             self.m_candidate_signature = None
+            if was_submit_ready:
+                self._remember_submit_ready_projection(effective_projection_key)
             return "waiting", None, None, self.m_cycle_saw_projection_change
+
+    def _remember_submit_ready_projection(self, projection_key: str) -> None:
+        """Track consecutive ready observations for one projection surface."""
+
+        if self.m_last_ready_projection_key == projection_key:
+            self.m_last_ready_projection_streak += 1
+            return
+        self.m_last_ready_projection_key = projection_key
+        self.m_last_ready_projection_streak = 1
 
 
 def _build_initial_state(

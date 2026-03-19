@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 import houmao.demo.houmao_server_dual_shadow_watch.monitor as monitor_module
+from rich.console import Console
+
 from houmao.demo.houmao_server_dual_shadow_watch.models import (
     AgentSessionState,
     HoumaoServerDualShadowWatchState,
@@ -250,3 +252,39 @@ def test_monitor_consumes_server_state_and_writes_samples_and_transitions(
     )
     assert len(transitions) == 2
     assert transitions[0]["summary"].endswith("became candidate_complete")
+
+
+def test_render_agent_panel_uses_compact_status_card() -> None:
+    """The agent panel should show a short current-state card."""
+
+    display_state = monitor_module._display_state_from_terminal(
+        slot="codex",
+        state=_terminal_state("dcba4321", tool="codex", slot="codex"),
+    )
+
+    console = Console(record=True, width=120)
+    console.print(monitor_module._render_agent_panel(display_state))
+    output = console.export_text()
+
+    assert "current: ready" in output
+    assert "ready/complete: ready / candidate_complete" in output
+    assert "health: tmux_up / tui_up / parsed" in output
+    assert "last transition:" in output
+    assert "transport/process/parse:" not in output
+    assert "tmux:" not in output
+
+
+def test_compact_dialog_excerpt_keeps_only_meaningful_tail_lines() -> None:
+    """The tail excerpt should drop empty lines and box-drawing noise."""
+
+    excerpt = monitor_module._compact_dialog_excerpt(
+        """
+        │ header │
+
+        › Say READY in one short sentence and stop.
+
+        • READY.
+        """
+    )
+
+    assert excerpt == "› Say READY in one short sentence and stop. | • READY."
