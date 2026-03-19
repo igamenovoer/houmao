@@ -19,6 +19,7 @@ from .common import client_for_base_url, echo_json
 @click.option("--agent-name", default=None)
 @click.option("--agent-id", default=None)
 @click.option("--tmux-session-name", default=None)
+@click.option("--tmux-window-name", default=None)
 def register_launch_command(
     api_base_url: str,
     session_name: str,
@@ -29,6 +30,7 @@ def register_launch_command(
     agent_name: str | None,
     agent_id: str | None,
     tmux_session_name: str | None,
+    tmux_window_name: str | None,
 ) -> None:
     """Register a delegated CLI launch into `houmao-server`."""
 
@@ -43,6 +45,7 @@ def register_launch_command(
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=tmux_session_name,
+            tmux_window_name=tmux_window_name,
         )
     )
     echo_json(response.model_dump(mode="json"))

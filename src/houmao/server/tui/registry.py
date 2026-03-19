@@ -91,58 +91,10 @@ class KnownSessionRegistry:
             registration = HoumaoRegisterLaunchRequest.model_validate(payload)
         except Exception:
             return None
-
-        manifest_path = _optional_path(registration.manifest_path)
-        session_root = _optional_path(registration.session_root)
-        agent_name = registration.agent_name
-        agent_id = registration.agent_id
-        terminal_id = registration.terminal_id
-        tmux_session_name = registration.tmux_session_name or registration.session_name
-        tmux_window_name: str | None = None
-        tool = registration.tool
-
-        shared_registry_record = self._shared_registry_record(
-            agent_id=agent_id,
-            agent_name=agent_name,
-        )
-        if shared_registry_record is not None:
-            if manifest_path is None:
-                manifest_path = _optional_path(shared_registry_record.runtime.manifest_path)
-            if session_root is None:
-                session_root = _optional_path(shared_registry_record.runtime.session_root)
-            if agent_name is None:
-                agent_name = shared_registry_record.agent_name
-            if agent_id is None:
-                agent_id = shared_registry_record.agent_id
-            if not tmux_session_name.strip():
-                tmux_session_name = shared_registry_record.terminal.session_name
-
-        if manifest_path is not None and manifest_path.is_file():
-            manifest_metadata = _load_manifest_metadata(manifest_path=manifest_path)
-            terminal_id = terminal_id or manifest_metadata.terminal_id
-            tmux_window_name = manifest_metadata.tmux_window_name
-            tmux_session_name = manifest_metadata.tmux_session_name or tmux_session_name
-            tool = manifest_metadata.tool or tool
-            if session_root is None:
-                session_root = manifest_metadata.session_root
-
-        if terminal_id is None or not terminal_id.strip():
-            return None
-        if tmux_session_name not in live_tmux_sessions:
-            return None
-
-        tracked_session_id = registration.session_name
-        return KnownSessionRecord(
-            tracked_session_id=tracked_session_id,
-            session_name=registration.session_name,
-            tool=tool,
-            terminal_id=terminal_id,
-            tmux_session_name=tmux_session_name,
-            tmux_window_name=tmux_window_name,
-            manifest_path=manifest_path,
-            session_root=session_root,
-            agent_name=agent_name,
-            agent_id=agent_id,
+        return known_session_record_from_registration(
+            registration=registration,
+            live_tmux_sessions=live_tmux_sessions,
+            allow_shared_registry_enrichment=True,
         )
 
     @staticmethod
@@ -158,6 +110,68 @@ class KnownSessionRegistry:
         if agent_name is not None:
             return resolve_live_agent_record(agent_name)
         return None
+
+
+def known_session_record_from_registration(
+    *,
+    registration: HoumaoRegisterLaunchRequest,
+    live_tmux_sessions: set[str] | None = None,
+    allow_shared_registry_enrichment: bool,
+) -> KnownSessionRecord | None:
+    """Build one known-session record from a registration payload."""
+
+    manifest_path = _optional_path(registration.manifest_path)
+    session_root = _optional_path(registration.session_root)
+    agent_name = registration.agent_name
+    agent_id = registration.agent_id
+    terminal_id = registration.terminal_id
+    tmux_session_name = registration.tmux_session_name or registration.session_name
+    tmux_window_name = registration.tmux_window_name
+    tool = registration.tool
+
+    if allow_shared_registry_enrichment:
+        shared_registry_record = KnownSessionRegistry._shared_registry_record(
+            agent_id=agent_id,
+            agent_name=agent_name,
+        )
+        if shared_registry_record is not None:
+            if manifest_path is None:
+                manifest_path = _optional_path(shared_registry_record.runtime.manifest_path)
+            if session_root is None:
+                session_root = _optional_path(shared_registry_record.runtime.session_root)
+            if agent_name is None:
+                agent_name = shared_registry_record.agent_name
+            if agent_id is None:
+                agent_id = shared_registry_record.agent_id
+            if not tmux_session_name.strip():
+                tmux_session_name = shared_registry_record.terminal.session_name
+
+    if manifest_path is not None and manifest_path.is_file():
+        manifest_metadata = _load_manifest_metadata(manifest_path=manifest_path)
+        terminal_id = terminal_id or manifest_metadata.terminal_id
+        tmux_window_name = tmux_window_name or manifest_metadata.tmux_window_name
+        tmux_session_name = manifest_metadata.tmux_session_name or tmux_session_name
+        tool = manifest_metadata.tool or tool
+        if session_root is None:
+            session_root = manifest_metadata.session_root
+
+    if terminal_id is None or not terminal_id.strip():
+        return None
+    if live_tmux_sessions is not None and tmux_session_name not in live_tmux_sessions:
+        return None
+
+    return KnownSessionRecord(
+        tracked_session_id=registration.session_name,
+        session_name=registration.session_name,
+        tool=tool,
+        terminal_id=terminal_id,
+        tmux_session_name=tmux_session_name,
+        tmux_window_name=tmux_window_name,
+        manifest_path=manifest_path,
+        session_root=session_root,
+        agent_name=agent_name,
+        agent_id=agent_id,
+    )
 
 
 @dataclass(frozen=True)

@@ -1,33 +1,35 @@
 ## MODIFIED Requirements
 
 ### Requirement: Canonical mailbox message envelope
-The system SHALL represent mailbox messages through a transport-neutral logical envelope that includes at minimum:
+The system SHALL preserve transport-neutral mailbox message semantics, but shared mailbox operation surfaces used by runtime and gateway callers SHALL identify messages through transport-neutral references rather than requiring callers to understand transport-local storage ids.
 
-- `message_id`,
-- `thread_id`,
+The shared mailbox operation contract for this change SHALL include at minimum:
+
+- opaque `message_ref`,
+- optional `thread_ref`,
 - `created_at_utc`,
 - sender identity,
 - recipient identities,
 - `subject`,
-- `body_markdown`,
+- body content or body preview appropriate to the operation,
 - attachment metadata,
-- extensible protocol headers.
+- unread state when returned from `check`.
 
-The system SHALL preserve the logical envelope semantics across mailbox transports, but it SHALL NOT require every transport to persist that envelope as a Houmao-authored canonical document or to use Houmao-generated identifiers as the transport’s storage authority.
+The system SHALL preserve the logical mailbox semantics across transports, but it SHALL NOT require every transport to persist a Houmao-authored canonical document or to expose Houmao-generated identifiers as the public operation contract.
 
-In v1, the filesystem transport SHALL continue to generate `message_id` values using the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`.
+For the filesystem transport, shared mailbox operation refs MAY be derived from the existing canonical message ids and thread ids.
 
-Non-filesystem mailbox transports MAY use transport-owned delivery identifiers as the authoritative server-side message reference, provided they still preserve stable reply targeting and transport-neutral ancestry semantics for Houmao mailbox operations.
+For non-filesystem mailbox transports such as `stalwart`, shared mailbox operation refs MAY be derived from transport-owned message identities, provided they still preserve stable reply targeting and transport-neutral ancestry semantics for Houmao mailbox operations.
 
-#### Scenario: Filesystem transport keeps Houmao-generated canonical message ids
-- **WHEN** the filesystem mailbox transport creates a new mailbox message
-- **THEN** the logical envelope uses the v1 `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}` identifier format
-- **AND THEN** that filesystem transport persists that message through its canonical filesystem message model
+#### Scenario: Filesystem transport exposes shared message references without exposing SQLite storage details
+- **WHEN** a caller performs a shared mailbox operation against the filesystem transport
+- **THEN** the transport returns stable `message_ref` values suitable for later `reply` targeting
+- **AND THEN** the caller does not need to understand mailbox-local SQLite row identities or other transport-local storage details
 
-#### Scenario: Stalwart-backed transport preserves logical ancestry without requiring filesystem-style message storage
-- **WHEN** the `stalwart` mailbox transport creates or reads a mailbox message
-- **THEN** the transport preserves the logical sender, recipient, subject, body, and reply ancestry semantics needed by Houmao mailbox operations
-- **AND THEN** the transport is not required to persist that message as a Houmao-authored canonical Markdown document or to use the Houmao logical id as the authoritative server-side storage id
+#### Scenario: Stalwart-backed transport exposes reply-capable shared message references
+- **WHEN** the `stalwart` mailbox transport creates or reads a mailbox message through the shared mailbox operation contract
+- **THEN** the transport returns a stable `message_ref` suitable for later `reply` targeting
+- **AND THEN** the caller does not need to understand Stalwart-native object shapes to continue the mailbox workflow
 
 ### Requirement: Attachment references carry stable metadata
 The system SHALL support mailbox attachments as structured metadata that can describe either local composition inputs or transport-owned delivered artifacts.

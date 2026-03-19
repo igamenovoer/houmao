@@ -10,7 +10,7 @@ At minimum, the runtime SHALL provide the following common mailbox binding env v
 - `AGENTSYS_MAILBOX_ADDRESS`,
 - `AGENTSYS_MAILBOX_BINDINGS_VERSION`.
 
-The runtime SHALL additionally provide transport-specific mailbox binding env vars required by the selected transport.
+The runtime SHALL additionally provide transport-specific mailbox binding env vars required by the selected transport, and it MAY expose live gateway discovery bindings through the existing gateway env contract when a live gateway is attached.
 
 Filesystem-specific mailbox binding env vars SHALL continue to use the `AGENTSYS_MAILBOX_FS_` prefix.
 
@@ -35,38 +35,22 @@ For `stalwart` mailbox sessions, those runtime-managed bindings SHALL include at
 ### Requirement: Runtime-owned mailbox commands rely on projected mailbox system skills
 The system SHALL allow runtime-owned mailbox command surfaces to rely on projected, transport-specific mailbox system skills plus runtime-managed mailbox bindings, without requiring mailbox-specific instructions to be authored in the role or recipe.
 
-For filesystem sessions, the projected mailbox system skills MAY continue to direct agents to shared filesystem mailbox rules and managed helper scripts.
+When a live gateway exposes the shared `/v1/mail/*` mailbox surface for the session, the projected mailbox system skill SHALL prefer that gateway surface for the shared mailbox operations in this change: `check`, `send`, and `reply`.
 
-For `stalwart` sessions, the projected mailbox system skills SHALL direct agents to the Stalwart-backed mailbox transport bindings and mailbox-resident conventions appropriate to the real mail system instead of to filesystem-only repair machinery.
+When no live gateway mailbox facade is available, the projected mailbox system skill MAY fall back to direct transport-specific mailbox behavior appropriate to the selected transport.
 
-#### Scenario: Runtime mail request uses projected filesystem mailbox system skills
-- **WHEN** the runtime delivers a mailbox-operation prompt to a filesystem mailbox-enabled session
+#### Scenario: Gateway-aware mailbox skill uses the shared gateway mail surface
+- **WHEN** a mailbox-enabled session has a live attached gateway that exposes `/v1/mail/*`
+- **AND WHEN** the runtime delivers a mailbox-operation prompt such as `check`, `send`, or `reply`
+- **THEN** the projected mailbox system skill prefers the gateway mailbox surface for that shared mailbox operation
+- **AND THEN** the agent does not need to reason about filesystem versus Stalwart transport details to perform that shared operation
+
+#### Scenario: Filesystem mailbox skill falls back to direct filesystem behavior when no gateway is attached
+- **WHEN** the runtime delivers a mailbox-operation prompt to a filesystem mailbox-enabled session with no live gateway mailbox surface
 - **THEN** the launched agent can satisfy that request through the projected filesystem mailbox system skills and filesystem mailbox env bindings
 - **AND THEN** that mailbox operation does not depend on mailbox-specific behavior being restated inside the role or recipe
 
-#### Scenario: Runtime mail request uses projected Stalwart mailbox system skills
-- **WHEN** the runtime delivers a mailbox-operation prompt to a `stalwart` mailbox-enabled session
+#### Scenario: Stalwart mailbox skill falls back to direct real-mail behavior when no gateway is attached
+- **WHEN** the runtime delivers a mailbox-operation prompt to a `stalwart` mailbox-enabled session with no live gateway mailbox surface
 - **THEN** the launched agent can satisfy that request through the projected Stalwart mailbox system skills and runtime-managed email mailbox bindings
 - **AND THEN** that mailbox operation does not require the role or recipe to define transport-specific Stalwart instructions
-
-## ADDED Requirements
-
-### Requirement: Email-backed mailbox system skills use mailbox-resident guidance instead of filesystem mailbox rules
-For real-mail transports such as `stalwart`, the projected mailbox system skill SHALL instruct agents to use mailbox-resident welcome guidance and runtime-managed mailbox bindings rather than a filesystem mailbox `rules/` tree as the first transport-specific guidance surface.
-
-The projected email-backed mailbox system skill SHALL NOT require `rules/`, `rules/scripts/`, mailbox lock files, or mailbox-local SQLite as prerequisites for mailbox correctness.
-
-#### Scenario: Stalwart mailbox skill points agent to welcome guidance instead of rules directory
-- **WHEN** an agent uses the projected mailbox system skill for a `stalwart` mailbox session
-- **THEN** that skill instructs the agent to consult mailbox-resident welcome guidance and runtime-managed bindings for transport-specific conventions
-- **AND THEN** the skill does not require a filesystem `rules/` directory to use the mailbox correctly
-
-### Requirement: Email-backed mailbox system skills do not direct agents to server administration surfaces
-For real-mail transports such as `stalwart`, projected mailbox system skills SHALL distinguish participant mailbox operations from server administration.
-
-Those skills SHALL allow mailbox read, send, and reply behavior through runtime-managed participant mailbox bindings, but they SHALL NOT instruct ordinary mailbox participants to use Stalwart management APIs for routine mailbox operations.
-
-#### Scenario: Stalwart mailbox skill avoids management API usage for ordinary message work
-- **WHEN** an agent uses the projected mailbox system skill to check or send mail through a `stalwart` mailbox session
-- **THEN** the skill uses participant mailbox bindings suitable for mailbox operations
-- **AND THEN** the skill does not direct the agent to use server administration APIs to read, send, or reply to ordinary mailbox messages

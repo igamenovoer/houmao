@@ -76,6 +76,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/81/db/e655086b7f3a705df045bf0933bdd9c2f79bb3c97bfef1384598bb79a217/keyring-25.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8b/34/b11ab24abb78c73a1b82f6471c2d71bdd1bf2c8f30768ed2f26f1dddc083/libtmux-0.55.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fa/e1/23f6629cab94f740ec8c4827742ebd8ef7b3b760cb3dea6e92349289d25c/mail_parser-4.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/94/54/e7d793b573f298e1c9013b8c4dade17d481164aa517d1d7148619c2cedbf/markdown_it_py-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a9/21/9b05698b46f218fc0e118e1f8168395c65c8a2c750ae2bab54fc4bd4e0e8/markupsafe-3.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -521,7 +522,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: 4d2b81c44cfb1641a8f31c18e914e7cca39862272db186449dce6b81cc802d99
+  sha256: b6070f68daf1f9df7fadc5b034b57c2099b137bf4ce5c70f2643397f8776e701
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7
@@ -540,10 +541,11 @@ packages:
   - platformdirs>=4.9.4,<5
   - rxpy>=0.1.0,<0.2
   - typer>=0.24.1,<0.25
-  - click
+  - click>=8.3.1,<9
   - memory-fs>=0.41.0,<0.42
   - httpx>=0.28.1,<0.29
   - libtmux>=0.55.0,<0.56
+  - mail-parser>=4.1.4,<5
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
   name: httpcore
@@ -1068,6 +1070,22 @@ packages:
   license_family: BSD
   size: 167055
   timestamp: 1733741040117
+- pypi: https://files.pythonhosted.org/packages/fa/e1/23f6629cab94f740ec8c4827742ebd8ef7b3b760cb3dea6e92349289d25c/mail_parser-4.1.4-py3-none-any.whl
+  name: mail-parser
+  version: 4.1.4
+  sha256: ec2f7996792d81c0beb174a14795865f9c0f09f47c8afc7b9f7c1240f59d71c2
+  requires_dist:
+  - six
+  - build ; extra == 'dev'
+  - pre-commit ; extra == 'dev'
+  - wheel ; extra == 'dev'
+  - twine ; extra == 'dev'
+  - coverage ; extra == 'test'
+  - pytest ; extra == 'test'
+  - pytest-cov ; extra == 'test'
+  - pytest-mock ; extra == 'test'
+  - pytest-ordering ; extra == 'test'
+  requires_python: '>=3.8'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/make-4.4.1-hb9d3cd8_2.conda
   sha256: d652c7bd4d3b6f82b0f6d063b0d8df6f54cc47531092d7ff008e780f3261bdda
   md5: 33405d2a66b1411db9f7242c8b97c9e7

@@ -208,6 +208,7 @@ def create_app(
         agent_name: str | None = None,
         agent_id: str | None = None,
         tmux_session_name: str | None = None,
+        tmux_window_name: str | None = None,
     ) -> HoumaoRegisterLaunchResponse:
         request_model = HoumaoRegisterLaunchRequest(
             session_name=session_name,
@@ -218,6 +219,7 @@ def create_app(
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=tmux_session_name,
+            tmux_window_name=tmux_window_name,
         )
         return resolved_service.register_launch(request_model)
 

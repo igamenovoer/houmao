@@ -36,8 +36,11 @@ class TmuxTransportResolver:
 
         if window_name is not None:
             matching_panes = tuple(pane for pane in panes if pane.window_name == window_name)
-            if matching_panes:
-                return ResolvedTmuxTarget(pane=_prefer_active_pane(matching_panes))
+            if not matching_panes:
+                raise TmuxCommandError(
+                    f"No tmux panes matched window `{window_name}` in `{session_name}`."
+                )
+            return ResolvedTmuxTarget(pane=_prefer_active_pane(matching_panes))
 
         return ResolvedTmuxTarget(pane=_prefer_active_pane(panes))
 

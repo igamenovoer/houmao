@@ -258,6 +258,7 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
     agent_name: str | None = None
     agent_id: str | None = None
     tmux_session_name: str | None = None
+    tmux_window_name: str | None = None
 
     @field_validator(
         "session_name",
@@ -268,6 +269,7 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
         "agent_name",
         "agent_id",
         "tmux_session_name",
+        "tmux_window_name",
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:

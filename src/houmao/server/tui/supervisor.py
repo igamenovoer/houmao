@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Protocol
 
 from houmao.server.tui.registry import KnownSessionRecord
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TrackingRuntime(Protocol):
@@ -22,6 +25,12 @@ class TrackingRuntime(Protocol):
 
     def poll_known_session(self, tracked_session_id: str) -> bool:
         """Poll one tracked session and return whether the worker should continue."""
+
+    def handle_poll_exception(self, tracked_session_id: str, exc: Exception) -> None:
+        """Record one unexpected worker-poll failure."""
+
+    def release_known_session(self, tracked_session_id: str) -> None:
+        """Release one tracked session from live in-memory authority."""
 
 
 class SessionWatchWorker:
@@ -58,7 +67,17 @@ class SessionWatchWorker:
 
     def _run(self) -> None:
         while not self.m_stop_event.is_set():
-            keep_running = self.m_runtime.poll_known_session(self.m_tracked_session_id)
+            try:
+                keep_running = self.m_runtime.poll_known_session(self.m_tracked_session_id)
+            except Exception as exc:  # pragma: no cover - exercised by thread tests
+                try:
+                    self.m_runtime.handle_poll_exception(self.m_tracked_session_id, exc)
+                except Exception:  # pragma: no cover - best-effort defensive logging
+                    LOGGER.exception(
+                        "Failed to record poll exception for tracked session `%s`.",
+                        self.m_tracked_session_id,
+                    )
+                keep_running = True
             if not keep_running:
                 return
             self.m_stop_event.wait(self.m_runtime.watch_poll_interval_seconds())
@@ -108,7 +127,10 @@ class TuiTrackingSupervisor:
 
     def _run(self) -> None:
         while not self.m_stop_event.is_set():
-            self._reconcile_once()
+            try:
+                self._reconcile_once()
+            except Exception:  # pragma: no cover - exercised by thread tests
+                LOGGER.exception("Unexpected failure in houmao watch supervisor reconcile loop.")
             self.m_wake_event.wait(self.m_runtime.watch_poll_interval_seconds())
             self.m_wake_event.clear()
 
@@ -117,14 +139,21 @@ class TuiTrackingSupervisor:
         live_ids = set(live_sessions)
 
         with self.m_lock:
-            stale_ids = [
+            missing_ids = [
                 tracked_session_id
                 for tracked_session_id, worker in self.m_workers.items()
-                if tracked_session_id not in live_ids or not worker.is_alive()
+                if tracked_session_id not in live_ids
             ]
-            for tracked_session_id in stale_ids:
+            dead_worker_ids = [
+                tracked_session_id
+                for tracked_session_id, worker in self.m_workers.items()
+                if tracked_session_id in live_ids and not worker.is_alive()
+            ]
+            for tracked_session_id in (*missing_ids, *dead_worker_ids):
                 worker = self.m_workers.pop(tracked_session_id)
                 worker.stop(join=True)
+            for tracked_session_id in missing_ids:
+                self.m_runtime.release_known_session(tracked_session_id)
 
             for tracked_session_id, record in live_sessions.items():
                 self.m_runtime.ensure_known_session(record)

@@ -80,5 +80,6 @@ Implemented runtime scope includes:
 
 1. [What We Tested](tested.md)
 2. [Migration Guide](migration-guide.md)
-3. [Houmao Server Pair Reference](../../../reference/houmao_server_pair.md)
-4. [Houmao Server Filesystem Reference](../../../reference/system-files/houmao-server.md)
+3. [TUI Handling Internals](../internals/tui_handling/README.md)
+4. [Houmao Server Pair Reference](../../../reference/houmao_server_pair.md)
+5. [Houmao Server Filesystem Reference](../../../reference/system-files/houmao-server.md)

@@ -9,7 +9,7 @@ The resolved mailbox configuration SHALL preserve transport-specific binding dat
 
 For filesystem sessions, that resolved configuration MAY include a filesystem mailbox root and registration-derived filesystem bindings.
 
-For `stalwart` sessions, that resolved configuration SHALL include the mailbox transport identity, mailbox principal identity, mailbox address, and transport-safe endpoint or credential-reference metadata needed to restore the same mailbox binding without persisting inline secrets in the manifest payload.
+For `stalwart` sessions, that resolved configuration SHALL include the mailbox transport identity, mailbox principal identity, mailbox address, and transport-safe endpoint or credential-reference metadata needed to restore the same mailbox binding and construct the same gateway mailbox adapter later without persisting inline secrets in the manifest payload.
 
 #### Scenario: Recipe configuration enables Stalwart mailbox support
 - **WHEN** a developer starts an agent session whose resolved recipe enables `stalwart` mailbox support
@@ -44,15 +44,21 @@ When the selected transport is `stalwart`, the runtime SHALL publish the real-ma
 - **AND THEN** the runtime starts the session with the email mailbox binding env vars needed by those mailbox system skills
 - **AND THEN** the runtime does not populate filesystem mailbox root or mailbox-path bindings for that Stalwart session
 
-### Requirement: Runtime mail commands use skill-directed prompts with appended mailbox metadata and validate a sentinel-delimited result contract
-The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly mutating filesystem mailbox artifacts itself.
+### Requirement: Runtime mail commands keep one operator surface while allowing gateway-backed shared mailbox interaction
+The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface and structured mailbox result shape across filesystem and `stalwart` sessions.
+
+The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly mutating mailbox transport state itself.
 
 That mailbox prompt SHALL explicitly tell the agent which projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
 
-The mailbox prompt SHALL follow transport-specific guidance expectations:
+The mailbox prompt and projected mailbox system skill SHALL prefer a live gateway mailbox facade when that facade is available for the addressed session.
+
+When no live gateway mailbox facade is available, the runtime MAY continue to rely on the direct session-mediated mailbox path appropriate to the selected transport.
+
+The mailbox prompt SHALL follow gateway-aware transport expectations:
 
 - filesystem prompts SHALL continue to instruct the agent to follow filesystem mailbox rules and helper boundaries when those are required for that transport,
-- `stalwart` prompts SHALL direct the agent to use the Stalwart-backed mailbox system skill and transport bindings without inheriting filesystem-only `rules/` or managed-script instructions.
+- `stalwart` prompts SHALL direct the agent to use the shared gateway mailbox facade when available or Stalwart-backed mailbox bindings when not, without inheriting filesystem-only `rules/` or managed-script instructions.
 
 The `mail` command handler SHALL validate exactly one structured mailbox result payload returned between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` sentinels in the agent output and SHALL surface that result to the operator in a parseable form.
 
@@ -64,8 +70,14 @@ That sentinel-delimited structured result contract SHALL remain the correctness 
 - **AND THEN** that prompt explicitly names the projected filesystem mailbox system skill the agent should use
 - **AND THEN** that prompt may direct the agent to inspect filesystem mailbox `rules/` guidance and helper boundaries appropriate to that transport
 
-#### Scenario: Stalwart mail command prompt excludes filesystem-only mailbox guidance
-- **WHEN** a developer invokes a runtime `mail` command for a `stalwart` mailbox-enabled session
+#### Scenario: Gateway-aware mail command prompt prefers the shared gateway facade
+- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session with a live gateway mailbox facade
+- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
+- **AND THEN** that prompt explicitly names the projected mailbox system skill the agent should use
+- **AND THEN** that prompt tells the agent to prefer the live gateway mailbox facade for the shared mailbox operation rather than reasoning about transport details directly
+
+#### Scenario: Stalwart mail command prompt excludes filesystem-only mailbox guidance when direct transport fallback is used
+- **WHEN** a developer invokes a runtime `mail` command for a `stalwart` mailbox-enabled session with no live gateway mailbox facade
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
 - **AND THEN** that prompt explicitly names the projected Stalwart mailbox system skill the agent should use
 - **AND THEN** that prompt does not direct the agent to use filesystem mailbox `rules/`, lock files, or managed scripts that are not part of the Stalwart transport
@@ -74,15 +86,3 @@ That sentinel-delimited structured result contract SHALL remain the correctness 
 - **WHEN** a mailbox-enabled agent completes a runtime `mail` request
 - **THEN** the agent returns one structured mailbox result payload describing the mailbox operation outcome between the required sentinels
 - **AND THEN** the runtime validates and prints that result in a parseable form for the operator
-
-## ADDED Requirements
-
-### Requirement: Runtime Stalwart mailbox startup ensures welcome-guidance discoverability
-When the runtime starts a mailbox-enabled session with `transport=stalwart`, it SHALL ensure that mailbox-resident welcome guidance is discoverable for that mailbox as part of transport-specific startup readiness.
-
-That startup readiness MAY create the welcome message when missing or confirm a previously created welcome thread, but it SHALL NOT require the welcome thread itself to become the persisted infrastructure source of truth for mailbox transport bindings.
-
-#### Scenario: Start session confirms welcome-guidance discoverability for Stalwart mailbox
-- **WHEN** a developer starts a `stalwart` mailbox-enabled session
-- **THEN** the runtime confirms that mailbox-resident welcome guidance is discoverable for that mailbox or creates it when needed
-- **AND THEN** mailbox startup readiness succeeds without inventing a filesystem `rules/` tree for the real mail transport

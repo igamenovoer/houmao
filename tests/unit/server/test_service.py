@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+import houmao.server.tui.registry as tui_registry_module
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoParsedSurface,
@@ -13,6 +15,7 @@ from houmao.server.models import (
 )
 from houmao.server.service import HoumaoServerService, ProxyResponse
 from houmao.server.tui import (
+    KnownSessionRecord,
     OfficialParseResult,
     PaneProcessInspection,
     ResolvedTmuxTarget,
@@ -151,6 +154,14 @@ class _FakeParserAdapter:
         self.m_parse_calls.append((tool, baseline_pos))
         del output_text
         return self.m_results.pop(0)
+
+
+class _FakeKnownSessionRegistry:
+    def __init__(self, records: dict[str, KnownSessionRecord] | None = None) -> None:
+        self.m_records = records or {}
+
+    def load_live_sessions(self) -> dict[str, KnownSessionRecord]:
+        return dict(self.m_records)
 
 
 def _ready_surface() -> HoumaoParsedSurface:
@@ -518,3 +529,237 @@ def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
     service.shutdown()
 
     assert child_manager.stop_calls == 1
+
+
+def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Path) -> None:
+    transport = _FakeTransport({})
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+    )
+
+    with pytest.raises(HTTPException, match="Invalid server-owned registration session name"):
+        service.register_launch(
+            HoumaoRegisterLaunchRequest(
+                session_name="../../escaped",
+                terminal_id="abcd1234",
+                tool="codex",
+            )
+        )
+
+    assert transport.m_calls == []
+
+
+def test_remove_registration_dir_stays_contained_under_sessions_root(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    escaped_root = tmp_path / "houmao_servers" / "escaped"
+    escaped_root.mkdir(parents=True, exist_ok=True)
+    escaped_registration = escaped_root / "registration.json"
+    escaped_registration.write_text("{}\n", encoding="utf-8")
+
+    service._remove_registration_dir(session_name="../../escaped")
+
+    assert escaped_registration.exists() is True
+
+
+def test_handle_poll_exception_records_probe_error_state(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+
+    service.handle_poll_exception("cao-gpu", RuntimeError("boom"))
+
+    state = service.terminal_state("abcd1234")
+    assert state.transport_state == "probe_error"
+    assert state.process_state == "probe_error"
+    assert state.parse_status == "probe_error"
+    assert state.probe_error is not None
+    assert state.probe_error.kind == "tracking_runtime_error"
+
+
+def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry = _FakeKnownSessionRegistry()
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+        known_session_registry=registry,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+    registry.m_records = {
+        "cao-gpu": KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="AGENTSYS-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=None,
+            session_root=None,
+            agent_name=None,
+            agent_id=None,
+        )
+    }
+    monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.start", lambda self: None)
+    monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.stop", lambda self, *, join=True: None)
+    monkeypatch.setattr("houmao.server.tui.supervisor.SessionWatchWorker.is_alive", lambda self: True)
+
+    service.m_supervisor._reconcile_once()
+    registry.m_records = {}
+    service.m_supervisor._reconcile_once()
+
+    with pytest.raises(HTTPException, match="Unknown terminal `abcd1234`"):
+        service.terminal_state("abcd1234")
+
+
+def test_refresh_terminal_state_uses_registration_window_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    tmux_transport = _FakeTmuxTransportResolver(output_text="visible tmux text")
+    process_inspector = _FakeProcessInspector(
+        PaneProcessInspection(
+            process_state="tui_up",
+            matched_process_names=("codex",),
+            matched_processes=(),
+        )
+    )
+    parser_adapter = _FakeParserAdapter(
+        [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=tmux_transport,
+        process_inspector=process_inspector,
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+            tmux_window_name="developer-1",
+        )
+    )
+
+    service.refresh_terminal_state("abcd1234")
+
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1")]
+
+
+def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "houmao.server.tui.registry._load_manifest_metadata",
+        lambda *, manifest_path: tui_registry_module._ManifestMetadata(
+            tool=None,
+            terminal_id=None,
+            tmux_session_name=None,
+            tmux_window_name="developer-2",
+            session_root=(manifest_path.parent / "session-root").resolve(),
+        ),
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+    )
+
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+            manifest_path=str(manifest_path),
+        )
+    )
+
+    state = service.terminal_state("abcd1234")
+    assert state.tracked_session.tmux_window_name == "developer-2"

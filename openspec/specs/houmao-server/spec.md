@@ -120,89 +120,220 @@ Direct use of the child CAO endpoint by an external caller who already knows tha
 - **THEN** that access is treated as unsupported debug or user-hack behavior
 - **AND THEN** the supported public compatibility surface remains `houmao-server`
 
+### Requirement: `houmao-server` separates direct watch observation from CAO-compatible control delegation
+`houmao-server` SHALL keep its live watch and parsing path separate from any CAO-compatible control delegation path.
+
+For live TUI parsing and continuous state tracking, `houmao-server` SHALL observe tmux and process state directly.
+
+For CAO-compatible create, mutate, or control routes that remain delegated in v1, `houmao-server` MAY still use its child CAO adapter.
+
+#### Scenario: Delegated control does not make CAO the watch authority
+- **WHEN** `houmao-server` delegates a CAO-compatible control route such as session creation or input delivery to the child CAO adapter
+- **THEN** that delegation does not make child CAO the authoritative parser or live-state source for the watched session
+- **AND THEN** the watch plane continues to use direct tmux and process observation
+
+### Requirement: `houmao-server` seeds known-session tracking from server-owned registrations
+`houmao-server` SHALL rebuild and refresh the known-session registry for this capability from server-managed session registration records for the sessions this server owns.
+
+It SHALL enrich those registration records with manifest-backed metadata and live tmux facts when available.
+
+Shared live-agent registry records MAY be consulted as compatibility evidence or alias enrichment, but they SHALL NOT by themselves become the primary authority that admits a session into background watch management.
+
+#### Scenario: Startup rebuild uses server-owned registration and live tmux
+- **WHEN** `houmao-server` restarts and finds a server-managed registration record whose tmux session is still live
+- **THEN** it rebuilds the known-session entry from that registration
+- **AND THEN** the resulting background watch worker resumes from that rebuilt entry instead of waiting for child-CAO polling
+
+#### Scenario: Shared registry evidence alone does not create a watched session
+- **WHEN** a shared live-agent registry record exists without a matching authoritative server registration record or a verifiable live tmux target
+- **THEN** `houmao-server` does not admit that session into its primary known-session registry from the shared registry alone
+- **AND THEN** shared registry remains compatibility evidence rather than the watch authority
+
 ### Requirement: `houmao-server` owns persistent background watch workers for live terminals
-For live terminals that require Houmao-owned watch behavior, `houmao-server` SHALL run persistent background watch workers independent of whether a caller is currently waiting on one request.
+For known tmux-backed Houmao sessions and their live terminals that require Houmao-owned watch behavior, `houmao-server` SHALL run persistent background watch workers independent of whether a caller is currently waiting on one request.
 
-Those watch workers SHALL continuously observe the live terminal surface, derive Houmao-owned state, and persist watch outputs without requiring demo-only monitor processes or request-scoped polling loops.
+Those watch workers SHALL continuously:
 
-The server SHALL stop or detach those watch workers in a way consistent with terminal teardown or server shutdown.
+- reconcile against the server's known-session registry,
+- inspect tmux session and pane state directly,
+- inspect the pane process tree to determine whether the supported TUI is up or down,
+- capture pane text directly from tmux when a supported TUI process is running, and
+- derive Houmao-owned live state without routing parsing or state tracking through the child `cao-server`.
+
+When the tmux session remains alive but the supported TUI process is down, the watch worker SHALL remain active and SHALL record that condition in the tracked state rather than terminating.
+
+The server SHALL stop or release a watch worker only when the tmux session disappears, the tracked session is no longer known to the server, or the server shuts down.
 
 #### Scenario: Terminal watch continues while no client request is active
-- **WHEN** a live terminal remains idle and no caller is currently polling or waiting on a request
-- **THEN** the terminal's `houmao-server` watch worker continues observing the terminal surface
-- **AND THEN** the latest Houmao-owned terminal state remains fresh without requiring a new prompt submission
+- **WHEN** a known tmux-backed live session remains alive and no caller is currently polling or waiting on a request
+- **THEN** the corresponding `houmao-server` watch worker continues observing that session in the background
+- **AND THEN** the latest Houmao-owned live state remains fresh without requiring a new prompt submission or state query
 
-#### Scenario: Watch worker lifecycle follows terminal lifecycle
-- **WHEN** a live terminal is deleted through `houmao-server`
+#### Scenario: TUI-down state does not stop the watch worker
+- **WHEN** a watched tmux session still exists but the supported TUI process inside that tmux container is down
+- **THEN** `houmao-server` keeps the watch worker active for that session
+- **AND THEN** the tracked state records the TUI-down condition instead of treating the session as no longer watchable
+
+#### Scenario: Watch worker lifecycle follows tmux lifecycle
+- **WHEN** a watched tmux session disappears or the tracked session is removed from the server's known-session registry
 - **THEN** the server stops or releases the corresponding watch worker
-- **AND THEN** it does not leave a detached background watcher running for that deleted terminal
+- **AND THEN** it does not leave a detached background watcher running for that no-longer-live session
 
 ### Requirement: `houmao-server` classifies persistence into filesystem-authoritative, transitional compatibility, and memory-primary state
-`houmao-server` SHALL distinguish between durable filesystem-authoritative artifacts that remain canonical on disk, transitional compatibility artifacts that remain filesystem-backed in v1 but are intended to move behind server-owned query APIs later, and live control-plane state that becomes server-owned memory even when compatibility files still exist.
+`houmao-server` SHALL distinguish between durable filesystem-authoritative artifacts that remain canonical on disk, transitional compatibility artifacts that remain filesystem-backed in v1 but are intended to move behind server-owned query APIs later, and live control-plane state that becomes server-owned memory.
 
 At minimum, the filesystem-authoritative bucket SHALL include:
 
-- runtime home roots and runtime manifests
-- durable session roots and session manifests
-- mailbox storage
-- workspace-local job directories
-- Houmao-owned server roots
-- logs
+- runtime home roots and runtime manifests,
+- durable session roots and session manifests,
+- mailbox storage,
+- workspace-local job directories,
+- server-managed session registration bridges,
+- Houmao-owned server roots,
+- logs, and
+- child-supervision support files that remain part of the server's managed runtime.
 
 At minimum, the transitional compatibility bucket SHALL include shared registry live-agent records for v1.
 
 At minimum, the memory-primary bucket SHALL include:
 
-- live request and terminal registries
-- watch-worker bindings and latest in-memory reductions
-- gateway-like hot control-plane views such as queue, current-instance, pid, and live state artifacts
-- child-CAO launcher bookkeeping such as pid and ownership records
+- the known-session registry,
+- live request and terminal/session registries,
+- watch-worker bindings,
+- latest parsed TUI state,
+- bounded recent transitions or recent-state history,
+- current live control-plane views, and
+- child-supervisor live bookkeeping.
 
-When `houmao-server` emits filesystem mirrors for memory-primary state, those mirrors SHALL be treated as compatibility, debug, or migration views rather than as the authoritative live control plane once `houmao-server` owns that state.
+`houmao-server` SHALL NOT require per-terminal watch snapshot files or append-only watch logs as part of the authoritative live TUI tracking contract.
 
-#### Scenario: Mailbox remains filesystem-authoritative
-- **WHEN** `houmao-server` starts and indexes existing mailbox artifacts
-- **THEN** it treats those filesystem locations as canonical durable data
-- **AND THEN** the server may cache or index them without redefining them as memory-only state
+#### Scenario: Live TUI tracking state exists only in memory
+- **WHEN** `houmao-server` updates live parsed TUI state for a watched session
+- **THEN** the authoritative truth for that live tracking state exists in server memory
+- **AND THEN** the server does not need a persisted watch snapshot file or append-only watch log to treat that state as authoritative
 
-#### Scenario: Shared registry remains on disk in v1 but is not the long-term discovery authority
-- **WHEN** `houmao-server` starts and indexes existing shared registry records
-- **THEN** it may keep using those filesystem records as the current compatibility bridge
-- **AND THEN** the intended discovery contract remains future `houmao-server` query endpoints rather than raw registry-file lookup as the architectural center
-
-#### Scenario: Gateway-like live control state becomes server-owned memory
-- **WHEN** `houmao-server` tracks live terminal workers, queues, and current request ownership
-- **THEN** the primary truth for that hot control-plane state lives in server memory
-- **AND THEN** any emitted filesystem views for queue, pid, or current-instance compatibility are not treated as the canonical authority
+#### Scenario: Shared registry remains on disk without becoming live TUI truth
+- **WHEN** `houmao-server` keeps using shared registry records as a v1 compatibility bridge
+- **THEN** those registry files may remain on disk
+- **AND THEN** they do not become the authoritative source of live tracked TUI state
 
 #### Scenario: Child adapter files stay hidden under Houmao-owned storage
 - **WHEN** `houmao-server` supervises a child `cao-server`
 - **THEN** any child-required filesystem state lives under Houmao-owned server storage rather than a separate public CAO-home surface
-- **AND THEN** child launcher pid, ownership, or support files are treated as internal implementation detail or server compatibility views rather than as the public control plane
+- **AND THEN** child launcher pid, ownership, or support files remain internal implementation detail or server compatibility views rather than the public control plane
 
 ### Requirement: `houmao-server` publishes Houmao-owned terminal state and history as explicit extension routes
-`houmao-server` SHALL expose Houmao-specific HTTP extension routes for terminal watch state and history in addition to the CAO-compatible core API.
+`houmao-server` SHALL expose Houmao-specific HTTP extension routes for live terminal state and bounded recent transition history in addition to the CAO-compatible core API.
+
+In v1, those live-state and recent-history routes SHALL remain terminal-keyed compatibility routes, and `houmao-server` SHALL resolve `terminal_id` lookups through a compatibility alias map to its Houmao-owned internal tracked-session identity.
 
 Those extension routes SHALL keep Houmao-owned features explicit rather than using breaking changes on CAO-compatible payloads.
 
-At minimum, the Houmao-owned terminal state contract SHALL distinguish:
+At minimum, the Houmao-owned live terminal state contract SHALL distinguish:
 
-- the latest raw observed terminal surface
-- server-owned queued or active work state
-- last external-activity marker
-- operator-facing terminal state
+- tmux transport state,
+- TUI process state,
+- parse status,
+- optional probe or parse error detail,
+- the latest parsed TUI surface when available,
+- operator-facing live state, and
+- stability metadata, and
+- bounded recent transition or recent-state history when requested.
 
-The server SHALL persist append-only sample and transition history for watched terminals so operators and tooling can inspect recent state evolution.
+Those extension routes SHALL be backed by in-memory live state rather than persisted watch files. If recent history is exposed, it SHALL be a bounded in-memory view rather than an append-only persisted log.
+
+#### Scenario: Terminal-keyed route resolves through a compatibility alias
+- **WHEN** a caller requests Houmao-owned live state by `terminal_id`
+- **THEN** `houmao-server` resolves that lookup through the terminal compatibility alias bound to its internal tracked-session identity
+- **AND THEN** the internal known-session registry does not need to be keyed primarily by `terminal_id`
 
 #### Scenario: Callers can inspect Houmao-owned terminal state without scraping raw output
-- **WHEN** a caller needs the latest Houmao-owned watch state for a live terminal
+- **WHEN** a caller needs the latest Houmao-owned live state for a watched terminal
 - **THEN** the caller can query a dedicated `houmao-server` extension route for that state
 - **AND THEN** the caller does not need to reconstruct that state by scraping raw terminal output alone
 
-#### Scenario: Sample and transition history remain available for debugging
-- **WHEN** a watched terminal has experienced multiple observed state changes
-- **THEN** `houmao-server` retains append-only sample and transition history for that terminal
-- **AND THEN** operators can inspect that history through server-owned artifacts or extension routes
+#### Scenario: Parser or probe failure stays explicit on the extension route
+- **WHEN** a watched terminal reaches the extension route with a probe failure or parse failure in the latest cycle
+- **THEN** the returned live state distinguishes that failure from a normal TUI-down or successfully parsed cycle
+- **AND THEN** the route does not fabricate a parsed surface for that failed cycle
+
+#### Scenario: Recent transitions are exposed from memory rather than persisted watch logs
+- **WHEN** a watched terminal has experienced multiple recent observed state changes during the current server lifetime
+- **THEN** `houmao-server` may expose those recent transitions through its extension routes
+- **AND THEN** that recent-history view is served from bounded in-memory state rather than from append-only persisted watch logs
+
+#### Scenario: Restart rebuilds live state instead of replaying stale watch files
+- **WHEN** `houmao-server` restarts and resumes watching still-live known sessions
+- **THEN** it rebuilds the extension-route live state from fresh observation of those sessions
+- **AND THEN** it does not treat old watch snapshot files or old append-only watch logs as the authoritative rebuilt state
+
+### Requirement: `houmao-server` keeps registration bridge storage contained under the server-owned sessions root
+When `houmao-server` persists or removes server-owned registration records for tracked sessions, it SHALL treat the registration storage key as a validated server-owned identifier rather than as a raw filesystem path fragment.
+
+`houmao-server` SHALL reject registration or deletion inputs whose session identifier cannot be represented safely inside the configured `sessions/` root.
+
+`houmao-server` SHALL verify that the resolved registration path remains under the configured `sessions/` root before writing or removing any registration directory.
+
+#### Scenario: Invalid registration identifier is rejected before write
+- **WHEN** a caller sends a registration request whose session identifier would escape or otherwise violate the server-owned `sessions/` storage namespace
+- **THEN** `houmao-server` rejects that request before creating or modifying any registration directory
+- **AND THEN** the server does not write a registration file outside the configured `sessions/` root
+
+#### Scenario: Registration cleanup remains root-contained
+- **WHEN** `houmao-server` removes a server-owned registration record during session or terminal cleanup
+- **THEN** it resolves the cleanup target within the same validated server-owned `sessions/` namespace
+- **AND THEN** the server does not remove directories outside the configured `sessions/` root
+
+### Requirement: `houmao-server` keeps background tracking resilient across unexpected runtime failures
+`houmao-server` SHALL keep the tracking supervisor and per-session watch workers resilient against unexpected runtime exceptions.
+
+Unexpected reconcile failures SHALL NOT permanently terminate the supervisor thread for the lifetime of the server process.
+
+Unexpected session-poll failures SHALL NOT permanently terminate the corresponding watch worker unless the tracked session has actually left live authority.
+
+When such failures affect live-state observation, `houmao-server` SHALL surface an explicit error state for that session or otherwise record the failure for operator diagnosis rather than silently ceasing background tracking.
+
+#### Scenario: Reconcile failure does not permanently stop the supervisor
+- **WHEN** one reconcile pass raises an unexpected runtime exception while loading or reconciling live known sessions
+- **THEN** `houmao-server` records or logs that failure and keeps the supervisor available for later reconcile passes
+- **AND THEN** continuous background tracking can resume without restarting the server process
+
+#### Scenario: Session poll failure does not permanently stop the worker
+- **WHEN** one watch-worker cycle raises an unexpected runtime exception while polling a still-live tracked session
+- **THEN** `houmao-server` records an explicit failure for that session and keeps the worker eligible to poll again on a later cycle
+- **AND THEN** one bad poll does not permanently disable live tracking for that session
+
+### Requirement: `houmao-server` removes live-state aliases when a tracked session leaves live authority
+The terminal-keyed Houmao live-state routes SHALL resolve only through terminal aliases that remain bound to a currently live known session.
+
+When a tracked session leaves the live known-session registry, loses tmux liveness, or is otherwise released from background watch authority, `houmao-server` SHALL evict the corresponding in-memory worker binding, tracker state, and terminal alias from its live authority maps.
+
+#### Scenario: Tmux loss removes stale live-state authority
+- **WHEN** a watched tracked session loses tmux liveness and a later reconcile pass no longer admits that session into the live known-session registry
+- **THEN** `houmao-server` removes the corresponding in-memory tracker and terminal alias from live authority
+- **AND THEN** terminal-keyed live-state lookup no longer succeeds only from stale in-memory residue
+
+#### Scenario: Registry removal releases the live terminal alias
+- **WHEN** a tracked session is removed from the authoritative known-session registry even if an older in-memory tracker still exists
+- **THEN** `houmao-server` evicts the existing terminal alias and tracker from the live route authority
+- **AND THEN** the live-state routes reflect that the session is no longer known to the server
+
+### Requirement: `houmao-server` preserves tracked pane identity during registration-seeded admission
+When `houmao-server` admits a tracked session from its registration bridge, it SHALL preserve available tmux pane-targeting metadata needed to select the intended tracked pane on the first live polling cycles.
+
+That registration-seeded identity SHALL include tmux window metadata when the caller provides it, and `houmao-server` SHALL enrich the identity from manifest-backed metadata during admission when a manifest path is available and the registration payload omits that metadata.
+
+The initial tracker state SHALL use that preserved or enriched pane identity rather than falling back blindly to whichever tmux pane is active for the session.
+
+#### Scenario: Registration-supplied window metadata is used immediately
+- **WHEN** a registration request includes tmux window identity for the tracked session
+- **THEN** `houmao-server` persists and applies that window identity when creating the initial tracked-session record
+- **AND THEN** the first live polling cycles target that registered window instead of choosing an arbitrary active pane
+
+#### Scenario: Manifest-backed window metadata enriches the initial tracker
+- **WHEN** a registration request omits tmux window identity but supplies a manifest path whose metadata identifies the tracked tmux window
+- **THEN** `houmao-server` enriches the initial tracked-session record from that manifest before the first live polling cycles
+- **AND THEN** registration-seeded tracking does not need to wait for a later reconcile pass to recover the correct pane target
 
 ### Requirement: `houmao-server` uses replaceable upstream adapters and v1 SHALL support a CAO-backed engine
 `houmao-server` SHALL interact with underlying live terminal providers through an explicit upstream-adapter boundary rather than embedding one backend's control logic into the public server contract.

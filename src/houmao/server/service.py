@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import threading
@@ -33,6 +34,7 @@ from houmao.server.tui import (
     SessionWatchWorker,
     TuiTrackingSupervisor,
     TmuxTransportResolver,
+    known_session_record_from_registration,
 )
 from houmao.server.tui.tracking import utc_now_iso
 
@@ -49,6 +51,8 @@ from houmao.server.models import (
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ProxyResponse:
@@ -285,7 +289,7 @@ class HoumaoServerService:
     ) -> HoumaoRegisterLaunchResponse:
         """Register one delegated CLI launch into the server-owned registry."""
 
-        session_name = request_model.session_name
+        session_name = self._validated_registration_session_name(request_model.session_name)
         terminal_id = request_model.terminal_id
         if terminal_id is None:
             proxy = self.proxy(
@@ -323,10 +327,16 @@ class HoumaoServerService:
             )
         CaoTerminal.model_validate(payload)
 
-        registration_dir = (self.m_config.sessions_dir / session_name).resolve()
+        registration_dir = self._registration_dir_for_session_name(session_name, strict=True)
+        assert registration_dir is not None
         registration_dir.mkdir(parents=True, exist_ok=True)
         registration_path = registration_dir / "registration.json"
-        persisted_request = request_model.model_copy(update={"terminal_id": terminal_id})
+        persisted_request = request_model.model_copy(
+            update={
+                "session_name": session_name,
+                "terminal_id": terminal_id,
+            }
+        )
         registration_path.write_text(
             json.dumps(persisted_request.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -389,6 +399,41 @@ class HoumaoServerService:
                 if tracked_session_id == record.tracked_session_id and alias != record.terminal_id:
                     self.m_terminal_aliases.pop(alias, None)
             self.m_terminal_aliases[record.terminal_id] = record.tracked_session_id
+
+    def handle_poll_exception(self, tracked_session_id: str, exc: Exception) -> None:
+        """Record one unexpected worker-poll failure and keep polling eligible."""
+
+        LOGGER.exception(
+            "Unexpected poll failure for tracked session `%s`.",
+            tracked_session_id,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        try:
+            tracker = self._tracker_for_session_id(tracked_session_id)
+        except HTTPException:
+            return
+
+        identity = tracker.current_state().tracked_session
+        tracker.record_cycle(
+            identity=identity,
+            observed_at_utc=utc_now_iso(),
+            monotonic_ts=time.monotonic(),
+            transport_state="probe_error",
+            process_state="probe_error",
+            parse_status="probe_error",
+            probe_snapshot=None,
+            probe_error=HoumaoErrorDetail(
+                kind="tracking_runtime_error",
+                message=f"Unexpected tracking failure: {type(exc).__name__}: {exc}",
+            ),
+            parse_error=None,
+            parsed_surface=None,
+        )
+
+    def release_known_session(self, tracked_session_id: str) -> None:
+        """Release one tracked session from live in-memory authority."""
+
+        self._forget_tracker(tracked_session_id=tracked_session_id)
 
     def poll_known_session(self, tracked_session_id: str) -> bool:
         """Poll one tracked session and return whether the worker should continue."""
@@ -629,8 +674,8 @@ class HoumaoServerService:
     def _remove_registration_dir(self, *, session_name: str) -> None:
         """Remove one server-owned registration directory."""
 
-        path = (self.m_config.sessions_dir / session_name).resolve()
-        if path.exists():
+        path = self._registration_dir_for_session_name(session_name, strict=False)
+        if path is not None and path.exists():
             shutil.rmtree(path, ignore_errors=False)
 
     def _ensure_directories(self) -> None:
@@ -665,23 +710,61 @@ class HoumaoServerService:
         terminal_id = request_model.terminal_id
         if terminal_id is None:
             return
-        record = KnownSessionRecord(
-            tracked_session_id=request_model.session_name,
-            session_name=request_model.session_name,
-            tool=request_model.tool,
-            terminal_id=terminal_id,
-            tmux_session_name=request_model.tmux_session_name or request_model.session_name,
-            tmux_window_name=None,
-            manifest_path=Path(request_model.manifest_path).resolve()
-            if request_model.manifest_path is not None
-            else None,
-            session_root=Path(request_model.session_root).resolve()
-            if request_model.session_root is not None
-            else None,
-            agent_name=request_model.agent_name,
-            agent_id=request_model.agent_id,
+        record = known_session_record_from_registration(
+            registration=request_model,
+            allow_shared_registry_enrichment=False,
         )
-        self.ensure_known_session(record)
+        if record is not None:
+            self.ensure_known_session(record)
+
+    def _validated_registration_session_name(self, session_name: str) -> str:
+        """Return one validated registration storage key or fail."""
+
+        if not _is_safe_registration_session_name(session_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid server-owned registration session name. "
+                    "Expected a single non-empty path component without path separators."
+                ),
+            )
+        return session_name
+
+    def _registration_dir_for_session_name(
+        self,
+        session_name: str,
+        *,
+        strict: bool,
+    ) -> Path | None:
+        """Resolve one registration directory under the server-owned sessions root."""
+
+        if not _is_safe_registration_session_name(session_name):
+            if strict:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Invalid server-owned registration session name. "
+                        "Expected a single non-empty path component without path separators."
+                    ),
+                )
+            LOGGER.warning(
+                "Skipping registration cleanup for invalid session key `%s`.", session_name
+            )
+            return None
+
+        sessions_root = self.m_config.sessions_dir.resolve()
+        path = (sessions_root / session_name).resolve()
+        if not path.is_relative_to(sessions_root):
+            if strict:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Registration path escaped the server-owned sessions root.",
+                )
+            LOGGER.warning(
+                "Skipping registration cleanup for escaped session key `%s`.", session_name
+            )
+            return None
+        return path
 
 
 def _try_parse_json_bytes(body: bytes) -> object | None:
@@ -697,3 +780,15 @@ def _try_parse_json_bytes(body: bytes) -> object | None:
 
 
 TerminalWatchWorker = SessionWatchWorker
+
+
+def _is_safe_registration_session_name(session_name: str) -> bool:
+    """Return whether one session name is safe for server-owned registration storage."""
+
+    if not session_name or session_name != session_name.strip():
+        return False
+    if session_name in {".", ".."}:
+        return False
+    if "/" in session_name or "\\" in session_name or "\x00" in session_name:
+        return False
+    return True
