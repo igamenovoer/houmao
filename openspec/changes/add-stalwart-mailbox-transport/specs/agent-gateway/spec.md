@@ -14,6 +14,10 @@ The shared mailbox routes in this change SHALL be limited to mailbox functions s
 
 The shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
 
+In this change, the shared mailbox routes SHALL be served only when the live gateway listener is bound to loopback.
+
+When the live gateway listener is bound to `0.0.0.0`, `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, and `POST /v1/mail/reply` SHALL fail explicitly as unavailable until an explicit authentication model exists for broader listeners.
+
 Read-oriented mailbox routes and mailbox send or reply routes SHALL NOT consume the terminal-mutation slot used by `POST /v1/requests`.
 
 If the managed session has no mailbox binding or the gateway cannot construct a mailbox adapter from the manifest-backed binding, mailbox route calls SHALL fail explicitly rather than pretending mailbox support exists.
@@ -32,6 +36,12 @@ If the managed session has no mailbox binding or the gateway cannot construct a 
 - **WHEN** a caller invokes a gateway mailbox route for a managed session whose manifest has no mailbox binding
 - **THEN** the gateway rejects that mailbox route call explicitly
 - **AND THEN** it does not claim mailbox support for that session
+
+#### Scenario: Non-loopback gateway listener rejects shared mailbox routes
+- **WHEN** a live gateway listener is bound to `0.0.0.0`
+- **AND WHEN** a caller invokes one of the shared `/v1/mail/*` routes
+- **THEN** the gateway rejects that mailbox route call as unavailable for the current listener configuration
+- **AND THEN** terminal-mutating routes remain available under their existing listener rules
 
 ### Requirement: The gateway serializes terminal-mutating work and applies admission policy
 In v1, the public terminal-mutating request kinds SHALL remain exactly `submit_prompt` and `interrupt`.

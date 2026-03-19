@@ -5,11 +5,11 @@ The runtime SHALL enable mailbox support through declarative recipe configuratio
 
 The runtime SHALL resolve one effective mailbox configuration before building the launch plan, SHALL persist that resolved mailbox configuration in the session manifest, and SHALL restore it when resuming the session.
 
-The resolved mailbox configuration SHALL preserve transport-specific binding data appropriate to the selected transport.
+The resolved mailbox configuration SHALL preserve transport-specific binding data appropriate to the selected transport, and it SHALL use transport-specific binding shapes rather than one filesystem-shaped mailbox record with optional extras.
 
 For filesystem sessions, that resolved configuration MAY include a filesystem mailbox root and registration-derived filesystem bindings.
 
-For `stalwart` sessions, that resolved configuration SHALL include the mailbox transport identity, mailbox principal identity, mailbox address, and transport-safe endpoint or credential-reference metadata needed to restore the same mailbox binding and construct the same gateway mailbox adapter later without persisting inline secrets in the manifest payload.
+For `stalwart` sessions, that resolved configuration SHALL include the mailbox transport identity, mailbox principal identity, mailbox address, and a transport-safe JMAP endpoint plus secret-free `credential_ref` metadata needed to restore the same mailbox binding and construct the same gateway mailbox adapter later without persisting inline secrets in the manifest payload.
 
 #### Scenario: Recipe configuration enables Stalwart mailbox support
 - **WHEN** a developer starts an agent session whose resolved recipe enables `stalwart` mailbox support
@@ -33,6 +33,8 @@ When the selected transport is `filesystem`, the runtime SHALL continue to deriv
 
 When the selected transport is `stalwart`, the runtime SHALL publish the real-mail mailbox binding env vars for that session and SHALL NOT synthesize filesystem path bindings that do not belong to that transport.
 
+Those Stalwart runtime bindings SHALL expose a runtime-managed authentication reference derived from the secret-free persisted `credential_ref` rather than embedding mailbox secrets directly into the persisted manifest payload.
+
 #### Scenario: Start session projects mailbox system skills with filesystem bindings
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
@@ -53,12 +55,16 @@ That mailbox prompt SHALL explicitly tell the agent which projected mailbox syst
 
 The mailbox prompt and projected mailbox system skill SHALL prefer a live gateway mailbox facade when that facade is available for the addressed session.
 
+That gateway preference SHALL be applied in this change rather than deferred to a later cleanup.
+
 When no live gateway mailbox facade is available, the runtime MAY continue to rely on the direct session-mediated mailbox path appropriate to the selected transport.
 
 The mailbox prompt SHALL follow gateway-aware transport expectations:
 
 - filesystem prompts SHALL continue to instruct the agent to follow filesystem mailbox rules and helper boundaries when those are required for that transport,
 - `stalwart` prompts SHALL direct the agent to use the shared gateway mailbox facade when available or Stalwart-backed mailbox bindings when not, without inheriting filesystem-only `rules/` or managed-script instructions.
+
+The runtime-owned prompt-construction path SHALL dispatch by transport and gateway availability rather than assuming filesystem-only mailbox instructions for every mailbox-enabled session.
 
 The `mail` command handler SHALL validate exactly one structured mailbox result payload returned between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` sentinels in the agent output and SHALL surface that result to the operator in a parseable form.
 

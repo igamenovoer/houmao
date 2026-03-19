@@ -15,6 +15,8 @@ When those conditions are not satisfied, the notifier SHALL skip that interval a
 
 The notifier SHALL execute notifications through the gateway's durable internal request path rather than by bypassing the queue with direct terminal injection.
 
+When the notifier enqueues a reminder prompt, that prompt SHALL describe unread mailbox work in transport-neutral shared-mailbox terms and SHALL NOT label the unread set as "filesystem mailbox messages" for a `stalwart` session.
+
 #### Scenario: Filesystem-backed notifier poll uses the shared gateway mailbox facade
 - **WHEN** the notifier polls unread mail for a filesystem mailbox-enabled session
 - **THEN** the gateway determines unread state through the shared mailbox facade rather than direct mailbox-local SQLite reads
@@ -24,6 +26,11 @@ The notifier SHALL execute notifications through the gateway's durable internal 
 - **WHEN** the notifier polls unread mail for a `stalwart` mailbox-enabled session
 - **THEN** the gateway determines unread state through the same shared mailbox facade used by the filesystem transport
 - **AND THEN** notifier wake-up behavior does not require a transport-specific unread polling path
+
+#### Scenario: Stalwart-backed notifier reminder stays transport-neutral
+- **WHEN** the notifier enqueues a reminder for unread mail discovered through a `stalwart` mailbox binding
+- **THEN** the reminder prompt describes shared mailbox work without labeling the unread messages as filesystem-specific
+- **AND THEN** the reminder still points the managed agent at the runtime-owned mailbox skill flow
 
 ### Requirement: Gateway mail notifier keeps notification bookkeeping separate from mailbox read state
 The gateway SHALL treat notification bookkeeping and mailbox read state as separate concerns.

@@ -9,8 +9,10 @@ At minimum, those prerequisites SHALL include:
 
 - a local Stalwart-managed mail domain for the selected mailbox address,
 - an individual mailbox account bound to the selected mailbox address,
-- mailbox access credentials or credential references suitable for mailbox operations,
+- mailbox access credentials resolved through a secret-free `credential_ref` suitable for mailbox operations,
 - idempotent re-entry behavior when the same mailbox principal is started again.
+
+When Stalwart credential references are persisted for resume or gateway adapter construction, the persisted mailbox binding SHALL keep only the secret-free `credential_ref`; the credential material itself SHALL remain session-scoped outside the manifest payload and MAY be materialized as a runtime-owned file in v1.
 
 The `stalwart` transport SHALL NOT require `safe`, `force`, `stash`, `deactivate`, or `purge` filesystem mailbox registration semantics in order to create or reuse a mailbox-enabled session.
 
@@ -23,6 +25,11 @@ The `stalwart` transport SHALL NOT require `safe`, `force`, `stash`, `deactivate
 - **WHEN** a developer starts a second session for the same mailbox principal against the same Stalwart environment
 - **THEN** the runtime reuses or confirms the existing server-side mailbox principal instead of creating a conflicting duplicate mailbox
 - **AND THEN** mailbox enablement succeeds without invoking filesystem registration conflict modes
+
+#### Scenario: Restarting the same Stalwart-backed mailbox principal reuses credential references without unnecessary rotation
+- **WHEN** a developer resumes or starts the same mailbox principal again against the same Stalwart environment
+- **THEN** the runtime reuses or confirms the existing secret-free `credential_ref` or equivalent credential material when it is still valid
+- **AND THEN** mailbox enablement does not rotate credentials unnecessarily unless a later explicit refresh path requests it
 
 ### Requirement: Stalwart-backed mailbox transport delegates shared mailbox state and integrity to the mail server
 For the `stalwart` transport, the system SHALL treat the Stalwart server as the authority for:

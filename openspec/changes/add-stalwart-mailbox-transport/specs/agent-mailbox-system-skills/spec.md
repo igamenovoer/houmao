@@ -22,6 +22,8 @@ For `stalwart` mailbox sessions, those runtime-managed bindings SHALL include at
 - the mailbox login identity needed for mailbox access,
 - a runtime-managed authentication reference suitable for mailbox access without persisting secrets in the manifest payload.
 
+That runtime-managed authentication reference SHALL be secret-free in the persisted mailbox binding and MAY resolve to a session-owned credential file path in v1.
+
 #### Scenario: Filesystem mailbox skill resolves filesystem bindings from env vars
 - **WHEN** the runtime starts an agent session with the filesystem mailbox transport
 - **THEN** the projected mailbox system skill refers to the filesystem mailbox through runtime-managed filesystem env vars

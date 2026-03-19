@@ -5,7 +5,7 @@ The system SHALL preserve transport-neutral mailbox message semantics, but share
 
 The shared mailbox operation contract for this change SHALL include at minimum:
 
-- opaque `message_ref`,
+- opaque plain-string `message_ref`,
 - optional `thread_ref`,
 - `created_at_utc`,
 - sender identity,
@@ -16,6 +16,10 @@ The shared mailbox operation contract for this change SHALL include at minimum:
 - unread state when returned from `check`.
 
 The system SHALL preserve the logical mailbox semantics across transports, but it SHALL NOT require every transport to persist a Houmao-authored canonical document or to expose Houmao-generated identifiers as the public operation contract.
+
+The system SHALL represent `message_ref` as a plain string in the shared gateway and runtime mailbox contracts. Callers SHALL treat the entire value as opaque and SHALL NOT derive behavior from transport-specific prefixes, encodings, or storage identifiers embedded inside that string.
+
+Adapters MAY use transport-prefixed string encodings in v1 when that keeps later `reply` targeting stateless, provided the caller-visible contract still treats the whole value as an opaque string handle.
 
 For the filesystem transport, shared mailbox operation refs MAY be derived from the existing canonical message ids and thread ids.
 

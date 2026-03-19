@@ -16,6 +16,14 @@ This change needs to coexist with the current runtime UX:
 
 For this change, the scope is intentionally narrow: only mailbox functions that both the filesystem transport and the Stalwart transport can support cleanly should become part of the shared gateway contract.
 
+Implementation focus is narrower than the full product surface. This change concentrates on the gateway-to-mail-system boundary itself:
+
+- gateway mailbox routes,
+- gateway transport adapter behavior,
+- gateway notifier polling against transport-backed unread state.
+
+It does not require proving those behaviors through fully launched-agent end-to-end flows. Fabricated gateway attach inputs, manifest-backed mailbox bindings, filesystem mailbox fixtures, and Stalwart mailbox or server fixtures are acceptable for focused implementation and verification in this change.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -23,6 +31,7 @@ For this change, the scope is intentionally narrow: only mailbox functions that 
 - Add a Stalwart-backed mailbox transport that Houmao can configure and use for live mailbox-enabled sessions.
 - Treat Stalwart as the source of truth for mailbox delivery, unread state, reply ancestry, and transport-level integrity.
 - Add a gateway-owned mailbox facade for the mailbox operations both transports support cleanly: mailbox status, `check`, `send`, and `reply`.
+- Keep this change centered on the gateway-versus-email-system interaction layer rather than on launched-agent orchestration.
 - Keep a small transport-neutral mailbox contract in Houmao: participant identity, async mailbox participation, explicit reply targeting, operator `mail` UX, and normalized mailbox results.
 - Keep mailbox transport behavior runtime-owned through projected mailbox system materials, runtime-managed bindings, and manifest-backed gateway adapter construction.
 - Make gateway mail notifier behavior transport-generic by routing unread inspection through the gateway mailbox facade.
@@ -34,6 +43,7 @@ For this change, the scope is intentionally narrow: only mailbox functions that 
 - In-place migration of an existing live filesystem mailbox root into Stalwart-backed mailboxes.
 - Exposing transport-specific mailbox features such as folders, archive, delete, move, or star through the shared gateway API in this change.
 - Replacing the existing filesystem transport in this change.
+- Requiring fully launched-agent end-to-end flows as the main proof vehicle for the gateway-versus-email-system behavior introduced here.
 - Making mailbox provisioning, mailbox-resident welcome guidance, or server administration part of the shared gateway mailbox API.
 - Defining long-term multi-provider email abstractions beyond the first Stalwart-backed implementation.
 
@@ -91,7 +101,9 @@ Supported shared operations:
 - `send`,
 - `reply`.
 
-Shared mailbox results will use normalized metadata and transport-neutral opaque references such as `message_ref` rather than exposing filesystem-local ids, SQLite row identities, or Stalwart-native JMAP object shapes directly.
+Shared mailbox results will use normalized metadata and plain-string transport-neutral opaque references such as `message_ref` rather than exposing filesystem-local ids, SQLite row identities, or Stalwart-native JMAP object shapes directly.
+
+Callers treat `message_ref` as an opaque string handle. In v1, adapters may encode those handles with transport-prefixed conventions when that keeps later `reply` targeting stateless, but callers do not branch on that encoding and do not interpret transport-local ids from the ref.
 
 Why:
 
@@ -108,7 +120,7 @@ Alternatives considered:
 The Stalwart-backed transport will use:
 
 - Stalwart management API for domain and account provisioning,
-- JMAP as the primary mailbox automation surface for `check`, `send`, and `reply`,
+- a thin raw-HTTP JMAP client built on the repository's existing synchronous HTTP stack for `check`, `send`, and `reply`,
 - SMTP and IMAP as compatibility or debugging surfaces rather than the primary automation contract.
 
 The gateway will continue to resolve mailbox support from the runtime-owned session manifest referenced by `attach.json.manifest_path`. For mailbox-enabled sessions, it will construct one transport adapter from the resolved mailbox binding:
@@ -117,6 +129,23 @@ The gateway will continue to resolve mailbox support from the runtime-owned sess
 - Stalwart adapter for the new real email transport.
 
 If the manifest is missing, unreadable, or lacks a mailbox binding, mailbox routes fail explicitly rather than pretending mailbox support exists.
+
+Resolved mailbox bindings stop being one filesystem-shaped dataclass. Instead, the runtime and gateway will use transport-discriminated frozen binding types with shared fields plus transport-specific fields:
+
+- common binding fields: `transport`, `principal_id`, `address`, `bindings_version`
+- filesystem binding fields: filesystem mailbox root and other filesystem-only derived data
+- Stalwart binding fields: JMAP endpoint or base URL, login identity, and secret-free `credential_ref`
+
+Each transport binding owns its own redacted manifest serialization so persisted launch-plan mailbox data includes only transport-safe fields for that transport.
+
+The gateway mailbox adapter boundary is a small `Protocol` owned by a dedicated gateway mailbox support module adjacent to `gateway_service.py` and `gateway_client.py`. That protocol will define four shared operations for one manifest-backed session binding:
+
+- `status()`
+- `check(unread_only, limit, since)`
+- `send(...)`
+- `reply(message_ref, ...)`
+
+The gateway service constructs at most one adapter per attached managed session from `attach.json -> manifest_path -> launch_plan.mailbox`, caches it for the lifetime of that attached gateway instance, and fails explicitly when no usable adapter can be constructed.
 
 Why:
 
@@ -135,6 +164,8 @@ Alternatives considered:
 Houmao will keep the existing operator-facing `mail check`, `mail send`, and `mail reply` command surface plus structured mailbox results. The runtime continues to resolve mailbox support from the session binding and to persist that binding in the manifest.
 
 Projected mailbox system skills and runtime-owned mailbox prompts should prefer the live gateway mailbox facade for shared mailbox operations when a live gateway is attached. When no live gateway is available, sessions may still use direct transport-specific mailbox behavior appropriate to the selected transport.
+
+That preference is part of this change rather than a later cleanup. Runtime-owned prompt construction and mailbox command readiness checks will dispatch by transport and gateway availability instead of assuming filesystem-only prompt instructions. In practice, the concrete runtime-owned prompt path must update functions such as `prepare_mail_prompt()` and `ensure_mailbox_command_ready()` so filesystem guidance remains filesystem-specific and Stalwart sessions prefer the live gateway facade immediately when it exists.
 
 That means the first shared abstraction boundary for managed agents becomes:
 
@@ -178,11 +209,13 @@ Alternatives considered:
 
 - Keep polling unread state from filesystem mailbox-local SQLite and defer transport-generic notifier behavior. Rejected because the gateway would still not abstract mailbox transport differences for managed agents.
 
-### Decision 7: Stalwart credentials stay out of the persisted manifest payload
+### Decision 7: Stalwart credentials stay out of the persisted manifest payload and flow through secret-free credential references
 
-The persisted session manifest remains secret-free. Stalwart transport bindings in the manifest identify the mailbox transport, participant identity, mailbox address, endpoints, and transport-safe metadata, but they do not persist mailbox secrets inline.
+The persisted session manifest remains secret-free. Stalwart transport bindings in the manifest identify the mailbox transport, participant identity, mailbox address, endpoints, and a secret-free `credential_ref`, but they do not persist mailbox secrets inline.
 
-Runtime-managed secret material for Stalwart-backed sessions will need a transport-specific handling path such as session-owned secret files, credential references, or runtime-side secret lookup, while keeping the manifest and shared registry secret-free.
+Runtime-managed secret material for Stalwart-backed sessions is resolved through that `credential_ref` rather than through inline manifest secrets. In v1, that reference may resolve to a runtime-owned credential file under the session root with restrictive permissions. Gateway-backed mailbox access and direct mailbox fallback both use the same session-scoped credential material through the same reference.
+
+Provisioning should reuse existing domains, accounts, and credential material when possible, and it should avoid unnecessary credential rotation unless a later explicit refresh flow is added.
 
 Why:
 
@@ -221,6 +254,24 @@ managed agent / runtime-owned mailbox skill
                 rules/scripts/sqlite remain transport-local
 ```
 
+## Gateway Mailbox Binding And Adapter Contract
+
+Runtime-owned mailbox binding models in this change become transport-discriminated rather than transport-optional.
+
+Binding expectations:
+
+- `MailboxTransport` expands to `filesystem | stalwart`
+- declarative, resolved, and persisted mailbox binding helpers dispatch by transport instead of hard-rejecting every non-filesystem transport
+- redacted manifest persistence is transport-specific rather than always serializing `filesystem_root`
+
+Gateway adapter expectations:
+
+- the adapter boundary is a `Protocol`, not an `ABC`
+- the protocol lives in a dedicated gateway-mailbox support module so `gateway_service.py` remains the HTTP orchestration layer rather than the transport-implementation home
+- gateway HTTP models remain strict Pydantic request or response types; adapters return or consume normalized mailbox values behind that boundary
+- the gateway owns adapter selection, lazy construction, caching, and explicit failure behavior for one attached session
+- the adapter boundary remains limited to the shared mailbox operation set in this change rather than transport-specific folder or lifecycle features
+
 ## Gateway Endpoint Inventory
 
 This change touches two classes of gateway endpoints:
@@ -254,6 +305,34 @@ Endpoint intent:
 - `POST /v1/mail/check`: shared mailbox read path for normalized message discovery
 - `POST /v1/mail/send`: shared mailbox new-message send path
 - `POST /v1/mail/reply`: shared mailbox reply path using opaque message references
+
+Listener exposure rule for this change:
+
+- `/v1/mail/*` is available only when the gateway listener is loopback-bound
+- if the gateway listener is bound to `0.0.0.0`, the mailbox facade reports itself unavailable until an explicit authentication model exists
+
+## Implementation Focus
+
+The intended implementation center of gravity for this change is:
+
+- construct or load a mailbox binding for the gateway,
+- route gateway mailbox requests to the correct transport adapter,
+- verify shared mailbox behavior against filesystem-backed fixtures and Stalwart-backed fixtures,
+- verify notifier unread polling through the same gateway mailbox facade.
+
+The intended implementation center of gravity is not:
+
+- launching or supervising real managed agents as the primary proof path,
+- proving prompt-injection or TUI behavior beyond the already existing gateway request surface,
+- requiring full runtime session bring-up for every gateway mailbox verification case.
+
+Practical testing and development guidance for this change:
+
+- fabricate `attach.json` plus `manifest.json` inputs when that is the simplest way to exercise gateway mailbox behavior,
+- fabricate filesystem mailbox roots and mailbox-local state as needed for filesystem adapter verification,
+- fabricate or provision isolated Stalwart test mailboxes and messages as needed for Stalwart adapter verification,
+- use a test-scoped Stalwart server fixture or mocked management or JMAP HTTP surfaces as appropriate instead of requiring one globally running Stalwart instance,
+- prefer focused gateway-plus-mailbox tests over full end-to-end launched-agent flows.
 
 ## In-Scope Email Functionality
 
@@ -295,9 +374,9 @@ Explicitly out of scope for this change even if one transport can support them:
 
 - [Risk] The shared gateway mailbox API is narrower than the underlying transports. → Mitigation: explicitly limit the first shared surface to `status`, `check`, `send`, and `reply`, and defer transport-specific mailbox features to later changes.
 - [Risk] Optional gateway attachment means both gateway-backed and direct mailbox paths may coexist. → Mitigation: preserve one runtime-owned mailbox binding source of truth in the manifest and make gateway-backed behavior prefer the same transport-specific semantics rather than inventing a second model.
-- [Risk] Opaque `message_ref` handling can become unstable across restarts or transport changes if underspecified. → Mitigation: require stable adapter-owned refs for later `reply` targeting and avoid exposing raw transport ids in the shared contract.
-- [Risk] Adding mailbox routes to the existing gateway listener increases surface area on listeners bound to `0.0.0.0`. → Mitigation: keep auth and listener-trust treatment explicit in follow-up design work and avoid making mail routes depend on transport-local secrets in manifests.
-- [Risk] Agent-mediated direct Stalwart access introduces mailbox credentials into the launched session boundary when the gateway is absent. → Mitigation: use transport-scoped credentials, keep them out of the manifest, and prefer runtime-managed secret references over plain persisted values.
+- [Risk] Opaque `message_ref` handling can become unstable across restarts or transport changes if underspecified. → Mitigation: require stable adapter-owned plain-string refs for later `reply` targeting, allow v1 transport-prefixed encodings only as an internal adapter convenience, and avoid exposing raw transport ids in the shared contract.
+- [Risk] Adding mailbox routes to the existing gateway listener increases surface area on listeners bound to `0.0.0.0`. → Mitigation: in this change, serve `/v1/mail/*` only on loopback listeners and leave broader listeners mailbox-unavailable until an explicit authentication model exists.
+- [Risk] Agent-mediated direct Stalwart access introduces mailbox credentials into the launched session boundary when the gateway is absent. → Mitigation: use transport-scoped credential references, keep secrets out of the manifest, and resolve the underlying credential material from a session-scoped runtime-owned location.
 
 ## Migration Plan
 
@@ -318,7 +397,4 @@ Rollback strategy:
 
 ## Open Questions
 
-- Should shared gateway mail routes be served only when the gateway listener is on loopback until an explicit auth model exists for broader listeners?
-- What exact shape should `message_ref` use in the shared gateway contract: one opaque string, or a small structured object with transport and stability metadata?
-- Should runtime `mail check`, `mail send`, and `mail reply` prefer the live gateway facade immediately in this change, or should that preference remain agent-skill-first until a later cleanup?
 - Which Stalwart mailbox identifiers should the adapter use internally for stable later `reply` targeting: server-native object ids, RFC-style `Message-ID` headers, or both?
