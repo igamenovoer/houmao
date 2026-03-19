@@ -51,6 +51,7 @@ Define a `prompt_boundary_index` per snapshot, partition into `historical_zone` 
 
 ## Connections
 
+- **Directly causes issue-009** (Codex shadow post-completion oscillation) — historical progress lines in scrollback produce `business_state=working` even when an idle prompt is visible, preventing completion from settling
 - Amplified by issue-004 (fresh-environment TUI noise adds extra signals above the active prompt)
 - The signal extractor output feeds into the Rx pipeline from issue-002
 - The cursor-anchored approach also fixes 3.1 (`_active_prompt_payload()` fragility) since prompt detection becomes the primary classification mechanism rather than a secondary check

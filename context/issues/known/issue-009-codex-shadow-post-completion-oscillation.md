@@ -109,17 +109,17 @@ The transition stream then kept flipping terminal status instead of reaching a q
 
 ## Root Cause
 
-This looks like a concrete Codex manifestation of the broader shadow-parser issues, but the live symptom is specific:
+**This is a direct manifestation of issue-003 (bag-of-signals classification).** The live symptom is specific:
 
-1. `CodexShadowParser._build_surface_assessment()` scans the last `status_tail_lines` as an unordered bag of signals.
+1. `CodexShadowParser._build_surface_assessment()` scans the last `status_tail_lines` as an unordered bag of signals (issue-003 root cause).
 2. `_active_prompt_payload()` walks backward until it finds any prompt line, so the bottom prompt `› Run /review on my current changes` still yields `has_idle_prompt=True`.
-3. At the same time, `has_processing = any(_is_processing_line(line) for line in tail_lines)` stays true because a historical line like `• Working (40s • esc to interrupt)` is still present in scrollback.
+3. At the same time, `has_processing = any(_is_processing_line(line) for line in tail_lines)` stays true because a historical line like `• Working (40s • esc to interrupt)` is still present in scrollback above the prompt.
 4. `_classify_surface_axes()` combines those booleans into an impossible mixed state:
    - `input_mode="freeform"` and `ui_context="normal_prompt"` from the prompt line
    - `business_state="working"` from the historical progress line
 5. The monitor treats any `business_state == "working"` observation as `completion_state="in_progress"`, which can repeatedly reset candidate completion instead of letting the quiet period finish.
 
-So the core bug is not merely "Codex flickered once." The parser is producing a state tuple that violates its own implied surface model.
+So the core bug is not merely "Codex flickered once." The parser is producing a state tuple that violates its own implied surface model because it has no concept of which lines are current vs. historical.
 
 ## Affected Code
 
@@ -154,6 +154,7 @@ That would keep a parser contradiction from turning into visible dashboard oscil
 
 ## Connections
 
-- Concrete live-demo manifestation of `context/issues/known/issue-003-shadow-bag-of-signals-classification.md`
+- **Direct consequence of issue-003** (bag-of-signals classification) — this is the live-demo proof that historical signals in the tail window cause real completion oscillation, not just theoretical misclassification
+- **Fixed by the same solution as issue-003**: cursor-anchored zone partitioning (see `openspec/changes/fix-bag-of-signals-classification/`) would restrict signal detection to the active zone, eliminating the historical progress line from classification
 - Reinforces the lifecycle fragility described in `context/issues/known/issue-002-shadow-turn-monitor-imperative-timing.md`
 - Related to `context/logs/code-reivew/20260318-shadow-parser-tui-state-detection-review.md`
