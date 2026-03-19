@@ -33,6 +33,20 @@ The following routes are explicitly called out because current Houmao usage alre
 - **THEN** the server returns a structured health payload indicating the server is alive
 - **AND THEN** callers can use that route as the basic liveness check before trusting the server
 
+### Requirement: `houmao-server` compatibility is pinned to one exact CAO source of truth
+For this change, the CAO HTTP compatibility source of truth SHALL be pinned to:
+
+- repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
+- commit: `0fb3e5196570586593736a21262996ca622f53b6`
+- local tracked checkout: `extern/tracked/cli-agent-orchestrator`
+
+The change SHALL treat that exact source as the parity oracle for `houmao-server` API compatibility rather than a floating branch name or whichever `cao-server` happens to be on `PATH`.
+
+#### Scenario: HTTP parity verification uses the pinned CAO source
+- **WHEN** implementation or verification compares `houmao-server` behavior to CAO behavior
+- **THEN** it uses the pinned CAO source of truth for this change
+- **AND THEN** the parity target does not drift with a floating upstream branch
+
 ### Requirement: `houmao-server` compatibility is defined within the supported Houmao pair
 The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
 

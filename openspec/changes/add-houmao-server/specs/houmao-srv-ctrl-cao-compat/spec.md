@@ -24,6 +24,20 @@ This change SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-comp
 - **THEN** `houmao-srv-ctrl` accepts that command pattern with CAO-compatible behavior
 - **AND THEN** the operator does not need a separate command rewrite layer just to switch to the Houmao-managed CLI
 
+### Requirement: `houmao-srv-ctrl` compatibility is pinned to one exact CAO source of truth
+For this change, the CAO CLI compatibility source of truth SHALL be pinned to:
+
+- repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
+- commit: `0fb3e5196570586593736a21262996ca622f53b6`
+- local tracked checkout: `extern/tracked/cli-agent-orchestrator`
+
+The change SHALL treat that exact source as the parity oracle for `houmao-srv-ctrl` CLI compatibility rather than a floating branch name or whichever `cao` happens to be on `PATH`.
+
+#### Scenario: CLI parity verification uses the pinned CAO source
+- **WHEN** implementation or verification compares `houmao-srv-ctrl` behavior to CAO CLI behavior
+- **THEN** it uses the pinned CAO source of truth for this change
+- **AND THEN** the parity target does not drift with a floating upstream branch
+
 ### Requirement: `houmao-srv-ctrl` compatibility is defined within the supported Houmao pair
 The compatibility contract for `houmao-srv-ctrl` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
 
@@ -74,6 +88,21 @@ That registration SHALL supplement the delegated CAO behavior rather than replac
 - **THEN** `houmao-srv-ctrl` delegates the launch to `cao`
 - **AND THEN** `houmao-srv-ctrl` also registers the resulting live agent or session with `houmao-server`
 - **AND THEN** `houmao-server` can begin managing watch or state features for that launched agent
+
+### Requirement: Successful delegated launches materialize Houmao-owned authoritative session artifacts
+When `houmao-srv-ctrl launch` succeeds through delegated CAO behavior inside the supported Houmao pair, it SHALL materialize Houmao-owned authoritative session artifacts for that launched session rather than leaving the launch server-only.
+
+At minimum, that materialization SHALL:
+
+- create or update a Houmao runtime-owned session root
+- write a runtime-owned manifest that uses `backend = "houmao_server_rest"`
+- let any transitional shared-registry publication point back to that manifest and session root
+- keep later gateway and mailbox follow-up flows able to reuse those manifest-backed artifacts while those subsystems still depend on runtime-owned manifests
+
+#### Scenario: Delegated launch writes a Houmao-owned manifest for later reuse
+- **WHEN** an operator runs a successful `houmao-srv-ctrl launch ...`
+- **THEN** `houmao-srv-ctrl` materializes a Houmao-owned session root and manifest for that launched session
+- **AND THEN** later discovery, gateway, or mailbox follow-up flows can point back to those artifacts instead of depending on a separate server-only truth
 
 ### Requirement: CLI-side registration does not require native Houmao launch ownership in v1
 The shallow-cut CLI registration flow SHALL allow `houmao-server` to learn about agents launched through delegated CAO CLI behavior without requiring Houmao to own the full launch implementation natively.

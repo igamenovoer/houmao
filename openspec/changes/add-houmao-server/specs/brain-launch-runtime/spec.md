@@ -30,6 +30,36 @@ When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
 - **AND WHEN** caller environment includes `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`
 - **THEN** runtime-owned HTTP communication to that loopback `houmao-server` endpoint bypasses those proxy endpoints by default
 
+### Requirement: `houmao-server` runtime sessions use a first-class persisted backend identity
+Runtime-owned sessions that use the `houmao-server` REST-backed mode SHALL persist a first-class backend identity named `houmao_server_rest`.
+
+Those persisted sessions SHALL use dedicated `houmao-server`-specific persisted sections rather than reusing `cao_rest`-specific sections for their public contract.
+
+At minimum, the persisted `houmao-server` section SHALL carry the public `houmao-server` transport identity needed for resume and follow-up control, including:
+
+- `api_base_url`
+- server session identity
+- terminal identity
+
+The persisted public contract for `houmao_server_rest` SHALL keep child-CAO adapter details out of the runtime-owned manifest.
+
+#### Scenario: Session manifest records `houmao_server_rest` rather than `cao_rest`
+- **WHEN** a developer starts a runtime-owned session through the `houmao-server` REST-backed mode
+- **THEN** the persisted session manifest records `backend = "houmao_server_rest"`
+- **AND THEN** the manifest uses a dedicated `houmao-server` persisted section instead of overloading `cao` metadata
+
+### Requirement: Runtime-owned artifacts remain authoritative for `houmao-server` sessions
+For `houmao_server_rest` sessions, the runtime-owned session root and manifest SHALL remain the authoritative durable artifacts for later discovery and follow-up control.
+
+When transitional shared-registry publication is used for a `houmao_server_rest` session, the registry runtime pointers SHALL point back to that runtime-owned manifest and session root.
+
+Gateway and mailbox follow-up behavior that still depends on manifest-backed authority in v1 SHALL use those same runtime-owned artifacts for `houmao_server_rest` sessions.
+
+#### Scenario: Registry and follow-up flows point back to the runtime-owned `houmao-server` manifest
+- **WHEN** a `houmao_server_rest` session is published into the transitional shared registry
+- **THEN** the registry runtime pointers reference the Houmao-owned session manifest and session root for that session
+- **AND THEN** later resolution, gateway attach, and mailbox follow-up flows can keep using manifest-backed authority without reinterpreting the session as `cao_rest`
+
 ### Requirement: Runtime control of `houmao-server` sessions routes through `houmao-server`
 For `houmao-server`-backed sessions, runtime control operations that inspect or mutate the live session SHALL route through `houmao-server` rather than bypassing it with direct CAO calls.
 

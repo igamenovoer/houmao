@@ -10,7 +10,11 @@ Constraints:
 - the public API must be fully compatible with the supported `cao-server` HTTP API so that work that succeeds against `cao-server` also succeeds against `houmao-server`
 - the new CAO-compatible CLI plan must avoid overloading the existing `houmao-cli` and instead provide a separate service-management binary
 - compatibility is defined for the paired deployment `houmao-server + houmao-srv-ctrl`, not for mixed pairings with raw `cao` or raw `cao-server`
+- the runtime, manifest, gateway, and registry schemas must represent `houmao-server` explicitly rather than smuggling it through `cao_rest`
 - Houmao-owned CLI tools introduced in this change should be implemented with Python `click`
+- Python data models introduced in this change should use `pydantic` wherever practical so server, runtime, and compatibility payloads follow one consistent style
+- Houmao-owned CLI command trees introduced in this change should be split across smaller modules rather than concentrated in one giant `.py` file
+- parity claims must be pinned to one exact upstream CAO fork commit, not to a floating branch name
 - the shallow-cut child `cao-server` port must not become a user-facing configuration contract
 - any filesystem state required by the child `cao-server` must stay behind Houmao-owned roots rather than surfacing as a separate operator-facing CAO home contract
 - the design must classify existing persistent directories into long-term filesystem-authoritative, transitional compatibility, and memory-primary ownership instead of treating every current artifact as equally canonical forever
@@ -24,10 +28,12 @@ Constraints:
 - Preserve the full supported `cao-server` HTTP endpoint API so `houmao-server` can act as a real drop-in replacement of `cao-server`
 - Add a CAO-compatible command surface to `houmao-srv-ctrl` so it can act as a drop-in replacement of `cao`
 - Make `houmao-server + houmao-srv-ctrl` together a drop-in replacement of `cao-server + cao`
+- Make `houmao_server_rest` a first-class persisted backend identity across runtime-owned schemas
 - Move persistent TUI watching and terminal-state publication into `houmao-server`
 - Keep Houmao-specific status and watch features as explicit server extensions rather than demo-only logic
 - Expose Houmao-owned filesystem roots and hide child-CAO storage details behind them
 - Establish a durable persistence boundary that says which current artifacts remain filesystem-authoritative by design, which stay on disk only as transitional compatibility data, and which should become `houmao-server` memory with compatibility mirrors
+- Require delegated `houmao-srv-ctrl launch` to materialize Houmao-owned authoritative session artifacts that existing runtime, registry, gateway, and mailbox flows can point to
 - Start with CAO-backed subprocess delegation while preserving a clean migration path to native Houmao-owned backend implementations
 
 **Non-Goals:**
@@ -129,6 +135,27 @@ The server API and persisted state are Houmao-owned, and the upstream adapter ki
 - Extend CAO directly: faster initially, but it preserves the wrong ownership boundary
 - Proxy CAO transparently with no Houmao-owned state model: does not buy the additional features this change needs
 
+### Decision 4A: Make `houmao_server_rest` a first-class persisted backend identity
+
+**Choice:** Runtime-owned sessions that talk to `houmao-server` use an explicit backend kind named `houmao_server_rest`.
+
+That backend gets dedicated persisted contract sections rather than reusing `cao_rest` shapes:
+
+- session manifests use a dedicated `houmao_server` section that stores the public `houmao-server` transport identity such as base URL plus server session and terminal identity
+- gateway attach contracts gain `houmao_server_rest` backend support plus dedicated `houmao_server` backend metadata
+- shared-registry identity records publish `backend='houmao_server_rest'` when they refer to those sessions
+
+Child-CAO adapter details remain internal server state and do not become part of the runtime-owned persisted backend identity.
+
+**Rationale:**
+- The repo already enforces strict backend-discriminated manifest, gateway, and registry schemas
+- Reusing `cao_rest` would keep the durable truth CAO-shaped even though `houmao-server` is the public authority
+- A first-class backend identity keeps the future replacement seam honest and discoverable
+
+**Alternatives considered:**
+- Reuse `cao_rest` and overload existing CAO fields: rejected because it makes persisted artifacts semantically misleading
+- Keep the backend identity implicit and infer it from incidental fields: rejected because the current schema model is explicit and strict
+
 ### Decision 5: Use `houmao-srv-ctrl` as the CAO-compatible service-management CLI and keep `houmao-cli` separate
 
 **Choice:** This change introduces a dedicated binary named `houmao-srv-ctrl` for the CAO-compatible service-management surface and leaves the existing `houmao-cli` role unchanged. For the supported `cao` version, `houmao-srv-ctrl` is intended to be a real drop-in replacement for `cao` within the supported `houmao-server + houmao-srv-ctrl` pair, so aliasing `cao` to `houmao-srv-ctrl` should work for the supported command family. In the shallow cut, most CAO-compatible commands delegate to the installed `cao` executable and preserve CAO-facing behavior as closely as practical.
@@ -146,9 +173,11 @@ The server API and persisted state are Houmao-owned, and the upstream adapter ki
 - Add a differently named wrapper with no drop-in story: rejected because aliasing `cao` to the Houmao binary should just work
 - Re-implement the whole `cao` CLI immediately inside Houmao: too much scope for v1
 
-### Decision 5A: Implement Houmao-owned CLI tools in this change with Python `click`
+### Decision 5A: Implement Houmao-owned CLI tools in this change with Python `click` and modular command modules
 
 **Choice:** Houmao-owned CLI tools introduced in this change, especially `houmao-srv-ctrl` and the local `houmao-server` entrypoint, should be implemented with Python `click`.
+
+The command trees for those CLIs should be decomposed across smaller command modules rather than collected into one giant `.py` file.
 
 This is an implementation-style choice rather than a public compatibility contract. The public contract is still CAO-compatible behavior for the supported pair, not the internal Python CLI framework.
 
@@ -156,11 +185,35 @@ This is an implementation-style choice rather than a public compatibility contra
 - Gives the new Houmao CLIs one consistent command-tree and option-parsing style
 - Fits well with nested subcommands, help generation, and explicit option validation
 - Keeps the CLI implementation straightforward while the command surfaces are still evolving
+- Makes individual command families easier to read, test, and extend without turning the compatibility wrapper into one oversized module
 
 **Alternatives considered:**
 - `argparse`: workable, but less ergonomic for the multi-command CLI surfaces in this change
 - `typer`: viable, but `click` is the explicit implementation choice for this change
 - ad hoc shell wrappers around Python modules: too brittle for the compatibility and verification requirements here
+- one giant `click` module with every command in one file: rejected because it scales poorly once compatibility wrappers and Houmao-only extensions accumulate
+
+### Decision 5B: Use `pydantic` for new data models wherever practical
+
+**Choice:** New Python data models introduced in this change should use `pydantic` wherever practical.
+
+This applies especially to:
+
+- `houmao-server` HTTP request and response models
+- Houmao-owned terminal state and history payloads
+- persisted compatibility or runtime-facing payload models introduced by this change
+- structured CLI-to-server registration or extension payloads
+
+This is an implementation-style consistency choice rather than a separate public wire contract. It does not require rewriting every pre-existing non-`pydantic` model in the repository inside this change.
+
+**Rationale:**
+- Keeps new server, runtime, and compatibility payload definitions on one consistent validation and serialization model
+- Fits the repo's need for explicit structured contracts across HTTP, persistence, and CLI integration points
+- Reduces the chance that different parts of the new server stack drift into incompatible ad hoc payload handling
+
+**Alternatives considered:**
+- Mix `dataclass`, handwritten dict validation, and `pydantic` freely: rejected because it weakens consistency across a contract-heavy change
+- Rewrite all existing repo models to `pydantic` in the same change: rejected because it would over-scope the implementation
 
 ### Decision 6: Register CAO-compatible launch results into `houmao-server`
 
@@ -176,6 +229,27 @@ For v1, `launch` is the minimum required registration hook.
 **Alternatives considered:**
 - Register nothing on CLI launch: leaves server-owned watch/state blind to CLI-created sessions
 - Force all launches through `houmao-server` only: not a drop-in CAO CLI story
+
+### Decision 6A: Delegated `houmao-srv-ctrl launch` materializes Houmao-owned authoritative session artifacts
+
+**Choice:** After delegated `cao launch` succeeds, `houmao-srv-ctrl` materializes Houmao-owned session artifacts for the launched session instead of leaving the launch server-only.
+
+In v1, that means at minimum:
+
+- create or update a Houmao runtime-owned session root
+- write a runtime-owned manifest that uses `backend='houmao_server_rest'`
+- let `houmao-server` registration reference that same authoritative session identity
+- when transitional shared-registry publication is used, point registry runtime pointers back to that Houmao-owned manifest and session root
+- let gateway and mailbox follow-up flows keep using manifest-backed authority through those artifacts while those subsystems still depend on runtime-owned manifests
+
+**Rationale:**
+- Current name resolution, gateway attach, and mailbox notifier support all depend on runtime-owned manifest pointers
+- A paired replacement story is not operationally coherent if CLI-launched sessions follow a different authority model from runtime-launched sessions
+- This approach preserves the repo's pointer-oriented design while keeping the long-term authority Houmao-owned
+
+**Alternatives considered:**
+- Server-only registration for delegated launches: rejected because it creates a second incompatible authority model
+- Scope CLI-launched sessions out of registry/gateway/mailbox compatibility in v1: rejected because it weakens the paired replacement claim too much
 
 ### Decision 7: Publish three distinct terminal state layers
 
@@ -250,19 +324,38 @@ Memory-primary artifacts are live control-plane state that should move under `ho
 - Keep all current filesystem artifacts authoritative forever: simpler initially, but it preserves the wrong authority boundary for live server state
 - Move nearly everything into memory: would fight the existing durable filesystem contracts for mailbox, manifests, and tool-owned working data while also over-scoping the first registry migration
 
+### Decision 10: Pin v1 CAO parity to one exact tracked fork commit
+
+**Choice:** The compatibility source of truth for this change is pinned to the tracked CAO fork checkout at:
+
+- repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
+- commit: `0fb3e5196570586593736a21262996ca622f53b6`
+- local tracked checkout: `extern/tracked/cli-agent-orchestrator`
+
+Parity verification for both `houmao-server` and `houmao-srv-ctrl` is defined against that exact source rather than against a floating branch name such as `hz-release`.
+
+**Rationale:**
+- Full compatibility claims need one concrete oracle
+- The repo already carries a tracked local checkout that can serve as that oracle
+- Using an exact commit keeps parity verification reproducible and reviewable
+
+**Alternatives considered:**
+- Keep compatibility pinned only to a floating branch name: rejected because it is not stable enough for full parity claims
+- Treat whatever `cao` happens to be on `PATH` as the contract: rejected because it makes verification non-deterministic
+
 ## Risks / Trade-offs
 
 [A shallow CAO-backed first cut could become a permanent proxy layer] → Mitigation: keep the child-process and upstream-adapter boundaries explicit and keep CAO details out of public Houmao contracts.
 
-[Full CAO compatibility may constrain API evolution] → Mitigation: keep compatibility pinned to a supported `cao-server` version, allow only additive extensions on existing routes, and move non-compatible behavior onto new Houmao-owned endpoints.
+[Full CAO compatibility may constrain API evolution] → Mitigation: keep compatibility pinned to the exact tracked `cao-server` source of truth, allow only additive extensions on existing routes, and move non-compatible behavior onto new Houmao-owned endpoints.
 
 [Continuous watch workers can increase API load and log volume] → Mitigation: keep polling intervals configurable, log transitions separately from raw samples, and scope v1 watch features to terminals that require them.
 
 [Manual operator interaction can still create ambiguous snapshots] → Mitigation: model external activity explicitly and keep raw observation separate from owned-work conclusions.
 
-[HTTP compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to the supported `cao-server` version and add parity verification that exercises the same endpoint calls against both servers within the supported Houmao pair.
+[HTTP compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add parity verification that exercises the same endpoint calls against both servers within the supported Houmao pair.
 
-[CLI compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to the supported `cao` version and add parity verification that exercises the same commands against both `cao` and `houmao-srv-ctrl` within the supported Houmao pair.
+[CLI compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add parity verification that exercises the same commands against both `cao` and `houmao-srv-ctrl` within the supported Houmao pair.
 
 [Users may assume mixed-pair crosstalk is supported] → Mitigation: state explicitly that only `houmao-server + houmao-srv-ctrl` is in contract, treat mixed pairs as unsupported, and avoid claiming parity coverage for those combinations.
 
@@ -275,13 +368,14 @@ Memory-primary artifacts are live control-plane state that should move under `ho
 ## Migration Plan
 
 1. Add `houmao-server` HTTP models, server runtime, child-CAO lifecycle management, persistence helpers, and a local entrypoint, including an explicit classification of filesystem-authoritative, transitional compatibility, and memory-primary artifacts.
-2. Implement full supported `cao-server` API route mapping that dispatches most work to the child `cao-server` on the derived internal port `public_port + 1`, while keeping Houmao extensions additive and compatibility-safe.
-3. Add persistent per-terminal watch workers plus new Houmao-owned endpoints and additive compatibility-safe response or request extensions for terminal state and history, with live control-plane state owned in server memory.
-4. Keep filesystem-authoritative artifacts in place, continue reading and writing shared registry files as a transitional bridge in v1, but move the architectural discovery direction toward future `houmao-server` query endpoints.
-5. Emit gateway-like and child-launcher filesystem mirrors only as compatibility, debug, or migration views where needed.
-6. Add `houmao-srv-ctrl` as a CAO-compatible command family that delegates most commands to `cao` and registers launched live agents with `houmao-server`, while leaving `houmao-cli` outside that compatibility surface.
-7. Add runtime start, inspect, prompt, control-input, interrupt, and stop flows for a new `houmao-server` REST-backed mode while leaving direct CAO flows intact.
-8. Add tests and reference docs for full server API compatibility, additive extension safety, full `cao` CLI compatibility through `houmao-srv-ctrl`, explicit mixed-pair exclusion, child-CAO lifecycle, watch behavior, persistence-boundary migration, and the path toward eventual CAO replacement.
+2. Extend runtime-owned schemas with a first-class `houmao_server_rest` backend, dedicated manifest sections, dedicated gateway attach metadata, and registry identity/runtime pointers that keep child-CAO details out of the public persisted contract.
+3. Implement full supported `cao-server` API route mapping that dispatches most work to the child `cao-server` on the derived internal port `public_port + 1`, while keeping Houmao extensions additive and compatibility-safe.
+4. Add persistent per-terminal watch workers plus new Houmao-owned endpoints and additive compatibility-safe response or request extensions for terminal state and history, with live control-plane state owned in server memory.
+5. Keep filesystem-authoritative artifacts in place, continue reading and writing shared registry files as a transitional bridge in v1, but move the architectural discovery direction toward future `houmao-server` query endpoints.
+6. Emit gateway-like and child-launcher filesystem mirrors only as compatibility, debug, or migration views where needed.
+7. Add `houmao-srv-ctrl` as a CAO-compatible command family that delegates most commands to `cao`, materializes Houmao-owned session roots and manifests for delegated launches, and registers those launched live agents with `houmao-server`, while leaving `houmao-cli` outside that compatibility surface.
+8. Add runtime start, inspect, prompt, control-input, interrupt, and stop flows for a new `houmao-server` REST-backed mode while leaving direct CAO flows intact.
+9. Pin parity verification to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add tests/reference docs for full server API compatibility, additive extension safety, full `cao` CLI compatibility through `houmao-srv-ctrl`, explicit mixed-pair exclusion, child-CAO lifecycle, watch behavior, persistence-boundary migration, and the path toward eventual CAO replacement.
 
 Rollback is straightforward because the new server mode is opt-in. Existing direct CAO-managed sessions continue to function unchanged while `houmao-server` matures.
 
