@@ -4,6 +4,7 @@
 The system SHALL compute Codex shadow surface state from `mode=full` output using a bounded provider-aware window.
 
 Before classifying state, the system SHALL partition the bounded window into a historical zone and an active zone using cursor-anchored prompt boundary detection. State classification SHALL operate on the active zone only. Historical signals above the prompt boundary SHALL NOT contribute to `business_state`, `input_mode`, or `ui_context` classification.
+When a visible Codex prompt owns processing/progress evidence below it, the prompt line SHALL remain inside the active zone so `working + freeform` remains representable.
 
 The Codex surface assessment SHALL classify `business_state` at minimum as:
 
@@ -48,6 +49,7 @@ Codex SHALL derive `business_state`, `input_mode`, and `ui_context` from one act
 - **WHEN** a Codex snapshot contains processing evidence while the active prompt is still open for generic input
 - **THEN** the system classifies the snapshot with `business_state = working`
 - **AND THEN** the same snapshot may still classify `input_mode = freeform`
+- **AND THEN** the active zone boundary remains at the prompt line rather than moving down to the progress line
 
 #### Scenario: Idle freeform Codex surface does not imply authoritative answer association
 - **WHEN** a Codex snapshot contains input-ready evidence and no stronger operator-blocked or working evidence in the active zone

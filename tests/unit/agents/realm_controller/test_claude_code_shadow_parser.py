@@ -22,6 +22,10 @@ def _fixture(name: str) -> str:
     return (_FIXTURES_DIR / name).read_text(encoding="utf-8")
 
 
+def _compiled_preset(parser: ClaudeCodeShadowParser):
+    return parser._compiled_for_preset(parser._PRESETS["2.1.62"])
+
+
 def test_claude_shadow_preset_resolution_prefers_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,15 +168,83 @@ def test_claude_shadow_ignores_historical_slash_command_after_prompt_recovery() 
     )
 
 
+def test_claude_extract_signals_prefers_prompt_boundary_over_spinner() -> None:
+    parser = ClaudeCodeShadowParser()
+    tail_lines = [
+        "● historical answer",
+        "❯ summarize repo",
+        "✽ Razzmatazzing…",
+    ]
+
+    signals = parser._extract_signals(
+        tail_lines=tail_lines,
+        compiled=_compiled_preset(parser),
+    )
+
+    assert signals.prompt_boundary_index == 1
+    assert signals.historical_zone_lines == ("● historical answer",)
+    assert signals.active_zone_lines == ("❯ summarize repo", "✽ Razzmatazzing…")
+    assert signals.anchor_type == "idle_prompt"
+    assert signals.active_prompt_payload == "summarize repo"
+    assert signals.has_idle_prompt is True
+    assert signals.has_processing_spinner is True
+    assert signals.has_response_marker is False
+    assert signals.has_slash_command is False
+
+
+def test_claude_extract_signals_ignore_historical_slash_and_marker_after_prompt_recovery() -> None:
+    parser = ClaudeCodeShadowParser()
+    tail_lines = [
+        "❯ /model",
+        "● Set model to Default (claude-sonnet-4-6)",
+        "❯ ",
+    ]
+
+    signals = parser._extract_signals(
+        tail_lines=tail_lines,
+        compiled=_compiled_preset(parser),
+    )
+
+    assert signals.prompt_boundary_index == 2
+    assert signals.historical_zone_lines == (
+        "❯ /model",
+        "● Set model to Default (claude-sonnet-4-6)",
+    )
+    assert signals.active_zone_lines == ("❯ ",)
+    assert signals.anchor_type == "idle_prompt"
+    assert signals.active_prompt_payload == ""
+    assert signals.has_idle_prompt is True
+    assert signals.has_slash_command is False
+    assert signals.has_response_marker is False
+
+
+def test_claude_shadow_regression_historical_response_marker_with_fresh_prompt_stays_idle() -> None:
+    parser = ClaudeCodeShadowParser()
+    scrollback = "Claude Code v2.1.62\n● Historical answer line\n❯ \n"
+
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+
+    assert snapshot.surface_assessment.business_state == "idle"
+    assert snapshot.surface_assessment.input_mode == "freeform"
+    assert snapshot.surface_assessment.ui_context == "normal_prompt"
+
+
 def test_claude_shadow_classifies_working_freeform_surface() -> None:
     parser = ClaudeCodeShadowParser()
     scrollback = "Claude Code v2.1.62\n❯ summarize repo\n✽ Razzmatazzing…\n"
 
     snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+    signals = parser._extract_signals(
+        tail_lines=parser._tail_lines(scrollback, max_lines=100),
+        compiled=_compiled_preset(parser),
+    )
 
     assert snapshot.surface_assessment.business_state == "working"
     assert snapshot.surface_assessment.input_mode == "freeform"
     assert snapshot.surface_assessment.ui_context == "normal_prompt"
+    assert signals.prompt_boundary_index == 1
+    assert signals.active_zone_lines == ("❯ summarize repo", "✽ Razzmatazzing…")
+    assert signals.anchor_type == "idle_prompt"
 
 
 def test_claude_shadow_classifies_working_modal_surface() -> None:
@@ -180,10 +252,17 @@ def test_claude_shadow_classifies_working_modal_surface() -> None:
     scrollback = "Claude Code v2.1.62\n❯ /model\n✽ Razzmatazzing…\n"
 
     snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+    signals = parser._extract_signals(
+        tail_lines=parser._tail_lines(scrollback, max_lines=100),
+        compiled=_compiled_preset(parser),
+    )
 
     assert snapshot.surface_assessment.business_state == "working"
     assert snapshot.surface_assessment.input_mode == "modal"
     assert snapshot.surface_assessment.ui_context == "slash_command"
+    assert signals.prompt_boundary_index == 1
+    assert signals.active_zone_lines == ("❯ /model", "✽ Razzmatazzing…")
+    assert signals.has_slash_command is True
 
 
 def test_claude_shadow_reports_baseline_invalidation_on_projection() -> None:

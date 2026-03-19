@@ -4,6 +4,7 @@
 The system SHALL compute Claude Code shadow surface assessment from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
 
 Before classifying state, the system SHALL partition the bounded tail window into a historical zone and an active zone using cursor-anchored prompt boundary detection. State classification SHALL operate on the active zone only. Historical signals above the prompt boundary SHALL NOT contribute to `business_state`, `input_mode`, or `ui_context` classification.
+When a visible Claude prompt owns spinner/progress evidence below it, the prompt line SHALL remain inside the active zone so `working + freeform` remains representable.
 
 The Claude surface assessment SHALL classify `business_state` at minimum as:
 
@@ -50,6 +51,7 @@ Claude SHALL derive `business_state`, `input_mode`, and `ui_context` from one ac
 - **WHEN** the current Claude snapshot shows processing evidence while the active prompt is still open for generic input
 - **THEN** the system classifies the snapshot with `business_state = working`
 - **AND THEN** the same snapshot may still classify `input_mode = freeform`
+- **AND THEN** the active zone boundary remains at the prompt line rather than moving down to the spinner line
 
 #### Scenario: Idle freeform state does not imply authoritative answer association
 - **WHEN** the tmux scrollback contains supported Claude output with a recovered normal prompt

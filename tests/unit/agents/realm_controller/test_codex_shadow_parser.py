@@ -181,6 +181,61 @@ def test_codex_shadow_ignores_historical_slash_command_after_prompt_recovery() -
     )
 
 
+def test_codex_extract_signals_prefers_prompt_boundary_over_progress() -> None:
+    tail_lines = [
+        "assistant: previous answer",
+        "› summarize repo",
+        "• Thinking about files (2s • esc to interrupt)",
+    ]
+
+    signals = CodexShadowParser._extract_signals(tail_lines=tail_lines)
+
+    assert signals.prompt_boundary_index == 1
+    assert signals.historical_zone_lines == ("assistant: previous answer",)
+    assert signals.active_zone_lines == (
+        "› summarize repo",
+        "• Thinking about files (2s • esc to interrupt)",
+    )
+    assert signals.anchor_type == "idle_prompt"
+    assert signals.active_prompt_payload == "summarize repo"
+    assert signals.has_idle_prompt is True
+    assert signals.has_processing_spinner is True
+    assert signals.has_slash_command is False
+
+
+def test_codex_extract_signals_ignore_historical_slash_command_after_prompt_recovery() -> None:
+    tail_lines = [
+        "› /model",
+        "assistant: Switched model to gpt-5.3-codex high",
+        "› ",
+    ]
+
+    signals = CodexShadowParser._extract_signals(tail_lines=tail_lines)
+
+    assert signals.prompt_boundary_index == 2
+    assert signals.historical_zone_lines == (
+        "› /model",
+        "assistant: Switched model to gpt-5.3-codex high",
+    )
+    assert signals.active_zone_lines == ("› ",)
+    assert signals.anchor_type == "idle_prompt"
+    assert signals.active_prompt_payload == ""
+    assert signals.has_idle_prompt is True
+    assert signals.has_slash_command is False
+    assert signals.has_processing_spinner is False
+
+
+def test_codex_shadow_regression_historical_spinner_like_text_with_fresh_prompt_stays_idle() -> None:
+    parser = CodexShadowParser()
+    scrollback = "OpenAI Codex (v0.98.0)\nassistant: ⠋ historical unicode text\n› \n"
+
+    snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+
+    assert snapshot.surface_assessment.business_state == "idle"
+    assert snapshot.surface_assessment.input_mode == "freeform"
+    assert snapshot.surface_assessment.ui_context == "normal_prompt"
+
+
 def test_codex_shadow_reports_baseline_invalidation_anomaly() -> None:
     parser = CodexShadowParser()
 
@@ -213,10 +268,19 @@ def test_codex_shadow_classifies_working_freeform_surface() -> None:
     )
 
     snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+    signals = CodexShadowParser._extract_signals(
+        tail_lines=parser._tail_lines(scrollback, max_lines=100)
+    )
 
     assert snapshot.surface_assessment.business_state == "working"
     assert snapshot.surface_assessment.input_mode == "freeform"
     assert snapshot.surface_assessment.ui_context == "normal_prompt"
+    assert signals.prompt_boundary_index == 1
+    assert signals.active_zone_lines == (
+        "› summarize repo",
+        "• Thinking about files (2s • esc to interrupt)",
+    )
+    assert signals.anchor_type == "idle_prompt"
 
 
 def test_codex_shadow_classifies_working_modal_surface() -> None:
@@ -226,10 +290,19 @@ def test_codex_shadow_classifies_working_modal_surface() -> None:
     )
 
     snapshot = parser.parse_snapshot(scrollback, baseline_pos=0)
+    signals = CodexShadowParser._extract_signals(
+        tail_lines=parser._tail_lines(scrollback, max_lines=100)
+    )
 
     assert snapshot.surface_assessment.business_state == "working"
     assert snapshot.surface_assessment.input_mode == "modal"
     assert snapshot.surface_assessment.ui_context == "slash_command"
+    assert signals.prompt_boundary_index == 1
+    assert signals.active_zone_lines == (
+        "› /model",
+        "• Thinking about files (2s • esc to interrupt)",
+    )
+    assert signals.has_slash_command is True
 
 
 def test_shadow_parser_stack_passes_projector_override_to_provider_parser() -> None:

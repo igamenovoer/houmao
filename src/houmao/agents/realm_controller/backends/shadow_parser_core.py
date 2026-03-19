@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Callable, Final, Literal, Protocol, TypeVar, runtime_checkable
 
@@ -84,6 +85,25 @@ class SurfaceAssessment:
     parser_metadata: ShadowParserMetadata
     anomalies: tuple[ShadowParserAnomaly, ...] = ()
     operator_blocked_excerpt: str | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotSignalSet:
+    """Zone-partitioned signal extraction result for one tail snapshot."""
+
+    prompt_boundary_index: int | None
+    active_zone_lines: tuple[str, ...]
+    historical_zone_lines: tuple[str, ...]
+    has_idle_prompt: bool
+    has_processing_spinner: bool
+    has_response_marker: bool
+    has_operator_blocked: bool
+    has_slash_command: bool
+    has_error_banner: bool
+    operator_blocked_excerpt: str | None
+    active_prompt_payload: str | None
+    anchor_type: str | None
+    blocked_surface_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -369,6 +389,19 @@ class VersionedPresetRegistry:
             selection_source="fallback_floor",
             anomalies=tuple(anomalies),
         )
+
+
+def find_prompt_boundary(
+    tail_lines: Sequence[str],
+    anchor_patterns: Sequence[re.Pattern[str]],
+) -> int | None:
+    """Return the newest line index matching any provider-defined anchor."""
+
+    for index in range(len(tail_lines) - 1, -1, -1):
+        line = tail_lines[index]
+        if any(pattern.search(line) is not None for pattern in anchor_patterns):
+            return index
+    return None
 
 
 def parse_semver_tuple(value: str) -> tuple[int, int, int] | None:
