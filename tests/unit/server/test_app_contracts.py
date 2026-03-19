@@ -88,6 +88,7 @@ class _AppServiceDouble:
         self.m_proxy_calls: list[tuple[str, str, tuple[tuple[str, str], ...]]] = []
         self.m_synced_payloads: list[object] = []
         self.m_prompt_submissions: list[tuple[str, str]] = []
+        self.m_tracking_debug_events: list[dict[str, object]] = []
         self.m_deleted_sessions: list[str] = []
         self.m_deleted_terminals: list[str] = []
         self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
@@ -121,6 +122,9 @@ class _AppServiceDouble:
 
     def note_prompt_submission(self, *, terminal_id: str, message: str) -> None:
         self.m_prompt_submissions.append((terminal_id, message))
+
+    def emit_tracking_debug(self, **payload: object) -> None:
+        self.m_tracking_debug_events.append(dict(payload))
 
     def health_response(self) -> HoumaoHealthResponse:
         return HoumaoHealthResponse(

@@ -4,7 +4,7 @@
 P1 - The server-backed shadow-watch demo cannot show active/completing turn state for direct interactive prompting, which is now the main purpose of the demo.
 
 ## Status
-Known as of 2026-03-19.
+Diagnosed and fixed in the working tree on 2026-03-19.
 
 ## Summary
 
@@ -144,20 +144,72 @@ That is an incorrect lifecycle summary for a turn that visibly ran, wrote a file
 
 ## Root Cause
 
-The likely root cause is a turn-anchor gap in server tracking for direct interactive prompting.
+Dense server-side tracing confirmed the first failing stage: direct interactive tmux prompting never hit the server-owned prompt-submission hook.
 
-`LiveSessionTracker.note_prompt_submission()` in `src/houmao/server/tui/tracking.py` only arms turn-anchored completion monitoring when the server itself records a successful prompt submission. That server-owned path exists, but the prompt-and-observe demo currently drives the tools by direct interactive input in the tmux pane. In that flow, the tracker never receives a prompt-submission event, so it remains in:
+`LiveSessionTracker.note_prompt_submission()` in `src/houmao/server/tui/tracking.py` only armed turn-anchored completion monitoring when the server itself recorded a successful prompt submission. That server-owned path existed, but the prompt-and-observe demo drove the tools by direct interactive input in the tmux pane. In that flow, the tracker never received a prompt-submission event, so it stayed in:
 
 - `completion_authority="unanchored_background"`
 - `turn_anchor_state="absent"`
 - `completion_monitoring_armed=false`
 
-That explains why authoritative `candidate_complete` / `completed` never appear.
+That is why authoritative `candidate_complete` / `completed` never appeared on the original failing path.
 
-What remains unresolved is why the unanchored path also failed to surface a meaningful active-turn signal. During visible prompt execution, the tracker still reported `business_state=idle` and `status=ready`, even though the pane showed prompt handling and file writing. So there are likely two issues:
+The dense trace also confirmed that the fallback unanchored path was too weak for this use case. During visible prompt execution, the parser still reported `business_state=idle` and `input_mode=freeform`, so background reduction alone stayed conservative and flat even while the pane showed real work.
 
-1. direct interactive prompting does not arm the server-owned turn anchor
-2. the fallback unanchored reduction is too weak or too incorrect for live prompt-and-observe use
+There was a second implementation risk during the fix: a naive "stable ready surface changed" inference rule produced false `candidate_complete` / `completed` turns from idle Claude UI chrome churn. The final fix therefore had to infer anchors only for materially larger ready-surface growth, not for small prompt-area repainting.
+
+## Resolution
+
+The fix has three parts:
+
+1. Add dense, env-gated server-side tracking traces in:
+   - `src/houmao/server/app.py`
+   - `src/houmao/server/service.py`
+   - `src/houmao/server/tui/tracking.py`
+   - `src/houmao/server/tracking_debug.py`
+2. Add a maintainer-facing automatic repro runner at:
+   - `src/houmao/demo/houmao_server_dual_shadow_watch/tracking_debug.py`
+   - `scripts/demo/houmao-server-dual-shadow-watch/scripts/tracking_debug.py`
+3. Teach `LiveSessionTracker.record_cycle()` to infer a turn anchor for direct interactive prompting when:
+   - the previous visible state was stable and submit-ready
+   - no active anchor exists
+   - the visible projection changed materially enough to look like a real prompt turn rather than ambient UI churn
+
+With that fix in place:
+
+- server `/terminals/{id}/input` still arms `source="terminal_input"` anchors
+- direct tmux prompting now arms `source="surface_inference"` anchors
+- the direct-tmux path surfaces `candidate_complete` transitions instead of staying flat
+- the tighter material-growth guard prevents the earlier false-positive anchors from idle Claude welcome/prompt repainting
+
+## Verification
+
+The dense debug workflow and final fixed evidence are preserved under:
+
+```text
+tmp/houmao-server-tracking-debug/20260319-190736
+```
+
+Key artifacts:
+
+- `summary/run-summary.json`
+- `summary/timeline.md`
+- `events/*.ndjson`
+- `artifacts/server-input/*`
+- `artifacts/direct-tmux/*`
+
+The final summary for that run shows:
+
+- `server-input`
+  - `app_input_requests=1`
+  - `service_prompt_submission_recorded=1`
+  - `turn_anchor_sources=["terminal_input"]`
+- `direct-tmux`
+  - `app_input_requests=0`
+  - `service_prompt_submission_recorded=0`
+  - `turn_anchor_sources=["surface_inference"]`
+
+So the original root cause is confirmed, and the fixed direct-tmux path now surfaces a tracked lifecycle transition without regressing into idle UI-churn false positives.
 
 ## Affected Code
 
@@ -180,11 +232,7 @@ If `houmao-server-dual-shadow-watch` is meant to show server-tracked states whil
 
 ### B. Ensure interactive prompt submission reaches the tracker
 
-One of these needs to happen:
-
-- route demo prompt submission through a server-owned input path that calls `note_prompt_submission()`
-- add a demo/runtime helper that explicitly records prompt submission when the operator sends a turn into the live pane
-- or teach the tracker to infer a turn anchor from direct interactive prompt submission when operating in shadow-watch mode
+Implemented by teaching the tracker to infer a guarded `surface_inference` anchor for direct interactive prompting while preserving the existing `terminal_input` server route.
 
 ### C. Strengthen the unanchored fallback
 
@@ -192,11 +240,11 @@ Even without a turn anchor, the tracker should not report `ready` / `inactive` w
 
 ### D. Add integration coverage for real interactive turns
 
-The current server tests cover the prompt-submission API path, but the failing demo path is direct interactive prompting. Add an integration test that:
+Implemented as the automatic tracking-debug workflow plus focused unit tests around:
 
-- starts the live demo
-- submits a real prompt through the supported interactive path
-- asserts that at least one non-startup lifecycle transition is emitted
+- debug sink gating and emission
+- guarded surface-inference anchoring
+- no false-positive inference for small stable ready-surface churn
 
 ## Connections
 

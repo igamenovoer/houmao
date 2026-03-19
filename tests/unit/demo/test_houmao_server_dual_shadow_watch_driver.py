@@ -39,6 +39,7 @@ def _demo_state(tmp_path: Path) -> HoumaoServerDualShadowWatchState:
         project_fixture="/repo/tests/fixtures/dummy-projects/projection-demo-python",
         profile_path="/repo/scripts/demo/houmao-server-dual-shadow-watch/profiles/projection-demo.md",
         poll_interval_seconds=0.5,
+        stability_threshold_seconds=1.0,
         completion_stability_seconds=1.0,
         unknown_to_stalled_timeout_seconds=30.0,
         server_start_timeout_seconds=20.0,
@@ -249,6 +250,7 @@ def test_inspect_demo_reports_monitor_cadence_separately_from_server_posture(
     assert "poll_interval_seconds" not in payload
     assert payload["monitor"]["poll_interval_seconds"] == 0.5
     assert payload["server"]["timing_posture"] == {
+        "stability_threshold_seconds": 1.0,
         "completion_stability_seconds": 1.0,
         "unknown_to_stalled_timeout_seconds": 30.0,
     }

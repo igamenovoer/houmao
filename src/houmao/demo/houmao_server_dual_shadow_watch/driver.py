@@ -52,6 +52,7 @@ from houmao.demo.houmao_server_dual_shadow_watch.models import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_PROFILE_NAME,
     DEFAULT_SERVER_START_TIMEOUT_SECONDS,
+    DEFAULT_STABILITY_THRESHOLD_SECONDS,
     DEFAULT_STOP_TIMEOUT_SECONDS,
     DEFAULT_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS,
     AgentSessionState,
@@ -161,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                 profile_path=_optional_path(args.profile_path),
                 port=args.port,
                 poll_interval_seconds=float(args.poll_interval_seconds),
+                stability_threshold_seconds=float(args.stability_threshold_seconds),
                 completion_stability_seconds=float(args.completion_stability_seconds),
                 unknown_to_stalled_timeout_seconds=float(args.unknown_to_stalled_timeout_seconds),
                 server_start_timeout_seconds=float(args.server_start_timeout_seconds),
@@ -314,6 +316,7 @@ def start_demo(
     profile_path: Path | None,
     port: int | None,
     poll_interval_seconds: float,
+    stability_threshold_seconds: float,
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
     server_start_timeout_seconds: float,
@@ -325,6 +328,7 @@ def start_demo(
 
     del json_output
     _require_positive(poll_interval_seconds, context="--poll-interval-seconds")
+    _require_positive(stability_threshold_seconds, context="--stability-threshold-seconds")
     _require_positive(
         completion_stability_seconds,
         context="--completion-stability-seconds",
@@ -401,6 +405,7 @@ def start_demo(
         api_base_url=api_base_url,
         paths=paths,
         poll_interval_seconds=poll_interval_seconds,
+        stability_threshold_seconds=stability_threshold_seconds,
         completion_stability_seconds=completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
         timeout_seconds=server_start_timeout_seconds,
@@ -457,6 +462,7 @@ def start_demo(
             project_fixture=str(resolved_project_fixture),
             profile_path=str(resolved_profile_path),
             poll_interval_seconds=poll_interval_seconds,
+            stability_threshold_seconds=stability_threshold_seconds,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             server_start_timeout_seconds=server_start_timeout_seconds,
@@ -527,6 +533,7 @@ def inspect_demo(
             "stdout_log_path": state.server.stdout_log_path,
             "stderr_log_path": state.server.stderr_log_path,
             "timing_posture": {
+                "stability_threshold_seconds": state.stability_threshold_seconds,
                 "completion_stability_seconds": state.completion_stability_seconds,
                 "unknown_to_stalled_timeout_seconds": state.unknown_to_stalled_timeout_seconds,
             },
@@ -671,6 +678,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--poll-interval-seconds",
         type=float,
         default=DEFAULT_POLL_INTERVAL_SECONDS,
+    )
+    start_parser.add_argument(
+        "--stability-threshold-seconds",
+        type=float,
+        default=DEFAULT_STABILITY_THRESHOLD_SECONDS,
     )
     start_parser.add_argument(
         "--completion-stability-seconds",
@@ -951,6 +963,7 @@ def _start_server_process(
     api_base_url: str,
     paths: DemoPaths,
     poll_interval_seconds: float,
+    stability_threshold_seconds: float,
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
     timeout_seconds: float,
@@ -974,6 +987,8 @@ def _start_server_process(
             str(paths.server_runtime_root),
             "--watch-poll-interval-seconds",
             str(poll_interval_seconds),
+            "--stability-threshold-seconds",
+            str(stability_threshold_seconds),
             "--completion-stability-seconds",
             str(completion_stability_seconds),
             "--unknown-to-stalled-timeout-seconds",

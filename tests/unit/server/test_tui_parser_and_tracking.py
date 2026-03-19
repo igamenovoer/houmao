@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from houmao.server.tracking_debug import TrackingDebugSink
 from houmao.server.models import (
     HoumaoErrorDetail,
     HoumaoParsedSurface,
@@ -517,6 +518,175 @@ def test_live_session_tracker_note_prompt_submission_arms_turn_anchor() -> None:
     assert state.lifecycle_authority.completion_authority == "turn_anchored"
     assert state.lifecycle_authority.turn_anchor_state == "active"
     assert state.lifecycle_authority.completion_monitoring_armed is True
+
+
+def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    stable_ready = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    candidate = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.2,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection(
+            "prompt ready\n"
+            "Reply with the single word READY and stop.\n"
+            "READY\n"
+            "Tip: Use Plan Mode before making changes."
+        ),
+    )
+
+    assert stable_ready.stability.stable is True
+    assert candidate.operator_state.completion_state == "candidate_complete"
+    assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
+    assert candidate.lifecycle_authority.turn_anchor_state == "active"
+
+
+def test_live_session_tracker_does_not_infer_anchor_for_small_stable_ready_churn() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    small_churn = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.2,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready!"),
+    )
+
+    assert small_churn.operator_state.completion_state == "inactive"
+    assert small_churn.lifecycle_authority.completion_authority == "unanchored_background"
+    assert small_churn.lifecycle_authority.turn_anchor_state == "absent"
+
+
+def test_live_session_tracker_tracking_debug_emits_expected_streams(tmp_path: Path) -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        tracking_debug_sink=TrackingDebugSink(root=tmp_path / "trace"),
+    )
+
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    tracker.note_prompt_submission(
+        message="Explain the failure.",
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.1,
+    )
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+    )
+    tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("assistant answered and prompt ready"),
+    )
+
+    events_dir = tmp_path / "trace" / "events"
+    assert (events_dir / "tracker-cycle.ndjson").is_file()
+    assert (events_dir / "tracker-reduction.ndjson").is_file()
+    assert (events_dir / "tracker-operator-state.ndjson").is_file()
+    assert (events_dir / "tracker-stability.ndjson").is_file()
+    assert (events_dir / "tracker-transition.ndjson").is_file()
+    assert (events_dir / "tracker-anchor.ndjson").is_file()
 
 
 def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:

@@ -53,6 +53,7 @@ from houmao.server.models import (
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
 )
+from houmao.server.tracking_debug import TrackingDebugSink
 
 LOGGER = logging.getLogger(__name__)
 
@@ -170,6 +171,7 @@ class HoumaoServerService:
         transport_resolver: TmuxTransportResolver | None = None,
         process_inspector: PaneProcessInspector | None = None,
         parser_adapter: OfficialTuiParserAdapter | None = None,
+        tracking_debug_sink: TrackingDebugSink | None = None,
     ) -> None:
         """Initialize the service runtime."""
 
@@ -184,6 +186,7 @@ class HoumaoServerService:
             supported_processes=config.supported_tui_processes
         )
         self.m_parser_adapter = parser_adapter or OfficialTuiParserAdapter()
+        self.m_tracking_debug_sink = tracking_debug_sink or TrackingDebugSink.from_env()
         self.m_lock = threading.RLock()
         self.m_trackers: dict[str, LiveSessionTracker] = {}
         self.m_terminal_aliases: dict[str, str] = {}
@@ -348,14 +351,55 @@ class HoumaoServerService:
     def note_prompt_submission(self, *, terminal_id: str, message: str) -> None:
         """Record one server-owned turn anchor after a successful input submission."""
 
+        monotonic_ts = time.monotonic()
         try:
             tracker = self._tracker_for_terminal_alias(terminal_id)
         except HTTPException:
+            self.emit_tracking_debug(
+                stream="service-prompt-submission",
+                event_type="note_prompt_submission_unknown_terminal",
+                terminal_id=terminal_id,
+                monotonic_ts=monotonic_ts,
+                data={
+                    "message_excerpt": _message_excerpt(message),
+                    "message_sha1": _message_sha1(message),
+                },
+            )
             return
-        tracker.note_prompt_submission(
+
+        identity = tracker.current_state().tracked_session
+        self.emit_tracking_debug(
+            stream="service-prompt-submission",
+            event_type="note_prompt_submission_called",
+            terminal_id=terminal_id,
+            tracked_session_id=identity.tracked_session_id,
+            tool=identity.tool,
+            monotonic_ts=monotonic_ts,
+            data={
+                "message_excerpt": _message_excerpt(message),
+                "message_sha1": _message_sha1(message),
+            },
+        )
+        state = tracker.note_prompt_submission(
             message=message,
             observed_at_utc=utc_now_iso(),
-            monotonic_ts=time.monotonic(),
+            monotonic_ts=monotonic_ts,
+        )
+        self.emit_tracking_debug(
+            stream="service-prompt-submission",
+            event_type="note_prompt_submission_recorded",
+            terminal_id=state.terminal_id,
+            tracked_session_id=state.tracked_session.tracked_session_id,
+            tool=state.tracked_session.tool,
+            monotonic_ts=monotonic_ts,
+            anchor_id=getattr(tracker.m_active_turn_anchor, "anchor_id", None),
+            data={
+                "completion_authority": state.lifecycle_authority.completion_authority,
+                "turn_anchor_state": state.lifecycle_authority.turn_anchor_state,
+                "completion_monitoring_armed": (
+                    state.lifecycle_authority.completion_monitoring_armed
+                ),
+            },
         )
 
     def register_launch(
@@ -467,6 +511,7 @@ class HoumaoServerService:
                     stability_threshold_seconds=self.m_config.stability_threshold_seconds,
                     completion_stability_seconds=self.m_config.completion_stability_seconds,
                     unknown_to_stalled_timeout_seconds=self.m_config.unknown_to_stalled_timeout_seconds,
+                    tracking_debug_sink=self.m_tracking_debug_sink,
                 )
                 self.m_trackers[record.tracked_session_id] = tracker
             else:
@@ -475,6 +520,35 @@ class HoumaoServerService:
                 if tracked_session_id == record.tracked_session_id and alias != record.terminal_id:
                     self.m_terminal_aliases.pop(alias, None)
             self.m_terminal_aliases[record.terminal_id] = record.tracked_session_id
+
+    def emit_tracking_debug(
+        self,
+        *,
+        stream: str,
+        event_type: str,
+        monotonic_ts: float | None = None,
+        terminal_id: str | None = None,
+        tracked_session_id: str | None = None,
+        tool: str | None = None,
+        cycle_seq: int | None = None,
+        anchor_id: int | None = None,
+        data: dict[str, object] | None = None,
+    ) -> None:
+        """Emit one structured tracking-debug event when enabled."""
+
+        if self.m_tracking_debug_sink is None:
+            return
+        self.m_tracking_debug_sink.emit(
+            stream=stream,
+            event_type=event_type,
+            monotonic_ts=monotonic_ts,
+            terminal_id=terminal_id,
+            tracked_session_id=tracked_session_id,
+            tool=tool,
+            cycle_seq=cycle_seq,
+            anchor_id=anchor_id,
+            data=data,
+        )
 
     def handle_poll_exception(self, tracked_session_id: str, exc: Exception) -> None:
         """Record one unexpected worker-poll failure and keep polling eligible."""
@@ -853,6 +927,23 @@ def _try_parse_json_bytes(body: bytes) -> object | None:
         return payload
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
+
+
+def _message_excerpt(message: str) -> str | None:
+    """Return one short collapsed message excerpt for debug events."""
+
+    collapsed = " ".join(message.split())
+    if not collapsed:
+        return None
+    if len(collapsed) <= 120:
+        return collapsed
+    return f"{collapsed[:117]}..."
+
+
+def _message_sha1(message: str) -> str:
+    """Return one stable digest for a submitted prompt payload."""
+
+    return hashlib.sha1(message.encode("utf-8")).hexdigest()
 
 
 TerminalWatchWorker = SessionWatchWorker

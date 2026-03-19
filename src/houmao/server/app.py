@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import time
 from urllib import parse
 
 from fastapi import FastAPI, Query, Response
@@ -146,13 +147,35 @@ def create_app(
 
     @app.post("/terminals/{terminal_id}/input")
     def send_input(terminal_id: TerminalId, message: str) -> Response:
+        monotonic_ts = time.monotonic()
+        resolved_service.emit_tracking_debug(
+            stream="app-input",
+            event_type="route_input_request",
+            terminal_id=terminal_id,
+            monotonic_ts=monotonic_ts,
+            data={"message_length": len(message)},
+        )
         result = resolved_service.proxy(
             method="POST",
             path=f"/terminals/{_quote_path_segment(terminal_id)}/input",
             params={"message": message},
         )
+        resolved_service.emit_tracking_debug(
+            stream="app-input",
+            event_type="route_input_proxy_result",
+            terminal_id=terminal_id,
+            monotonic_ts=monotonic_ts,
+            data={"status_code": result.status_code},
+        )
         if 200 <= result.status_code < 300:
             resolved_service.note_prompt_submission(terminal_id=terminal_id, message=message)
+            resolved_service.emit_tracking_debug(
+                stream="app-input",
+                event_type="route_input_prompt_submission_recorded",
+                terminal_id=terminal_id,
+                monotonic_ts=monotonic_ts,
+                data={"status_code": result.status_code},
+            )
         return result.to_fastapi_response()
 
     @app.get("/terminals/{terminal_id}/output")

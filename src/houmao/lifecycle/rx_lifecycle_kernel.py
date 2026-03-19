@@ -80,7 +80,7 @@ class TurnAnchor:
     """One explicit turn anchor owned by the caller."""
 
     anchor_id: int
-    source: Literal["terminal_input"]
+    source: Literal["terminal_input", "surface_inference"]
     baseline_projection_text: str
     armed_at_utc: str
     armed_monotonic_ts: float

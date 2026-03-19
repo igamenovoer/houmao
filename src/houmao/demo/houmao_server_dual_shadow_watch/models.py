@@ -10,6 +10,7 @@ from typing import Any
 
 DEMO_STATE_SCHEMA_VERSION = 1
 DEFAULT_POLL_INTERVAL_SECONDS = 0.5
+DEFAULT_STABILITY_THRESHOLD_SECONDS = 1.0
 DEFAULT_COMPLETION_STABILITY_SECONDS = 1.0
 DEFAULT_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS = 30.0
 DEFAULT_SERVER_START_TIMEOUT_SECONDS = 20.0
@@ -137,6 +138,7 @@ class HoumaoServerDualShadowWatchState:
     project_fixture: str
     profile_path: str
     poll_interval_seconds: float
+    stability_threshold_seconds: float
     completion_stability_seconds: float
     unknown_to_stalled_timeout_seconds: float
     server_start_timeout_seconds: float
@@ -275,6 +277,9 @@ class HoumaoServerDualShadowWatchState:
             profile_path=_require_string(payload.get("profile_path"), context="profile_path"),
             poll_interval_seconds=float(
                 payload.get("poll_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
+            ),
+            stability_threshold_seconds=float(
+                payload.get("stability_threshold_seconds", DEFAULT_STABILITY_THRESHOLD_SECONDS)
             ),
             completion_stability_seconds=float(
                 payload.get(
