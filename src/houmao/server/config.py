@@ -23,7 +23,7 @@ class HoumaoServerConfig(BaseModel):
 
     api_base_url: str = Field(default="http://127.0.0.1:9889")
     runtime_root: Path = Field(default_factory=resolve_runtime_root)
-    watch_poll_interval_seconds: float = 1.0
+    watch_poll_interval_seconds: float = 0.5
     recent_transition_limit: int = 24
     stability_threshold_seconds: float = 1.0
     completion_stability_seconds: float = 1.0

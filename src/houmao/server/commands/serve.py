@@ -15,7 +15,7 @@ from .common import build_config, path_option_help
 @click.option("--runtime-root", default=None, help=path_option_help())
 @click.option(
     "--watch-poll-interval-seconds",
-    default=1.0,
+    default=0.5,
     type=float,
     show_default=True,
 )

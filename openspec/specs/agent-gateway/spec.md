@@ -125,9 +125,11 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, and gateway-owned notifier control on the resolved listener address for that session.
+The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
 
 The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, and `POST /v1/mail/reply`.
 
 When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
 
@@ -141,13 +143,19 @@ When the gateway mail notifier capability is implemented, that HTTP API SHALL ad
 
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
+The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, and `reply` behaviors supported by both the filesystem and `stalwart` transports.
+
+Those shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
+
 That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
 
 Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
 Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
 
-Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, or notifier status.
+Shared mailbox route validation failures SHALL return HTTP `422`. Calls to mailbox routes for sessions without mailbox bindings SHALL fail explicitly rather than pretending mailbox support exists. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
+
+Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, notifier status, or shared mailbox state.
 
 #### Scenario: Health inspection uses default loopback surface
 - **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
@@ -168,6 +176,27 @@ Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely
 - **WHEN** a tool submits gateway-managed terminal-mutating work for a session whose resolved gateway host is `0.0.0.0`
 - **THEN** it may submit that work through `POST /v1/requests` on any reachable host interface address on the resolved port
 - **AND THEN** the gateway validates and records the request before it can compete for execution
+
+#### Scenario: Filesystem-backed mailbox check uses the dedicated gateway mail surface
+- **WHEN** a caller performs mailbox `check` against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
+- **THEN** the live gateway serves that operation through `POST /v1/mail/check`
+- **AND THEN** the caller receives normalized mailbox message metadata without reading mailbox-local SQLite directly
+
+#### Scenario: Stalwart-backed mailbox reply uses the same dedicated gateway mail surface
+- **WHEN** a caller performs mailbox `reply` against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
+- **THEN** the live gateway serves that operation through `POST /v1/mail/reply`
+- **AND THEN** the caller uses the same shared gateway mailbox contract rather than Stalwart-native transport objects directly
+
+#### Scenario: Session without mailbox binding rejects gateway mailbox routes explicitly
+- **WHEN** a caller invokes a gateway mailbox route for a managed session whose manifest has no mailbox binding
+- **THEN** the gateway rejects that mailbox route call explicitly
+- **AND THEN** it does not claim mailbox support for that session
+
+#### Scenario: Non-loopback gateway listener rejects shared mailbox routes
+- **WHEN** a live gateway listener is bound to `0.0.0.0`
+- **AND WHEN** a caller invokes one of the shared `/v1/mail/*` routes
+- **THEN** the gateway rejects that mailbox route call as unavailable for the current listener configuration
+- **AND THEN** terminal-mutating routes remain available under their existing listener rules
 
 #### Scenario: Invalid request payload is rejected with validation semantics
 - **WHEN** a caller submits a malformed `POST /v1/requests` payload
@@ -230,6 +259,8 @@ The gateway SHALL accept structured local requests for gateway-managed work and 
 
 In v1, the public terminal-mutating request kinds SHALL be exactly `submit_prompt` and `interrupt`.
 
+Mailbox transport operations SHALL use the dedicated `/v1/mail/*` routes rather than introducing new public terminal-mutating request kinds.
+
 The HTTP submission contract SHALL expose typed per-kind payloads. Any persisted `payload_json` field remains an internal storage detail rather than part of the public protocol contract.
 
 For accepted terminal-mutating requests, the gateway SHALL persist them durably, SHALL serialize execution through a single active terminal-mutation slot per managed agent, and SHALL order eligible work according to gateway policy such as priority, timing constraints, or coalescing rules.
@@ -253,6 +284,11 @@ When managed-agent recovery or reconciliation state makes safe execution impossi
 - **WHEN** a caller submits an `interrupt` request for a gateway-managed session
 - **THEN** the gateway records it as a gateway-managed control action
 - **AND THEN** the caller does not need to bypass the gateway with direct concurrent terminal mutation
+
+#### Scenario: Mailbox send does not create a new public terminal-mutating request kind
+- **WHEN** a caller uses the gateway to perform mailbox `send`
+- **THEN** that operation uses the dedicated gateway mailbox surface rather than `POST /v1/requests`
+- **AND THEN** the public terminal-mutating request-kind set remains limited to `submit_prompt` and `interrupt`
 
 #### Scenario: Concurrent terminal-mutating requests are serialized
 - **WHEN** multiple accepted terminal-mutating requests target the same managed agent concurrently
