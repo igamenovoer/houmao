@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from houmao.cao.models import CaoTerminalStatus
 from houmao.server.config import HoumaoServerConfig
@@ -38,11 +39,47 @@ class _FakeTransport:
 
 
 class _FakeChildManager:
+    def __init__(
+        self,
+        *,
+        base_url: str = "http://127.0.0.1:9890",
+        healthy: bool = True,
+        health_status: str | None = "ok",
+        service_name: str | None = "cli-agent-orchestrator",
+        error: str | None = None,
+        ownership_file: Path | None = None,
+    ) -> None:
+        self.m_base_url = base_url
+        self.m_healthy = healthy
+        self.m_health_status = health_status
+        self.m_service_name = service_name
+        self.m_error = error
+        self.m_ownership_file = ownership_file or Path("/tmp/houmao-server-tests-no-ownership")
+        self.start_calls = 0
+        self.stop_calls = 0
+
     def start(self) -> None:
-        return None
+        self.start_calls += 1
 
     def stop(self) -> None:
-        return None
+        self.stop_calls += 1
+
+    def inspect(self) -> object:
+        config = type("Config", (), {"base_url": self.m_base_url})()
+        status = type(
+            "Status",
+            (),
+            {
+                "healthy": self.m_healthy,
+                "health_status": self.m_health_status,
+                "service": self.m_service_name,
+                "error": self.m_error,
+            },
+        )()
+        return type("Inspection", (), {"config": config, "status": status})()
+
+    def ownership_file_path(self) -> Path:
+        return self.m_ownership_file
 
 
 def test_register_launch_discovers_terminal_and_persists_registration(
@@ -192,3 +229,212 @@ def test_refresh_terminal_state_reduces_terminal_status_and_output(
         / "current.json"
     )
     assert state_path.is_file()
+
+
+def test_startup_persists_current_instance_and_child_metadata(tmp_path: Path) -> None:
+    ownership_file = tmp_path / "child-cao" / "ownership.json"
+    ownership_file.parent.mkdir(parents=True, exist_ok=True)
+    ownership_file.write_text("{}\n", encoding="utf-8")
+    child_manager = _FakeChildManager(ownership_file=ownership_file)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({("GET", "/sessions", ()): _json_response([])}),
+        child_manager=child_manager,
+    )
+
+    service.startup()
+
+    current_instance_path = (
+        tmp_path / "houmao_servers" / "127.0.0.1-9889" / "run" / "current-instance.json"
+    )
+    current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
+    health = service.health_response()
+
+    assert child_manager.start_calls == 1
+    assert current_instance["status"] == "ok"
+    assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
+    assert current_instance["child_cao"]["api_base_url"] == "http://127.0.0.1:9890"
+    assert current_instance["child_cao"]["derived_port"] == 9890
+    assert current_instance["child_cao"]["ownership_file"] == str(ownership_file)
+    assert health.status == "ok"
+    assert health.service == "cli-agent-orchestrator"
+    assert health.houmao_service == "houmao-server"
+    assert health.child_cao is not None
+    assert health.child_cao.healthy is True
+    assert health.child_cao.derived_port == 9890
+
+
+def test_startup_seeds_existing_child_sessions_and_starts_watch_workers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    started: list[str] = []
+    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: started.append(self.m_terminal_id))
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/sessions", ()): _json_response([{"id": "cao-gpu"}]),
+                (
+                    "GET",
+                    "/sessions/cao-gpu/terminals",
+                    (),
+                ): _json_response(
+                    [
+                        {
+                            "id": "abcd1234",
+                            "name": "gpu-a",
+                            "provider": "codex",
+                            "session_name": "cao-gpu",
+                            "agent_profile": "runtime-profile",
+                            "status": "idle",
+                        },
+                        {
+                            "id": "deadbeef",
+                            "name": "gpu-b",
+                            "provider": "codex",
+                            "session_name": "cao-gpu",
+                            "agent_profile": "runtime-profile",
+                            "status": "processing",
+                        },
+                    ]
+                ),
+            }
+        ),
+        child_manager=_FakeChildManager(),
+    )
+
+    service.startup()
+
+    assert sorted(started) == ["abcd1234", "deadbeef"]
+    assert service.terminal_state("abcd1234").terminal.session_name == "cao-gpu"
+    assert service.terminal_state("deadbeef").terminal.status == CaoTerminalStatus.PROCESSING
+
+
+def test_terminal_history_sorts_entries_and_applies_limit(tmp_path: Path) -> None:
+    config = HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path)
+    history_dir = config.terminal_history_root / "abcd1234"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    (history_dir / "samples.ndjson").write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    {
+                        "recorded_at_utc": "2026-03-19T10:00:02+00:00",
+                        "kind": "sample",
+                        "payload": {"ordinal": 2},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "recorded_at_utc": "2026-03-19T10:00:01+00:00",
+                        "kind": "sample",
+                        "payload": {"ordinal": 1},
+                    }
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (history_dir / "transitions.ndjson").write_text(
+        json.dumps(
+            {
+                "recorded_at_utc": "2026-03-19T10:00:03+00:00",
+                "kind": "transition",
+                "payload": {"ordinal": 3},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+
+    history = service.terminal_history("abcd1234", limit=2)
+
+    assert [entry.payload["ordinal"] for entry in history.entries] == [2, 3]
+    assert [entry.kind for entry in history.entries] == ["sample", "transition"]
+
+
+def test_handle_deleted_session_stops_workers_and_clears_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stopped: list[str] = []
+    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
+    monkeypatch.setattr(
+        TerminalWatchWorker,
+        "stop",
+        lambda self, *, join=True: stopped.append(self.m_terminal_id),
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.sync_created_terminal(
+        {
+            "id": "abcd1234",
+            "name": "gpu-a",
+            "provider": "codex",
+            "session_name": "cao-gpu",
+            "agent_profile": "runtime-profile",
+            "status": "idle",
+        }
+    )
+    service.sync_created_terminal(
+        {
+            "id": "deadbeef",
+            "name": "gpu-b",
+            "provider": "codex",
+            "session_name": "cao-gpu",
+            "agent_profile": "runtime-profile",
+            "status": "idle",
+        }
+    )
+
+    service.handle_deleted_session("cao-gpu")
+
+    assert sorted(stopped) == ["abcd1234", "deadbeef"]
+    assert "cao-gpu" not in service.m_sessions
+    assert service.m_terminals == {}
+    with pytest.raises(HTTPException, match="Unknown terminal `abcd1234`"):
+        service.terminal_state("abcd1234")
+
+
+def test_shutdown_stops_workers_and_child_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stopped: list[str] = []
+    child_manager = _FakeChildManager()
+    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
+    monkeypatch.setattr(
+        TerminalWatchWorker,
+        "stop",
+        lambda self, *, join=True: stopped.append(self.m_terminal_id),
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=child_manager,
+    )
+    service.sync_created_terminal(
+        {
+            "id": "abcd1234",
+            "name": "gpu",
+            "provider": "codex",
+            "session_name": "cao-gpu",
+            "agent_profile": "runtime-profile",
+            "status": "idle",
+        }
+    )
+
+    service.shutdown()
+
+    assert stopped == ["abcd1234"]
+    assert child_manager.stop_calls == 1

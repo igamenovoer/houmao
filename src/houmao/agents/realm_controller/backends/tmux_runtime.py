@@ -49,6 +49,18 @@ class TmuxControlInputSegment:
     value: str
 
 
+@dataclass(frozen=True)
+class TmuxPaneRecord:
+    """One tmux pane record resolved from `list-panes` output."""
+
+    pane_id: str
+    session_name: str
+    window_id: str
+    window_name: str
+    pane_index: str
+    pane_active: bool
+
+
 _TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
 _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
     {
@@ -169,6 +181,116 @@ def show_tmux_environment(
     """Return raw tmux `show-environment` output for one variable."""
 
     return run_tmux(["show-environment", "-t", session_name, variable_name])
+
+
+def read_tmux_session_environment_value(*, session_name: str, variable_name: str) -> str | None:
+    """Return one optional tmux session environment value."""
+
+    result = show_tmux_environment(session_name=session_name, variable_name=variable_name)
+    if result.returncode != 0:
+        detail = tmux_error_detail(result).lower()
+        if "unknown variable" in detail or "unknown-environment" in detail:
+            return None
+        raise TmuxCommandError(
+            f"Failed to read tmux environment variable `{variable_name}` from "
+            f"`{session_name}`: {tmux_error_detail(result) or 'unknown tmux error'}"
+        )
+
+    line = (result.stdout or "").strip()
+    if not line or line.startswith("-"):
+        return None
+    expected_prefix = f"{variable_name}="
+    if not line.startswith(expected_prefix):
+        raise TmuxCommandError(
+            f"Unexpected tmux environment output for `{variable_name}` in `{session_name}`: {line}"
+        )
+    value = line[len(expected_prefix) :].strip()
+    return value or None
+
+
+def list_tmux_clients(*, session_name: str) -> tuple[str, ...]:
+    """Return attached tmux client identifiers for one session."""
+
+    result = run_tmux(
+        [
+            "list-clients",
+            "-t",
+            session_name,
+            "-F",
+            "#{client_tty}",
+        ]
+    )
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        lowered = detail.lower()
+        if "no current client" in lowered or "no server running" in lowered:
+            return ()
+        raise TmuxCommandError(
+            f"Failed to list tmux clients for `{session_name}`: {detail or 'unknown tmux error'}"
+        )
+    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+
+def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+    """Return pane records for one tmux session."""
+
+    result = run_tmux(
+        [
+            "list-panes",
+            "-t",
+            session_name,
+            "-F",
+            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_index}\t#{pane_active}",
+        ]
+    )
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to list tmux panes for `{session_name}`: {detail or 'unknown tmux error'}"
+        )
+
+    panes: list[TmuxPaneRecord] = []
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) != 6:
+            raise TmuxCommandError(f"Unexpected tmux pane output for `{session_name}`: {line}")
+        panes.append(
+            TmuxPaneRecord(
+                pane_id=parts[0],
+                session_name=parts[1],
+                window_id=parts[2],
+                window_name=parts[3],
+                pane_index=parts[4],
+                pane_active=parts[5] == "1",
+            )
+        )
+    return tuple(panes)
+
+
+def capture_tmux_pane(*, target: str) -> str:
+    """Return capture-pane text for one tmux target."""
+
+    result = run_tmux(["capture-pane", "-p", "-e", "-S", "-", "-t", target])
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to capture tmux pane `{target}`: {detail or 'unknown tmux error'}"
+        )
+    return result.stdout
+
+
+def select_tmux_pane(*, target: str) -> None:
+    """Select one tmux pane."""
+
+    result = run_tmux(["select-pane", "-t", target])
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to select tmux pane `{target}`: {detail or 'unknown tmux error'}"
+        )
 
 
 def wait_for_tmux_signal(

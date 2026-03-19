@@ -39,5 +39,5 @@ We also still depend on CAO's own operator CLI for CAO-native workflows. We need
 - An explicit paired-compatibility contract where `houmao-server + houmao-srv-ctrl` replaces `cao-server + cao`, while mixed-pair crosstalk is unsupported
 - Runtime launch/control entrypoints, manifests, and REST clients for `houmao-server`-backed sessions
 - Server-owned artifact layout for process state, logs, session metadata, internal child-adapter state, and per-terminal watch histories without a user-facing child-port override or child-CAO-home contract
-- Tests for full server API compatibility against the pinned `cao-server` source of truth, additive extension safety, child-CAO lifecycle, full CLI compatibility against the pinned `cao` source of truth, watch lifecycle, CAO-backed delegation, and runtime integration
+- Tests that treat CAO-compatible passthrough HTTP routes and delegated CLI commands as pinned-CAO acceptance and forwarding contracts, while testing Houmao-owned extension routes, launch registration, child lifecycle, watch lifecycle, and runtime integration for behavior correctness
 - Reference docs describing `houmao-server`, `houmao-srv-ctrl`, their CAO-compatibility boundaries, and the migration path toward full CAO replacement

@@ -19,6 +19,9 @@ from houmao.cao.no_proxy import (
     inject_loopback_no_proxy_env_for_cao_base_url,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.terminal_record.runtime_bridge import (
+    append_managed_control_input_for_tmux_session,
+)
 
 from ..agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -688,6 +691,15 @@ class CaoRestSession:
             )
             tmux_target = self._resolve_control_input_tmux_target()
             send_tmux_control_input_shared(target=tmux_target, segments=segments)
+            try:
+                append_managed_control_input_for_tmux_session(
+                    session_name=self._session_name,
+                    sequence=sequence,
+                    escape_special_keys=escape_special_keys,
+                    tmux_target=tmux_target,
+                )
+            except (OSError, ValueError, TmuxCommandError):
+                pass
         except (BackendExecutionError, TmuxCommandError, TmuxControlInputError) as exc:
             return SessionControlResult(
                 status="error",

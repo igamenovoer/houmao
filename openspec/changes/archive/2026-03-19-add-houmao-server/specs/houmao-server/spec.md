@@ -241,16 +241,35 @@ Future native Houmao-owned terminal backends SHALL be able to replace the CAO-ba
 - **AND THEN** callers do not need to switch back to CAO-branded service identities to keep using the server
 
 ### Requirement: `houmao-server` compatibility SHALL be verified against a real `cao-server`
-The implementation SHALL include verification that exercises the supported `cao-server` HTTP API against both `cao-server` and `houmao-server` and compares the compatibility-significant results.
+The implementation SHALL include verification that uses the pinned `cao-server` source to exercise the CAO-compatible HTTP routes that remain passthrough in v1 and the Houmao-owned server behavior that sits around those routes.
 
-That verification SHALL cover at minimum:
+For passthrough CAO-compatible routes, verification SHALL focus on whether `houmao-server` forwards the request surface correctly so the child `cao-server` accepts or rejects the input in the expected compatibility-significant places.
+
+That passthrough verification SHALL cover at minimum:
 
 - endpoint availability and routing
-- request argument and request-body handling
-- response status codes and CAO-defined response fields
-- basic lifecycle behavior for session and terminal operations
+- path-segment encoding and routing
+- request argument, query, and request-body handling
+- required-versus-optional input handling
+- additive-extension safety on CAO-compatible routes
 
-#### Scenario: Compatibility verification catches non-additive divergences
-- **WHEN** a `houmao-server` compatibility route changes in a way that breaks a CAO-compatible request or CAO-defined response contract
-- **THEN** parity verification against a real `cao-server` detects the divergence
-- **AND THEN** the implementation can reject that change before claiming API compatibility
+That passthrough verification SHALL NOT need to re-test the downstream session, terminal, or provider behavior once the child `cao-server` has accepted the forwarded input.
+
+Houmao-owned behavior SHALL be tested directly and more strictly. That verification SHALL cover at minimum:
+
+- additive `/health` fields and child-lifecycle metadata
+- current-instance persistence and reporting
+- launch registration behavior
+- terminal state and history route correctness
+- watch-worker lifecycle and runtime-owned state reduction
+- runtime routing behavior owned by Houmao rather than by CAO
+
+#### Scenario: Passthrough verification catches request-surface regressions
+- **WHEN** a `houmao-server` passthrough compatibility route changes in a way that breaks CAO-compatible path, query, or body handling
+- **THEN** passthrough verification against the pinned `cao-server` detects the divergence
+- **AND THEN** the implementation can reject that change before claiming compatibility-safe delegation
+
+#### Scenario: Houmao-owned verification catches extension regressions
+- **WHEN** a Houmao-owned extension route or lifecycle reduction changes in a way that breaks server-owned behavior
+- **THEN** direct Houmao behavior verification detects the regression
+- **AND THEN** the implementation can reject that change even if the delegated child CAO still accepts the underlying request

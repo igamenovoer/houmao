@@ -343,6 +343,25 @@ Parity verification for both `houmao-server` and `houmao-srv-ctrl` is defined ag
 - Keep compatibility pinned only to a floating branch name: rejected because it is not stable enough for full parity claims
 - Treat whatever `cao` happens to be on `PATH` as the contract: rejected because it makes verification non-deterministic
 
+### Decision 11: Verify delegation boundaries differently from Houmao-owned behavior
+
+**Choice:** Verification in this change distinguishes between CAO-owned delegated behavior and Houmao-owned behavior.
+
+For CAO-compatible HTTP routes that remain passthrough in v1, verification focuses on whether `houmao-server` forwards the request surface correctly so the pinned child `cao-server` accepts or rejects the input in the expected compatibility-significant places. That includes route availability, path encoding, query and body argument forwarding, required-versus-optional argument handling, and additive-extension safety. It does not attempt to re-prove the entire downstream CAO business behavior once the child CAO has accepted the forwarded input.
+
+For delegated CLI commands in `houmao-srv-ctrl`, verification focuses on command-family presence, argument acceptance, argv forwarding into `cao`, and explicit Houmao-owned pair-enforcement checks where applicable. It does not require byte-for-byte stdout or stderr parity or full re-testing of CAO's downstream command behavior for those delegated commands.
+
+Houmao-owned behavior is verified directly and more strictly. That includes additive `/health` metadata, current-instance state, child-lifecycle metadata, launch registration, runtime artifact materialization, terminal state and history routes, watch-worker lifecycle, and other behaviors that are implemented or reduced inside Houmao rather than delegated into CAO.
+
+**Rationale:**
+- Keeps verification aligned with the shallow-cut architecture instead of duplicating upstream CAO test coverage inside Houmao
+- Focuses effort on the parts Houmao actually owns and can regress independently
+- Preserves a clear contract for compatibility-safe request and command acceptance without pretending Houmao re-specifies all delegated downstream semantics
+
+**Alternatives considered:**
+- Re-test full downstream CAO session and terminal behavior through every passthrough route: rejected because it duplicates CAO's responsibility and obscures Houmao-owned risks
+- Require full byte-for-byte CLI output parity for delegated commands: rejected because the delegated command behavior is CAO-owned and output-equality testing would be brittle relative to the value
+
 ## Risks / Trade-offs
 
 [A shallow CAO-backed first cut could become a permanent proxy layer] → Mitigation: keep the child-process and upstream-adapter boundaries explicit and keep CAO details out of public Houmao contracts.
@@ -353,9 +372,9 @@ Parity verification for both `houmao-server` and `houmao-srv-ctrl` is defined ag
 
 [Manual operator interaction can still create ambiguous snapshots] → Mitigation: model external activity explicitly and keep raw observation separate from owned-work conclusions.
 
-[HTTP compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add parity verification that exercises the same endpoint calls against both servers within the supported Houmao pair.
+[HTTP compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and verify the passthrough request surface against that source while testing Houmao-owned extension and lifecycle behavior directly.
 
-[CLI compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add parity verification that exercises the same commands against both `cao` and `houmao-srv-ctrl` within the supported Houmao pair.
+[CLI compatibility can drift from CAO behavior across versions] → Mitigation: pin compatibility to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and verify delegated command acceptance and forwarding against that source while testing Houmao-owned launch behavior directly.
 
 [Users may assume mixed-pair crosstalk is supported] → Mitigation: state explicitly that only `houmao-server + houmao-srv-ctrl` is in contract, treat mixed pairs as unsupported, and avoid claiming parity coverage for those combinations.
 
@@ -375,7 +394,7 @@ Parity verification for both `houmao-server` and `houmao-srv-ctrl` is defined ag
 6. Emit gateway-like and child-launcher filesystem mirrors only as compatibility, debug, or migration views where needed.
 7. Add `houmao-srv-ctrl` as a CAO-compatible command family that delegates most commands to `cao`, materializes Houmao-owned session roots and manifests for delegated launches, and registers those launched live agents with `houmao-server`, while leaving `houmao-cli` outside that compatibility surface.
 8. Add runtime start, inspect, prompt, control-input, interrupt, and stop flows for a new `houmao-server` REST-backed mode while leaving direct CAO flows intact.
-9. Pin parity verification to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add tests/reference docs for full server API compatibility, additive extension safety, full `cao` CLI compatibility through `houmao-srv-ctrl`, explicit mixed-pair exclusion, child-CAO lifecycle, watch behavior, persistence-boundary migration, and the path toward eventual CAO replacement.
+9. Pin verification to `https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6` and add tests/reference docs that treat CAO-compatible passthrough HTTP routes and delegated CLI commands as acceptance and forwarding contracts, while testing Houmao-owned extensions, launch registration, child-CAO lifecycle, watch behavior, persistence-boundary migration, and the path toward eventual CAO replacement directly.
 
 Rollback is straightforward because the new server mode is opt-in. Existing direct CAO-managed sessions continue to function unchanged while `houmao-server` matures.
 

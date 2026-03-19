@@ -1,9 +1,14 @@
-## ADDED Requirements
+## Purpose
+Define the public `houmao-srv-ctrl` contract as the Houmao-managed CAO-compatible service-management CLI and its paired relationship with `houmao-server`.
+
+## Requirements
 
 ### Requirement: `houmao-srv-ctrl` exposes a CAO-compatible command surface
 The system SHALL expose a CAO-compatible command surface on a dedicated service-management binary named `houmao-srv-ctrl`.
 
-For the supported `cao` version pinned by this change, `houmao-srv-ctrl` SHALL accept the same public command family, arguments, flags, exit-status semantics, and user-visible output shape closely enough to act as a drop-in replacement for operators switching from `cao` to `houmao-srv-ctrl`.
+For the supported `cao` version pinned by this capability, `houmao-srv-ctrl` SHALL accept the same public command family, arguments, and flags closely enough to act as a drop-in replacement for operators switching from `cao` to `houmao-srv-ctrl`.
+
+For commands that remain delegated to the installed `cao` executable in v1, the downstream business behavior remains CAO-owned. This capability's CLI contract focuses on command acceptance, delegation wiring, supported-pair enforcement, and Houmao-owned post-launch behavior rather than redefining the full downstream `cao` implementation.
 
 Aliasing `cao` to `houmao-srv-ctrl` SHALL work for the supported command family.
 
@@ -17,7 +22,7 @@ At minimum, the CAO-compatible command family SHALL include:
 - `mcp-server`
 - `shutdown`
 
-This change SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-compatible service-management surface.
+This capability SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-compatible service-management surface.
 
 #### Scenario: Aliasing `cao` to `houmao-srv-ctrl` works for supported commands
 - **WHEN** an operator aliases `cao` to `houmao-srv-ctrl` and invokes a supported `cao` command pattern
@@ -25,30 +30,30 @@ This change SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-comp
 - **AND THEN** the operator does not need a separate command rewrite layer just to switch to the Houmao-managed CLI
 
 ### Requirement: `houmao-srv-ctrl` compatibility is pinned to one exact CAO source of truth
-For this change, the CAO CLI compatibility source of truth SHALL be pinned to:
+For this capability, the CAO CLI compatibility source of truth SHALL be pinned to:
 
 - repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
 - commit: `0fb3e5196570586593736a21262996ca622f53b6`
 - local tracked checkout: `extern/tracked/cli-agent-orchestrator`
 
-The change SHALL treat that exact source as the parity oracle for `houmao-srv-ctrl` CLI compatibility rather than a floating branch name or whichever `cao` happens to be on `PATH`.
+The system SHALL treat that exact source as the parity oracle for `houmao-srv-ctrl` CLI compatibility rather than a floating branch name or whichever `cao` happens to be on `PATH`.
 
 #### Scenario: CLI parity verification uses the pinned CAO source
 - **WHEN** implementation or verification compares `houmao-srv-ctrl` behavior to CAO CLI behavior
-- **THEN** it uses the pinned CAO source of truth for this change
+- **THEN** it uses the pinned CAO source of truth for this capability
 - **AND THEN** the parity target does not drift with a floating upstream branch
 
 ### Requirement: `houmao-srv-ctrl` compatibility is defined within the supported Houmao pair
 The compatibility contract for `houmao-srv-ctrl` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
 
-This change SHALL NOT require `houmao-srv-ctrl` to support arbitrary external `cao-server` deployments as a public compatibility contract.
+This capability SHALL NOT require `houmao-srv-ctrl` to support arbitrary external `cao-server` deployments as a public compatibility contract.
 
-Mixed-pair usage such as `cao-server + houmao-srv-ctrl` SHALL be treated as unsupported in this change.
+Mixed-pair usage such as `cao-server + houmao-srv-ctrl` SHALL be treated as unsupported in this capability.
 
 #### Scenario: Mixed raw-CAO-server-plus-`houmao-srv-ctrl` usage is not part of the compatibility promise
 - **WHEN** an operator uses `houmao-srv-ctrl` against a raw `cao-server` deployment
-- **THEN** that combination is outside the supported compatibility contract for this change
-- **AND THEN** parity verification for the change does not need to claim that mixed pair works
+- **THEN** that combination is outside the supported compatibility contract for this capability
+- **AND THEN** parity verification for the capability does not need to claim that mixed pair works
 
 ### Requirement: Houmao extensions on `houmao-srv-ctrl` are additive only
 When `houmao-srv-ctrl` extends an existing CAO-compatible command, those extensions SHALL be additive only.
@@ -69,7 +74,7 @@ Additive extensions MAY include:
 ### Requirement: Most CAO-compatible CLI work delegates to the installed `cao` executable
 For most CAO-compatible commands in the shallow cut, `houmao-srv-ctrl` SHALL call the installed `cao` executable internally rather than re-implementing CAO CLI behavior natively.
 
-For delegated commands, `houmao-srv-ctrl` SHALL preserve CAO-facing behavior closely enough for practical drop-in use, including delegated exit status and user-visible output shape where feasible.
+For delegated commands, `houmao-srv-ctrl` SHALL preserve command acceptance and delegation wiring closely enough for practical drop-in use, including argument forwarding into `cao` and delegated process completion behavior where feasible.
 
 #### Scenario: Non-launch CAO-compatible command delegates to `cao`
 - **WHEN** an operator invokes a CAO-compatible command such as `houmao-srv-ctrl install ...`
@@ -115,16 +120,30 @@ Future native Houmao launch implementations MAY replace that delegation later wi
 - **AND THEN** operators do not need to switch back to `cao` naming to use the evolved Houmao implementation
 
 ### Requirement: `houmao-srv-ctrl` compatibility SHALL be verified against a real `cao` CLI
-The implementation SHALL include verification that exercises the supported `cao` command family against both `cao` and `houmao-srv-ctrl` and compares the compatibility-significant results.
+The implementation SHALL include verification that uses the pinned `cao` source and delegated invocation patterns to exercise the supported command family through `houmao-srv-ctrl`.
 
-That verification SHALL cover at minimum:
+For delegated passthrough commands, verification SHALL focus on whether `houmao-srv-ctrl` accepts the CAO-compatible command pattern and forwards the invocation into `cao` correctly.
+
+That delegated-command verification SHALL cover at minimum:
 
 - command acceptance and argument parsing
-- exit status behavior
-- user-visible output shape for supported commands
-- successful live-agent launch registration for commands that create live agents
+- argv forwarding into delegated `cao` invocations
+- supported-pair enforcement where Houmao intentionally rejects mixed-pair usage
 
-#### Scenario: CLI compatibility verification catches non-additive divergences
-- **WHEN** a `houmao-srv-ctrl` compatibility command changes in a way that breaks a CAO-compatible invocation or CAO-defined CLI contract
-- **THEN** parity verification against a real `cao` CLI detects the divergence
-- **AND THEN** the implementation can reject that change before claiming drop-in CLI compatibility
+That delegated-command verification SHALL NOT require byte-for-byte stdout or stderr parity or full re-testing of downstream `cao` command behavior once the delegated invocation is accepted.
+
+Houmao-owned CLI behavior SHALL be tested directly and more strictly. That verification SHALL cover at minimum:
+
+- successful live-agent launch registration for `launch`
+- Houmao-owned runtime artifact materialization for delegated launches
+- additive post-launch behavior implemented by `houmao-srv-ctrl`
+
+#### Scenario: Delegated CLI verification catches command-surface regressions
+- **WHEN** a delegated `houmao-srv-ctrl` command changes in a way that breaks a CAO-compatible invocation shape or delegation wiring
+- **THEN** delegated-command verification detects the divergence
+- **AND THEN** the implementation can reject that change before claiming compatibility-safe delegation
+
+#### Scenario: Houmao-owned launch verification catches post-launch regressions
+- **WHEN** the Houmao-owned `launch` follow-up logic changes in a way that breaks registration or runtime artifact materialization
+- **THEN** direct Houmao behavior verification detects the regression
+- **AND THEN** the implementation can reject that change even if delegated `cao launch` still accepts the invocation
