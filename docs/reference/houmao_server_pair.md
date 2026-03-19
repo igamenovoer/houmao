@@ -36,13 +36,19 @@ houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
 
 ## Architecture
 
-The v1 implementation is a shallow cut. `houmao-server` supervises a child `cao-server` and uses that child as the upstream engine for most CAO-compatible routes.
+The pair still uses a supervised child `cao-server` for CAO-compatible control routes, but live TUI tracking no longer goes through that child. `houmao-server` now owns the watch plane directly:
+
+- direct tmux pane resolution and capture
+- live process-tree inspection to determine whether the supported TUI is up or down
+- official parser selection through the shared parser stack
+- continuous in-memory live state and bounded recent transitions
 
 The public contract stays Houmao-owned:
 
 - callers talk to `houmao-server`
 - runtime-owned `houmao_server_rest` sessions persist the public Houmao server base URL and terminal identity
-- child CAO details stay behind the public contract
+- child CAO details stay behind the public contract for the delegated control plane
+- terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity instead of making `terminal_id` the internal watch authority
 
 The child listener address is derived mechanically as `public_port + 1` and stays loopback-only. There is no separate user-facing child-port override in this design.
 
@@ -60,16 +66,16 @@ Filesystem-backed compatibility, debug, or migration views:
 
 - `houmao-server` current-instance and pid files
 - child launcher config, pid, ownership, and runtime artifacts under the internal child root
-- per-terminal `current.json` and append-only history files emitted by watch workers
 - delegated-launch `sessions/<session>/registration.json` under the server root
 
 Memory-primary live control-plane state:
 
-- live terminal registry membership
+- known-session registry entries rebuilt from registration records and verified against live tmux
 - active watch-worker ownership
-- raw observation, owned-work, external-activity, and operator-state reductions
+- explicit transport/process/parse state for tracked sessions
+- latest parsed supported-TUI surface, derived operator state, stability metadata, and bounded recent transitions
 
-Once `houmao-server` owns one of those live control-plane views in memory, any emitted filesystem copy is a compatibility/debug mirror rather than the authoritative live source.
+Live terminal state is now authoritative in server memory. `houmao-server` no longer writes per-terminal `current.json`, `samples.ndjson`, or `transitions.ndjson` files for the tracker contract.
 
 ## `houmao_server_rest` Runtime Identity
 

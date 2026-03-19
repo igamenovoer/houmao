@@ -28,8 +28,10 @@ Implemented server scope includes:
 - derived child listener address `public_port + 1`
 - Houmao-owned `GET /health` additive metadata
 - Houmao-owned current-instance metadata
-- per-terminal watch workers
-- reduced terminal state and append-only terminal history
+- one background worker per known tmux-backed tracked session
+- direct tmux pane capture and process-based TUI up/down detection
+- official live parsing through the shared parser stack
+- explicit transport/process/parse state, derived operator state, stability metadata, and bounded in-memory recent transitions
 - server-local delegated-launch registration records
 - a Houmao-owned server root under `<runtime-root>/houmao_servers/<host>-<port>/`
 
@@ -71,7 +73,8 @@ Implemented runtime scope includes:
 
 - `houmao-cli` remains the runtime and agent lifecycle CLI. It is not the CAO-compatible service-management wrapper.
 - Direct CAO-based flows still exist while `houmao-server` adoption remains opt-in.
-- The v1 implementation is still a shallow cut. `houmao-server` uses a supervised child `cao-server` behind the public Houmao boundary.
+- `houmao-server` still uses a supervised child `cao-server` behind the public Houmao boundary for delegated control routes.
+- The watch plane is no longer child-CAO-shaped even though the control plane still delegates in v1.
 
 ## Recommended Reading Order
 

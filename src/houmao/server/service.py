@@ -1,14 +1,17 @@
-"""Core service runtime for `houmao-server`."""
+"""Core service runtime for `houmao-server`.
+
+This service keeps CAO-compatible control delegation behind the child server
+while owning live tmux/process observation and in-memory TUI tracking directly.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import shutil
 import threading
-import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+import time
 from pathlib import Path
 from typing import Protocol
 from urllib import error, parse, request
@@ -17,56 +20,54 @@ from fastapi import HTTPException, Response
 
 from houmao.cao.models import CaoTerminal
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TmuxCommandError,
+    tmux_session_exists,
+)
+from houmao.server.tui import (
+    KnownSessionRecord,
+    KnownSessionRegistry,
+    LiveSessionTracker,
+    OfficialTuiParserAdapter,
+    PaneProcessInspector,
+    SessionWatchWorker,
+    TuiTrackingSupervisor,
+    TmuxTransportResolver,
+)
+from houmao.server.tui.tracking import utc_now_iso
 
-from .child_cao import ChildCaoManager
-from .config import HoumaoServerConfig
-from .models import (
+from houmao.server.child_cao import ChildCaoManager
+from houmao.server.config import HoumaoServerConfig
+from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
-    HoumaoExternalActivity,
+    HoumaoErrorDetail,
     HoumaoHealthResponse,
-    HoumaoOperatorState,
-    HoumaoOwnedWork,
-    HoumaoRawObservation,
+    HoumaoProbeSnapshot,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
-    HoumaoTerminalHistoryEntry,
     HoumaoTerminalHistoryResponse,
-    HoumaoTerminalStateRecord,
     HoumaoTerminalStateResponse,
 )
 
-_STATUS_TO_OPERATOR_STATE: dict[str, str] = {
-    "idle": "ready",
-    "completed": "completed",
-    "processing": "processing",
-    "waiting_user_answer": "waiting_user_answer",
-    "error": "error",
-}
 
-
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _default_operator_state() -> HoumaoOperatorState:
-    """Return the initial terminal operator-state."""
-
-    return HoumaoOperatorState(
-        status="unknown",
-        detail="No observation has been recorded yet.",
-        updated_at_utc=_utc_now(),
-    )
-
-
-@dataclass(frozen=True)
 class ProxyResponse:
     """One proxied child-CAO response."""
 
-    status_code: int
-    body: bytes
-    content_type: str
-    json_payload: object | None
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        body: bytes,
+        content_type: str,
+        json_payload: object | None,
+    ) -> None:
+        """Initialize the proxy response."""
+
+        self.status_code = status_code
+        self.body = body
+        self.content_type = content_type
+        self.json_payload = json_payload
 
     def to_fastapi_response(self) -> Response:
         """Convert the proxied result into a FastAPI response."""
@@ -103,6 +104,8 @@ class UrlLibProxyTransport:
         path: str,
         params: dict[str, str] | None = None,
     ) -> ProxyResponse:
+        """Send one child-CAO request with urllib."""
+
         encoded_params = parse.urlencode(params or {})
         url = f"{base_url.rstrip('/')}{path}"
         if encoded_params:
@@ -131,7 +134,9 @@ class UrlLibProxyTransport:
                     )
         except error.HTTPError as exc:
             body = exc.read()
-            content_type = exc.headers.get_content_type() if exc.headers is not None else "text/plain"
+            content_type = (
+                exc.headers.get_content_type() if exc.headers is not None else "text/plain"
+            )
             return ProxyResponse(
                 status_code=int(exc.code),
                 body=body,
@@ -146,52 +151,6 @@ class UrlLibProxyTransport:
             ) from exc
 
 
-@dataclass
-class TerminalRegistryState:
-    """In-memory terminal watch state."""
-
-    terminal: CaoTerminal
-    raw_observation: HoumaoRawObservation | None = None
-    owned_work: HoumaoOwnedWork = field(default_factory=HoumaoOwnedWork)
-    external_activity: HoumaoExternalActivity = field(default_factory=HoumaoExternalActivity)
-    operator_state: HoumaoOperatorState = field(default_factory=_default_operator_state)
-    last_output_hash: str | None = None
-
-
-class TerminalWatchWorker:
-    """Background polling worker for one live terminal."""
-
-    def __init__(self, *, service: "HoumaoServerService", terminal_id: str) -> None:
-        self.m_service = service
-        self.m_terminal_id = terminal_id
-        self.m_stop_event = threading.Event()
-        self.m_thread = threading.Thread(
-            target=self._run,
-            name=f"houmao-watch-{terminal_id}",
-            daemon=True,
-        )
-
-    def start(self) -> None:
-        """Start the polling thread."""
-
-        self.m_thread.start()
-
-    def stop(self, *, join: bool = True) -> None:
-        """Request worker termination."""
-
-        self.m_stop_event.set()
-        if join:
-            self.m_thread.join(timeout=2.0)
-
-    def _run(self) -> None:
-        while not self.m_stop_event.is_set():
-            try:
-                self.m_service.refresh_terminal_state(self.m_terminal_id)
-            except Exception:
-                self.m_service.mark_terminal_unavailable(self.m_terminal_id)
-            self.m_stop_event.wait(self.m_service.m_config.watch_poll_interval_seconds)
-
-
 class HoumaoServerService:
     """Application-owned `houmao-server` runtime state."""
 
@@ -201,14 +160,28 @@ class HoumaoServerService:
         config: HoumaoServerConfig,
         transport: ProxyTransport | None = None,
         child_manager: ChildCaoManager | None = None,
+        known_session_registry: KnownSessionRegistry | None = None,
+        transport_resolver: TmuxTransportResolver | None = None,
+        process_inspector: PaneProcessInspector | None = None,
+        parser_adapter: OfficialTuiParserAdapter | None = None,
     ) -> None:
+        """Initialize the service runtime."""
+
         self.m_config = config
         self.m_transport = transport or UrlLibProxyTransport()
         self.m_child_manager = child_manager or ChildCaoManager(config=config)
+        self.m_known_session_registry = known_session_registry or KnownSessionRegistry(
+            config=config
+        )
+        self.m_transport_resolver = transport_resolver or TmuxTransportResolver()
+        self.m_process_inspector = process_inspector or PaneProcessInspector(
+            supported_processes=config.supported_tui_processes
+        )
+        self.m_parser_adapter = parser_adapter or OfficialTuiParserAdapter()
         self.m_lock = threading.RLock()
-        self.m_terminals: dict[str, TerminalRegistryState] = {}
-        self.m_workers: dict[str, TerminalWatchWorker] = {}
-        self.m_sessions: dict[str, set[str]] = {}
+        self.m_trackers: dict[str, LiveSessionTracker] = {}
+        self.m_terminal_aliases: dict[str, str] = {}
+        self.m_supervisor = TuiTrackingSupervisor(runtime=self)
 
     def startup(self) -> None:
         """Start the service runtime."""
@@ -217,23 +190,22 @@ class HoumaoServerService:
         if self.m_config.startup_child:
             self.m_child_manager.start()
         self._write_current_instance()
-        self._seed_from_child()
+        self.m_supervisor.start()
+        self.m_supervisor.request_reconcile()
 
     def shutdown(self) -> None:
         """Stop the service runtime."""
 
-        with self.m_lock:
-            workers = list(self.m_workers.values())
-            self.m_workers.clear()
-        for worker in workers:
-            worker.stop(join=True)
+        self.m_supervisor.stop()
         if self.m_config.startup_child:
             try:
                 self.m_child_manager.stop()
             except Exception:
                 pass
 
-    def proxy(self, *, method: str, path: str, params: dict[str, str] | None = None) -> ProxyResponse:
+    def proxy(
+        self, *, method: str, path: str, params: dict[str, str] | None = None
+    ) -> ProxyResponse:
         """Proxy one CAO-compatible request to the child server."""
 
         return self.m_transport.request(
@@ -281,51 +253,36 @@ class HoumaoServerService:
         )
 
     def sync_created_terminal(self, payload: object) -> None:
-        """Register one terminal payload returned by the child CAO API."""
+        """Accept the proxied create payload without admitting tracking authority."""
 
-        if not isinstance(payload, dict):
-            return
-        terminal = CaoTerminal.model_validate(payload)
-        self._ensure_terminal_registration(terminal)
+        del payload
 
     def handle_deleted_terminal(self, terminal_id: str) -> None:
-        """Remove one terminal from the in-memory registry."""
+        """Remove one terminal and its registration-backed tracker state."""
 
-        with self.m_lock:
-            worker = self.m_workers.pop(terminal_id, None)
-            state = self.m_terminals.pop(terminal_id, None)
-            if state is not None:
-                session_terminals = self.m_sessions.get(state.terminal.session_name)
-                if session_terminals is not None:
-                    session_terminals.discard(terminal_id)
-                    if not session_terminals:
-                        self.m_sessions.pop(state.terminal.session_name, None)
-        if worker is not None:
-            worker.stop(join=True)
+        tracked_session_id = self.m_terminal_aliases.get(terminal_id)
+        if tracked_session_id is None:
+            return
+        self._remove_registration_dir(session_name=tracked_session_id)
+        self._forget_tracker(tracked_session_id=tracked_session_id)
+        self.m_supervisor.request_reconcile()
 
     def handle_deleted_session(self, session_name: str) -> None:
-        """Remove all known session-owned terminals."""
+        """Remove one session and its registration-backed tracker state."""
 
-        terminal_ids = sorted(self.m_sessions.get(session_name, set()))
-        for terminal_id in terminal_ids:
-            self.handle_deleted_terminal(terminal_id)
+        self._remove_registration_dir(session_name=session_name)
+        self._forget_tracker(tracked_session_id=session_name)
+        self.m_supervisor.request_reconcile()
 
     def note_prompt_submission(self, *, terminal_id: str, message: str) -> None:
-        """Record one server-owned prompt submission."""
+        """Accept prompt-submission notifications for compatibility."""
 
-        with self.m_lock:
-            state = self.m_terminals.get(terminal_id)
-            if state is None:
-                return
-            state.owned_work = HoumaoOwnedWork(
-                request_id=uuid.uuid4().hex,
-                submitted_at_utc=_utc_now(),
-                completed_at_utc=None,
-                message_excerpt=message[:200],
-                state="submitted",
-            )
+        del terminal_id
+        del message
 
-    def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> HoumaoRegisterLaunchResponse:
+    def register_launch(
+        self, request_model: HoumaoRegisterLaunchRequest
+    ) -> HoumaoRegisterLaunchResponse:
         """Register one delegated CLI launch into the server-owned registry."""
 
         session_name = request_model.session_name
@@ -364,16 +321,18 @@ class HoumaoServerService:
                 status_code=502,
                 detail="Child CAO returned an invalid terminal payload during launch registration.",
             )
-        terminal = CaoTerminal.model_validate(payload)
-        self._ensure_terminal_registration(terminal)
+        CaoTerminal.model_validate(payload)
 
         registration_dir = (self.m_config.sessions_dir / session_name).resolve()
         registration_dir.mkdir(parents=True, exist_ok=True)
         registration_path = registration_dir / "registration.json"
+        persisted_request = request_model.model_copy(update={"terminal_id": terminal_id})
         registration_path.write_text(
-            json.dumps(request_model.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+            json.dumps(persisted_request.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        self._ensure_tracker_for_registered_launch(request_model=persisted_request)
+        self.m_supervisor.request_reconcile()
 
         return HoumaoRegisterLaunchResponse(
             success=True,
@@ -382,221 +341,313 @@ class HoumaoServerService:
         )
 
     def terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
-        """Return the latest terminal state view."""
+        """Return the latest in-memory tracked terminal state."""
 
-        with self.m_lock:
-            state = self.m_terminals.get(terminal_id)
-            if state is None:
-                raise HTTPException(status_code=404, detail=f"Unknown terminal `{terminal_id}`.")
-            return HoumaoTerminalStateResponse(
-                terminal=state.terminal,
-                raw_observation=state.raw_observation,
-                owned_work=state.owned_work,
-                external_activity=state.external_activity,
-                operator_state=state.operator_state,
-            )
+        tracker = self._tracker_for_terminal_alias(terminal_id)
+        return tracker.current_state()
 
     def terminal_history(self, terminal_id: str, *, limit: int) -> HoumaoTerminalHistoryResponse:
-        """Return recent append-only terminal history entries."""
+        """Return bounded in-memory recent history for one terminal alias."""
 
-        history_dir = self._terminal_history_dir(terminal_id)
-        entries: list[HoumaoTerminalHistoryEntry] = []
-        for file_name in ("samples.ndjson", "transitions.ndjson"):
-            path = history_dir / file_name
-            if not path.is_file():
-                continue
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                payload = json.loads(line)
-                entries.append(HoumaoTerminalHistoryEntry.model_validate(payload))
-        entries.sort(key=lambda item: item.recorded_at_utc)
-        if limit > 0:
-            entries = entries[-limit:]
-        return HoumaoTerminalHistoryResponse(terminal_id=terminal_id, entries=entries)
+        tracker = self._tracker_for_terminal_alias(terminal_id)
+        return tracker.history(limit=limit)
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
-        """Poll the child CAO API and update one terminal watch snapshot."""
+        """Poll one known tracked terminal immediately and return the updated state."""
 
-        terminal_proxy = self.proxy(
-            method="GET",
-            path=f"/terminals/{parse.quote(terminal_id, safe='')}",
-        )
-        output_proxy = self.proxy(
-            method="GET",
-            path=f"/terminals/{parse.quote(terminal_id, safe='')}/output",
-            params={"mode": "full"},
-        )
-        if not isinstance(terminal_proxy.json_payload, dict):
-            raise HTTPException(status_code=502, detail="Terminal lookup returned invalid JSON.")
-        terminal = CaoTerminal.model_validate(terminal_proxy.json_payload)
-        output_text = ""
-        if isinstance(output_proxy.json_payload, dict):
-            output_text = str(output_proxy.json_payload.get("output", ""))
+        tracked_session_id = self._tracked_session_id_for_terminal_alias(terminal_id)
+        self.poll_known_session(tracked_session_id)
+        tracker = self._tracker_for_terminal_alias(terminal_id)
+        return tracker.current_state()
 
-        now = _utc_now()
-        output_hash = hashlib.sha1(output_text.encode("utf-8")).hexdigest()
-        observation = HoumaoRawObservation(
-            observed_at_utc=now,
-            terminal_id=terminal.id,
-            session_name=terminal.session_name,
-            backend_status=terminal.status.value if terminal.status is not None else None,
-            output_hash=output_hash,
-            output_length=len(output_text),
-            output_excerpt=output_text[-4000:],
-        )
+    def watch_poll_interval_seconds(self) -> float:
+        """Return the configured tracking poll interval."""
 
+        return self.m_config.watch_poll_interval_seconds
+
+    def load_live_known_sessions(self) -> dict[str, KnownSessionRecord]:
+        """Return live known sessions from the authoritative registry seed."""
+
+        return self.m_known_session_registry.load_live_sessions()
+
+    def ensure_known_session(self, record: KnownSessionRecord) -> None:
+        """Ensure tracker state exists for one known session."""
+
+        identity = record.to_identity()
         with self.m_lock:
-            state = self.m_terminals.get(terminal_id)
-            if state is None:
-                state = TerminalRegistryState(terminal=terminal)
-                self.m_terminals[terminal_id] = state
-            previous_hash = state.last_output_hash
-            previous_status = (
-                state.operator_state.status if state.operator_state is not None else "unknown"
-            )
-            state.terminal = terminal
-            state.raw_observation = observation
-            state.last_output_hash = output_hash
-            if previous_hash is not None and previous_hash != output_hash and state.owned_work.state == "idle":
-                state.external_activity = HoumaoExternalActivity(
-                    last_changed_at_utc=now,
-                    output_hash=output_hash,
+            tracker = self.m_trackers.get(record.tracked_session_id)
+            if tracker is None:
+                tracker = LiveSessionTracker(
+                    identity=identity,
+                    recent_transition_limit=self.m_config.recent_transition_limit,
+                    stability_threshold_seconds=self.m_config.stability_threshold_seconds,
                 )
-            if state.owned_work.state == "submitted" and terminal.status is not None and terminal.status.value in {
-                "idle",
-                "completed",
-                "waiting_user_answer",
-                "error",
-            }:
-                state.owned_work = HoumaoOwnedWork(
-                    request_id=state.owned_work.request_id,
-                    submitted_at_utc=state.owned_work.submitted_at_utc,
-                    completed_at_utc=now,
-                    message_excerpt=state.owned_work.message_excerpt,
-                    state="completed",
-                )
-            elif state.owned_work.state == "completed":
-                state.owned_work = HoumaoOwnedWork(
-                    request_id=state.owned_work.request_id,
-                    submitted_at_utc=state.owned_work.submitted_at_utc,
-                    completed_at_utc=state.owned_work.completed_at_utc,
-                    message_excerpt=state.owned_work.message_excerpt,
-                    state="idle",
-                )
-            operator_status = _STATUS_TO_OPERATOR_STATE.get(
-                terminal.status.value if terminal.status is not None else "unknown",
-                "unknown",
-            )
-            state.operator_state = HoumaoOperatorState(
-                status=operator_status,  # type: ignore[arg-type]
-                detail=(
-                    f"Terminal status is `{terminal.status.value}`."
-                    if terminal.status is not None
-                    else "Terminal status is unavailable."
-                ),
-                updated_at_utc=now,
-            )
-            response = HoumaoTerminalStateResponse(
-                terminal=state.terminal,
-                raw_observation=state.raw_observation,
-                owned_work=state.owned_work,
-                external_activity=state.external_activity,
-                operator_state=state.operator_state,
-            )
+                self.m_trackers[record.tracked_session_id] = tracker
+            else:
+                tracker.set_identity(identity)
+            for alias, tracked_session_id in list(self.m_terminal_aliases.items()):
+                if tracked_session_id == record.tracked_session_id and alias != record.terminal_id:
+                    self.m_terminal_aliases.pop(alias, None)
+            self.m_terminal_aliases[record.terminal_id] = record.tracked_session_id
 
-        self._write_terminal_state(response)
-        self._append_history_entry(
-            terminal_id=terminal_id,
-            kind="sample",
-            payload=response.model_dump(mode="json"),
-            recorded_at_utc=now,
-        )
-        if previous_status != response.operator_state.status:
-            self._append_history_entry(
-                terminal_id=terminal_id,
-                kind="transition",
-                payload={
-                    "from_status": previous_status,
-                    "to_status": response.operator_state.status,
-                    "detail": response.operator_state.detail,
-                },
-                recorded_at_utc=now,
+    def poll_known_session(self, tracked_session_id: str) -> bool:
+        """Poll one tracked session and return whether the worker should continue."""
+
+        tracker = self._tracker_for_session_id(tracked_session_id)
+        identity = tracker.current_state().tracked_session
+        observed_at_utc = utc_now_iso()
+        monotonic_ts = time.monotonic()
+
+        if not tmux_session_exists(session_name=identity.tmux_session_name):
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_missing",
+                process_state="unknown",
+                parse_status="transport_unavailable",
+                probe_snapshot=None,
+                probe_error=None,
+                parse_error=None,
+                parsed_surface=None,
             )
-        return response
-
-    def mark_terminal_unavailable(self, terminal_id: str) -> None:
-        """Record an unavailable state for a watched terminal."""
-
-        with self.m_lock:
-            state = self.m_terminals.get(terminal_id)
-            if state is None:
-                return
-            state.operator_state = HoumaoOperatorState(
-                status="unavailable",
-                detail="Child CAO terminal polling failed.",
-                updated_at_utc=_utc_now(),
-            )
-
-    def _seed_from_child(self) -> None:
-        """Best-effort discovery of existing child-managed sessions and terminals."""
+            return False
 
         try:
-            proxy = self.proxy(method="GET", path="/sessions")
-        except HTTPException:
-            return
-        payload = proxy.json_payload
-        if not isinstance(payload, list):
-            return
-        for session in payload:
-            if not isinstance(session, dict):
-                continue
-            session_name = str(session.get("id", "")).strip()
-            if not session_name:
-                continue
-            terminals_proxy = self.proxy(
-                method="GET",
-                path=f"/sessions/{parse.quote(session_name, safe='')}/terminals",
+            target = self.m_transport_resolver.resolve_target(
+                session_name=identity.tmux_session_name,
+                window_name=identity.tmux_window_name,
             )
-            terminals_payload = terminals_proxy.json_payload
-            if not isinstance(terminals_payload, list):
-                continue
-            for terminal_payload in terminals_payload:
-                if not isinstance(terminal_payload, dict):
-                    continue
-                try:
-                    terminal = CaoTerminal.model_validate(terminal_payload)
-                except Exception:
-                    continue
-                self._ensure_terminal_registration(terminal)
+        except TmuxCommandError as exc:
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="probe_error",
+                process_state="probe_error",
+                parse_status="probe_error",
+                probe_snapshot=None,
+                probe_error=HoumaoErrorDetail(
+                    kind="tmux_probe_error",
+                    message=str(exc),
+                ),
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
 
-    def _ensure_terminal_registration(self, terminal: CaoTerminal) -> None:
+        process_inspection = self.m_process_inspector.inspect(
+            tool=identity.tool,
+            pane_pid=target.pane.pane_pid,
+        )
+        probe_snapshot = HoumaoProbeSnapshot(
+            observed_at_utc=observed_at_utc,
+            pane_id=target.pane.pane_id,
+            pane_pid=target.pane.pane_pid,
+            matched_process_names=process_inspection.matched_process_names,
+        )
+        if process_inspection.process_state == "probe_error":
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state="probe_error",
+                parse_status="probe_error",
+                probe_snapshot=probe_snapshot,
+                probe_error=HoumaoErrorDetail(
+                    kind="process_probe_error",
+                    message=process_inspection.error_message or "Process inspection failed.",
+                ),
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
+
+        if process_inspection.process_state == "unsupported_tool":
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state="unsupported_tool",
+                parse_status="unsupported_tool",
+                probe_snapshot=probe_snapshot,
+                probe_error=None,
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
+
+        if process_inspection.process_state == "tui_down":
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state="tui_down",
+                parse_status="skipped_tui_down",
+                probe_snapshot=probe_snapshot,
+                probe_error=None,
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
+
+        try:
+            output_text = self.m_transport_resolver.capture_text(target=target)
+        except TmuxCommandError as exc:
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="probe_error",
+                process_state="probe_error",
+                parse_status="probe_error",
+                probe_snapshot=probe_snapshot,
+                probe_error=HoumaoErrorDetail(
+                    kind="tmux_capture_error",
+                    message=str(exc),
+                ),
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
+
+        probe_snapshot = probe_snapshot.model_copy(
+            update={
+                "captured_text_hash": hashlib.sha1(output_text.encode("utf-8")).hexdigest(),
+                "captured_text_length": len(output_text),
+                "captured_text_excerpt": output_text[-4000:],
+            }
+        )
+
+        if not self.m_parser_adapter.supports_tool(tool=identity.tool):
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state="unsupported_tool",
+                parse_status="unsupported_tool",
+                probe_snapshot=probe_snapshot,
+                probe_error=None,
+                parse_error=None,
+                parsed_surface=None,
+            )
+            return True
+
+        baseline_pos = tracker.baseline_pos
+        if baseline_pos is None:
+            try:
+                baseline_pos = self.m_parser_adapter.capture_baseline(
+                    tool=identity.tool,
+                    output_text=output_text,
+                )
+            except Exception as exc:
+                tracker.record_cycle(
+                    identity=identity,
+                    observed_at_utc=observed_at_utc,
+                    monotonic_ts=monotonic_ts,
+                    transport_state="tmux_up",
+                    process_state="tui_up",
+                    parse_status="parse_error",
+                    probe_snapshot=probe_snapshot,
+                    probe_error=None,
+                    parse_error=HoumaoErrorDetail(
+                        kind="parse_baseline_error",
+                        message=str(exc),
+                    ),
+                    parsed_surface=None,
+                )
+                return True
+            tracker.set_baseline_pos(baseline_pos)
+
+        parse_result = self.m_parser_adapter.parse(
+            tool=identity.tool,
+            output_text=output_text,
+            baseline_pos=baseline_pos,
+        )
+        tracker.record_cycle(
+            identity=identity,
+            observed_at_utc=observed_at_utc,
+            monotonic_ts=monotonic_ts,
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed" if parse_result.parsed_surface is not None else "parse_error",
+            probe_snapshot=probe_snapshot,
+            probe_error=None,
+            parse_error=parse_result.parse_error,
+            parsed_surface=parse_result.parsed_surface,
+        )
+        return True
+
+    def _tracker_for_terminal_alias(self, terminal_id: str) -> LiveSessionTracker:
+        """Return the tracker bound to one terminal alias."""
+
+        tracked_session_id = self._tracked_session_id_for_terminal_alias(terminal_id)
+        return self._tracker_for_session_id(tracked_session_id)
+
+    def _tracked_session_id_for_terminal_alias(self, terminal_id: str) -> str:
+        """Resolve one terminal alias into the tracked session id."""
+
         with self.m_lock:
-            existing = self.m_terminals.get(terminal.id)
-            if existing is None:
-                self.m_terminals[terminal.id] = TerminalRegistryState(terminal=terminal)
-            else:
-                existing.terminal = terminal
-            session_terminals = self.m_sessions.setdefault(terminal.session_name, set())
-            session_terminals.add(terminal.id)
-            if terminal.id not in self.m_workers:
-                worker = TerminalWatchWorker(service=self, terminal_id=terminal.id)
-                self.m_workers[terminal.id] = worker
-                worker.start()
+            tracked_session_id = self.m_terminal_aliases.get(terminal_id)
+        if tracked_session_id is not None:
+            return tracked_session_id
+
+        self.m_supervisor.request_reconcile()
+        live_sessions = self.load_live_known_sessions()
+        for record in live_sessions.values():
+            if record.terminal_id != terminal_id:
+                continue
+            self.ensure_known_session(record)
+            return record.tracked_session_id
+        raise HTTPException(status_code=404, detail=f"Unknown terminal `{terminal_id}`.")
+
+    def _tracker_for_session_id(self, tracked_session_id: str) -> LiveSessionTracker:
+        """Return the tracker bound to one tracked session id."""
+
+        with self.m_lock:
+            tracker = self.m_trackers.get(tracked_session_id)
+        if tracker is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown tracked session `{tracked_session_id}`.",
+            )
+        return tracker
+
+    def _forget_tracker(self, *, tracked_session_id: str) -> None:
+        """Forget one tracker and all of its terminal aliases."""
+
+        with self.m_lock:
+            self.m_trackers.pop(tracked_session_id, None)
+            for alias, bound_session_id in list(self.m_terminal_aliases.items()):
+                if bound_session_id == tracked_session_id:
+                    self.m_terminal_aliases.pop(alias, None)
+
+    def _remove_registration_dir(self, *, session_name: str) -> None:
+        """Remove one server-owned registration directory."""
+
+        path = (self.m_config.sessions_dir / session_name).resolve()
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=False)
 
     def _ensure_directories(self) -> None:
+        """Create the directories owned by the service runtime."""
+
         for path in (
             self.m_config.server_root,
             self.m_config.logs_dir,
             self.m_config.run_dir,
-            self.m_config.state_dir,
-            self.m_config.history_dir,
             self.m_config.sessions_dir,
             self.m_config.child_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
     def _write_current_instance(self) -> None:
+        """Persist the current server instance and pid files."""
+
         payload = self.current_instance_response().model_dump(mode="json")
         self.m_config.current_instance_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -604,46 +655,45 @@ class HoumaoServerService:
         )
         self.m_config.pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
 
-    def _terminal_state_path(self, terminal_id: str) -> Path:
-        return (self.m_config.terminal_state_root / terminal_id / "current.json").resolve()
-
-    def _terminal_history_dir(self, terminal_id: str) -> Path:
-        return (self.m_config.terminal_history_root / terminal_id).resolve()
-
-    def _write_terminal_state(self, response: HoumaoTerminalStateResponse) -> None:
-        path = self._terminal_state_path(response.terminal.id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        record = HoumaoTerminalStateRecord(state=response)
-        path.write_text(
-            json.dumps(record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-
-    def _append_history_entry(
+    def _ensure_tracker_for_registered_launch(
         self,
         *,
-        terminal_id: str,
-        kind: str,
-        payload: dict[str, object],
-        recorded_at_utc: str,
+        request_model: HoumaoRegisterLaunchRequest,
     ) -> None:
-        history_dir = self._terminal_history_dir(terminal_id)
-        history_dir.mkdir(parents=True, exist_ok=True)
-        path = history_dir / ("samples.ndjson" if kind == "sample" else "transitions.ndjson")
-        entry = HoumaoTerminalHistoryEntry(
-            recorded_at_utc=recorded_at_utc,
-            kind="sample" if kind == "sample" else "transition",
-            payload=payload,
+        """Create or refresh dormant tracker state from one registration request."""
+
+        terminal_id = request_model.terminal_id
+        if terminal_id is None:
+            return
+        record = KnownSessionRecord(
+            tracked_session_id=request_model.session_name,
+            session_name=request_model.session_name,
+            tool=request_model.tool,
+            terminal_id=terminal_id,
+            tmux_session_name=request_model.tmux_session_name or request_model.session_name,
+            tmux_window_name=None,
+            manifest_path=Path(request_model.manifest_path).resolve()
+            if request_model.manifest_path is not None
+            else None,
+            session_root=Path(request_model.session_root).resolve()
+            if request_model.session_root is not None
+            else None,
+            agent_name=request_model.agent_name,
+            agent_id=request_model.agent_id,
         )
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry.model_dump(mode="json"), sort_keys=True) + "\n")
+        self.ensure_known_session(record)
 
 
-def _try_parse_json_bytes(payload: bytes) -> object | None:
-    if not payload:
+def _try_parse_json_bytes(body: bytes) -> object | None:
+    """Return optional JSON payload parsed from raw bytes."""
+
+    if not body:
         return None
     try:
-        decoded: object = json.loads(payload.decode("utf-8"))
-        return decoded
+        payload: object = json.loads(body.decode("utf-8"))
+        return payload
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
+
+
+TerminalWatchWorker = SessionWatchWorker

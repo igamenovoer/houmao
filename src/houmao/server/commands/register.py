@@ -46,4 +46,3 @@ def register_launch_command(
         )
     )
     echo_json(response.model_dump(mode="json"))
-

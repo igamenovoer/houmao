@@ -1,30 +1,24 @@
 ## Why
 
-The dual shadow-watch demo currently shows raw classified state streams from TUI snapshots, which is useful for parser debugging but creates noise for operators. When the parser or sampled TUI flickers between neighboring states (e.g., `processing -> idle -> processing`), operators must manually infer whether the stream has "settled enough" to be actionable. A user-visible stability window would let operators configure a policy like "treat state as stable if unchanged for 10 seconds," providing a calmer operational view while preserving raw evidence for debugging.
+`add-houmao-server-official-tui-tracker` now defines the primary live-tracking contract, including server-owned stability metadata and bounded recent transitions. This change is therefore narrowed to demo-only consumption and visualization of that server-owned contract instead of defining competing tracker semantics in the demo layer.
 
 ## What Changes
 
-- Add `state_stability_window_seconds` configuration parameter to demo state and CLI
-- Implement RxPY-based reactive smoothing layer that tracks state signature stability duration
-- Extend dashboard state models with stability metadata (`is_stable`, `stable_for_seconds`, `smoothed_label`)
-- Add stability indicators to Rich dashboard display (optional, based on window > 0)
-- Emit both raw and smoothed state streams to NDJSON logs for debugging
-- Keep existing `completion_stability_seconds` unchanged (separate concern)
+- Consume the server-owned tracked-state contract from `houmao-server` instead of defining a second primary tracker in the demo
+- Limit demo work to optional visualization, smoothing, or presentation choices layered on top of server-owned transport/process/parse/operator/stability fields
+- Treat any demo-local stability window as presentation policy only; it must not redefine the authoritative tracker contract
+- Keep existing demo evidence logging only as consumer/debug output, not as the source of truth for live tracking semantics
 
 ## Capabilities
 
 ### New Capabilities
-- `state-stability-tracking`: Track how long a visible state signature remains unchanged and mark it stable after a configurable window
-- `rxpy-state-smoothing`: Apply reactive operators to raw state streams to produce smoothed output with stability metadata
+- `demo-state-visualization`: Optional demo-only visualization or smoothing of the server-owned tracker contract
 
 ### Modified Capabilities
-<!-- No existing spec requirements are changing; this is purely additive -->
+- `state-stability-tracking`: narrowed to server-owned contract consumption rather than defining the primary tracker contract
 
 ## Impact
 
-- `src/houmao/demo/cao_dual_shadow_watch/models.py`: Add stability metadata models and demo state field
-- `src/houmao/demo/cao_dual_shadow_watch/monitor.py`: Integrate RxPY smoothing into polling loop
-- `src/houmao/demo/cao_dual_shadow_watch/driver.py`: Add CLI argument and pass to monitor
-- New file: `src/houmao/demo/cao_dual_shadow_watch/stability_operator.py`: RxPY operators for stability windowing
-- `scripts/demo/cao-dual-shadow-watch/run_demo.sh`: Support new CLI flag
-- Tests: Unit tests for stability operator logic
+- Demo-facing code under `src/houmao/demo/cao_dual_shadow_watch/`
+- Optional visualization helpers that consume `houmao-server` extension routes
+- Demo documentation explaining that server-owned live tracking is authoritative

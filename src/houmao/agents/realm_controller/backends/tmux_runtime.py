@@ -59,6 +59,7 @@ class TmuxPaneRecord:
     window_name: str
     pane_index: str
     pane_active: bool
+    pane_pid: int | None = None
 
 
 _TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
@@ -145,6 +146,12 @@ def has_tmux_session(*, session_name: str) -> subprocess.CompletedProcess[str]:
     """Return raw tmux `has-session` command output."""
 
     return run_tmux(["has-session", "-t", session_name])
+
+
+def tmux_session_exists(*, session_name: str) -> bool:
+    """Return whether one tmux session currently exists."""
+
+    return has_tmux_session(session_name=session_name).returncode == 0
 
 
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
@@ -240,7 +247,7 @@ def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
             "-t",
             session_name,
             "-F",
-            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_index}\t#{pane_active}",
+            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_index}\t#{pane_active}\t#{pane_pid}",
         ]
     )
     if result.returncode != 0:
@@ -255,7 +262,7 @@ def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
         if not line:
             continue
         parts = line.split("\t")
-        if len(parts) != 6:
+        if len(parts) not in {6, 7}:
             raise TmuxCommandError(f"Unexpected tmux pane output for `{session_name}`: {line}")
         panes.append(
             TmuxPaneRecord(
@@ -265,6 +272,7 @@ def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
                 window_name=parts[3],
                 pane_index=parts[4],
                 pane_active=parts[5] == "1",
+                pane_pid=int(parts[6]) if len(parts) == 7 and parts[6].isdigit() else None,
             )
         )
     return tuple(panes)

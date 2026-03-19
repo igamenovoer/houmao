@@ -20,6 +20,18 @@ from .common import build_config, path_option_help
     show_default=True,
 )
 @click.option(
+    "--recent-transition-limit",
+    default=24,
+    type=int,
+    show_default=True,
+)
+@click.option(
+    "--supported-tui-process",
+    "supported_tui_processes",
+    multiple=True,
+    help="Repeat `tool=name1,name2` to override supported live TUI process detection.",
+)
+@click.option(
     "--startup-child/--no-startup-child",
     default=True,
     show_default=True,
@@ -28,6 +40,8 @@ def serve_command(
     api_base_url: str,
     runtime_root: str | None,
     watch_poll_interval_seconds: float,
+    recent_transition_limit: int,
+    supported_tui_processes: tuple[str, ...],
     startup_child: bool,
 ) -> None:
     """Run the local Houmao HTTP server."""
@@ -36,6 +50,8 @@ def serve_command(
         api_base_url=api_base_url,
         runtime_root=runtime_root,
         watch_poll_interval_seconds=watch_poll_interval_seconds,
+        recent_transition_limit=recent_transition_limit,
+        supported_tui_processes=supported_tui_processes,
         startup_child=startup_child,
     )
     uvicorn.run(
@@ -44,4 +60,3 @@ def serve_command(
         port=config.public_port,
         log_level="info",
     )
-

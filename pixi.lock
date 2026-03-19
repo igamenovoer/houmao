@@ -75,6 +75,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b2/a3/e137168c9c44d18eff0376253da9f1e9234d0239e0ee230d2fee6cea8e55/jeepney-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/81/db/e655086b7f3a705df045bf0933bdd9c2f79bb3c97bfef1384598bb79a217/keyring-25.7.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/8b/34/b11ab24abb78c73a1b82f6471c2d71bdd1bf2c8f30768ed2f26f1dddc083/libtmux-0.55.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/94/54/e7d793b573f298e1c9013b8c4dade17d481164aa517d1d7148619c2cedbf/markdown_it_py-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a9/21/9b05698b46f218fc0e118e1f8168395c65c8a2c750ae2bab54fc4bd4e0e8/markupsafe-3.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -520,7 +521,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: a6f63e47f2ef90f43ca101459d47ab3b26cca0baf1cd67ce4509f03ca6a2b204
+  sha256: 4d2b81c44cfb1641a8f31c18e914e7cca39862272db186449dce6b81cc802d99
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7
@@ -539,9 +540,10 @@ packages:
   - platformdirs>=4.9.4,<5
   - rxpy>=0.1.0,<0.2
   - typer>=0.24.1,<0.25
-  - click>=8.3.1,<9
+  - click
   - memory-fs>=0.41.0,<0.42
   - httpx>=0.28.1,<0.29
+  - libtmux>=0.55.0,<0.56
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
   name: httpcore
@@ -964,6 +966,11 @@ packages:
   purls: []
   size: 5852330
   timestamp: 1771378262446
+- pypi: https://files.pythonhosted.org/packages/8b/34/b11ab24abb78c73a1b82f6471c2d71bdd1bf2c8f30768ed2f26f1dddc083/libtmux-0.55.0-py3-none-any.whl
+  name: libtmux
+  version: 0.55.0
+  sha256: 4b746533856e022c759e5c5cae97f4932e85dae316a2afd4391d6d0e891d6ab8
+  requires_python: '>=3.10,<4.0'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/liburing-2.14-hb700be7_0.conda
   sha256: 3d17b7aa90610afc65356e9e6149aeac0b2df19deda73a51f0a09cf04fd89286
   md5: 56f65185b520e016d29d01657ac02c0d

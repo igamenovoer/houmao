@@ -4,12 +4,19 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 
-from houmao.cao.models import CaoTerminalStatus
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
 from houmao.server.config import HoumaoServerConfig
-from houmao.server.models import HoumaoRegisterLaunchRequest
-from houmao.server.service import HoumaoServerService, ProxyResponse, TerminalWatchWorker
+from houmao.server.models import (
+    HoumaoParsedSurface,
+    HoumaoRegisterLaunchRequest,
+)
+from houmao.server.service import HoumaoServerService, ProxyResponse
+from houmao.server.tui import (
+    OfficialParseResult,
+    PaneProcessInspection,
+    ResolvedTmuxTarget,
+)
 
 
 def _json_response(payload: object, *, status_code: int = 200) -> ProxyResponse:
@@ -22,8 +29,11 @@ def _json_response(payload: object, *, status_code: int = 200) -> ProxyResponse:
 
 
 class _FakeTransport:
-    def __init__(self, responses: dict[tuple[str, str, tuple[tuple[str, str], ...]], ProxyResponse]) -> None:
+    def __init__(
+        self, responses: dict[tuple[str, str, tuple[tuple[str, str], ...]], ProxyResponse]
+    ) -> None:
         self.m_responses = responses
+        self.m_calls: list[tuple[str, str, tuple[tuple[str, str], ...]]] = []
 
     def request(
         self,
@@ -35,7 +45,11 @@ class _FakeTransport:
     ) -> ProxyResponse:
         del base_url
         key = (method.upper(), path, tuple(sorted((params or {}).items())))
-        return self.m_responses[key]
+        self.m_calls.append(key)
+        try:
+            return self.m_responses[key]
+        except KeyError as exc:
+            raise AssertionError(f"Unexpected proxy call: {key}") from exc
 
 
 class _FakeChildManager:
@@ -82,18 +96,105 @@ class _FakeChildManager:
         return self.m_ownership_file
 
 
-def test_register_launch_discovers_terminal_and_persists_registration(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
+class _FakeTmuxTransportResolver:
+    def __init__(self, *, output_text: str) -> None:
+        self.m_output_text = output_text
+        self.m_resolve_calls: list[tuple[str, str | None]] = []
+        self.m_capture_calls = 0
+
+    def resolve_target(self, *, session_name: str, window_name: str | None) -> ResolvedTmuxTarget:
+        self.m_resolve_calls.append((session_name, window_name))
+        return ResolvedTmuxTarget(
+            pane=TmuxPaneRecord(
+                pane_id="%9",
+                session_name=session_name,
+                window_id="@2",
+                window_name=window_name or "developer-1",
+                pane_index="0",
+                pane_active=True,
+                pane_pid=4321,
+            )
+        )
+
+    def capture_text(self, *, target: ResolvedTmuxTarget) -> str:
+        assert target.pane.pane_id == "%9"
+        self.m_capture_calls += 1
+        return self.m_output_text
+
+
+class _FakeProcessInspector:
+    def __init__(self, inspection: PaneProcessInspection) -> None:
+        self.m_inspection = inspection
+        self.m_calls: list[tuple[str, int | None]] = []
+
+    def inspect(self, *, tool: str, pane_pid: int | None) -> PaneProcessInspection:
+        self.m_calls.append((tool, pane_pid))
+        return self.m_inspection
+
+
+class _FakeParserAdapter:
+    def __init__(self, results: list[OfficialParseResult], *, supports_tool: bool = True) -> None:
+        self.m_results = results
+        self.m_supports_tool = supports_tool
+        self.m_capture_baseline_calls: list[tuple[str, str]] = []
+        self.m_parse_calls: list[tuple[str, int]] = []
+
+    def supports_tool(self, *, tool: str) -> bool:
+        del tool
+        return self.m_supports_tool
+
+    def capture_baseline(self, *, tool: str, output_text: str) -> int:
+        self.m_capture_baseline_calls.append((tool, output_text))
+        return 17
+
+    def parse(self, *, tool: str, output_text: str, baseline_pos: int) -> OfficialParseResult:
+        self.m_parse_calls.append((tool, baseline_pos))
+        del output_text
+        return self.m_results.pop(0)
+
+
+def _ready_surface() -> HoumaoParsedSurface:
+    return HoumaoParsedSurface(
+        parser_family="codex_shadow",
+        parser_preset_id="codex",
+        parser_preset_version="1.0.0",
+        availability="supported",
+        business_state="idle",
+        input_mode="freeform",
+        ui_context="normal_prompt",
+        normalized_projection_text="ready prompt",
+        dialog_text="ready prompt",
+        dialog_head="ready prompt",
+        dialog_tail="ready prompt",
+        anomaly_codes=(),
+        baseline_invalidated=False,
+        operator_blocked_excerpt=None,
+    )
+
+
+def _processing_surface() -> HoumaoParsedSurface:
+    return HoumaoParsedSurface(
+        parser_family="codex_shadow",
+        parser_preset_id="codex",
+        parser_preset_version="1.0.0",
+        availability="supported",
+        business_state="working",
+        input_mode="closed",
+        ui_context="normal_prompt",
+        normalized_projection_text="processing",
+        dialog_text="processing",
+        dialog_head="processing",
+        dialog_tail="processing",
+        anomaly_codes=(),
+        baseline_invalidated=False,
+        operator_blocked_excerpt=None,
+    )
+
+
+def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_path: Path) -> None:
     transport = _FakeTransport(
         {
-            (
-                "GET",
-                "/sessions/cao-gpu/terminals",
-                (),
-            ): _json_response(
+            ("GET", "/sessions/cao-gpu/terminals", ()): _json_response(
                 [
                     {
                         "id": "abcd1234",
@@ -105,11 +206,7 @@ def test_register_launch_discovers_terminal_and_persists_registration(
                     }
                 ]
             ),
-            (
-                "GET",
-                "/terminals/abcd1234",
-                (),
-            ): _json_response(
+            ("GET", "/terminals/abcd1234", ()): _json_response(
                 {
                     "id": "abcd1234",
                     "name": "gpu",
@@ -142,103 +239,251 @@ def test_register_launch_discovers_terminal_and_persists_registration(
     assert response.success is True
     assert response.terminal_id == "abcd1234"
     state = service.terminal_state("abcd1234")
-    assert state.terminal.session_name == "cao-gpu"
-    registration_path = tmp_path / "houmao_servers" / "127.0.0.1-9889" / "sessions" / "cao-gpu" / "registration.json"
-    payload = json.loads(registration_path.read_text(encoding="utf-8"))
-    assert payload["session_name"] == "cao-gpu"
-    assert payload["terminal_id"] is None
-    assert payload["manifest_path"] == "/tmp/manifest.json"
-
-
-def test_refresh_terminal_state_reduces_terminal_status_and_output(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
-    responses: dict[tuple[str, str, tuple[tuple[str, str], ...]], ProxyResponse] = {
-        (
-            "GET",
-            "/terminals/abcd1234",
-            (),
-        ): _json_response(
-            {
-                "id": "abcd1234",
-                "name": "gpu",
-                "provider": "codex",
-                "session_name": "cao-gpu",
-                "agent_profile": "runtime-profile",
-                "status": CaoTerminalStatus.PROCESSING.value,
-            }
-        ),
-        (
-            "GET",
-            "/terminals/abcd1234/output",
-            (("mode", "full"),),
-        ): _json_response({"output": "partial output"}),
-    }
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport(responses),
-        child_manager=_FakeChildManager(),
-    )
-    service.sync_created_terminal(
-        {
-            "id": "abcd1234",
-            "name": "gpu",
-            "provider": "codex",
-            "session_name": "cao-gpu",
-            "agent_profile": "runtime-profile",
-            "status": CaoTerminalStatus.IDLE.value,
-        }
-    )
-    service.note_prompt_submission(terminal_id="abcd1234", message="Explain the failure.")
-
-    first_state = service.refresh_terminal_state("abcd1234")
-
-    assert first_state.operator_state.status == "processing"
-    assert first_state.raw_observation is not None
-    assert first_state.raw_observation.output_excerpt == "partial output"
-    assert first_state.owned_work.state == "submitted"
-
-    responses[("GET", "/terminals/abcd1234", ())] = _json_response(
-        {
-            "id": "abcd1234",
-            "name": "gpu",
-            "provider": "codex",
-            "session_name": "cao-gpu",
-            "agent_profile": "runtime-profile",
-            "status": CaoTerminalStatus.COMPLETED.value,
-        }
-    )
-    responses[("GET", "/terminals/abcd1234/output", (("mode", "full"),))] = _json_response(
-        {"output": "final output"}
-    )
-
-    second_state = service.refresh_terminal_state("abcd1234")
-
-    assert second_state.operator_state.status == "completed"
-    assert second_state.owned_work.state == "completed"
-    assert second_state.external_activity.last_changed_at_utc is None
-    state_path = (
+    assert state.terminal_id == "abcd1234"
+    assert state.tracked_session.session_name == "cao-gpu"
+    assert state.tracked_session.tool == "codex"
+    assert state.transport_state == "tmux_missing"
+    registration_path = (
         tmp_path
         / "houmao_servers"
         / "127.0.0.1-9889"
-        / "state"
-        / "terminals"
-        / "abcd1234"
-        / "current.json"
+        / "sessions"
+        / "cao-gpu"
+        / "registration.json"
     )
-    assert state_path.is_file()
+    payload = json.loads(registration_path.read_text(encoding="utf-8"))
+    assert payload["terminal_id"] == "abcd1234"
 
 
-def test_startup_persists_current_instance_and_child_metadata(tmp_path: Path) -> None:
+def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    tmux_transport = _FakeTmuxTransportResolver(output_text="visible tmux text")
+    process_inspector = _FakeProcessInspector(
+        PaneProcessInspection(
+            process_state="tui_up",
+            matched_process_names=("codex",),
+            matched_processes=(),
+        )
+    )
+    parser_adapter = _FakeParserAdapter(
+        [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=tmux_transport,
+        process_inspector=process_inspector,
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+    transport.m_calls.clear()
+
+    state = service.refresh_terminal_state("abcd1234")
+
+    assert state.transport_state == "tmux_up"
+    assert state.process_state == "tui_up"
+    assert state.parse_status == "parsed"
+    assert state.operator_state.status == "ready"
+    assert state.parsed_surface is not None
+    assert state.parsed_surface.normalized_projection_text == "ready prompt"
+    assert state.probe_snapshot is not None
+    assert state.probe_snapshot.pane_id == "%9"
+    assert state.probe_snapshot.matched_process_names == ("codex",)
+    assert transport.m_calls == []
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None)]
+    assert process_inspector.m_calls == [("codex", 4321)]
+    assert parser_adapter.m_capture_baseline_calls == [("codex", "visible tmux text")]
+    assert parser_adapter.m_parse_calls == [("codex", 17)]
+
+
+def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text="unused"),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_down",
+                matched_process_names=(),
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=_FakeParserAdapter([], supports_tool=True),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+
+    state = service.refresh_terminal_state("abcd1234")
+
+    assert state.process_state == "tui_down"
+    assert state.parse_status == "skipped_tui_down"
+    assert state.operator_state.status == "tui_down"
+    assert service.terminal_state("abcd1234").operator_state.status == "tui_down"
+
+
+def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: False)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+
+    keep_running = service.poll_known_session("cao-gpu")
+
+    assert keep_running is False
+    state = service.terminal_state("abcd1234")
+    assert state.transport_state == "tmux_missing"
+    assert state.parse_status == "transport_unavailable"
+
+
+def test_terminal_history_returns_recent_in_memory_transitions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    parser_adapter = _FakeParserAdapter(
+        [
+            OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None),
+            OfficialParseResult(parsed_surface=_processing_surface(), parse_error=None),
+        ]
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport(
+            {
+                ("GET", "/terminals/abcd1234", ()): _json_response(
+                    {
+                        "id": "abcd1234",
+                        "name": "gpu",
+                        "provider": "codex",
+                        "session_name": "cao-gpu",
+                        "agent_profile": "runtime-profile",
+                        "status": "idle",
+                    }
+                )
+            }
+        ),
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text="visible tmux text"),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=("codex",),
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+        )
+    )
+
+    service.refresh_terminal_state("abcd1234")
+    service.refresh_terminal_state("abcd1234")
+    history = service.terminal_history("abcd1234", limit=1)
+
+    assert len(history.entries) == 1
+    assert history.entries[0].operator_status == "processing"
+    assert "operator_status" in history.entries[0].changed_fields
+
+
+def test_startup_persists_current_instance_and_child_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     ownership_file = tmp_path / "child-cao" / "ownership.json"
     ownership_file.parent.mkdir(parents=True, exist_ok=True)
     ownership_file.write_text("{}\n", encoding="utf-8")
     child_manager = _FakeChildManager(ownership_file=ownership_file)
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
+    )
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.TuiTrackingSupervisor.request_reconcile",
+        lambda self: None,
+    )
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({("GET", "/sessions", ()): _json_response([])}),
+        transport=_FakeTransport({}),
         child_manager=child_manager,
     )
 
@@ -257,184 +502,19 @@ def test_startup_persists_current_instance_and_child_metadata(tmp_path: Path) ->
     assert current_instance["child_cao"]["derived_port"] == 9890
     assert current_instance["child_cao"]["ownership_file"] == str(ownership_file)
     assert health.status == "ok"
-    assert health.service == "cli-agent-orchestrator"
     assert health.houmao_service == "houmao-server"
     assert health.child_cao is not None
     assert health.child_cao.healthy is True
-    assert health.child_cao.derived_port == 9890
 
 
-def test_startup_seeds_existing_child_sessions_and_starts_watch_workers(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    started: list[str] = []
-    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: started.append(self.m_terminal_id))
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport(
-            {
-                ("GET", "/sessions", ()): _json_response([{"id": "cao-gpu"}]),
-                (
-                    "GET",
-                    "/sessions/cao-gpu/terminals",
-                    (),
-                ): _json_response(
-                    [
-                        {
-                            "id": "abcd1234",
-                            "name": "gpu-a",
-                            "provider": "codex",
-                            "session_name": "cao-gpu",
-                            "agent_profile": "runtime-profile",
-                            "status": "idle",
-                        },
-                        {
-                            "id": "deadbeef",
-                            "name": "gpu-b",
-                            "provider": "codex",
-                            "session_name": "cao-gpu",
-                            "agent_profile": "runtime-profile",
-                            "status": "processing",
-                        },
-                    ]
-                ),
-            }
-        ),
-        child_manager=_FakeChildManager(),
-    )
-
-    service.startup()
-
-    assert sorted(started) == ["abcd1234", "deadbeef"]
-    assert service.terminal_state("abcd1234").terminal.session_name == "cao-gpu"
-    assert service.terminal_state("deadbeef").terminal.status == CaoTerminalStatus.PROCESSING
-
-
-def test_terminal_history_sorts_entries_and_applies_limit(tmp_path: Path) -> None:
-    config = HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path)
-    history_dir = config.terminal_history_root / "abcd1234"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    (history_dir / "samples.ndjson").write_text(
-        "\n".join(
-            (
-                json.dumps(
-                    {
-                        "recorded_at_utc": "2026-03-19T10:00:02+00:00",
-                        "kind": "sample",
-                        "payload": {"ordinal": 2},
-                    }
-                ),
-                json.dumps(
-                    {
-                        "recorded_at_utc": "2026-03-19T10:00:01+00:00",
-                        "kind": "sample",
-                        "payload": {"ordinal": 1},
-                    }
-                ),
-            )
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (history_dir / "transitions.ndjson").write_text(
-        json.dumps(
-            {
-                "recorded_at_utc": "2026-03-19T10:00:03+00:00",
-                "kind": "transition",
-                "payload": {"ordinal": 3},
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    service = HoumaoServerService(
-        config=config,
-        transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
-    )
-
-    history = service.terminal_history("abcd1234", limit=2)
-
-    assert [entry.payload["ordinal"] for entry in history.entries] == [2, 3]
-    assert [entry.kind for entry in history.entries] == ["sample", "transition"]
-
-
-def test_handle_deleted_session_stops_workers_and_clears_registry(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    stopped: list[str] = []
-    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
-    monkeypatch.setattr(
-        TerminalWatchWorker,
-        "stop",
-        lambda self, *, join=True: stopped.append(self.m_terminal_id),
-    )
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
-    )
-    service.sync_created_terminal(
-        {
-            "id": "abcd1234",
-            "name": "gpu-a",
-            "provider": "codex",
-            "session_name": "cao-gpu",
-            "agent_profile": "runtime-profile",
-            "status": "idle",
-        }
-    )
-    service.sync_created_terminal(
-        {
-            "id": "deadbeef",
-            "name": "gpu-b",
-            "provider": "codex",
-            "session_name": "cao-gpu",
-            "agent_profile": "runtime-profile",
-            "status": "idle",
-        }
-    )
-
-    service.handle_deleted_session("cao-gpu")
-
-    assert sorted(stopped) == ["abcd1234", "deadbeef"]
-    assert "cao-gpu" not in service.m_sessions
-    assert service.m_terminals == {}
-    with pytest.raises(HTTPException, match="Unknown terminal `abcd1234`"):
-        service.terminal_state("abcd1234")
-
-
-def test_shutdown_stops_workers_and_child_manager(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    stopped: list[str] = []
+def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
     child_manager = _FakeChildManager()
-    monkeypatch.setattr(TerminalWatchWorker, "start", lambda self: None)
-    monkeypatch.setattr(
-        TerminalWatchWorker,
-        "stop",
-        lambda self, *, join=True: stopped.append(self.m_terminal_id),
-    )
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
         child_manager=child_manager,
     )
-    service.sync_created_terminal(
-        {
-            "id": "abcd1234",
-            "name": "gpu",
-            "provider": "codex",
-            "session_name": "cao-gpu",
-            "agent_profile": "runtime-profile",
-            "status": "idle",
-        }
-    )
 
     service.shutdown()
 
-    assert stopped == ["abcd1234"]
     assert child_manager.stop_calls == 1

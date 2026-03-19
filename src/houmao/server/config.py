@@ -10,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from houmao.cao.no_proxy import extract_cao_base_url_host_port, normalize_cao_base_url
 from houmao.owned_paths import resolve_runtime_root
 
+_DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
+    "claude": ("claude", "claude-code"),
+    "codex": ("codex",),
+}
+
 
 class HoumaoServerConfig(BaseModel):
     """Resolved server configuration."""
@@ -19,6 +24,11 @@ class HoumaoServerConfig(BaseModel):
     api_base_url: str = Field(default="http://127.0.0.1:9889")
     runtime_root: Path = Field(default_factory=resolve_runtime_root)
     watch_poll_interval_seconds: float = 1.0
+    recent_transition_limit: int = 24
+    stability_threshold_seconds: float = 1.0
+    supported_tui_processes: dict[str, tuple[str, ...]] = Field(
+        default_factory=lambda: dict(_DEFAULT_SUPPORTED_TUI_PROCESSES)
+    )
     child_startup_timeout_seconds: float = 15.0
     startup_child: bool = True
 
@@ -32,12 +42,41 @@ class HoumaoServerConfig(BaseModel):
     def _validate_runtime_root(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    @field_validator("watch_poll_interval_seconds", "child_startup_timeout_seconds")
+    @field_validator(
+        "watch_poll_interval_seconds",
+        "stability_threshold_seconds",
+        "child_startup_timeout_seconds",
+    )
     @classmethod
     def _validate_positive_float(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("must be > 0")
         return value
+
+    @field_validator("recent_transition_limit")
+    @classmethod
+    def _validate_recent_transition_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @field_validator("supported_tui_processes")
+    @classmethod
+    def _validate_supported_tui_processes(
+        cls, value: dict[str, tuple[str, ...]]
+    ) -> dict[str, tuple[str, ...]]:
+        normalized: dict[str, tuple[str, ...]] = {}
+        for tool, names in value.items():
+            normalized_tool = tool.strip()
+            if not normalized_tool:
+                raise ValueError("supported_tui_processes keys must not be empty")
+            normalized_names = tuple(name.strip() for name in names if name.strip())
+            if not normalized_names:
+                raise ValueError(
+                    f"supported_tui_processes[{normalized_tool!r}] must define at least one process name"
+                )
+            normalized[normalized_tool] = normalized_names
+        return normalized
 
     @property
     def public_host(self) -> str:

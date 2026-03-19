@@ -45,13 +45,15 @@ Optional controls:
 pixi run houmao-server serve \
   --api-base-url http://127.0.0.1:9889 \
   --runtime-root /tmp/houmao-runtime \
-  --watch-poll-interval-seconds 1.0
+  --watch-poll-interval-seconds 1.0 \
+  --recent-transition-limit 24
 ```
 
 What changes when you do this:
 
 - `houmao-server` becomes the public HTTP authority
 - the child `cao-server` is supervised internally by `houmao-server`
+- live terminal tracking becomes server-owned and runs from direct tmux/process observation
 - the child listener stays internal and is derived as `public_port + 1`
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
 
@@ -90,8 +92,9 @@ These commands expose Houmao-owned views such as:
 
 - additive health metadata
 - current server instance details
-- reduced terminal state
-- append-only terminal history
+- explicit transport/process/parse state for tracked sessions
+- derived operator-facing live state and stability metadata
+- bounded in-memory recent transitions
 
 ## 6. Understand What `launch` Does Differently Now
 
@@ -101,6 +104,7 @@ These commands expose Houmao-owned views such as:
 - materialize a runtime-owned session root
 - write a manifest with `backend = "houmao_server_rest"`
 - publish compatibility pointers when transitional registry flows need them
+- let `houmao-server` rediscover and continuously track the tmux-backed session from its registration seed
 
 This is the key migration seam that lets later runtime, registry, gateway, and mailbox flows treat the session as Houmao-owned rather than as raw CAO state.
 

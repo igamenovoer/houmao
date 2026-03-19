@@ -51,7 +51,7 @@ def terminal_state_command(api_base_url: str, terminal_id: str) -> None:
 @click.option("--limit", default=100, type=int, show_default=True)
 @click.argument("terminal_id")
 def terminal_history_command(api_base_url: str, limit: int, terminal_id: str) -> None:
-    """Read append-only Houmao terminal history."""
+    """Read bounded in-memory Houmao terminal transition history."""
 
     client = client_for_base_url(api_base_url)
     echo_json(client.terminal_history(terminal_id, limit=limit).model_dump(mode="json"))
@@ -73,4 +73,3 @@ def current_instance_command(api_base_url: str) -> None:
 
     client = client_for_base_url(api_base_url)
     echo_json(client.current_instance().model_dump(mode="json"))
-

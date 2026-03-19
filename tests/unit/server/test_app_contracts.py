@@ -7,21 +7,21 @@ from pathlib import Path
 from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
 
-from houmao.cao.models import CaoTerminal, CaoTerminalStatus
 from houmao.server.app import create_app
 from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
-    HoumaoExternalActivity,
     HoumaoHealthResponse,
     HoumaoOperatorState,
-    HoumaoOwnedWork,
-    HoumaoRawObservation,
+    HoumaoParsedSurface,
+    HoumaoProbeSnapshot,
+    HoumaoRecentTransition,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
-    HoumaoTerminalHistoryEntry,
+    HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
+    HoumaoTrackedSessionIdentity,
 )
 from houmao.server.service import ProxyResponse
 
@@ -57,7 +57,9 @@ def _extract_upstream_http_routes() -> set[tuple[str, str]]:
             if not decorator.args:
                 continue
             path_literal = decorator.args[0]
-            if not isinstance(path_literal, ast.Constant) or not isinstance(path_literal.value, str):
+            if not isinstance(path_literal, ast.Constant) or not isinstance(
+                path_literal.value, str
+            ):
                 continue
             routes.add((decorator.func.attr.upper(), path_literal.value))
     return routes
@@ -93,7 +95,9 @@ class _AppServiceDouble:
     def shutdown(self) -> None:
         return None
 
-    def proxy(self, *, method: str, path: str, params: dict[str, str] | None = None) -> ProxyResponse:
+    def proxy(
+        self, *, method: str, path: str, params: dict[str, str] | None = None
+    ) -> ProxyResponse:
         key = (method.upper(), path, tuple(sorted((params or {}).items())))
         self.m_proxy_calls.append(key)
         try:
@@ -144,7 +148,9 @@ class _AppServiceDouble:
             ),
         )
 
-    def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> HoumaoRegisterLaunchResponse:
+    def register_launch(
+        self, request_model: HoumaoRegisterLaunchRequest
+    ) -> HoumaoRegisterLaunchResponse:
         self.m_register_requests.append(request_model)
         terminal_id = request_model.terminal_id or "abcd1234"
         return HoumaoRegisterLaunchResponse(
@@ -155,43 +161,77 @@ class _AppServiceDouble:
 
     def terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         return HoumaoTerminalStateResponse(
-            terminal=CaoTerminal(
-                id=terminal_id,
-                name="gpu",
-                provider="codex",
+            terminal_id=terminal_id,
+            tracked_session=HoumaoTrackedSessionIdentity(
+                tracked_session_id="cao-gpu",
                 session_name="cao-gpu",
-                agent_profile="runtime-profile",
-                status=CaoTerminalStatus.IDLE,
+                tool="codex",
+                tmux_session_name="AGENTSYS-gpu",
+                terminal_aliases=(terminal_id,),
             ),
-            raw_observation=HoumaoRawObservation(
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_snapshot=HoumaoProbeSnapshot(
                 observed_at_utc="2026-03-19T10:00:00+00:00",
-                terminal_id=terminal_id,
-                session_name="cao-gpu",
-                backend_status="idle",
-                output_hash="abc123",
-                output_length=12,
-                output_excerpt="hello world",
+                pane_id="%9",
+                pane_pid=4321,
+                captured_text_hash="abc123",
+                captured_text_length=12,
+                captured_text_excerpt="hello world",
+                matched_process_names=("codex",),
             ),
-            owned_work=HoumaoOwnedWork(state="idle"),
-            external_activity=HoumaoExternalActivity(),
+            probe_error=None,
+            parse_error=None,
+            parsed_surface=HoumaoParsedSurface(
+                parser_family="codex_shadow",
+                parser_preset_id="codex",
+                parser_preset_version="1.0.0",
+                availability="supported",
+                business_state="idle",
+                input_mode="freeform",
+                ui_context="normal_prompt",
+                normalized_projection_text="hello world",
+                dialog_text="hello world",
+                dialog_head="hello world",
+                dialog_tail="hello world",
+                anomaly_codes=(),
+                baseline_invalidated=False,
+                operator_blocked_excerpt=None,
+            ),
             operator_state=HoumaoOperatorState(
                 status="ready",
-                detail="Terminal status is `idle`.",
+                readiness_state="ready",
+                completion_state="inactive",
+                detail="Supported TUI is ready for input.",
+                projection_changed=False,
                 updated_at_utc="2026-03-19T10:00:00+00:00",
             ),
+            stability=HoumaoStabilityMetadata(
+                signature="deadbeef",
+                stable=True,
+                stable_for_seconds=3.0,
+                stable_since_utc="2026-03-19T09:59:57+00:00",
+            ),
+            recent_transitions=(),
         )
 
     def terminal_history(self, terminal_id: str, *, limit: int) -> HoumaoTerminalHistoryResponse:
         self.m_history_calls.append((terminal_id, limit))
         return HoumaoTerminalHistoryResponse(
             terminal_id=terminal_id,
-            entries=[
-                HoumaoTerminalHistoryEntry(
+            tracked_session_id="cao-gpu",
+            entries=(
+                HoumaoRecentTransition(
                     recorded_at_utc="2026-03-19T10:00:00+00:00",
-                    kind="sample",
-                    payload={"limit": limit},
-                )
-            ],
+                    summary=f"limit={limit}",
+                    changed_fields=("operator_status",),
+                    transport_state="tmux_up",
+                    process_state="tui_up",
+                    parse_status="parsed",
+                    operator_status="ready",
+                ),
+            ),
         )
 
 
@@ -444,7 +484,9 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     health_route = next(
         candidate
         for candidate in app.routes
-        if isinstance(candidate, APIRoute) and candidate.path == "/health" and "GET" in candidate.methods
+        if isinstance(candidate, APIRoute)
+        and candidate.path == "/health"
+        and "GET" in candidate.methods
     )
     current_instance_route = next(
         candidate
@@ -497,7 +539,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert service.m_register_requests[0].tool == "codex"
     assert service.m_register_requests[0].agent_name == "AGENTSYS-gpu"
 
-    assert state_response.terminal.id == "abcd1234"
+    assert state_response.terminal_id == "abcd1234"
 
-    assert history_response.entries[0].payload["limit"] == 3
+    assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
