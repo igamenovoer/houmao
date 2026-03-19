@@ -133,11 +133,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "claude_headless",
             "gemini_headless",
             "cao_rest",
+            "houmao_server_rest",
         ],
         help="Backend override",
     )
     start.add_argument("--workdir", default=".", help="Working directory")
     start.add_argument("--cao-base-url", default="http://localhost:9889")
+    start.add_argument("--houmao-base-url", default="http://127.0.0.1:9889")
     start.add_argument("--cao-profile-store", help="CAO profile store override")
     start.add_argument(
         "--cao-parsing-mode",
@@ -452,7 +454,9 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         runtime_root=_optional_path(args.runtime_root, base=cwd),
         backend=backend,
         working_directory=_resolve_path(args.workdir, base=cwd),
-        api_base_url=args.cao_base_url,
+        api_base_url=(
+            args.houmao_base_url if backend == "houmao_server_rest" else args.cao_base_url
+        ),
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),
         agent_identity=args.agent_identity,
         agent_id=args.agent_id,

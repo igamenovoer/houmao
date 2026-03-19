@@ -20,6 +20,42 @@
       "title": "LaunchPlanHomeSelectorV1",
       "type": "object"
     },
+    "LaunchPlanMailboxV1": {
+      "additionalProperties": false,
+      "description": "Persisted resolved mailbox binding for `launch_plan.v1`.",
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "filesystem_root": {
+          "title": "Filesystem Root",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "principal_id",
+        "address",
+        "bindings_version",
+        "filesystem_root"
+      ],
+      "title": "LaunchPlanMailboxV1",
+      "type": "object"
+    },
     "LaunchPlanRoleInjectionV1": {
       "additionalProperties": false,
       "description": "`role_injection` payload for `launch_plan.v1`.",
@@ -47,8 +83,6 @@
       "type": "object"
     }
   },
-  "$id": "launch_plan.v1.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Persisted `launch_plan.v1` payload.",
   "properties": {
@@ -65,7 +99,8 @@
         "codex_app_server",
         "claude_headless",
         "gemini_headless",
-        "cao_rest"
+        "cao_rest",
+        "houmao_server_rest"
       ],
       "title": "Backend",
       "type": "string"
@@ -83,6 +118,17 @@
     },
     "home_selector": {
       "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+    },
+    "mailbox": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LaunchPlanMailboxV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "metadata": {
       "additionalProperties": {

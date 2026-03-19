@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GATEWAY_PROTOCOL_VERSION,
     BlueprintGatewayDefaults,
     GatewayAttachBackendMetadataCaoV1,
+    GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayAttachBackendMetadataHeadlessV1,
     GatewayAttachContractV1,
     GatewayCurrentInstanceV1,
@@ -290,7 +291,11 @@ def build_attach_contract(
 ) -> GatewayAttachContractV1:
     """Build a strict attach contract from runtime-owned session state."""
 
-    backend_metadata: GatewayAttachBackendMetadataHeadlessV1 | GatewayAttachBackendMetadataCaoV1
+    backend_metadata: (
+        GatewayAttachBackendMetadataHeadlessV1
+        | GatewayAttachBackendMetadataCaoV1
+        | GatewayAttachBackendMetadataHoumaoServerV1
+    )
     if request.backend == "cao_rest":
         backend_metadata = GatewayAttachBackendMetadataCaoV1(
             api_base_url=_require_backend_state_string(
@@ -308,6 +313,32 @@ def build_attach_contract(
             profile_path=_require_backend_state_string(
                 request.backend_state,
                 key="profile_path",
+            ),
+            parsing_mode=cast(
+                CaoParsingMode,
+                _require_backend_state_string(
+                    request.backend_state,
+                    key="parsing_mode",
+                ),
+            ),
+            tmux_window_name=_optional_backend_state_string(
+                request.backend_state,
+                key="tmux_window_name",
+            ),
+        )
+    elif request.backend == "houmao_server_rest":
+        backend_metadata = GatewayAttachBackendMetadataHoumaoServerV1(
+            api_base_url=_require_backend_state_string(
+                request.backend_state,
+                key="api_base_url",
+            ),
+            session_name=_require_backend_state_string(
+                request.backend_state,
+                key="session_name",
+            ),
+            terminal_id=_require_backend_state_string(
+                request.backend_state,
+                key="terminal_id",
             ),
             parsing_mode=cast(
                 CaoParsingMode,

@@ -149,6 +149,57 @@
       "title": "HeadlessSectionV1",
       "type": "object"
     },
+    "HoumaoServerSectionV1": {
+      "additionalProperties": false,
+      "description": "Persisted `houmao_server_rest` backend section.",
+      "properties": {
+        "api_base_url": {
+          "title": "Api Base Url",
+          "type": "string"
+        },
+        "parsing_mode": {
+          "enum": [
+            "cao_only",
+            "shadow_only"
+          ],
+          "title": "Parsing Mode",
+          "type": "string"
+        },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "tmux_window_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Window Name"
+        },
+        "turn_index": {
+          "default": 0,
+          "title": "Turn Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_base_url",
+        "session_name",
+        "terminal_id",
+        "parsing_mode"
+      ],
+      "title": "HoumaoServerSectionV1",
+      "type": "object"
+    },
     "LaunchPlanHomeSelectorV1": {
       "additionalProperties": false,
       "description": "`home_selector` payload for `launch_plan.v1`.",
@@ -222,7 +273,8 @@
             "codex_app_server",
             "claude_headless",
             "gemini_headless",
-            "cao_rest"
+            "cao_rest",
+            "houmao_server_rest"
           ],
           "title": "Backend",
           "type": "string"
@@ -336,8 +388,6 @@
       "type": "object"
     }
   },
-  "$id": "session_manifest.v3.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Persisted ``session_manifest.v3`` payload.",
   "properties": {
@@ -371,7 +421,8 @@
         "codex_app_server",
         "claude_headless",
         "gemini_headless",
-        "cao_rest"
+        "cao_rest",
+        "houmao_server_rest"
       ],
       "title": "Backend",
       "type": "string"
@@ -441,6 +492,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/HeadlessSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "houmao_server": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HoumaoServerSectionV1"
         },
         {
           "type": "null"

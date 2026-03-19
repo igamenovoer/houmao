@@ -8,13 +8,15 @@ For the canonical launcher-owned artifact tree, derived CAO home placement, and 
 
 The launcher starts `cao-server` from `PATH` only.
 
-- Install CAO with `uv` from the supported fork (example): `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
+- Install CAO with `uv` from the pinned compatibility commit used by the Houmao pair: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6`
 - Verify: `command -v cao-server`
 
 If start fails with "`cao-server` not found on PATH", install CAO separately and
 rerun `command -v cao-server` before retrying launcher commands.
 
 The launcher does **not** run vendored sources from `extern/`.
+
+For the `houmao-server + houmao-srv-ctrl` compatibility contract, that exact CAO commit is the source of truth. Use [Houmao Server Pair](houmao_server_pair.md) for the higher-level replacement boundary.
 
 ## Config file (TOML)
 

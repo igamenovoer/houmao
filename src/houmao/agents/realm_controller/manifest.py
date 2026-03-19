@@ -162,6 +162,15 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             "parsing_mode": str(request.backend_state.get("parsing_mode", "")),
             "turn_index": int(request.backend_state.get("turn_index", 0)),
         }
+    elif request.launch_plan.backend == "houmao_server_rest":
+        payload["houmao_server"] = {
+            "api_base_url": str(request.backend_state.get("api_base_url", "")),
+            "session_name": str(request.backend_state.get("session_name", "")),
+            "terminal_id": str(request.backend_state.get("terminal_id", "")),
+            "parsing_mode": str(request.backend_state.get("parsing_mode", "")),
+            "tmux_window_name": request.backend_state.get("tmux_window_name"),
+            "turn_index": int(request.backend_state.get("turn_index", 0)),
+        }
 
     return _validate_session_manifest_payload(
         payload,
@@ -319,6 +328,10 @@ def _resolve_manifest_identity(
                 request.backend_state.get("tmux_session_name")
             )
     elif request.launch_plan.backend == "cao_rest":
+        backend_session_name = _optional_non_empty_str(request.backend_state.get("session_name"))
+        if tmux_session_name is None:
+            tmux_session_name = backend_session_name
+    elif request.launch_plan.backend == "houmao_server_rest":
         backend_session_name = _optional_non_empty_str(request.backend_state.get("session_name"))
         if tmux_session_name is None:
             tmux_session_name = backend_session_name

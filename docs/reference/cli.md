@@ -12,6 +12,8 @@ pixi install
 
 - Runtime CLI: `houmao-cli`
 - CAO launcher CLI: `houmao-cao-server`
+- Houmao server CLI: `houmao-server`
+- Houmao CAO-wrapper CLI: `houmao-srv-ctrl`
 
 Runtime subcommands:
 
@@ -27,6 +29,8 @@ Module equivalents:
 ```bash
 pixi run python -m houmao.agents.realm_controller --help
 pixi run python -m houmao.cao.tools.cao_server_launcher --help
+houmao-server --help
+houmao-srv-ctrl --help
 ```
 
 ## Common Runtime Flags
@@ -34,10 +38,13 @@ pixi run python -m houmao.cao.tools.cao_server_launcher --help
 Useful `start-session` overrides:
 
 - `--cao-base-url http://localhost:<port>` or `http://127.0.0.1:<port>` for a supported launcher-managed loopback CAO endpoint
+- `--houmao-base-url http://127.0.0.1:<port>` for the `houmao_server_rest` runtime backend
 - `--mailbox-transport filesystem`
 - `--mailbox-root <path>`
 - `--mailbox-principal-id <principal-id>`
 - `--mailbox-address <full-address>`
+
+The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctrl`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
 
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 

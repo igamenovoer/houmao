@@ -24,8 +24,9 @@ from houmao.agents.realm_controller.errors import GatewayError, SessionManifestE
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
-    GatewayAttachContractV1,
     GatewayAttachBackendMetadataCaoV1,
+    GatewayAttachContractV1,
+    GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayConnectivityState,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
@@ -105,7 +106,7 @@ class _UnreadMailboxMessage:
 
 
 class CaoGatewayAdapter:
-    """Gateway adapter for runtime-owned `cao_rest` sessions."""
+    """Gateway adapter for runtime-owned REST-backed tmux sessions."""
 
     def __init__(self, *, attach_contract_path: Path) -> None:
         """Load CAO-specific gateway attach metadata.
@@ -119,13 +120,18 @@ class CaoGatewayAdapter:
         self.m_attach_contract_path = attach_contract_path.resolve()
         self.m_attach_contract = load_attach_contract(self.m_attach_contract_path)
         metadata = self.m_attach_contract.backend_metadata
-        if self.m_attach_contract.backend != "cao_rest":
+        if self.m_attach_contract.backend not in {"cao_rest", "houmao_server_rest"}:
             raise GatewayError(
-                f"Gateway adapter only supports backend='cao_rest' in v1, got "
+                "Gateway adapter only supports backend in "
+                "{'cao_rest', 'houmao_server_rest'} in v1, got "
                 f"{self.m_attach_contract.backend!r}."
             )
-        metadata = cast(GatewayAttachBackendMetadataCaoV1, metadata)
-        self.m_client = CaoRestClient(metadata.api_base_url)
+        if self.m_attach_contract.backend == "cao_rest":
+            cao_metadata = cast(GatewayAttachBackendMetadataCaoV1, metadata)
+            self.m_client = CaoRestClient(cao_metadata.api_base_url)
+        else:
+            houmao_metadata = cast(GatewayAttachBackendMetadataHoumaoServerV1, metadata)
+            self.m_client = CaoRestClient(houmao_metadata.api_base_url)
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -138,20 +144,34 @@ class CaoGatewayAdapter:
 
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
-            metadata = cast(
-                GatewayAttachBackendMetadataCaoV1,
+            if self.m_attach_contract.backend == "cao_rest":
+                cao_metadata = cast(
+                    GatewayAttachBackendMetadataCaoV1,
+                    self.m_attach_contract.backend_metadata,
+                )
+                return cao_metadata.terminal_id
+
+            houmao_metadata = cast(
+                GatewayAttachBackendMetadataHoumaoServerV1,
                 self.m_attach_contract.backend_metadata,
             )
-            return metadata.terminal_id
+            return houmao_metadata.terminal_id
 
         handle = load_session_manifest(Path(manifest_path))
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        if payload.cao is None:
+        if self.m_attach_contract.backend == "cao_rest":
+            if payload.cao is None:
+                raise GatewayError(
+                    "Runtime-owned CAO manifest is missing the `cao` payload required for "
+                    "gateway attach."
+                )
+            return payload.cao.terminal_id
+        if payload.houmao_server is None:
             raise GatewayError(
-                "Runtime-owned CAO manifest is missing the `cao` payload required for "
-                "gateway attach."
+                "Runtime-owned houmao-server manifest is missing the `houmao_server` payload "
+                "required for gateway attach."
             )
-        return payload.cao.terminal_id
+        return payload.houmao_server.terminal_id
 
     def inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
         """Return whether the addressed CAO terminal is reachable."""

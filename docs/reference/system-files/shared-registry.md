@@ -44,6 +44,8 @@ It does not copy:
 
 The current active standalone schema for this artifact is `live_agent_registry_record.v2.schema.json`, and the current typed boundary in live code is `LiveAgentRegistryRecordV2`.
 
+For `houmao_server_rest` sessions, including delegated `houmao-srv-ctrl launch` flows, the registry continues to publish pointers back to the Houmao-owned runtime manifest and session root rather than copying runtime state into the registry record.
+
 ## Ownership Notes
 
 - The registry directory key is authoritative `agent_id`, not the retired `agent_key`.

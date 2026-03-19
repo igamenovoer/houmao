@@ -204,7 +204,7 @@ def plan_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend == "cao_rest":
+    if backend in {"cao_rest", "houmao_server_rest"}:
         return RoleInjectionPlan(
             method="cao_profile",
             role_name=role_name,

@@ -518,7 +518,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: bae0ba8c9e74c4749800f32ecf86b6d03350130b05529928b1f19dc1ec8bddc9
+  sha256: ed77eaf2ba46e62ff814b9fa824e4dbb3f2fde9053c3d164d5a20a8cb18ce31b
   requires_dist:
   - pydantic>=2.12,<3
   - pyyaml>=6.0,<7

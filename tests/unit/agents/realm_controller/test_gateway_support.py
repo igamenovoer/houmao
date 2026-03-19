@@ -327,7 +327,47 @@ def test_attach_gateway_returns_explicit_unsupported_backend_error(
 
     assert result.status == "error"
     assert result.action == "gateway_attach"
-    assert "backend='cao_rest'" in result.detail
+    assert "backend='claude_headless'" in result.detail
+    assert "cao_rest" in result.detail
+    assert "houmao_server_rest" in result.detail
+
+
+def test_ensure_gateway_capability_supports_houmao_server_backend(tmp_path: Path) -> None:
+    manifest_path = default_manifest_path(
+        tmp_path,
+        "houmao_server_rest",
+        "houmao-server-rest-20260319-120000Z-abcd1234",
+    )
+    _write(manifest_path, "{}\n")
+
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="houmao_server_rest",
+            tool="codex",
+            session_id="houmao-server-rest-20260319-120000Z-abcd1234",
+            tmux_session_name="AGENTSYS-gpu",
+            working_directory=tmp_path,
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "session_name": "cao-gpu",
+                "terminal_id": "term-123",
+                "parsing_mode": "shadow_only",
+                "tmux_window_name": "developer-1",
+            },
+            agent_def_dir=tmp_path / "agents",
+        )
+    )
+
+    attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
+    metadata = attach_payload["backend_metadata"]
+
+    assert attach_payload["backend"] == "houmao_server_rest"
+    assert metadata["api_base_url"] == "http://127.0.0.1:9889"
+    assert metadata["session_name"] == "cao-gpu"
+    assert metadata["terminal_id"] == "term-123"
+    assert metadata["tmux_window_name"] == "developer-1"
+    assert "profile_name" not in metadata
 
 
 def test_gateway_status_invalidates_stale_live_bindings(

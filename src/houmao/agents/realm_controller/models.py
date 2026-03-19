@@ -19,6 +19,7 @@ BackendKind = Literal[
     "claude_headless",
     "gemini_headless",
     "cao_rest",
+    "houmao_server_rest",
 ]
 CaoParsingMode = Literal["cao_only", "shadow_only"]
 RoleInjectionMethod = Literal[

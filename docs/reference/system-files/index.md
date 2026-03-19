@@ -33,6 +33,7 @@ Representative runtime-owned layout:
   homes/<home-id>/
   manifests/<home-id>.yaml
   sessions/<backend>/<session-id>/
+  houmao_servers/<host>-<port>/
 ```
 
 Representative registry-owned layout:
@@ -55,6 +56,7 @@ Representative launcher-owned layout:
 - [Roots And Ownership](roots-and-ownership.md): Default roots, override precedence, ownership categories, and the mailbox boundary.
 - [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime session roots, nested gateway files, and workspace-local job directories.
 - [CAO Server](cao-server.md): Launcher-owned artifacts, derived CAO home placement, and the Houmao-owned versus CAO-owned boundary.
+- [Houmao Server](houmao-server.md): Server-owned listener roots, hidden child-CAO storage, and terminal-state compatibility mirrors.
 - [Shared Registry](shared-registry.md): Registry root placement, `live_agents/<agent-id>/record.json`, and the registry’s pointer-oriented scope.
 - [Operator Preparation](operator-preparation.md): Pre-creation, permissions, redirection surfaces, ignore rules, and cleanup expectations.
 
@@ -64,6 +66,7 @@ Representative launcher-owned layout:
 - [Shared Registry Reference](../registry/index.md): Registry semantics, discovery, and cleanup behavior.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol, queue behavior, and lifecycle handling.
 - [CAO Server Launcher](../cao_server_launcher.md): Launcher CLI, health semantics, and proxy policy.
+- [Houmao Server Pair](../houmao_server_pair.md): Supported pair boundary, backend identity, and migration direction.
 
 ## Source References
 

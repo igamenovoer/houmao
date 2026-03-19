@@ -33,6 +33,7 @@ from .backends.cao_rest import (
     CaoSessionState,
     cao_backend_state_payload,
 )
+from .backends.houmao_server_rest import HoumaoServerRestSession
 from .boundary_models import SessionManifestPayloadV3
 from .backends.claude_headless import ClaudeHeadlessSession
 from .backends.codex_headless import CodexHeadlessSession
@@ -164,7 +165,7 @@ from .registry_storage import (
 )
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
-    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest"}
+    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
 )
 _LOGGER = logging.getLogger(__name__)
 
@@ -1027,6 +1028,44 @@ def _create_backend_session(
             ),
         )
 
+    if launch_plan.backend == "houmao_server_rest":
+        existing_state = _resume_houmao_server_state(resume_state)
+        configured_mode = configured_cao_parsing_mode(launch_plan)
+        resolved_parsing_mode = resolve_cao_parsing_mode(
+            tool=launch_plan.tool,
+            requested_mode=cao_parsing_mode,
+            configured_mode=configured_mode,
+        )
+        if existing_state is not None and existing_state.parsing_mode != resolved_parsing_mode:
+            raise SessionManifestError(
+                "houmao-server parsing mode mismatch on resume: "
+                f"manifest requires {existing_state.parsing_mode!r}, "
+                f"but current configuration resolves to {resolved_parsing_mode!r}."
+            )
+        resolved_api_base_url = (
+            existing_state.api_base_url if existing_state is not None else api_base_url
+        )
+        if resolved_api_base_url is None or not resolved_api_base_url.strip():
+            raise SessionManifestError(
+                "houmao-server start requires a non-empty api_base_url for "
+                "backend=houmao_server_rest"
+            )
+        return cast(
+            InteractiveSession,
+            HoumaoServerRestSession(
+                launch_plan=launch_plan,
+                api_base_url=resolved_api_base_url.strip(),
+                role_name=role_name,
+                role_prompt=role_prompt,
+                agent_def_dir=agent_def_dir,
+                profile_store_dir=cao_profile_store_dir,
+                existing_state=existing_state,
+                session_manifest_path=session_manifest_path,
+                tmux_session_name=agent_identity,
+                parsing_mode=resolved_parsing_mode,
+            ),
+        )
+
     raise SessionManifestError(f"Unsupported backend: {launch_plan.backend}")
 
 
@@ -1156,6 +1195,75 @@ def _resume_cao_state(
     )
 
 
+def _resume_houmao_server_state(
+    payload: SessionManifestPayloadV3 | None,
+) -> CaoSessionState | None:
+    if payload is None:
+        return None
+
+    houmao_server = payload.houmao_server
+    if houmao_server is None:
+        raise SessionManifestError("houmao-server session manifest missing `houmao_server` state")
+
+    persisted_api_base_url = houmao_server.api_base_url.strip()
+    if not persisted_api_base_url:
+        raise SessionManifestError(
+            "houmao-server session manifest missing or blank houmao_server.api_base_url"
+        )
+
+    terminal_id = houmao_server.terminal_id.strip()
+    if not terminal_id:
+        raise SessionManifestError(
+            "houmao-server session manifest missing or blank houmao_server.terminal_id"
+        )
+
+    session_name = houmao_server.session_name.strip()
+    if not session_name:
+        raise SessionManifestError(
+            "houmao-server session manifest missing or blank houmao_server.session_name"
+        )
+
+    backend_api_base_url = payload.backend_state.get("api_base_url")
+    if not isinstance(backend_api_base_url, str) or not backend_api_base_url.strip():
+        raise SessionManifestError(
+            "houmao-server session manifest missing or blank backend_state.api_base_url"
+        )
+    if persisted_api_base_url != backend_api_base_url.strip():
+        raise SessionManifestError(
+            "houmao-server session manifest api_base_url mismatch: "
+            "houmao_server.api_base_url must equal backend_state.api_base_url"
+        )
+
+    backend_parsing_mode = payload.backend_state.get("parsing_mode")
+    if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
+        raise SessionManifestError(
+            "houmao-server session manifest missing or blank backend_state.parsing_mode"
+        )
+    if houmao_server.parsing_mode != backend_parsing_mode.strip():
+        raise SessionManifestError(
+            "houmao-server session manifest parsing_mode mismatch: "
+            "houmao_server.parsing_mode must equal backend_state.parsing_mode"
+        )
+
+    profile_name = str(payload.backend_state.get("profile_name", "houmao-server")).strip()
+    profile_path = str(payload.backend_state.get("profile_path", "houmao-server")).strip()
+    if not profile_name:
+        profile_name = "houmao-server"
+    if not profile_path:
+        profile_path = "houmao-server"
+
+    return CaoSessionState(
+        api_base_url=persisted_api_base_url,
+        session_name=session_name,
+        terminal_id=terminal_id,
+        profile_name=profile_name,
+        profile_path=profile_path,
+        tmux_window_name=houmao_server.tmux_window_name,
+        parsing_mode=houmao_server.parsing_mode,
+        turn_index=houmao_server.turn_index,
+    )
+
+
 def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject:
     """Build JSON-serializable backend state for one runtime session.
 
@@ -1175,6 +1283,8 @@ def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject
         return cast(GatewayJsonObject, codex_backend_state_payload(session.state))
     if isinstance(session, HeadlessInteractiveSession):
         return cast(GatewayJsonObject, headless_backend_state_payload(session.state))
+    if isinstance(session, HoumaoServerRestSession):
+        return cast(GatewayJsonObject, cao_backend_state_payload(session.state))
     if isinstance(session, CaoRestSession):
         return cast(GatewayJsonObject, cao_backend_state_payload(session.state))
     return {}
@@ -1954,11 +2064,12 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    if controller.launch_plan.backend != "cao_rest":
+    if controller.launch_plan.backend not in {"cao_rest", "houmao_server_rest"}:
         paths = _require_gateway_paths_for_controller(controller)
         detail = (
-            "Gateway attach is only implemented for runtime-owned backend='cao_rest' "
-            f"sessions in v1, got backend={controller.launch_plan.backend!r}."
+            "Gateway attach is only implemented for runtime-owned backends "
+            "{'cao_rest', 'houmao_server_rest'} in v1, got "
+            f"backend={controller.launch_plan.backend!r}."
         )
         return GatewayControlResult(
             status="error",

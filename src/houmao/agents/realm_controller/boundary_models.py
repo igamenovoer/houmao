@@ -24,7 +24,7 @@ JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
 JsonObject: TypeAlias = dict[str, JsonValue]
 _SAFE_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
-    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest"}
+    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
 )
 
 
@@ -156,6 +156,24 @@ class CaoSectionV2(_StrictBoundaryModel):
             raise ValueError("must not be empty")
         return value
 
+
+class HoumaoServerSectionV1(_StrictBoundaryModel):
+    """Persisted `houmao_server_rest` backend section."""
+
+    api_base_url: str
+    session_name: str
+    terminal_id: str
+    parsing_mode: CaoParsingMode
+    tmux_window_name: str | None = None
+    turn_index: int = 0
+
+    @field_validator("api_base_url", "session_name", "terminal_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
     @field_validator("tmux_window_name")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
@@ -182,6 +200,7 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None
     cao: CaoSectionV2 | None = None
+    houmao_server: HoumaoServerSectionV1 | None = None
 
     @field_validator(
         "tool",
@@ -211,8 +230,14 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
         if self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
-            if self.headless is not None or self.cao is not None:
-                raise ValueError("headless/cao must be omitted for backend=codex_app_server")
+            if (
+                self.headless is not None
+                or self.cao is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "headless/cao/houmao_server must be omitted for backend=codex_app_server"
+                )
         elif self.backend in {
             "codex_headless",
             "claude_headless",
@@ -223,16 +248,25 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
                     "headless is required for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
-            if self.codex is not None or self.cao is not None:
+            if self.codex is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
-                    "codex/cao must be omitted for backend=codex_headless/"
+                    "codex/cao/houmao_server must be omitted for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
         elif self.backend == "cao_rest":
             if self.cao is None:
                 raise ValueError("cao is required for backend=cao_rest")
-            if self.codex is not None or self.headless is not None:
-                raise ValueError("codex/headless must be omitted for backend=cao_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError("codex/headless/houmao_server must be omitted for backend=cao_rest")
+        elif self.backend == "houmao_server_rest":
+            if self.houmao_server is None:
+                raise ValueError("houmao_server is required for backend=houmao_server_rest")
+            if self.codex is not None or self.headless is not None or self.cao is not None:
+                raise ValueError("codex/headless/cao must be omitted for backend=houmao_server_rest")
         return self
 
 
@@ -256,6 +290,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None
     cao: CaoSectionV2 | None = None
+    houmao_server: HoumaoServerSectionV1 | None = None
 
     @field_validator(
         "tool",
@@ -317,8 +352,14 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
         if self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
-            if self.headless is not None or self.cao is not None:
-                raise ValueError("headless/cao must be omitted for backend=codex_app_server")
+            if (
+                self.headless is not None
+                or self.cao is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "headless/cao/houmao_server must be omitted for backend=codex_app_server"
+                )
         elif self.backend in {
             "codex_headless",
             "claude_headless",
@@ -329,16 +370,25 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
                     "headless is required for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
-            if self.codex is not None or self.cao is not None:
+            if self.codex is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
-                    "codex/cao must be omitted for backend=codex_headless/"
+                    "codex/cao/houmao_server must be omitted for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
         elif self.backend == "cao_rest":
             if self.cao is None:
                 raise ValueError("cao is required for backend=cao_rest")
-            if self.codex is not None or self.headless is not None:
-                raise ValueError("codex/headless must be omitted for backend=cao_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError("codex/headless/houmao_server must be omitted for backend=cao_rest")
+        elif self.backend == "houmao_server_rest":
+            if self.houmao_server is None:
+                raise ValueError("houmao_server is required for backend=houmao_server_rest")
+            if self.codex is not None or self.headless is not None or self.cao is not None:
+                raise ValueError("codex/headless/cao must be omitted for backend=houmao_server_rest")
         return self
 
 

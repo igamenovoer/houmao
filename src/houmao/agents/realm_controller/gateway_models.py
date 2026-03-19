@@ -135,6 +135,32 @@ class GatewayAttachBackendMetadataCaoV1(_StrictGatewayModel):
         return value
 
 
+class GatewayAttachBackendMetadataHoumaoServerV1(_StrictGatewayModel):
+    """Attach metadata for runtime-owned `houmao_server_rest` sessions."""
+
+    api_base_url: str
+    session_name: str
+    terminal_id: str
+    parsing_mode: CaoParsingMode
+    tmux_window_name: str | None = None
+
+    @field_validator("api_base_url", "session_name", "terminal_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("tmux_window_name")
+    @classmethod
+    def _optional_tmux_window_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class GatewayAttachContractV1(_StrictGatewayModel):
     """Stable gateway attachability contract for one live tmux session."""
 
@@ -143,7 +169,11 @@ class GatewayAttachContractV1(_StrictGatewayModel):
     backend: BackendKind
     tmux_session_name: str
     working_directory: str
-    backend_metadata: GatewayAttachBackendMetadataHeadlessV1 | GatewayAttachBackendMetadataCaoV1
+    backend_metadata: (
+        GatewayAttachBackendMetadataHeadlessV1
+        | GatewayAttachBackendMetadataCaoV1
+        | GatewayAttachBackendMetadataHoumaoServerV1
+    )
     manifest_path: str | None = None
     agent_def_dir: str | None = None
     runtime_session_id: str | None = None
@@ -189,6 +219,15 @@ class GatewayAttachContractV1(_StrictGatewayModel):
             if not isinstance(self.backend_metadata, GatewayAttachBackendMetadataCaoV1):
                 raise ValueError(
                     "backend_metadata must use the CAO attach schema for backend=cao_rest"
+                )
+        elif self.backend == "houmao_server_rest":
+            if not isinstance(
+                self.backend_metadata,
+                GatewayAttachBackendMetadataHoumaoServerV1,
+            ):
+                raise ValueError(
+                    "backend_metadata must use the houmao-server attach schema for "
+                    "backend=houmao_server_rest"
                 )
         elif self.backend in {
             "codex_headless",

@@ -73,10 +73,10 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is only needed if you want to use the `cao_rest` backend or the `houmao-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `Houmao` and may include features beyond upstream `main`:
+CAO is only needed if you want to use the `cao_rest` backend, `houmao-cao-server`, or the `houmao-server + houmao-srv-ctrl` replacement pair. Install it from the pinned compatibility commit used by this repository:
 
 ```bash
-uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
+uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6
 ```
 
 Verify the required executables are available:
@@ -92,10 +92,14 @@ command -v tmux
 
 - `houmao-cli`: build/start/prompt/stop lifecycle
 - `houmao-cao-server`: local `cao-server` start/status/stop (optional)
+- `houmao-server`: Houmao-owned CAO-compatible server with Houmao extension routes
+- `houmao-srv-ctrl`: CAO-compatible wrapper CLI paired with `houmao-server`
 
 ```bash
 houmao-cli --help
 houmao-cao-server --help
+houmao-server --help
+houmao-srv-ctrl --help
 ```
 
 ### 1. Create / Choose An Agent Definition Directory

@@ -68,6 +68,26 @@ def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
+def _sample_houmao_plan(tmp_path: Path) -> LaunchPlan:
+    return LaunchPlan(
+        backend="houmao_server_rest",
+        tool="codex",
+        executable="codex",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={"OPENAI_API_KEY": "secret"},
+        env_var_names=["OPENAI_API_KEY"],
+        role_injection=RoleInjectionPlan(
+            method="cao_profile",
+            role_name="gpu-kernel-coder",
+            prompt="Be precise",
+        ),
+        metadata={},
+    )
+
+
 def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     plan = _sample_plan(tmp_path)
     payload = build_session_manifest_payload(
@@ -213,3 +233,33 @@ def test_cao_manifest_round_trip_persists_optional_tmux_window_name(
     assert loaded.payload["tmux_session_name"] == "AGENTSYS-gpu"
     assert loaded.payload["cao"]["tmux_window_name"] == "developer-1"
     assert loaded.payload["backend_state"]["tmux_window_name"] == "developer-1"
+
+
+def test_houmao_manifest_round_trip_uses_dedicated_backend_section(tmp_path: Path) -> None:
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_houmao_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-gpu"),
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "session_name": "cao-gpu",
+                "terminal_id": "abcd1234",
+                "tmux_window_name": "developer-1",
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+            },
+        )
+    )
+
+    path = tmp_path / "houmao-session.json"
+    write_session_manifest(path, payload)
+    loaded = load_session_manifest(path)
+
+    assert loaded.payload["backend"] == "houmao_server_rest"
+    assert loaded.payload["houmao_server"]["api_base_url"] == "http://127.0.0.1:9889"
+    assert loaded.payload["houmao_server"]["session_name"] == "cao-gpu"
+    assert loaded.payload["houmao_server"]["terminal_id"] == "abcd1234"
+    assert loaded.payload["houmao_server"]["tmux_window_name"] == "developer-1"
+    assert "cao" not in loaded.payload or loaded.payload["cao"] is None

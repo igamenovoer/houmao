@@ -24,6 +24,14 @@
           "title": "Profile Path",
           "type": "string"
         },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
         "tmux_window_name": {
           "anyOf": [
             {
@@ -35,14 +43,6 @@
           ],
           "default": null,
           "title": "Tmux Window Name"
-        },
-        "session_name": {
-          "title": "Session Name",
-          "type": "string"
-        },
-        "terminal_id": {
-          "title": "Terminal Id",
-          "type": "string"
         },
         "turn_index": {
           "default": 0,
@@ -149,6 +149,57 @@
       "title": "HeadlessSectionV1",
       "type": "object"
     },
+    "HoumaoServerSectionV1": {
+      "additionalProperties": false,
+      "description": "Persisted `houmao_server_rest` backend section.",
+      "properties": {
+        "api_base_url": {
+          "title": "Api Base Url",
+          "type": "string"
+        },
+        "parsing_mode": {
+          "enum": [
+            "cao_only",
+            "shadow_only"
+          ],
+          "title": "Parsing Mode",
+          "type": "string"
+        },
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "tmux_window_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Window Name"
+        },
+        "turn_index": {
+          "default": 0,
+          "title": "Turn Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_base_url",
+        "session_name",
+        "terminal_id",
+        "parsing_mode"
+      ],
+      "title": "HoumaoServerSectionV1",
+      "type": "object"
+    },
     "LaunchPlanHomeSelectorV1": {
       "additionalProperties": false,
       "description": "`home_selector` payload for `launch_plan.v1`.",
@@ -169,6 +220,42 @@
       "title": "LaunchPlanHomeSelectorV1",
       "type": "object"
     },
+    "LaunchPlanMailboxV1": {
+      "additionalProperties": false,
+      "description": "Persisted resolved mailbox binding for `launch_plan.v1`.",
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "filesystem_root": {
+          "title": "Filesystem Root",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "principal_id",
+        "address",
+        "bindings_version",
+        "filesystem_root"
+      ],
+      "title": "LaunchPlanMailboxV1",
+      "type": "object"
+    },
     "LaunchPlanPayloadV1": {
       "additionalProperties": false,
       "description": "Persisted `launch_plan.v1` payload.",
@@ -186,7 +273,8 @@
             "codex_app_server",
             "claude_headless",
             "gemini_headless",
-            "cao_rest"
+            "cao_rest",
+            "houmao_server_rest"
           ],
           "title": "Backend",
           "type": "string"
@@ -204,6 +292,17 @@
         },
         "home_selector": {
           "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+        },
+        "mailbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LaunchPlanMailboxV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "metadata": {
           "additionalProperties": {
@@ -289,8 +388,6 @@
       "type": "object"
     }
   },
-  "$id": "session_manifest.v2.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Persisted `session_manifest.v2` payload.",
   "properties": {
@@ -300,7 +397,8 @@
         "codex_app_server",
         "claude_headless",
         "gemini_headless",
-        "cao_rest"
+        "cao_rest",
+        "houmao_server_rest"
       ],
       "title": "Backend",
       "type": "string"
@@ -340,18 +438,6 @@
       "title": "Brain Manifest Path",
       "type": "string"
     },
-    "registry_generation_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Registry Generation Id"
-    },
     "cao": {
       "anyOf": [
         {
@@ -389,8 +475,31 @@
       ],
       "default": null
     },
+    "houmao_server": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HoumaoServerSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "launch_plan": {
       "$ref": "#/$defs/LaunchPlanPayloadV1"
+    },
+    "registry_generation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registry Generation Id"
     },
     "role_name": {
       "title": "Role Name",
