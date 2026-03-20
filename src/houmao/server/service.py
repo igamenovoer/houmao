@@ -563,6 +563,392 @@ class HoumaoServerService:
         tracker = self._tracker_for_terminal_alias(terminal_id)
         return tracker.history(limit=limit)
 
+    def list_managed_agents(self) -> HoumaoManagedAgentListResponse:
+        """Return the shared managed-agent discovery surface."""
+
+        self._ensure_tui_trackers_seeded()
+        identities: list[HoumaoManagedAgentIdentity] = []
+        with self.m_lock:
+            trackers = list(self.m_trackers.values())
+            headless_handles = list(self.m_headless_agents.values())
+
+        for tracker in trackers:
+            identities.append(self._managed_identity_from_tui_tracker(tracker))
+        for handle in headless_handles:
+            identities.append(self._managed_identity_from_headless_handle(handle))
+
+        identities.sort(key=lambda item: (item.transport, item.tracked_agent_id))
+        return HoumaoManagedAgentListResponse(agents=identities)
+
+    def managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
+        """Return one managed-agent identity from the shared surface."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            return self._managed_identity_from_tui_tracker(tracker)
+
+        handle = self._require_headless_handle(resolved["tracked_agent_id"])
+        return self._managed_identity_from_headless_handle(handle)
+
+    def managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        """Return the shared coarse state for one managed agent."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            return self._managed_state_from_tui_tracker(tracker)
+
+        tracked_agent_id = resolved["tracked_agent_id"]
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        handle = self._require_headless_handle(tracked_agent_id)
+        return self._managed_state_from_headless_handle(handle)
+
+    def managed_agent_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int,
+    ) -> HoumaoManagedAgentHistoryResponse:
+        """Return bounded coarse recent history for one managed agent."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            raw_history = tracker.history(limit=limit)
+            return HoumaoManagedAgentHistoryResponse(
+                tracked_agent_id=raw_history.tracked_session_id,
+                entries=[
+                    HoumaoManagedAgentHistoryEntry(
+                        recorded_at_utc=entry.recorded_at_utc,
+                        summary=entry.summary,
+                        availability=_availability_from_tui_transition(entry),
+                        turn_phase=_turn_phase_from_tui_operator_status(entry.operator_status),
+                        last_turn_result=_last_turn_result_from_tui_operator_status(
+                            entry.operator_status
+                        ),
+                        turn_id=None,
+                    )
+                    for entry in raw_history.entries
+                ],
+            )
+
+        tracked_agent_id = resolved["tracked_agent_id"]
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        return HoumaoManagedAgentHistoryResponse(
+            tracked_agent_id=tracked_agent_id,
+            entries=self._headless_history_entries(
+                tracked_agent_id=tracked_agent_id,
+                limit=limit,
+            ),
+        )
+
+    def launch_headless_agent(
+        self,
+        request_model: HoumaoHeadlessLaunchRequest,
+    ) -> HoumaoHeadlessLaunchResponse:
+        """Launch one server-managed native headless agent."""
+
+        resolved_tool = request_model.tool.strip()
+        try:
+            resolved_workdir = Path(request_model.working_directory).expanduser().resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Native headless launch requires an existing working_directory.",
+            ) from exc
+        if not resolved_workdir.is_dir():
+            raise HTTPException(
+                status_code=422,
+                detail="Native headless launch requires working_directory to be a directory.",
+            )
+
+        agent_def_dir = Path(request_model.agent_def_dir).expanduser().resolve()
+        if not agent_def_dir.is_dir():
+            raise HTTPException(
+                status_code=422,
+                detail="Native headless launch requires an existing agent_def_dir directory.",
+            )
+
+        brain_manifest_path = Path(request_model.brain_manifest_path).expanduser().resolve()
+        if not brain_manifest_path.is_file():
+            raise HTTPException(
+                status_code=422,
+                detail="Native headless launch requires an existing brain_manifest_path file.",
+            )
+
+        try:
+            manifest = load_brain_manifest(brain_manifest_path)
+            load_role_package(agent_def_dir, request_model.role_name)
+        except (LaunchPlanError, SessionManifestError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        manifest_tool = str(manifest.get("inputs", {}).get("tool", "")).strip()
+        if manifest_tool != resolved_tool:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Native headless launch requires tool to match "
+                    f"brain_manifest_path inputs.tool; got request={resolved_tool!r} "
+                    f"manifest={manifest_tool!r}."
+                ),
+            )
+
+        try:
+            controller = start_runtime_session(
+                agent_def_dir=agent_def_dir,
+                brain_manifest_path=brain_manifest_path,
+                role_name=request_model.role_name,
+                backend=backend_for_tool(resolved_tool),
+                working_directory=resolved_workdir,
+                api_base_url=self.m_config.api_base_url,
+                agent_identity=request_model.agent_name,
+                agent_id=request_model.agent_id,
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        tracked_agent_id = controller.manifest_path.parent.name
+        authority = ManagedHeadlessAuthorityRecord(
+            tracked_agent_id=tracked_agent_id,
+            backend=controller.launch_plan.backend,
+            tool=resolved_tool,
+            manifest_path=str(controller.manifest_path),
+            session_root=str(controller.manifest_path.parent),
+            tmux_session_name=self._require_controller_tmux_session_name(controller),
+            agent_def_dir=str(agent_def_dir),
+            agent_name=controller.agent_identity,
+            agent_id=controller.agent_id,
+            created_at_utc=utc_now_iso(),
+            updated_at_utc=utc_now_iso(),
+        )
+        self.m_managed_headless_store.write_authority(authority)
+        handle = _ManagedHeadlessAgentHandle(authority=authority, controller=controller)
+        with self.m_lock:
+            self.m_headless_agents[tracked_agent_id] = handle
+
+        identity = self._managed_identity_from_headless_handle(handle)
+        return HoumaoHeadlessLaunchResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            identity=identity,
+            manifest_path=str(controller.manifest_path),
+            session_root=str(controller.manifest_path.parent),
+            detail=(
+                f"Native headless agent `{tracked_agent_id}` launched for tool "
+                f"`{resolved_tool}`."
+            ),
+        )
+
+    def stop_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        """Stop one managed headless agent and delete its server authority."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] != "headless":
+            raise HTTPException(
+                status_code=400,
+                detail="Managed-agent stop is only supported for native headless agents in v1.",
+            )
+
+        tracked_agent_id = resolved["tracked_agent_id"]
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        handle = self._require_headless_handle(tracked_agent_id)
+        active_turn = self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+        if active_turn is not None:
+            self._interrupt_active_turn_record(active_turn)
+            active_thread = handle.active_thread
+            if active_thread is not None:
+                active_thread.join(timeout=5.0)
+
+        result = handle.controller.stop(force_cleanup=True)
+        if result.status != "ok":
+            raise HTTPException(status_code=502, detail=result.detail)
+
+        self.m_managed_headless_store.delete_agent(tracked_agent_id=tracked_agent_id)
+        with self.m_lock:
+            self.m_headless_agents.pop(tracked_agent_id, None)
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            detail=result.detail,
+            turn_id=active_turn.turn_id if active_turn is not None else None,
+        )
+
+    def submit_headless_turn(
+        self,
+        agent_ref: str,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        """Accept one prompt for a managed native headless agent."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] != "headless":
+            raise HTTPException(
+                status_code=400,
+                detail="Headless turn submission is only supported for native headless agents.",
+            )
+
+        tracked_agent_id = resolved["tracked_agent_id"]
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        handle = self._require_headless_handle(tracked_agent_id)
+        if self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Managed headless turn submission rejected because this agent already "
+                    "has an active turn."
+                ),
+            )
+
+        backend_turn_index = self._next_headless_backend_turn_index(handle.controller)
+        turn_id = f"turn-{_message_sha1(f'{tracked_agent_id}:{backend_turn_index}:{time.time()}')[:12]}"
+        turn_artifact_dir = self._headless_turn_artifacts_root(handle.controller) / turn_id
+        turn_record = ManagedHeadlessTurnRecord(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            turn_index=backend_turn_index,
+            status="active",
+            started_at_utc=utc_now_iso(),
+            turn_artifact_dir=str(turn_artifact_dir),
+            tmux_session_name=self._require_controller_tmux_session_name(handle.controller),
+            tmux_window_name=turn_id,
+            history_summary=f"Turn {turn_id} accepted.",
+        )
+        active_turn = ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            turn_index=backend_turn_index,
+            turn_artifact_dir=str(turn_artifact_dir),
+            started_at_utc=turn_record.started_at_utc,
+            tmux_session_name=turn_record.tmux_session_name,
+            tmux_window_name=turn_id,
+        )
+        self.m_managed_headless_store.write_turn_record(turn_record)
+        self.m_managed_headless_store.write_active_turn(active_turn)
+
+        worker = threading.Thread(
+            target=self._run_headless_turn_worker,
+            kwargs={
+                "tracked_agent_id": tracked_agent_id,
+                "turn_id": turn_id,
+                "prompt": request_model.prompt,
+            },
+            daemon=True,
+            name=f"houmao-headless-turn-{tracked_agent_id}-{turn_id}",
+        )
+        handle.set_active_thread(worker)
+        worker.start()
+
+        return HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            turn_index=backend_turn_index,
+            status="active",
+            detail=f"Managed headless turn `{turn_id}` accepted.",
+        )
+
+    def headless_turn_status(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnStatusResponse:
+        """Return one managed headless turn status."""
+
+        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        turn_record = self._require_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+        )
+        return self._headless_turn_status_response(turn_record)
+
+    def headless_turn_events(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnEventsResponse:
+        """Return structured events for one managed headless turn."""
+
+        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        turn_record = self._require_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+        )
+        stdout_path = Path(turn_record.stdout_path) if turn_record.stdout_path is not None else None
+        entries: list[HoumaoHeadlessTurnEvent] = []
+        if stdout_path is not None and stdout_path.exists():
+            for event in load_headless_turn_events(
+                stdout_path=stdout_path,
+                output_format=self._headless_output_format(
+                    tracked_agent_id=tracked_agent_id,
+                ),
+                turn_index=turn_record.turn_index,
+            ):
+                entries.append(
+                    HoumaoHeadlessTurnEvent(
+                        kind=event.kind,
+                        message=event.message,
+                        turn_index=event.turn_index,
+                        timestamp_utc=event.timestamp_utc,
+                        payload=event.payload,
+                    )
+                )
+        return HoumaoHeadlessTurnEventsResponse(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            entries=entries,
+        )
+
+    def headless_turn_artifact_text(
+        self,
+        agent_ref: str,
+        turn_id: str,
+        *,
+        artifact_name: str,
+    ) -> str:
+        """Return one raw persisted headless artifact as text."""
+
+        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        turn_record = self._require_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+        )
+        if artifact_name == "stdout":
+            artifact_path = Path(turn_record.stdout_path) if turn_record.stdout_path is not None else None
+        elif artifact_name == "stderr":
+            artifact_path = Path(turn_record.stderr_path) if turn_record.stderr_path is not None else None
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown headless artifact `{artifact_name}`.")
+
+        if artifact_path is None or not artifact_path.exists():
+            return ""
+        return artifact_path.read_text(encoding="utf-8")
+
+    def interrupt_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        """Interrupt the active turn for one managed headless agent."""
+
+        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        active_turn = self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+        if active_turn is None:
+            return HoumaoManagedAgentActionResponse(
+                success=True,
+                tracked_agent_id=tracked_agent_id,
+                detail="No active headless turn is running.",
+                turn_id=None,
+            )
+
+        self._interrupt_active_turn_record(active_turn)
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            detail=f"Best-effort interrupt requested for turn `{active_turn.turn_id}`.",
+            turn_id=active_turn.turn_id,
+        )
+
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""
 
