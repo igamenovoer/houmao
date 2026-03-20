@@ -371,6 +371,22 @@ def test_render_header_and_transition_panels_separate_monitor_and_server_posture
     assert "10:00:00 codex: codex became candidate_complete" in transition_output
 
 
+def test_styled_token_uses_category_state_colors() -> None:
+    """State tokens should carry Rich styles for the dashboard."""
+
+    assert monitor_module._styled_token("ready", category="operator_status").style == "bold cyan"
+    assert (
+        monitor_module._styled_token("candidate_complete", category="completion_state").style
+        == "cyan"
+    )
+    assert (
+        monitor_module._styled_token("turn_anchored", category="completion_authority").style
+        == "bold cyan"
+    )
+    assert monitor_module._styled_token("tmux_missing", category="transport_state").style == "red"
+    assert monitor_module._styled_token("changing", category="stability_state").style == "yellow"
+
+
 def test_compact_dialog_excerpt_keeps_only_meaningful_tail_lines() -> None:
     """The tail excerpt should drop empty lines and box-drawing noise."""
 

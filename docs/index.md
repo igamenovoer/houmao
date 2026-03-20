@@ -8,6 +8,7 @@ For the maintained CAO `shadow_only` parser/runtime contract and lifecycle seman
 
 - [TUI Parsing Developer Guide](developer/tui-parsing/index.md)
 - [Terminal Recorder Developer Guide](developer/terminal-record/index.md)
+- [Houmao Server Developer Guide](developer/houmao-server/index.md)
 
 ## Reference
 

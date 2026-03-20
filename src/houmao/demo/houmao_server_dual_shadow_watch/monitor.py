@@ -24,6 +24,104 @@ from houmao.demo.houmao_server_dual_shadow_watch.models import (
     load_demo_state,
 )
 
+_STATE_STYLE_BY_CATEGORY: dict[str, dict[str, str]] = {
+    "operator_status": {
+        "ready": "bold cyan",
+        "processing": "bold yellow",
+        "waiting_user_answer": "bold magenta",
+        "completed": "bold green",
+        "tui_down": "bold red",
+        "unavailable": "bold red",
+        "error": "bold red",
+        "unknown": "bold bright_black",
+    },
+    "readiness_state": {
+        "ready": "cyan",
+        "waiting": "white",
+        "blocked": "magenta",
+        "failed": "red",
+        "unknown": "bright_black",
+        "stalled": "yellow",
+    },
+    "completion_state": {
+        "inactive": "bright_black",
+        "in_progress": "yellow",
+        "candidate_complete": "cyan",
+        "completed": "green",
+        "waiting": "white",
+        "blocked": "magenta",
+        "failed": "red",
+        "unknown": "bright_black",
+        "stalled": "yellow",
+    },
+    "completion_authority": {
+        "turn_anchored": "bold cyan",
+        "unanchored_background": "blue",
+    },
+    "turn_anchor_state": {
+        "active": "bold cyan",
+        "absent": "blue",
+        "lost": "bold red",
+    },
+    "transport_state": {
+        "tmux_up": "green",
+        "tmux_missing": "red",
+        "probe_error": "red",
+    },
+    "process_state": {
+        "tui_up": "green",
+        "tui_down": "red",
+        "unsupported_tool": "magenta",
+        "probe_error": "red",
+        "unknown": "bright_black",
+    },
+    "parse_status": {
+        "parsed": "green",
+        "skipped_tui_down": "yellow",
+        "unsupported_tool": "magenta",
+        "transport_unavailable": "bright_black",
+        "probe_error": "red",
+        "parse_error": "red",
+    },
+    "availability": {
+        "supported": "green",
+        "unsupported": "magenta",
+        "disconnected": "red",
+        "unknown": "bright_black",
+        "error": "red",
+        "-": "bright_black",
+    },
+    "business_state": {
+        "idle": "cyan",
+        "working": "yellow",
+        "awaiting_operator": "magenta",
+        "unknown": "bright_black",
+        "error": "red",
+        "-": "bright_black",
+    },
+    "input_mode": {
+        "freeform": "cyan",
+        "modal": "yellow",
+        "unknown": "bright_black",
+        "error": "red",
+        "-": "bright_black",
+    },
+    "ui_context": {
+        "unknown": "bright_black",
+        "error": "red",
+        "-": "bright_black",
+    },
+    "projection_state": {
+        "changed": "cyan",
+        "steady": "bright_black",
+    },
+    "stability_state": {
+        "stable": "green",
+        "changing": "yellow",
+        "-": "bright_black",
+    },
+}
+
 
 @dataclass(frozen=True)
 class AgentDisplayState:
@@ -322,15 +420,11 @@ def _render_header_panel(
 ) -> Panel:
     """Render a short top-level monitor summary."""
 
-    current_states = " | ".join(
-        f"{state.slot}: {state.operator_status} ({state.readiness_state}/{state.completion_state})"
-        for state in display_states
-    )
     lines = [
         Text(f"server: {demo_state.server.api_base_url}"),
         Text(_monitor_cadence_summary(demo_state)),
         Text(_server_posture_summary(demo_state)),
-        Text(f"current: {current_states or 'no agents'}"),
+        _header_current_states_text(display_states),
     ]
     return Panel(Group(*lines), title="Houmao Server State Watch")
 
@@ -339,21 +433,18 @@ def _render_agent_panel(state: AgentDisplayState) -> Panel:
     """Render one compact per-agent status card."""
 
     lines = [
-        Text(f"current: {state.operator_status}"),
-        Text(f"ready/complete: {state.readiness_state} / {state.completion_state}"),
-        Text(f"authority: {state.completion_authority} / {state.turn_anchor_state}"),
-        Text(f"health: {state.transport_state} / {state.process_state} / {state.parse_status}"),
-        Text(
-            "surface: "
-            f"{state.availability} / {state.business_state} / {state.input_mode} / {state.ui_context}"
-        ),
-        Text(f"projection: {_projection_summary(state)}"),
-        Text(f"visible stability: {_stability_summary(state)}"),
+        _current_text(state, prefix="current: "),
+        _ready_complete_text(state, prefix="ready/complete: "),
+        _authority_text(state, prefix="authority: "),
+        _health_text(state, prefix="health: "),
+        _surface_text(state, prefix="surface: "),
+        _projection_text(state, prefix="projection: "),
+        _stability_text(state, prefix="visible stability: "),
         Text(f"detail: {_truncate_text(state.detail, limit=120)}"),
     ]
-    timing_text = _timing_summary(state)
-    if timing_text:
-        lines.append(Text(f"timing: {timing_text}"))
+    timing_text = _timing_text(state, prefix="timing: ")
+    if timing_text is not None:
+        lines.append(timing_text)
     last_transition_text = _last_transition_summary(state)
     lines.append(Text(f"last transition: {last_transition_text}"))
     lines.append(Text(f"tail: {_compact_dialog_excerpt(state.dialog_tail)}"))
@@ -379,23 +470,16 @@ def _agent_panel_lines(state: AgentDisplayState) -> list[Text]:
     """Build compact status lines for one agent."""
 
     lines = [
-        Text(f"{state.slot} ({state.tool})"),
-        Text(
-            "  current: "
-            f"{state.operator_status} | {state.readiness_state}/{state.completion_state} | "
-            f"{state.transport_state}/{state.process_state}/{state.parse_status}"
-        ),
-        Text(f"  authority: {state.completion_authority} / {state.turn_anchor_state}"),
-        Text(
-            "  surface: "
-            f"{state.availability} / {state.business_state} / {state.input_mode} / {state.ui_context}"
-        ),
-        Text(f"  projection/stability: {_projection_summary(state)} | {_stability_summary(state)}"),
+        _agent_heading_text(state),
+        _current_health_text(state, prefix="  current: "),
+        _authority_text(state, prefix="  authority: "),
+        _surface_text(state, prefix="  surface: "),
+        _projection_stability_text(state, prefix="  projection/stability: "),
         Text(f"  detail: {_truncate_text(state.detail, limit=120)}"),
     ]
-    timing_text = _timing_summary(state)
-    if timing_text:
-        lines.append(Text(f"  timing: {timing_text}"))
+    timing_text = _timing_text(state, prefix="  timing: ")
+    if timing_text is not None:
+        lines.append(timing_text)
     lines.append(Text(f"  last: {_last_transition_summary(state)}"))
     lines.append(Text(f"  tail: {_compact_dialog_excerpt(state.dialog_tail)}"))
     if state.error_detail:
@@ -420,9 +504,12 @@ def _render_transition_panel(
         body_lines.append(Text("No server-authored transitions yet."))
     for event in transitions[-6:]:
         short_ts = _short_timestamp(event.ts_utc)
-        body_lines.append(
-            Text(f"{short_ts} {event.slot}: {_truncate_text(event.summary, limit=120)}")
-        )
+        line = Text()
+        if short_ts:
+            line.append(f"{short_ts} ", style="dim")
+        line.append(f"{event.slot}:", style="bold")
+        line.append(f" {_truncate_text(event.summary, limit=120)}")
+        body_lines.append(line)
     return Panel(Group(*body_lines), title="Recent Server Transitions")
 
 
@@ -493,6 +580,177 @@ def _stability_summary(state: AgentDisplayState) -> str:
         return "-"
     posture = "stable" if state.visible_stable else "changing"
     return f"{posture} for {_format_seconds(state.visible_stable_for_seconds)}s"
+
+
+def _header_current_states_text(display_states: list[AgentDisplayState]) -> Text:
+    """Render the header summary with colored current state tokens."""
+
+    line = Text("current: ")
+    if not display_states:
+        line.append("no agents", style="bright_black")
+        return line
+    for index, state in enumerate(display_states):
+        if index > 0:
+            line.append(" | ")
+        line.append(f"{state.slot}: ", style="bold")
+        line.append_text(_styled_token(state.operator_status, category="operator_status"))
+        line.append(" (")
+        line.append_text(_styled_token(state.readiness_state, category="readiness_state"))
+        line.append("/")
+        line.append_text(_styled_token(state.completion_state, category="completion_state"))
+        line.append(")")
+    return line
+
+
+def _agent_heading_text(state: AgentDisplayState) -> Text:
+    """Render the compact agent heading."""
+
+    heading = Text()
+    heading.append(state.slot, style="bold")
+    heading.append(f" ({state.tool})")
+    return heading
+
+
+def _current_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render the operator-status line."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.operator_status, category="operator_status"))
+    return line
+
+
+def _ready_complete_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render readiness and completion with color-coded states."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.readiness_state, category="readiness_state"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.completion_state, category="completion_state"))
+    return line
+
+
+def _authority_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render lifecycle authority with color-coded tokens."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.completion_authority, category="completion_authority"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.turn_anchor_state, category="turn_anchor_state"))
+    return line
+
+
+def _health_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render transport, process, and parse status with colors."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.transport_state, category="transport_state"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.process_state, category="process_state"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.parse_status, category="parse_status"))
+    return line
+
+
+def _surface_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render the parsed surface summary with colored state tokens."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.availability, category="availability"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.business_state, category="business_state"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.input_mode, category="input_mode"))
+    line.append(" / ")
+    line.append_text(_styled_token(state.ui_context, category="ui_context"))
+    return line
+
+
+def _projection_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render the projection-change summary."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(_projection_summary(state), category="projection_state"))
+    return line
+
+
+def _stability_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render visible stability with color-coded posture."""
+
+    line = Text(prefix)
+    if state.visible_stable is None or state.visible_stable_for_seconds is None:
+        line.append_text(_styled_token("-", category="stability_state"))
+        return line
+    posture = "stable" if state.visible_stable else "changing"
+    line.append_text(_styled_token(posture, category="stability_state"))
+    line.append(f" for {_format_seconds(state.visible_stable_for_seconds)}s")
+    return line
+
+
+def _projection_stability_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render projection and stability together for the compact dashboard."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(_projection_summary(state), category="projection_state"))
+    line.append(" | ")
+    stability_text = _stability_text(state, prefix="")
+    line.append_text(stability_text)
+    return line
+
+
+def _current_health_text(state: AgentDisplayState, *, prefix: str) -> Text:
+    """Render operator, lifecycle, and health tokens on one compact line."""
+
+    line = Text(prefix)
+    line.append_text(_styled_token(state.operator_status, category="operator_status"))
+    line.append(" | ")
+    line.append_text(_styled_token(state.readiness_state, category="readiness_state"))
+    line.append("/")
+    line.append_text(_styled_token(state.completion_state, category="completion_state"))
+    line.append(" | ")
+    line.append_text(_styled_token(state.transport_state, category="transport_state"))
+    line.append("/")
+    line.append_text(_styled_token(state.process_state, category="process_state"))
+    line.append("/")
+    line.append_text(_styled_token(state.parse_status, category="parse_status"))
+    return line
+
+
+def _timing_text(state: AgentDisplayState, *, prefix: str) -> Text | None:
+    """Render timing fields with color-coded values when present."""
+
+    parts: list[tuple[str, str | None]] = []
+    unknown_seconds = state.readiness_unknown_elapsed_seconds
+    if unknown_seconds is None:
+        unknown_seconds = state.completion_unknown_elapsed_seconds
+    if unknown_seconds is not None:
+        parts.append((f"unknown_for={_format_seconds(unknown_seconds)}s", "yellow"))
+    if state.completion_candidate_elapsed_seconds is not None:
+        parts.append(
+            (
+                f"candidate_for={_format_seconds(state.completion_candidate_elapsed_seconds)}s",
+                "cyan",
+            )
+        )
+    if not parts:
+        return None
+    line = Text(prefix)
+    for index, (segment, style) in enumerate(parts):
+        if index > 0:
+            line.append(", ")
+        line.append(segment, style=style)
+    return line
+
+
+def _styled_token(value: str, *, category: str) -> Text:
+    """Return one token wrapped in its configured Rich style."""
+
+    return Text(value, style=_state_style(category=category, value=value))
+
+
+def _state_style(*, category: str, value: str) -> str:
+    """Return the Rich style name for one categorized state value."""
+
+    return _STATE_STYLE_BY_CATEGORY.get(category, {}).get(value, "white")
 
 
 def _last_transition_summary(state: AgentDisplayState) -> str:

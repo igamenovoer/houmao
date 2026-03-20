@@ -8,6 +8,8 @@ The intent of this pair is narrow and explicit:
 - `houmao-srv-ctrl` is the CAO-compatible CLI wrapper that delegates to the installed `cao` executable and registers successful launches back into `houmao-server`.
 - Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported in this change.
 
+For the maintained deep explanation of the live state tracker, turn anchors, lifecycle authority, and state transition rules behind `GET /houmao/terminals/{terminal_id}/state`, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
+
 ## Compatibility Source Of Truth
 
 Compatibility for this change is pinned to one exact upstream CAO source:

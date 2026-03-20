@@ -2,10 +2,11 @@
 
 ## Developer Deep Dive
 
-For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior, start here.
+For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior and `houmao-server` live-state tracking, start here.
 
 - [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
 - [Terminal Recorder Developer Guide](../developer/terminal-record/index.md)
+- [Houmao Server Developer Guide](../developer/houmao-server/index.md)
 
 ## Reference Pages
 
