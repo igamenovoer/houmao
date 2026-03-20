@@ -222,6 +222,50 @@ At minimum, the memory-primary bucket SHALL include:
 - **THEN** any child-required filesystem state lives under Houmao-owned server storage rather than a separate public CAO-home surface
 - **AND THEN** child launcher pid, ownership, or support files remain internal implementation detail or server compatibility views rather than the public control plane
 
+### Requirement: Tracked-state routes expose simplified turn and last-turn semantics
+When `houmao-server` returns server-owned tracked-state payloads for watched sessions, it SHALL expose the simplified turn model as the primary consumer-facing route contract.
+
+At minimum, the tracked-state response SHALL include:
+
+- low-level diagnostics and parsed-surface evidence for the current sample,
+- foundational observables under `surface`,
+- current turn posture under `turn`, and
+- the most recent terminal result under `last_turn`.
+
+For `last_turn`, the route SHALL identify whether the result came from an explicit server-owned input path, inferred direct interaction, or no completed turn yet.
+
+The route SHALL NOT require callers to interpret public turn-anchor states, completion authority states, or completion debounce states in order to understand what the terminal is doing now or what the last turn did.
+
+The route SHALL NOT imply that every visible TUI change has a known cause. If the watched surface changes for unexplained reasons and does not satisfy the server's stricter turn-evidence rules, the route MAY reflect diagnostic or surface churn without manufacturing a new `turn` transition or `last_turn`.
+
+Ambiguous menus, selection boxes, permission prompts, slash-command UI, and similar tool-specific interactive surfaces SHALL be folded into `turn.phase=unknown` unless stronger active or terminal evidence is present. The route SHALL NOT publish a dedicated public ask-user outcome for those surfaces.
+
+The route SHALL NOT publish a generic catch-all failure outcome. Only specifically recognized failure signatures MAY produce `last_turn.result=known_failure`; failure-like but unmatched surfaces SHALL degrade to `turn.phase=unknown` unless stronger evidence supports another state.
+
+The route SHALL NOT distinguish chat turns from slash commands in the public tracked-state contract. Slash-looking input text MAY be reported as surface evidence, but it SHALL NOT create a separate public lifecycle kind.
+
+#### Scenario: Background ready surface exposes a simplified ready turn state
+- **WHEN** a caller requests tracked state for a watched terminal whose TUI is idle and visibly ready for another submit
+- **THEN** `houmao-server` returns `surface` and `turn` fields that identify a ready turn posture
+- **AND THEN** the caller can understand that state without reading public readiness/completion/authority fields
+
+#### Scenario: Explicit server input produces a terminal outcome with explicit source
+- **WHEN** `houmao-server` accepts a terminal input submission for a tracked session and that turn later settles successfully
+- **THEN** a later tracked-state response records `last_turn.result=success`
+- **AND THEN** the response records `last_turn.source=explicit_input`
+
+#### Scenario: Direct tmux prompting can still produce an inferred terminal outcome
+- **WHEN** a watched session is prompted directly through tmux instead of the supported server input route
+- **AND WHEN** the server safely infers the start and end of that turn from live observation
+- **THEN** a later tracked-state response may record the terminal result for that turn
+- **AND THEN** the response records `last_turn.source=surface_inference` rather than requiring the caller to inspect turn-anchor internals
+
+#### Scenario: Unexplained surface churn does not manufacture an inferred outcome
+- **WHEN** a watched session shows visible surface changes whose cause is not safely attributable to a tracked turn
+- **AND WHEN** those changes do not satisfy the server's turn-start or turn-terminal inference rules
+- **THEN** the tracked-state response does not manufacture a new `last_turn`
+- **AND THEN** the response does not claim a new `turn.phase=active` from that churn alone
+
 ### Requirement: `houmao-server` publishes Houmao-owned terminal state and history as explicit extension routes
 `houmao-server` SHALL expose Houmao-specific HTTP extension routes for live terminal state and bounded recent transition history in addition to the CAO-compatible core API.
 
@@ -236,8 +280,11 @@ At minimum, the Houmao-owned live terminal state contract SHALL distinguish:
 - parse status,
 - optional probe or parse error detail,
 - the latest parsed TUI surface when available,
-- operator-facing live state, and
-- stability metadata, and
+- diagnostic availability or health for the current sample,
+- foundational observables under `surface`,
+- current turn posture under `turn`,
+- the most recent terminal result under `last_turn`,
+- generic stability metadata as diagnostic evidence, and
 - bounded recent transition or recent-state history when requested.
 
 Those extension routes SHALL be backed by in-memory live state rather than persisted watch files. If recent history is exposed, it SHALL be a bounded in-memory view rather than an append-only persisted log.
@@ -266,6 +313,133 @@ Those extension routes SHALL be backed by in-memory live state rather than persi
 - **WHEN** `houmao-server` restarts and resumes watching still-live known sessions
 - **THEN** it rebuilds the extension-route live state from fresh observation of those sessions
 - **AND THEN** it does not treat old watch snapshot files or old append-only watch logs as the authoritative rebuilt state
+
+### Requirement: `houmao-server` keeps TUI registration separate from native headless launch
+`houmao-server` SHALL keep its existing server-owned registration bridge for terminal-backed compatibility sessions and SHALL NOT require that bridge for native headless agents.
+
+For TUI-backed registrations, `terminal_id` SHALL remain part of the compatibility registration contract.
+
+For headless agents, `houmao-server` SHALL create server authority through its Houmao-owned native headless launch path instead of through delegated registration.
+
+#### Scenario: TUI registration remains terminal-keyed
+- **WHEN** a caller registers a TUI-backed managed session through the compatibility registration bridge
+- **THEN** `houmao-server` continues to require `terminal_id` for that registration
+- **AND THEN** the TUI registration path remains distinct from the native headless launch path
+
+#### Scenario: Headless authority does not require delegated registration
+- **WHEN** a caller launches a headless managed agent through the native headless API
+- **THEN** `houmao-server` creates authority for that agent without requiring a delegated launch registration record
+- **AND THEN** headless lifecycle does not depend on child-CAO session or terminal discovery
+
+### Requirement: `houmao-server` persists native headless authority under the server-owned state tree
+For each native headless agent launched through `houmao-server`, the server SHALL persist a dedicated managed-agent authority record under the server-owned state tree.
+
+In v1, that authority subtree SHALL live under:
+
+```text
+<server_root>/state/managed_agents/<tracked_agent_id>/
+```
+
+That subtree SHALL contain an `authority.json` record for the launched headless agent.
+
+At minimum, that `authority.json` record SHALL persist:
+
+- `tracked_agent_id`
+- `tool`
+- `manifest_path`
+- `session_root`
+- `tmux_session_name`
+- optional `agent_name`
+- optional `agent_id`
+
+`houmao-server` SHALL use that authority record plus runtime-owned evidence such as the manifest and session root to rebuild headless agent authority on startup or recovery.
+
+`houmao-server` SHALL NOT admit a headless agent from a stray manifest alone when no matching server-owned headless authority record exists.
+
+#### Scenario: Native headless launch writes server-owned authority
+- **WHEN** `houmao-server` successfully launches a native headless agent
+- **THEN** it writes an `authority.json` record under `state/managed_agents/<tracked_agent_id>/`
+- **AND THEN** later restart recovery can use that server-owned authority record to rebuild the managed agent
+
+#### Scenario: Stray manifest without authority is not re-admitted
+- **WHEN** a runtime manifest for a headless session still exists on disk
+- **AND WHEN** no matching server-owned `authority.json` record exists for that headless session
+- **THEN** `houmao-server` does not re-admit that headless session into managed-agent authority from the manifest alone
+- **AND THEN** restart recovery remains bounded by explicit server-owned authority
+
+### Requirement: `houmao-server` persists active headless turn authority and reconciles it across restart
+When `houmao-server` accepts a headless turn for a managed headless agent, it SHALL persist active-turn authority under the same managed-agent authority subtree.
+
+In v1, that active-turn record SHALL live at:
+
+```text
+<server_root>/state/managed_agents/<tracked_agent_id>/active_turn.json
+```
+
+At minimum, `active_turn.json` SHALL persist:
+
+- `tracked_agent_id`
+- `turn_id`
+- `turn_index`
+- `turn_artifact_dir`
+- `started_at_utc`
+- live targeting metadata needed for later interrupt or reconciliation when available
+
+Single-active-turn admission gating and active-turn interrupt targeting SHALL use that persisted active-turn authority rather than depending only on in-memory runner state.
+
+On startup or recovery, `houmao-server` SHALL reconcile `active_turn.json` against live tmux evidence and durable turn artifacts before it admits another turn for that agent or reports that the agent has no active turn.
+
+If reconciliation determines the earlier turn is still active, `houmao-server` SHALL restore active-turn authority for that turn.
+
+If reconciliation determines the earlier turn has already reached a terminal state, `houmao-server` SHALL clear the active-turn record and reopen turn admission for that agent.
+
+#### Scenario: Restart preserves single-active-turn gating for a live turn
+- **WHEN** `houmao-server` restarts while `active_turn.json` exists for a headless managed agent
+- **AND WHEN** reconciliation determines that recorded turn is still active
+- **THEN** the server continues rejecting overlapping turn submissions for that agent
+- **AND THEN** single-active-turn semantics do not disappear merely because the server restarted
+
+#### Scenario: Restart clears active-turn authority for a terminal turn
+- **WHEN** `houmao-server` restarts while `active_turn.json` exists for a headless managed agent
+- **AND WHEN** reconciliation determines that recorded turn has already reached a terminal state
+- **THEN** the server clears the active-turn record
+- **AND THEN** the next turn submission for that agent may be admitted normally
+
+### Requirement: `houmao-server` maintains a managed-agent registry that includes headless agents
+In addition to the existing known-session tracking for terminal-backed sessions, `houmao-server` SHALL maintain a server-owned managed-agent registry that can represent both TUI-backed and headless agents.
+
+For TUI-backed agents, that managed-agent registry MAY project from the existing known-session registry and terminal-alias mappings.
+
+For headless agents, that managed-agent registry SHALL use server-owned `authority.json`, reconciled `active_turn.json`, runtime-owned manifest state, and turn-artifact evidence to maintain live identity and coarse state, and SHALL NOT require a fabricated terminal alias.
+
+On startup or recovery, `houmao-server` SHALL rebuild server-launched headless managed agents from server-owned headless authority plus manifest-backed runtime evidence rather than requiring child CAO session discovery.
+
+#### Scenario: Headless managed agent rebuilds after server restart
+- **WHEN** `houmao-server` restarts and finds a valid server-owned headless launch record whose manifest and session root still exist
+- **THEN** it rebuilds that headless managed agent into the managed-agent registry
+- **AND THEN** the headless agent becomes available again through `/houmao/agents/*` without needing a `terminal_id`
+
+#### Scenario: Headless admission does not fabricate a terminal alias
+- **WHEN** `houmao-server` admits a registered headless managed agent
+- **THEN** it tracks that agent through managed-agent identity plus headless metadata
+- **AND THEN** it does not invent a fake `terminal_id` solely to fit the headless agent into terminal-keyed structures
+
+### Requirement: Existing CAO-compatible and terminal-keyed routes remain TUI-specific compatibility surfaces
+When `houmao-server` adds headless managed-agent support, it SHALL keep existing CAO-compatible `/sessions/*` and `/terminals/*` routes plus existing `/houmao/terminals/{terminal_id}/*` routes as TUI-specific or CAO-compatible surfaces.
+
+`houmao-server` SHALL NOT publish registered headless managed agents as fake CAO sessions or fake terminals on those routes.
+
+Headless managed agents SHALL instead be exposed through the Houmao-owned `/houmao/agents/*` route family.
+
+#### Scenario: Headless managed agent stays off terminal-keyed compatibility routes
+- **WHEN** `houmao-server` is managing a registered headless Claude agent
+- **THEN** that headless agent is available through `/houmao/agents/*`
+- **AND THEN** the server does not fabricate a terminal-keyed compatibility entry for it on `/houmao/terminals/{terminal_id}/*`
+
+#### Scenario: TUI compatibility routes remain available for terminal-backed sessions
+- **WHEN** `houmao-server` is managing a TUI-backed session that already has a `terminal_id`
+- **THEN** callers can continue using the existing terminal-keyed compatibility routes for that session
+- **AND THEN** adding headless managed-agent support does not remove or rename the TUI compatibility surface
 
 ### Requirement: `houmao-server` keeps registration bridge storage contained under the server-owned sessions root
 When `houmao-server` persists or removes server-owned registration records for tracked sessions, it SHALL treat the registration storage key as a validated server-owned identifier rather than as a raw filesystem path fragment.
@@ -439,43 +613,3 @@ At minimum, the session-detail response SHALL let a pair client identify the cre
 - **WHEN** a CAO-compatible caller reads the `GET /sessions/{session_name}` response but ignores terminal summary fields it does not use
 - **THEN** the compatibility response still succeeds as a valid session-detail view
 - **AND THEN** preserving tmux session or window metadata does not force callers onto a separate Houmao-only route just to use the pair
-
-### Requirement: Tracked-state routes expose lifecycle authority for background and turn-anchored monitoring
-When `houmao-server` returns server-owned tracked-state payloads for watched sessions, it SHALL expose structured lifecycle authority metadata alongside the lifecycle states so clients can distinguish unanchored background watch behavior from turn-anchored completion monitoring.
-
-At minimum, that lifecycle authority metadata SHALL identify:
-
-- whether completion monitoring is `unanchored_background` or `turn_anchored`,
-- whether a current turn anchor is active, absent, or lost/invalidated, and
-- enough state to explain why `candidate_complete` or `completed` is or is not currently authoritative.
-
-For tracked sessions with no active server-owned turn anchor, the default emitted lifecycle authority SHALL be `unanchored_background` plus `absent`.
-
-The same tracked-state payload revision that suppresses unanchored `candidate_complete` or `completed` SHALL expose lifecycle authority metadata that explains that suppression.
-
-For terminal input submissions accepted through the supported `houmao-server` control surface, the server SHALL record a turn anchor for the corresponding tracked session and SHALL use that anchor when reducing later completion state. That anchor SHALL be scoped to one anchored cycle and SHALL expire when the cycle reaches a terminal outcome, after which the tracked-state payload returns to `unanchored_background` plus `absent` until the next accepted submission.
-
-When no such anchor exists, the server SHALL still expose continuous watch state for the session, but it SHALL NOT imply that background ready-surface churn is authoritative turn completion.
-
-#### Scenario: Background watch response exposes unanchored lifecycle authority
-- **WHEN** a caller requests tracked state for a watched session that has no active server-owned turn anchor
-- **THEN** `houmao-server` returns the current continuous watch state
-- **AND THEN** the payload identifies completion monitoring as `unanchored_background`
-- **AND THEN** the payload identifies the current anchor state as `absent`
-
-#### Scenario: Server-owned input arms turn-anchored monitoring
-- **WHEN** `houmao-server` accepts a terminal input submission for a tracked session through its supported control surface
-- **THEN** the server records a turn anchor for that tracked session
-- **AND THEN** later tracked-state responses may expose turn-anchored candidate-complete or completed lifecycle states for that anchored cycle
-
-#### Scenario: Terminal outcome expires the active turn anchor
-- **WHEN** a tracked session has an active server-owned turn anchor
-- **AND WHEN** the anchored cycle reaches a terminal outcome such as `completed`, `blocked`, `failed`, or `stalled`
-- **THEN** `houmao-server` clears that anchor for completion authority purposes
-- **AND THEN** later tracked-state responses return to `unanchored_background` with anchor state `absent` until the next accepted input submission
-
-#### Scenario: Unanchored background churn does not surface authoritative completed state
-- **WHEN** a watched session has no active turn anchor
-- **AND WHEN** its parsed surface changes and later returns to a submit-ready prompt
-- **THEN** `houmao-server` does not surface `completed` as authoritative turn completion from that background churn alone
-- **AND THEN** the response continues to expose only the continuous-watch lifecycle authority for that state

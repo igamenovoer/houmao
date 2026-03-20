@@ -759,9 +759,23 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
+    post_expiry_cycle = tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc="2026-03-19T10:00:05+00:00",
+        monotonic_ts=15.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
 
     assert completed.operator_state.completion_state == "completed"
     assert completed.lifecycle_authority.completion_authority == "turn_anchored"
-    assert next_cycle.operator_state.completion_state == "inactive"
-    assert next_cycle.lifecycle_authority.completion_authority == "unanchored_background"
-    assert next_cycle.lifecycle_authority.turn_anchor_state == "absent"
+    assert next_cycle.operator_state.completion_state == "completed"
+    assert next_cycle.last_turn.result == "success"
+    assert post_expiry_cycle.operator_state.completion_state == "inactive"
+    assert post_expiry_cycle.lifecycle_authority.completion_authority == "unanchored_background"
+    assert post_expiry_cycle.lifecycle_authority.turn_anchor_state == "absent"

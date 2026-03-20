@@ -78,16 +78,18 @@ scripts/demo/houmao-server-dual-shadow-watch/run_demo.sh stop --json
 
 The monitor shows server-owned fields for each agent:
 
+- `diagnostics.availability`
 - `transport_state`
 - `process_state`
 - `parse_status`
-- parser availability, business state, input mode, and UI context
-- readiness state
-- completion state
-- lifecycle authority (`turn_anchored` vs. `unanchored_background`)
+- `surface.accepting_input`
+- `surface.editing_input`
+- `surface.ready_posture`
+- parsed surface availability, business state, input mode, and UI context
+- `turn.phase`
+- `last_turn.result`
+- `last_turn.source`
 - visible-state stability (`stable` / `changing` plus elapsed stable-for time)
-- projection-change indicator
-- lifecycle timing for unknown and candidate-complete windows
 - recent anomaly codes
 
 The dashboard header also separates ownership:
@@ -95,22 +97,20 @@ The dashboard header also separates ownership:
 - `monitor: poll=...` is the monitor refresh cadence
 - `server posture: completion_debounce=... unknown->stalled=...` is the server posture configured for the run
 
-The important lifecycle meanings are:
+The important public meanings are:
 
-- `ready`: prompt-submit ready
-- `in_progress`: working after a previously ready baseline
-- `candidate_complete`: looks complete but is still inside the completion stability window
-- `completed`: candidate-complete remained stable for `completion_stability_seconds`
-- `blocked`: operator interaction is required
-- `unknown`: parser surface is not yet classifiable
-- `stalled`: unknown remained continuous long enough to cross `unknown_to_stalled_timeout_seconds`
+- `diagnostics.availability=available`: the current sample is usable for normal interpretation
+- `surface.ready_posture=yes`: the visible surface looks ready to accept immediate submit
+- `turn.phase=ready`: the terminal appears ready for another turn now
+- `turn.phase=active`: the tracker has enough evidence that a turn is in flight
+- `turn.phase=unknown`: the server cannot safely classify the current posture as `ready` or `active`
+- `last_turn.result=success|interrupted|known_failure`: the most recent terminal outcome already recorded by the tracker
+- `last_turn.source=explicit_input|surface_inference`: whether that recorded turn came from the server-owned input path or inferred direct tmux interaction
 
-The important ownership and stability meanings are:
+The important timing and stability meanings are:
 
-- `turn_anchored`: `houmao-server` currently has an active server-owned turn anchor for authoritative completion monitoring
-- `unanchored_background`: `houmao-server` is still tracking the live session, but it is not inferring authoritative completion for a current anchored turn
 - visible stability: whether the current server-tracked signature has stopped changing, separate from completion debounce timing
-- completion debounce: the server-owned timer that controls `candidate_complete -> completed`, not the same thing as general visible-state stability
+- completion debounce: the server-owned settle window that must elapse before a successful ready-looking turn is recorded as `last_turn.result=success`
 
 ## Artifacts
 

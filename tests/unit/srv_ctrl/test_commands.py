@@ -10,8 +10,11 @@ import pytest
 from click.testing import CliRunner
 
 from houmao.cao.models import CaoSessionDetail, CaoSessionInfo, CaoSessionTerminalSummary
-from houmao.server.models import HoumaoInstallAgentProfileRequest
-from houmao.server.models import HoumaoRegisterLaunchRequest
+from houmao.server.models import (
+    HoumaoHeadlessLaunchRequest,
+    HoumaoInstallAgentProfileRequest,
+    HoumaoRegisterLaunchRequest,
+)
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -60,6 +63,7 @@ class _FakeHoumaoClient:
         self.m_get_session_calls: list[str] = []
         self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
+        self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
 
     def list_sessions(self) -> list[_FakeSession]:
         self.m_list_calls += 1
@@ -99,6 +103,18 @@ class _FakeHoumaoClient:
 
     def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> None:
         self.m_register_requests.append(request_model)
+
+    def launch_headless_agent(self, request_model: HoumaoHeadlessLaunchRequest) -> object:
+        self.m_headless_launch_requests.append(request_model)
+        return type(
+            "HeadlessLaunchResponse",
+            (),
+            {
+                "success": True,
+                "tracked_agent_id": "claude-headless-1",
+                "manifest_path": "/tmp/runtime/sessions/claude_headless/claude-headless-1/manifest.json",
+            },
+        )()
 
 
 def test_command_inventory_matches_pinned_upstream() -> None:
@@ -333,7 +349,6 @@ def test_launch_forwards_args_and_registers_houmao_artifacts(
             "codex",
             "--session-name",
             "gpu",
-            "--headless",
             "--yolo",
             "--port",
             "9999",
@@ -351,7 +366,6 @@ def test_launch_forwards_args_and_registers_houmao_artifacts(
             "codex",
             "--session-name",
             "gpu",
-            "--headless",
             "--yolo",
             "--port",
             "9999",
@@ -383,7 +397,62 @@ def test_launch_forwards_args_and_registers_houmao_artifacts(
             tmux_window_name="developer-1",
         )
     ]
-    assert "Houmao launch registration complete: session=cao-gpu terminal=abcd1234" in result.output
+    assert result.output == ""
+
+
+def test_headless_launch_targets_native_houmao_server(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pair_checks: list[str] = []
+    delegated_args: list[list[str]] = []
+    client = _FakeHoumaoClient()
+    request_model = HoumaoHeadlessLaunchRequest(
+        tool="claude",
+        working_directory=str(tmp_path.resolve()),
+        agent_def_dir=str((tmp_path / "agents").resolve()),
+        brain_manifest_path=str((tmp_path / "brain.yaml").resolve()),
+        role_name="gpu-kernel-coder",
+        agent_name="AGENTSYS-gpu",
+        agent_id=None,
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.require_supported_houmao_pair",
+        lambda *, base_url: pair_checks.append(base_url) or client,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.run_passthrough",
+        lambda *, command_name, extra_args: (
+            delegated_args.append([command_name, *list(extra_args)])
+            or subprocess.CompletedProcess(args=[], returncode=0)
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.materialize_headless_launch_request",
+        lambda **kwargs: request_model,
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "claude_code",
+            "--headless",
+            "--port",
+            "9999",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert pair_checks == ["http://127.0.0.1:9999"]
+    assert delegated_args == []
+    assert client.m_headless_launch_requests == [request_model]
+    assert "Houmao native headless launch complete: agent=claude-headless-1" in result.output
 
 
 def test_launch_returns_delegated_exit_code_without_houmao_follow_up(
@@ -408,7 +477,7 @@ def test_launch_returns_delegated_exit_code_without_houmao_follow_up(
         ),
     )
 
-    result = CliRunner().invoke(cli, ["launch", "--agents", "gpu-kernel-coder", "--headless"])
+    result = CliRunner().invoke(cli, ["launch", "--agents", "gpu-kernel-coder"])
 
     assert result.exit_code == 7
     assert client.m_list_calls == 1

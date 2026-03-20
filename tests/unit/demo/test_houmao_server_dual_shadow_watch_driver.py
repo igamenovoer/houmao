@@ -227,7 +227,8 @@ def test_inspect_demo_reports_monitor_cadence_separately_from_server_posture(
             return _PayloadDouble(
                 {
                     "terminal_id": terminal_id,
-                    "operator_state": {"completion_state": "candidate_complete"},
+                    "turn": {"phase": "ready"},
+                    "surface": {"ready_posture": "yes"},
                     "stability": {"stable": False, "stable_for_seconds": 0.7},
                 }
             )

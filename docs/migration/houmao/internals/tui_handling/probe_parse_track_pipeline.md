@@ -98,6 +98,25 @@ The parsing sequence is:
 - `baseline_invalidated`
 - `operator_blocked_excerpt`
 
+## Turn-Signal Detection
+
+After capture and parse, `LiveSessionTracker` also runs tool-specific signal detection over the current raw `output_text` plus the optional `parsed_surface`.
+
+This detector layer lives in [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py) and is responsible for:
+
+- foundational surface observables such as `accepting_input`, `editing_input`, and `ready_posture`
+- current active-turn evidence that can come from more than visible spinner rows
+- recognized interruption and narrow known-failure signatures
+- success-candidate and success-blocker hints used by the shared settle logic
+
+The server currently selects detectors by tool identity:
+
+- Claude uses the proven `claude_code_state_tracking` detector wrapper
+- Codex uses a conservative server-local detector
+- everything else falls back to a minimal parsed-surface-based detector
+
+This keeps tool/version string matching outside the shared turn reducer while still letting the public tracked-state contract expose one common `surface / turn / last_turn` model.
+
 ## Recorded Outcomes
 
 The poll loop distinguishes failures and partial successes explicitly instead of compressing them into one status.
@@ -114,7 +133,16 @@ Important cycle outcomes are:
 - parser failure: `parse_status="parse_error"` with structured `parse_error`, continue the worker
 - parse success: `parse_status="parsed"` with a populated `parsed_surface`
 
-All of these outcomes still flow through `LiveSessionTracker.record_cycle(...)`, so the server updates derived operator state, stability timing, and recent transitions even when the cycle ended in a probe or parse error.
+All of these outcomes still flow through `LiveSessionTracker.record_cycle(...)`, so the server updates:
+
+- low-level diagnostics
+- parsed-surface evidence
+- foundational `surface` observables
+- simplified `turn` and `last_turn`
+- generic stability
+- recent transitions
+
+This remains true even when the cycle ended in a probe or parse error.
 
 ## Related Sources
 
@@ -122,4 +150,5 @@ All of these outcomes still flow through `LiveSessionTracker.record_cycle(...)`,
 - [`../../../../../src/houmao/server/tui/transport.py`](../../../../../src/houmao/server/tui/transport.py)
 - [`../../../../../src/houmao/server/tui/process.py`](../../../../../src/houmao/server/tui/process.py)
 - [`../../../../../src/houmao/server/tui/parser.py`](../../../../../src/houmao/server/tui/parser.py)
+- [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py)
 - [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py)

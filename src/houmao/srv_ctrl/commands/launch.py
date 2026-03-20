@@ -15,7 +15,10 @@ from .common import (
     resolve_server_base_url,
     run_passthrough,
 )
-from .runtime_artifacts import materialize_delegated_launch
+from .runtime_artifacts import (
+    materialize_delegated_launch,
+    materialize_headless_launch_request,
+)
 
 
 @click.command(
@@ -24,12 +27,34 @@ from .runtime_artifacts import materialize_delegated_launch
 )
 @click.pass_context
 def launch_command(ctx: click.Context) -> None:
-    """Delegate `cao launch` and register the result into `houmao-server`."""
+    """Launch through delegated CAO or native Houmao headless flow."""
 
     port_value = extract_option_value(ctx.args, "--port")
     port = int(port_value) if port_value is not None else None
     base_url = resolve_server_base_url(port=port)
     client = require_supported_houmao_pair(base_url=base_url)
+
+    if has_flag(ctx.args, "--headless"):
+        provider = extract_option_value(ctx.args, "--provider") or "kiro_cli"
+        agent_profile = extract_option_value(ctx.args, "--agents")
+        if agent_profile is None:
+            raise click.ClickException("Headless launch must include `--agents`.")
+        try:
+            request_model = materialize_headless_launch_request(
+                runtime_root=None,
+                provider=provider,
+                agent_profile=agent_profile,
+                working_directory=Path.cwd().resolve(),
+            )
+        except Exception as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        response = client.launch_headless_agent(request_model)
+        click.echo(
+            "Houmao native headless launch complete: "
+            f"agent={response.tracked_agent_id} manifest={response.manifest_path}"
+        )
+        ctx.exit(0)
 
     before_sessions = {session.id for session in client.list_sessions()}
     result = run_passthrough(command_name="launch", extra_args=ctx.args)
@@ -79,11 +104,6 @@ def launch_command(ctx: click.Context) -> None:
         )
     )
 
-    if has_flag(ctx.args, "--headless"):
-        click.echo(
-            f"Houmao launch registration complete: session={session_name} terminal={terminal_id} "
-            f"manifest={manifest_path}"
-        )
     ctx.exit(0)
 
 

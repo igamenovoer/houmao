@@ -101,6 +101,19 @@ That ReactiveX timing layer SHALL remain authoritative for:
 - **THEN** the pending success recording resets
 - **AND THEN** the tracked state does not record `last_turn.result=success` until the settle signature remains stable for the full configured window
 
+#### Scenario: Later surface growth invalidates an earlier premature success
+- **WHEN** the tracker has already recorded `last_turn.result=success` from an earlier answer-bearing ready surface
+- **AND WHEN** a later observation shows that the latest-turn surface kept growing or otherwise changed to a newer success-candidate signature
+- **THEN** the tracker may retract that premature success and continue waiting for the final stable candidate surface
+- **AND THEN** the tracked state does not treat the earlier settled signature as final if later observations prove it was not the last stable success surface
+
+#### Scenario: Success does not require a tool-specific completion marker on every turn
+- **WHEN** the latest turn returns to a fresh ready prompt with visible answer content from the latest turn
+- **AND WHEN** no current interrupt, known-failure, or tool-specific success blocker remains
+- **AND WHEN** that answer-bearing ready surface remains stable for the full configured settle window
+- **THEN** the tracked state may record `last_turn.result=success`
+- **AND THEN** the capability does not require a `Worked for <duration>`-style marker on every successful turn
+
 #### Scenario: Timed behavior is testable without real sleeps
 - **WHEN** unit tests exercise unknown-duration handling, timed recovery, or success settle timing for this capability
 - **THEN** the implementation can drive those cases with deterministic scheduler control

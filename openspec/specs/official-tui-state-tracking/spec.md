@@ -58,8 +58,86 @@ The parsing and state-tracking path SHALL NOT require `cao-server` terminal-stat
 - **THEN** it does not rely on child `cao-server` output or status polling as the parsing authority
 - **AND THEN** the tracked state remains available even when the CAO parsing path is intentionally bypassed
 
+### Requirement: Live tracked state exposes foundational observables and unified turn semantics for consumer dashboards
+For supported parsed tmux-backed sessions, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus one unified turn lifecycle.
+
+At minimum, that simplified model SHALL include:
+
+- `surface.accepting_input`: whether typed input would currently land in the prompt area
+- `surface.editing_input`: whether prompt-area input is actively being edited now
+- `surface.ready_posture`: whether the visible surface looks ready for immediate submit
+- `turn.phase`: whether the current turn posture is `ready`, `active`, or `unknown`
+- `last_turn.result`: whether the most recent completed turn ended in `success`, `interrupted`, `known_failure`, or `none`
+- `last_turn.source`: whether the most recent completed turn came from `explicit_input`, `surface_inference`, or `none`
+
+The system SHALL treat those fields as the primary consumer-facing state contract instead of requiring dashboards to interpret reducer-internal readiness, completion, or anchor-bookkeeping terms.
+
+The system SHALL NOT distinguish chat turns from slash commands in the public tracked-state contract. Submitted input is modeled as one turn lifecycle because command-looking prompt text is not a reliable semantic discriminator.
+
+The system SHALL NOT assume that every visible TUI change has a known cause. Surface churn such as prompt repaint, cursor movement, tab handling, left/right navigation, local prompt editing, or other unexplained UI changes MAY alter the visible sample without starting, advancing, or completing a tracked turn.
+
+Such unexplained surface churn MAY update diagnostics, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `turn.phase=active` or emit a new `last_turn` unless the stricter turn-evidence rules are satisfied.
+
+Visible progress or spinner signals SHALL be treated as supporting evidence only. When present, they are sufficient evidence for active-turn inference. When absent, they SHALL NOT by themselves negate the possibility of an active turn.
+
+Ambiguous menus, selection boxes, permission prompts, slash-command UI, and similar tool-specific interactive surfaces SHALL NOT create a dedicated public ask-user state or terminal outcome. Unless stronger active or terminal evidence exists, those observations SHALL be folded into `turn.phase=unknown`.
+
+The system SHALL NOT publish a generic catch-all failure outcome. Only specifically recognized failure signatures SHALL produce `last_turn.result=known_failure`. Failure-like but unmatched surfaces SHALL degrade to `turn.phase=unknown` unless stronger evidence supports another state.
+
+#### Scenario: Ready posture surfaces a ready turn
+- **WHEN** the parsed live surface is supported, accepting prompt input, and visibly ready for immediate submit
+- **THEN** the tracked state reports `surface.accepting_input=yes`
+- **AND THEN** the tracked state reports `surface.ready_posture=yes`
+- **AND THEN** the tracked state reports `turn.phase=ready`
+
+#### Scenario: Response-region growth surfaces an active turn without spinner evidence
+- **WHEN** the parsed live surface shows scrolling dialog or tool-response growth that satisfies the tracker's active-turn evidence rules
+- **AND WHEN** no spinner or progress banner is currently visible
+- **THEN** the tracked state reports `turn.phase=active`
+- **AND THEN** the tracked state does not require spinner visibility to recognize that the turn is in flight
+
+#### Scenario: Spinner evidence is sufficient for an active turn
+- **WHEN** the parsed live surface shows a visible spinner, progress signal, or equivalent activity banner during a tracked turn
+- **THEN** the tracked state may report `turn.phase=active` from that evidence
+- **AND THEN** the same contract does not require such a signal to exist on every active turn
+
+#### Scenario: Slash-looking input does not create a separate lifecycle kind
+- **WHEN** the visible prompt text is shaped like `/<command-name>` or another slash-looking token
+- **THEN** the tracked state does not create a separate public command lifecycle from that text shape alone
+- **AND THEN** the tracked state continues to treat submitted input through the unified turn model
+
+#### Scenario: Unexplained prompt-area churn does not create a turn
+- **WHEN** the visible prompt area changes because of tab, cursor navigation, repaint, or other unexplained UI-local churn
+- **AND WHEN** no explicit input route, strict surface-inference threshold, active-turn evidence, interrupt, or known-failure signal is present
+- **THEN** the tracked state does not create a new active turn from that churn alone
+- **AND THEN** any resulting state change is limited to diagnostics, `surface`, generic stability, or recent transitions
+
+#### Scenario: Ambiguous interactive UI degrades to unknown rather than a dedicated operator state
+- **WHEN** the live surface shows a menu, selection box, permission prompt, slash-command picker, or similar interactive UI whose semantics are not stable enough for a dedicated public state
+- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
+- **AND THEN** the tracked state does not emit a dedicated operator-handoff terminal outcome
+- **AND THEN** the caller is not required to interpret tool-specific operator-gate styling as a stable API contract
+
+#### Scenario: Unmatched failure-like UI degrades to unknown rather than known-failure
+- **WHEN** the live surface shows failure-looking text or layout churn that does not match a supported known-failure rule
+- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
+- **AND THEN** the tracked state does not emit `last_turn.result=known_failure` from that observation alone
+
+#### Scenario: Recognized failure signature records known-failure
+- **WHEN** the live surface shows a specifically recognized failure signature for the supported tool
+- **THEN** the tracked state records `last_turn.result=known_failure`
+- **AND THEN** the caller can distinguish that explicit known failure from generic unknown posture
+
+#### Scenario: Settled return to ready records a success outcome
+- **WHEN** an active tracked turn returns to a stable ready posture after observable post-submit activity that satisfies the tracker’s turn-evidence rules
+- **THEN** the tracked state returns `turn.phase=ready` for the next turn
+- **AND THEN** the tracked state records `last_turn.result=success` for the completed turn
+- **AND THEN** the caller does not need to interpret public `candidate_complete` or `completed` states to know the turn ended successfully
+
 ### Requirement: Live tracked state distinguishes transport, process, and parse outcomes explicitly
-The tracked-state contract SHALL expose at minimum:
+The tracked-state contract SHALL expose low-level diagnostics separately from the simplified turn model.
+
+At minimum, the tracked-state contract SHALL expose:
 
 - tracked session identity,
 - any `terminal_id` compatibility alias used by the public route surface,
@@ -68,8 +146,9 @@ The tracked-state contract SHALL expose at minimum:
 - `parse_status`,
 - optional `probe_error` detail,
 - optional `parse_error` detail,
-- nullable parsed TUI surface, and
-- derived operator-facing live state.
+- nullable parsed TUI surface,
+- diagnostic availability or health metadata for the current sample, and
+- the simplified foundational/turn/last-turn state defined by this capability.
 
 For supported parsed tools, parse failure SHALL be represented explicitly rather than fabricated as a successful parsed surface.
 
@@ -82,6 +161,7 @@ For supported parsed tools, parse failure SHALL be represented explicitly rather
 - **WHEN** the tmux session remains live but the expected supported TUI process is down
 - **THEN** the live tracked state still exposes the transport and process fields for that session
 - **AND THEN** the parse stage is represented as skipped or unavailable for that cycle
+- **AND THEN** the simplified turn state does not fabricate a ready or active posture for that cycle
 
 ### Requirement: Live tracked state is authoritative in memory
 The authoritative live tracked state for this capability SHALL live in server memory.
@@ -94,7 +174,7 @@ That in-memory state SHALL include at minimum:
 - TUI process liveliness,
 - parse-stage status plus any probe or parse error detail,
 - latest parsed TUI surface state when available,
-- derived operator-facing live state, and
+- simplified foundational, turn, and last-turn state, and
 - bounded recent transitions or recent-state history.
 
 The system SHALL NOT require per-session watch snapshot files or append-only watch logs as part of the authoritative contract for this capability.
@@ -125,85 +205,42 @@ At minimum, that stability metadata SHALL include whether the current signature 
 - **AND THEN** the live state no longer reports the prior signature's accumulated duration
 
 ### Requirement: Timer-driven live lifecycle semantics use ReactiveX observation streams
-For supported parsed tmux-backed sessions, timer-driven lifecycle semantics in this capability SHALL be implemented over ordered observation streams using ReactiveX operators rather than hand-rolled mutable timestamp reducers and manual wall-clock bookkeeping.
+For supported parsed tmux-backed sessions, all timed behavior in this capability SHALL be implemented over ordered observation streams using ReactiveX operators rather than hand-rolled mutable timestamp reducers, ad hoc polling arithmetic, or manual wall-clock timers.
 
 That ReactiveX timing layer SHALL be authoritative for:
 
-- unknown-to-stalled timing,
-- candidate-complete debounce timing,
-- recovery from stalled when known observations return, and
+- unknown-duration and degraded-visibility timing,
+- success settle timing before the tracker records `last_turn.result=success`,
+- cancellation or reset when later observations invalidate a pending timed outcome, and
 - deterministic scheduler-driven tests for those timing rules.
 
-#### Scenario: Known observation cancels pending unknown timeout
-- **WHEN** the live observation stream enters an unknown-for-stall classification
-- **AND WHEN** the stalled timeout has not yet elapsed
+#### Scenario: Known observation cancels pending unknown timing
+- **WHEN** the live observation stream enters an unknown-or-degraded timed path
+- **AND WHEN** the corresponding timeout has not yet elapsed
 - **AND WHEN** a later known observation arrives before that timeout
-- **THEN** the pending stalled transition is canceled
-- **AND THEN** the tracked state continues from the returned known observation instead of entering `stalled`
+- **THEN** the pending timed transition is canceled
+- **AND THEN** the tracked state continues from the returned known observation instead of entering a degraded timed outcome
 
-#### Scenario: Candidate-complete debounce resets on later observation change
-- **WHEN** turn-anchored completion monitoring has already reached `candidate_complete`
-- **AND WHEN** a later classified observation changes the completion signature before `completion_stability_seconds` elapses
-- **THEN** the pending completion debounce resets
-- **AND THEN** the tracked state does not emit `completed` until the candidate surface remains stable for the full configured window
+#### Scenario: Success settle timing resets on later observation change
+- **WHEN** an active tracked turn has already reached a ready-looking post-activity posture
+- **AND WHEN** a later observation changes the settle signature before the success settle window elapses
+- **THEN** the pending success recording resets
+- **AND THEN** the tracked state does not record `last_turn.result=success` until the settle signature remains stable for the full configured window
+
+#### Scenario: Later surface growth invalidates an earlier premature success
+- **WHEN** the tracker has already recorded `last_turn.result=success` from an earlier answer-bearing ready surface
+- **AND WHEN** a later observation shows that the latest-turn surface kept growing or otherwise changed to a newer success-candidate signature
+- **THEN** the tracker may retract that premature success and continue waiting for the final stable candidate surface
+- **AND THEN** the tracked state does not treat the earlier settled signature as final if later observations prove it was not the last stable success surface
+
+#### Scenario: Success does not require a tool-specific completion marker on every turn
+- **WHEN** the latest turn returns to a fresh ready prompt with visible answer content from the latest turn
+- **AND WHEN** no current interrupt, known-failure, or tool-specific success blocker remains
+- **AND WHEN** that answer-bearing ready surface remains stable for the full configured settle window
+- **THEN** the tracked state may record `last_turn.result=success`
+- **AND THEN** the capability does not require a `Worked for <duration>`-style marker on every successful turn
 
 #### Scenario: Lifecycle timing is testable without real sleeps
-- **WHEN** unit tests exercise unknown-to-stalled timing, stalled recovery, or completion debounce for this capability
+- **WHEN** unit tests exercise unknown-duration handling, timed recovery, or success settle timing for this capability
 - **THEN** the implementation can drive those cases with deterministic scheduler control
 - **AND THEN** the tests do not require real wall-clock sleeps to verify the lifecycle semantics
-
-### Requirement: Live tracked state exposes lifecycle timing and stalled classification for consumer dashboards
-For supported parsed tmux-backed sessions, the system SHALL keep server-owned lifecycle reduction that is rich enough for consumer dashboards to preserve manual-validation semantics without re-implementing parser timing logic outside `houmao-server`.
-
-At minimum, that server-owned lifecycle view SHALL include:
-
-- readiness states that distinguish `ready`, `waiting`, `blocked`, `failed`, `unknown`, and `stalled`
-- completion states that distinguish `inactive`, `in_progress`, `candidate_complete`, `completed`, `blocked`, `failed`, `unknown`, and `stalled`
-- lifecycle timing metadata that includes:
-  - `readiness_unknown_elapsed_seconds`
-  - `completion_unknown_elapsed_seconds`
-  - `completion_candidate_elapsed_seconds`
-  - `unknown_to_stalled_timeout_seconds`
-  - `completion_stability_seconds`
-- lifecycle authority metadata that includes:
-  - whether completion monitoring is `turn_anchored` or `unanchored_background`
-  - whether a current turn anchor is active, absent, or lost/invalidated
-
-The system SHALL treat readiness, blocked, failed, unknown, stalled, and visible-state stability as authoritative continuous-watch outputs.
-
-The same tracked-state payload revision that suppresses unanchored `candidate_complete` and `completed` SHALL expose lifecycle authority metadata explaining whether completion is `turn_anchored` or `unanchored_background`.
-
-The system SHALL emit `candidate_complete` and `completed` only when completion monitoring is armed from a server-owned turn anchor. When no turn anchor exists, continuous background watch SHALL NOT infer authoritative completion from ready-surface churn alone.
-
-Completion evidence and completion debounce timing SHALL be scoped to one anchored cycle at a time. When turn-anchored monitoring reaches a terminal outcome for that cycle, the system SHALL expire the anchor for completion authority purposes and return later observations to `unanchored_background` semantics until a new server-owned anchor is armed.
-
-The system SHALL treat those lifecycle states, timings, and authority signals as part of the authoritative server-owned tracked state rather than as a demo-local interpretation layer.
-
-#### Scenario: Continuous unknown readiness enters stalled in server-owned state
-- **WHEN** the tracked readiness surface remains unknown for stall purposes continuously for `unknown_to_stalled_timeout_seconds`
-- **THEN** the server-owned tracked state reports readiness as `stalled`
-- **AND THEN** the corresponding tracked-state payload exposes the unknown elapsed timing that led to that transition
-
-#### Scenario: Unanchored background watch does not infer completion from ready-surface churn
-- **WHEN** a tracked session has no active server-owned turn anchor
-- **AND WHEN** the parsed surface remains or returns to submit-ready after background prompt-surface churn
-- **THEN** the server-owned tracked state does not report `candidate_complete` or `completed` from that churn alone
-- **AND THEN** the tracked-state payload exposes that completion is currently `unanchored_background`
-
-#### Scenario: Candidate-complete timing is exposed before completion for turn-anchored monitoring
-- **WHEN** a tracked session has armed completion monitoring from an active server-owned turn anchor
-- **AND WHEN** the parsed surface returns to submit-ready after post-submit activity
-- **AND WHEN** the parsed surface remains a completion candidate but has not yet satisfied `completion_stability_seconds`
-- **THEN** the server-owned tracked state reports completion as `candidate_complete`
-- **AND THEN** the tracked-state payload exposes the elapsed candidate-complete timing for that anchored cycle
-
-#### Scenario: Terminal anchored outcome expires completion authority for the next cycle
-- **WHEN** a tracked session has armed completion monitoring from an active server-owned turn anchor
-- **AND WHEN** that anchored cycle reaches a terminal outcome such as `completed`, `blocked`, `failed`, or `stalled`
-- **THEN** the server-owned tracked state expires the current turn anchor for completion authority purposes
-- **AND THEN** later tracked-state payloads return to `unanchored_background` semantics until a new server-owned anchor is armed
-
-#### Scenario: State queries can consume lifecycle timing and authority without local recomputation
-- **WHEN** a caller queries the authoritative tracked state for a live supported session
-- **THEN** the response includes the current lifecycle states, lifecycle timing metadata, and lifecycle authority metadata needed to interpret unknown, candidate-complete, completed, and stalled transitions
-- **AND THEN** the caller does not need to replay terminal text or re-run parser timing logic locally to obtain those values

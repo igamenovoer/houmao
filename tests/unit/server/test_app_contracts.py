@@ -11,12 +11,23 @@ from houmao.server.app import create_app
 from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
+    HoumaoHeadlessLaunchRequest,
+    HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnEventsResponse,
+    HoumaoHeadlessTurnRequest,
+    HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
-    HoumaoLifecycleAuthorityMetadata,
-    HoumaoLifecycleTimingMetadata,
-    HoumaoOperatorState,
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentHistoryEntry,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTurnView,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
     HoumaoRecentTransition,
@@ -25,7 +36,11 @@ from houmao.server.models import (
     HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSurface,
     HoumaoTrackedSessionIdentity,
+    HoumaoTrackedTurn,
 )
 from houmao.server.service import ProxyResponse
 
@@ -94,6 +109,14 @@ class _AppServiceDouble:
         self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_history_calls: list[tuple[str, int]] = []
+        self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
+        self.m_managed_agent_history_calls: list[tuple[str, int]] = []
+        self.m_stop_calls: list[str] = []
+        self.m_turn_requests: list[tuple[str, HoumaoHeadlessTurnRequest]] = []
+        self.m_turn_status_calls: list[tuple[str, str]] = []
+        self.m_turn_events_calls: list[tuple[str, str]] = []
+        self.m_turn_artifact_calls: list[tuple[str, str, str]] = []
+        self.m_interrupt_calls: list[str] = []
 
     def startup(self) -> None:
         return None
@@ -189,6 +212,14 @@ class _AppServiceDouble:
                 tmux_session_name="AGENTSYS-gpu",
                 terminal_aliases=[terminal_id],
             ),
+            diagnostics=HoumaoTrackedDiagnostics(
+                availability="available",
+                transport_state="tmux_up",
+                process_state="tui_up",
+                parse_status="parsed",
+                probe_error=None,
+                parse_error=None,
+            ),
             transport_state="tmux_up",
             process_state="tui_up",
             parse_status="parsed",
@@ -219,27 +250,13 @@ class _AppServiceDouble:
                 baseline_invalidated=False,
                 operator_blocked_excerpt=None,
             ),
-            operator_state=HoumaoOperatorState(
-                status="ready",
-                readiness_state="ready",
-                completion_state="inactive",
-                detail="Supported TUI is ready for input.",
-                projection_changed=False,
-                updated_at_utc="2026-03-19T10:00:00+00:00",
+            surface=HoumaoTrackedSurface(
+                accepting_input="yes",
+                editing_input="no",
+                ready_posture="yes",
             ),
-            lifecycle_timing=HoumaoLifecycleTimingMetadata(
-                readiness_unknown_elapsed_seconds=None,
-                completion_unknown_elapsed_seconds=None,
-                completion_candidate_elapsed_seconds=None,
-                unknown_to_stalled_timeout_seconds=30.0,
-                completion_stability_seconds=1.0,
-            ),
-            lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
-                completion_authority="unanchored_background",
-                turn_anchor_state="absent",
-                completion_monitoring_armed=False,
-                detail="No active server-owned turn anchor is armed.",
-            ),
+            turn=HoumaoTrackedTurn(phase="ready"),
+            last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
             stability=HoumaoStabilityMetadata(
                 signature="deadbeef",
                 stable=True,
@@ -258,13 +275,162 @@ class _AppServiceDouble:
                 HoumaoRecentTransition(
                     recorded_at_utc="2026-03-19T10:00:00+00:00",
                     summary=f"limit={limit}",
-                    changed_fields=["operator_status"],
+                    changed_fields=["turn_phase"],
+                    diagnostics_availability="available",
+                    turn_phase="ready",
+                    last_turn_result="none",
+                    last_turn_source="none",
                     transport_state="tmux_up",
                     process_state="tui_up",
                     parse_status="parsed",
                     operator_status="ready",
                 ),
             ],
+        )
+
+    def list_managed_agents(self) -> HoumaoManagedAgentListResponse:
+        return HoumaoManagedAgentListResponse(agents=[self.managed_agent("claude-headless-1")])
+
+    def managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
+        assert agent_ref == "claude-headless-1"
+        return HoumaoManagedAgentIdentity(
+            tracked_agent_id="claude-headless-1",
+            transport="headless",
+            tool="claude",
+            runtime_session_id="claude-headless-1",
+            tmux_session_name="AGENTSYS-gpu",
+            manifest_path="/tmp/manifest.json",
+            session_root="/tmp/session-root",
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+
+    def managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        identity = self.managed_agent(agent_ref)
+        return HoumaoManagedAgentStateResponse(
+            tracked_agent_id=identity.tracked_agent_id,
+            identity=identity,
+            availability="available",
+            turn=HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None),
+            last_turn=HoumaoManagedAgentLastTurnView(
+                result="none",
+                turn_id=None,
+                turn_index=None,
+                updated_at_utc=None,
+            ),
+            diagnostics=[],
+        )
+
+    def managed_agent_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int,
+    ) -> HoumaoManagedAgentHistoryResponse:
+        self.m_managed_agent_history_calls.append((agent_ref, limit))
+        return HoumaoManagedAgentHistoryResponse(
+            tracked_agent_id="claude-headless-1",
+            entries=[
+                HoumaoManagedAgentHistoryEntry(
+                    recorded_at_utc="2026-03-20T09:00:00+00:00",
+                    summary=f"managed-limit={limit}",
+                    availability="available",
+                    turn_phase="ready",
+                    last_turn_result="none",
+                    turn_id=None,
+                )
+            ],
+        )
+
+    def launch_headless_agent(
+        self,
+        request_model: HoumaoHeadlessLaunchRequest,
+    ) -> HoumaoHeadlessLaunchResponse:
+        self.m_headless_launch_requests.append(request_model)
+        return HoumaoHeadlessLaunchResponse(
+            success=True,
+            tracked_agent_id="claude-headless-1",
+            identity=self.managed_agent("claude-headless-1"),
+            manifest_path="/tmp/manifest.json",
+            session_root="/tmp/session-root",
+            detail="launched",
+        )
+
+    def stop_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        self.m_stop_calls.append(agent_ref)
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id="claude-headless-1",
+            detail="stopped",
+            turn_id=None,
+        )
+
+    def submit_headless_turn(
+        self,
+        agent_ref: str,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        self.m_turn_requests.append((agent_ref, request_model))
+        return HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id="claude-headless-1",
+            turn_id="turn-123",
+            turn_index=1,
+            status="active",
+            detail="accepted",
+        )
+
+    def headless_turn_status(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnStatusResponse:
+        self.m_turn_status_calls.append((agent_ref, turn_id))
+        return HoumaoHeadlessTurnStatusResponse(
+            tracked_agent_id="claude-headless-1",
+            turn_id=turn_id,
+            turn_index=1,
+            status="completed",
+            started_at_utc="2026-03-20T09:00:00+00:00",
+            completed_at_utc="2026-03-20T09:01:00+00:00",
+            returncode=0,
+            completion_source="tmux_wait_for",
+            stdout_path="/tmp/stdout.jsonl",
+            stderr_path="/tmp/stderr.log",
+            status_path="/tmp/exitcode",
+            history_summary="done",
+            error=None,
+        )
+
+    def headless_turn_events(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnEventsResponse:
+        self.m_turn_events_calls.append((agent_ref, turn_id))
+        return HoumaoHeadlessTurnEventsResponse(
+            tracked_agent_id="claude-headless-1",
+            turn_id=turn_id,
+            entries=[],
+        )
+
+    def headless_turn_artifact_text(
+        self,
+        agent_ref: str,
+        turn_id: str,
+        *,
+        artifact_name: str,
+    ) -> str:
+        self.m_turn_artifact_calls.append((agent_ref, turn_id, artifact_name))
+        return f"{artifact_name}:{turn_id}"
+
+    def interrupt_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        self.m_interrupt_calls.append(agent_ref)
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id="claude-headless-1",
+            detail="interrupted",
+            turn_id="turn-123",
         )
 
 
@@ -281,9 +447,9 @@ def _compat_route_inventory() -> set[tuple[str, str]]:
     return routes
 
 
-def _route(path: str, method: str) -> APIRoute:
-    app = create_app(service=_AppServiceDouble())
-    for route in app.routes:
+def _route(path: str, method: str, *, app=None) -> APIRoute:
+    resolved_app = app or create_app(service=_AppServiceDouble())
+    for route in resolved_app.routes:
         if not isinstance(route, APIRoute):
             continue
         if route.path == path and method.upper() in route.methods:
@@ -597,3 +763,63 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
 
     assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
+
+
+def test_managed_agent_routes_delegate_to_service_methods() -> None:
+    service = _AppServiceDouble()
+    app = create_app(service=service)
+    list_route = _route("/houmao/agents", "GET", app=app)
+    get_route = _route("/houmao/agents/{agent_ref}", "GET", app=app)
+    state_route = _route("/houmao/agents/{agent_ref}/state", "GET", app=app)
+    history_route = _route("/houmao/agents/{agent_ref}/history", "GET", app=app)
+    launch_route = _route("/houmao/agents/headless/launches", "POST", app=app)
+    stop_route = _route("/houmao/agents/{agent_ref}/stop", "POST", app=app)
+    turns_route = _route("/houmao/agents/{agent_ref}/turns", "POST", app=app)
+    turn_status_route = _route("/houmao/agents/{agent_ref}/turns/{turn_id}", "GET", app=app)
+    turn_events_route = _route(
+        "/houmao/agents/{agent_ref}/turns/{turn_id}/events",
+        "GET",
+        app=app,
+    )
+    stdout_route = _route(
+        "/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout",
+        "GET",
+        app=app,
+    )
+    stderr_route = _route(
+        "/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr",
+        "GET",
+        app=app,
+    )
+    interrupt_route = _route("/houmao/agents/{agent_ref}/interrupt", "POST", app=app)
+
+    assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
+    assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
+    assert state_route.endpoint(agent_ref="claude-headless-1").availability == "available"
+    assert history_route.endpoint(agent_ref="claude-headless-1", limit=5).entries[0].summary == "managed-limit=5"
+
+    launch_response = launch_route.endpoint(
+        request_model=HoumaoHeadlessLaunchRequest(
+            tool="claude",
+            working_directory="/tmp/work",
+            agent_def_dir="/tmp/agents",
+            brain_manifest_path="/tmp/brain.yaml",
+            role_name="gpu-kernel-coder",
+            agent_name="AGENTSYS-gpu",
+            agent_id=None,
+        )
+    )
+    assert launch_response.tracked_agent_id == "claude-headless-1"
+    assert service.m_headless_launch_requests[0].tool == "claude"
+
+    assert stop_route.endpoint(agent_ref="claude-headless-1").detail == "stopped"
+    turn_response = turns_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoHeadlessTurnRequest(prompt="hello"),
+    )
+    assert turn_response.turn_id == "turn-123"
+    assert turn_status_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").status == "completed"
+    assert turn_events_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").entries == []
+    assert stdout_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body == b"stdout:turn-123"
+    assert stderr_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body == b"stderr:turn-123"
+    assert interrupt_route.endpoint(agent_ref="claude-headless-1").detail == "interrupted"

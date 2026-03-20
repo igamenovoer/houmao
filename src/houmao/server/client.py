@@ -10,13 +10,24 @@ from pydantic import BaseModel, ValidationError
 
 from houmao.cao.rest_client import CaoApiError, CaoRestClient, _format_validation_error
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
-from houmao.cao.models import CaoSessionDetail
+from houmao.cao.models import CaoSessionDetail, CaoSuccessResponse
 
 from .models import (
     HoumaoCurrentInstance,
+    HoumaoHeadlessLaunchRequest,
+    HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnEventsResponse,
+    HoumaoHeadlessTurnRequest,
+    HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentStateResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
@@ -40,21 +51,11 @@ class HoumaoServerClient(CaoRestClient):
 
         return self.get_session_detail(session_name)
 
-    def delete_session(self, session_name: str) -> dict[str, object] | None:
+    def delete_session(self, session_name: str) -> CaoSuccessResponse:
         """Call `DELETE /sessions/{session_name}`."""
 
         escaped = parse.quote(session_name, safe="")
-        payload, _status_code, _url = self._request_json("DELETE", f"/sessions/{escaped}")
-        if payload is None:
-            return None
-        if not isinstance(payload, dict):
-            raise CaoApiError(
-                method="DELETE",
-                url=f"{self.base_url}/sessions/{escaped}",
-                detail="Expected JSON object response for session deletion",
-                payload=payload,
-            )
-        return payload
+        return self._request_model("DELETE", f"/sessions/{escaped}", CaoSuccessResponse)
 
     def get_terminal_working_directory(self, terminal_id: str) -> WorkingDirectoryResponse:
         """Call `GET /terminals/{terminal_id}/working-directory`."""
@@ -138,12 +139,152 @@ class HoumaoServerClient(CaoRestClient):
             params={key: str(value) for key, value in query_params.items()},
         )
 
+    def list_managed_agents(self) -> HoumaoManagedAgentListResponse:
+        """Call `GET /houmao/agents`."""
+
+        return self._request_model("GET", "/houmao/agents", HoumaoManagedAgentListResponse)
+
+    def get_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
+        """Call `GET /houmao/agents/{agent_ref}`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_model("GET", f"/houmao/agents/{escaped}", HoumaoManagedAgentIdentity)
+
+    def get_managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        """Call `GET /houmao/agents/{agent_ref}/state`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_model(
+            "GET",
+            f"/houmao/agents/{escaped}/state",
+            HoumaoManagedAgentStateResponse,
+        )
+
+    def get_managed_agent_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int | None = None,
+    ) -> HoumaoManagedAgentHistoryResponse:
+        """Call `GET /houmao/agents/{agent_ref}/history`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        params: dict[str, str] | None = None
+        if limit is not None:
+            params = {"limit": str(limit)}
+        return self._request_model(
+            "GET",
+            f"/houmao/agents/{escaped}/history",
+            HoumaoManagedAgentHistoryResponse,
+            params=params,
+        )
+
+    def launch_headless_agent(
+        self,
+        request_model: HoumaoHeadlessLaunchRequest,
+    ) -> HoumaoHeadlessLaunchResponse:
+        """Call `POST /houmao/agents/headless/launches`."""
+
+        return self._request_model(
+            "POST",
+            "/houmao/agents/headless/launches",
+            HoumaoHeadlessLaunchResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def stop_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        """Call `POST /houmao/agents/{agent_ref}/stop`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_model(
+            "POST",
+            f"/houmao/agents/{escaped}/stop",
+            HoumaoManagedAgentActionResponse,
+        )
+
+    def submit_headless_turn(
+        self,
+        agent_ref: str,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        """Call `POST /houmao/agents/{agent_ref}/turns`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_model(
+            "POST",
+            f"/houmao/agents/{escaped}/turns",
+            HoumaoHeadlessTurnAcceptedResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_headless_turn_status(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnStatusResponse:
+        """Call `GET /houmao/agents/{agent_ref}/turns/{turn_id}`."""
+
+        escaped_agent = parse.quote(agent_ref, safe="")
+        escaped_turn = parse.quote(turn_id, safe="")
+        return self._request_model(
+            "GET",
+            f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}",
+            HoumaoHeadlessTurnStatusResponse,
+        )
+
+    def get_headless_turn_events(
+        self,
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnEventsResponse:
+        """Call `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`."""
+
+        escaped_agent = parse.quote(agent_ref, safe="")
+        escaped_turn = parse.quote(turn_id, safe="")
+        return self._request_model(
+            "GET",
+            f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}/events",
+            HoumaoHeadlessTurnEventsResponse,
+        )
+
+    def get_headless_turn_artifact_text(
+        self,
+        agent_ref: str,
+        turn_id: str,
+        *,
+        artifact_name: str,
+    ) -> str:
+        """Call one raw headless artifact route and return the text body."""
+
+        escaped_agent = parse.quote(agent_ref, safe="")
+        escaped_turn = parse.quote(turn_id, safe="")
+        payload, _status_code, _url = self._request_json(
+            "GET",
+            f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}/artifacts/{artifact_name}",
+            raw_text_ok=True,
+        )
+        if isinstance(payload, str):
+            return payload
+        return json.dumps(payload)
+
+    def interrupt_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        """Call `POST /houmao/agents/{agent_ref}/interrupt`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_model(
+            "POST",
+            f"/houmao/agents/{escaped}/interrupt",
+            HoumaoManagedAgentActionResponse,
+        )
+
     def _request_json(
         self,
         method: str,
         path: str,
         *,
         params: dict[str, str] | None = None,
+        json_body: object | None = None,
+        raw_text_ok: bool = False,
     ) -> tuple[object, int, str]:
         query = parse.urlencode(params or {})
         url = f"{self.base_url}{path}"
@@ -151,14 +292,25 @@ class HoumaoServerClient(CaoRestClient):
             url = f"{url}?{query}"
 
         data: bytes | None = None
+        headers = {"Accept": "application/json"}
+        if json_body is not None:
+            data = json.dumps(json_body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         if method.upper() in {"POST", "PUT", "PATCH"}:
-            data = b""
+            data = b"" if data is None else data
 
-        req = request.Request(url, data=data, method=method, headers={"Accept": "application/json"})
+        req = request.Request(url, data=data, method=method, headers=headers)
         try:
             with scoped_loopback_no_proxy_for_cao_base_url(self.base_url):
                 with request.urlopen(req, timeout=self.timeout_seconds) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
+                    body_text = response.read().decode("utf-8")
+                    try:
+                        payload = json.loads(body_text)
+                    except json.JSONDecodeError:
+                        if raw_text_ok:
+                            payload = body_text
+                        else:
+                            raise
                     return payload, int(response.status), url
         except error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -195,8 +347,14 @@ class HoumaoServerClient(CaoRestClient):
         model: type[_ModelT],
         *,
         params: dict[str, str] | None = None,
+        json_body: object | None = None,
     ) -> _ModelT:
-        payload, status_code, url = self._request_json(method, path, params=params)
+        payload, status_code, url = self._request_json(
+            method,
+            path,
+            params=params,
+            json_body=json_body,
+        )
         try:
             return model.model_validate(payload)
         except ValidationError as exc:

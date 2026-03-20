@@ -179,18 +179,23 @@ When the successful-return signal matches, the tracked states are:
 
 All conditions below MUST be true in the same current surface:
 
-1. The latest Claude answer content is present in the transcript
-2. A completion marker of the form `Worked for <duration>` is visible
-3. A fresh `❯` input prompt is visible
-4. No current known error signal is present for the latest turn
-5. The current visible TUI has remained stable for a short settle window such as `1s`
-6. That stability check applies to the whole relevant visible state, not only the answer area; it also includes volatile activity markers such as the spinning/thinking symbol line and other current-state indicators
+1. The latest Claude answer content or other success-candidate output from the latest turn is present in the transcript
+2. A fresh `❯` input prompt is visible
+3. Either:
+   - a completion marker of the form `Worked for <duration>` is visible, or
+   - the answer-bearing ready surface otherwise satisfies the detector's current Claude success-candidate rule for this version
+4. No current interrupt signal, current interrupt affordance, or current known error signal is present for the latest turn
+5. No current ready-footer advisory from `claude-code-ready-footer-advisory.md` is present
+6. The current visible TUI has remained stable for a short settle window such as `1s`
+7. That stability check applies to the whole relevant visible state, not only the answer area; it also includes volatile activity markers such as the spinning/thinking symbol line, footer state, and other current-state indicators
 
 Interpretation:
 
 - `turn_success` is not emitted the instant answer text first appears
 - `turn_success` is emitted only after the answer-bearing surface has settled, no current known error pattern is present for the latest turn, and the current visible TUI stops changing for the settle window
 - the settle window must be based on the current visible surface, not just the answer body, so a still-changing spinner/thinking line keeps the turn out of success
+- short-answer completions such as `● READY` can still settle to success even when Claude does not render `Worked for <duration>`
+- if an earlier answer-bearing ready surface appears settled but later samples show newer answer growth or another newer candidate signature, the earlier success is invalidated and the settle window restarts from the final candidate surface
 - stale error or interruption lines from previous chats that remain in scrollback do not block success for the latest turn by themselves
 
 Observed example from the recording:
@@ -219,6 +224,8 @@ Representative surface:
 - Do not classify `turn_ready` with `last_turn=success` if a current known error signal for the latest turn is present
 - Do not block `turn_ready` with `last_turn=success` merely because an older error from a previous chat remains visible in scrollback
 - Do not classify `turn_ready` with `last_turn=success` until the whole relevant visible TUI has stayed stable for the settle window
+- Do not require `Worked for <duration>` on every successful Claude turn
+- Do not keep an already-emitted success if later observations show the latest answer surface was still evolving
 - Do not classify current interruption or failure from older interrupted/error transcript lines that remain visible in scrollback after a later turn has begun
 - Do not let a slash-menu overlay override stronger current active-turn evidence that is still visible on screen
 - Do not require any one single spinner glyph shape; the observed activity line varied across glyphs such as `✢`, `✻`, `✽`, and `*`

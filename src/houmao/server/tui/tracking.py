@@ -25,7 +25,9 @@ from houmao.lifecycle import (
 )
 from houmao.server.models import (
     CompletionState,
+    HoumaoTrackedDiagnostics,
     HoumaoErrorDetail,
+    HoumaoTrackedLastTurn,
     HoumaoLifecycleAuthorityMetadata,
     HoumaoLifecycleTimingMetadata,
     HoumaoOperatorState,
@@ -33,16 +35,26 @@ from houmao.server.models import (
     HoumaoProbeSnapshot,
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
+    HoumaoTrackedSurface,
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
+    HoumaoTrackedTurn,
     HoumaoTrackedSessionIdentity,
+    ManagedAgentTurnPhase,
     OperatorStatus,
     ParseStatus,
     ProcessState,
     ReadinessState,
+    TrackedDiagnosticsAvailability,
+    TrackedLastTurnResult,
+    TrackedLastTurnSource,
     TransportState,
 )
 from houmao.server.tracking_debug import TrackingDebugSink
+from houmao.server.tui.turn_signals import (
+    DetectedTurnSignals,
+    select_tracked_turn_signal_detector,
+)
 
 _SURFACE_INFERENCE_MIN_GROWTH_CHARS = 48
 _SURFACE_INFERENCE_MIN_ADDED_LINES = 2
@@ -117,13 +129,17 @@ class LiveSessionTracker:
         self.m_cycle_seq = 0
         self.m_next_anchor_id = 1
         self.m_active_turn_anchor: TurnAnchor | None = None
+        self.m_active_turn_previous_last_turn: HoumaoTrackedLastTurn
         self.m_lost_turn_anchor: _LostTurnAnchor | None = None
         self.m_anchor_should_expire_after_publish = False
+        self.m_last_published_turn_anchor_id: int | None = None
+        self.m_settled_success_signature: str | None = None
         self.m_last_state = _build_initial_state(
             identity=identity,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
         )
+        self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
 
     @property
     def baseline_pos(self) -> int | None:
@@ -218,10 +234,13 @@ class LiveSessionTracker:
             message_excerpt=message_excerpt,
         )
         self.m_active_turn_anchor = anchor
+        self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
         self.m_next_anchor_id += 1
         self.m_lost_turn_anchor = None
+        self.m_last_published_turn_anchor_id = None
         self.m_last_completion_snapshot = None
         self.m_anchor_should_expire_after_publish = False
+        self.m_settled_success_signature = None
         self.m_completion_subscription = build_anchored_completion_pipeline(
             self.m_observation_subject,
             baseline_projection_text=baseline_projection_text,
@@ -327,6 +346,7 @@ class LiveSessionTracker:
             lifecycle_authority = self._current_lifecycle_authority()
             updated = self.m_last_state.model_copy(
                 update={
+                    "turn": HoumaoTrackedTurn(phase="active"),
                     "operator_state": operator_state,
                     "lifecycle_timing": self.m_last_state.lifecycle_timing.model_copy(
                         update={"completion_candidate_elapsed_seconds": None}
@@ -363,6 +383,7 @@ class LiveSessionTracker:
         probe_error: HoumaoErrorDetail | None,
         parse_error: HoumaoErrorDetail | None,
         parsed_surface: HoumaoParsedSurface | None,
+        output_text: str | None = None,
     ) -> HoumaoTerminalStateResponse:
         """Record one tracking cycle and return the updated public state."""
 
@@ -383,6 +404,7 @@ class LiveSessionTracker:
                     "parse_status": parse_status,
                     "probe_error": _error_message(probe_error),
                     "parse_error": _error_message(parse_error),
+                    "output_text_length": len(output_text) if output_text is not None else 0,
                     "parsed_surface": _parsed_surface_debug_payload(parsed_surface),
                     "previous_operator_status": self.m_last_state.operator_state.status,
                     "previous_completion_state": self.m_last_state.operator_state.completion_state,
@@ -493,15 +515,67 @@ class LiveSessionTracker:
                     "detail": operator_state.detail,
                 },
             )
-            stability = self._build_stability(
+            detected_turn_signals = select_tracked_turn_signal_detector(tool=identity.tool).detect(
+                output_text=output_text,
+                parsed_surface=parsed_surface,
+            )
+            diagnostics = _build_tracked_diagnostics(
                 transport_state=transport_state,
                 process_state=process_state,
                 parse_status=parse_status,
                 probe_error=probe_error,
                 parse_error=parse_error,
                 parsed_surface=parsed_surface,
-                operator_state=operator_state,
-                lifecycle_authority=lifecycle_authority,
+            )
+            surface = HoumaoTrackedSurface(
+                accepting_input=detected_turn_signals.accepting_input,
+                editing_input=detected_turn_signals.editing_input,
+                ready_posture=detected_turn_signals.ready_posture,
+            )
+            last_turn = self._build_last_turn(
+                observed_at_utc=observed_at_utc,
+                diagnostics=diagnostics,
+                surface=surface,
+                reduction=reduction,
+                detected_turn_signals=detected_turn_signals,
+            )
+            turn = HoumaoTrackedTurn(
+                phase=_build_turn_phase(
+                    diagnostics=diagnostics,
+                    surface=surface,
+                    active_turn_anchor=self.m_active_turn_anchor,
+                    reduction=reduction,
+                    detected_turn_signals=detected_turn_signals,
+                    last_turn=last_turn,
+                )
+            )
+            self._emit_debug(
+                stream="tracker-public-state",
+                event_type="public_state_built",
+                monotonic_ts=monotonic_ts,
+                cycle_seq=cycle_seq,
+                anchor_id=(
+                    self.m_active_turn_anchor.anchor_id
+                    if self.m_active_turn_anchor is not None
+                    else None
+                ),
+                data={
+                    "diagnostics_availability": diagnostics.availability,
+                    "turn_phase": turn.phase,
+                    "last_turn_result": last_turn.result,
+                    "last_turn_source": last_turn.source,
+                    "accepting_input": surface.accepting_input,
+                    "editing_input": surface.editing_input,
+                    "ready_posture": surface.ready_posture,
+                    "signal_notes": list(detected_turn_signals.notes),
+                },
+            )
+            stability = self._build_stability(
+                diagnostics=diagnostics,
+                parsed_surface=parsed_surface,
+                surface=surface,
+                turn=turn,
+                last_turn=last_turn,
                 monotonic_ts=monotonic_ts,
                 observed_at_utc=observed_at_utc,
                 cycle_seq=cycle_seq,
@@ -509,6 +583,7 @@ class LiveSessionTracker:
             response = HoumaoTerminalStateResponse(
                 terminal_id=_terminal_alias(identity),
                 tracked_session=identity,
+                diagnostics=diagnostics,
                 transport_state=transport_state,
                 process_state=process_state,
                 parse_status=parse_status,
@@ -516,6 +591,9 @@ class LiveSessionTracker:
                 probe_error=probe_error,
                 parse_error=parse_error,
                 parsed_surface=parsed_surface,
+                surface=surface,
+                turn=turn,
+                last_turn=last_turn,
                 operator_state=operator_state,
                 lifecycle_timing=HoumaoLifecycleTimingMetadata(
                     readiness_unknown_elapsed_seconds=reduction.readiness_unknown_elapsed_seconds,
@@ -570,8 +648,6 @@ class LiveSessionTracker:
                     "saw_projection_change": completion_snapshot.saw_projection_change,
                 },
             )
-            if completion_state in {"completed", "blocked", "failed", "stalled"}:
-                self.m_anchor_should_expire_after_publish = True
             return SurfaceReduction(
                 readiness_state=readiness_snapshot.status,
                 completion_state=completion_state,
@@ -672,14 +748,11 @@ class LiveSessionTracker:
     def _build_stability(
         self,
         *,
-        transport_state: TransportState,
-        process_state: ProcessState,
-        parse_status: ParseStatus,
-        probe_error: HoumaoErrorDetail | None,
-        parse_error: HoumaoErrorDetail | None,
+        diagnostics: HoumaoTrackedDiagnostics,
         parsed_surface: HoumaoParsedSurface | None,
-        operator_state: HoumaoOperatorState,
-        lifecycle_authority: HoumaoLifecycleAuthorityMetadata,
+        surface: HoumaoTrackedSurface,
+        turn: HoumaoTrackedTurn,
+        last_turn: HoumaoTrackedLastTurn,
         monotonic_ts: float,
         observed_at_utc: str,
         cycle_seq: int,
@@ -688,14 +761,11 @@ class LiveSessionTracker:
 
         signature_payload = json.dumps(
             _visible_signature_payload(
-                transport_state=transport_state,
-                process_state=process_state,
-                parse_status=parse_status,
-                probe_error=probe_error,
-                parse_error=parse_error,
+                diagnostics=diagnostics,
                 parsed_surface=parsed_surface,
-                operator_state=operator_state,
-                lifecycle_authority=lifecycle_authority,
+                surface=surface,
+                turn=turn,
+                last_turn=last_turn,
             ),
             sort_keys=True,
             separators=(",", ":"),
@@ -801,8 +871,11 @@ class LiveSessionTracker:
         )
         self._dispose_completion_subscription()
         self.m_active_turn_anchor = None
+        self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
+        self.m_last_published_turn_anchor_id = None
         self.m_last_completion_snapshot = None
         self.m_anchor_should_expire_after_publish = False
+        self.m_settled_success_signature = None
         self.m_lost_turn_anchor = _LostTurnAnchor(lost_at_utc=lost_at_utc, reason=reason)
         self._emit_debug(
             stream="tracker-anchor",
@@ -826,8 +899,11 @@ class LiveSessionTracker:
         )
         self._dispose_completion_subscription()
         self.m_active_turn_anchor = None
+        self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
+        self.m_last_published_turn_anchor_id = None
         self.m_last_completion_snapshot = None
         self.m_anchor_should_expire_after_publish = False
+        self.m_settled_success_signature = None
         self._emit_debug(
             stream="tracker-anchor",
             event_type="turn_anchor_expired_after_publish",
@@ -845,6 +921,80 @@ class LiveSessionTracker:
             self.m_completion_subscription = None
         self.m_completion_snapshot_queue.clear()
 
+    def _build_last_turn(
+        self,
+        *,
+        observed_at_utc: str,
+        diagnostics: HoumaoTrackedDiagnostics,
+        surface: HoumaoTrackedSurface,
+        reduction: SurfaceReduction,
+        detected_turn_signals: DetectedTurnSignals,
+    ) -> HoumaoTrackedLastTurn:
+        """Build the sticky public last-turn view for the current cycle."""
+
+        active_anchor = self.m_active_turn_anchor
+        active_anchor_id = active_anchor.anchor_id if active_anchor is not None else None
+        previous_last_turn = self.m_last_state.last_turn
+
+        should_retract_success = bool(
+            active_anchor is not None
+            and active_anchor_id == self.m_last_published_turn_anchor_id
+            and previous_last_turn.result == "success"
+            and self.m_settled_success_signature is not None
+            and (
+                reduction.completion_state != "completed"
+                or detected_turn_signals.success_blocked
+                or detected_turn_signals.surface_signature != self.m_settled_success_signature
+            )
+        )
+        if should_retract_success:
+            self.m_last_published_turn_anchor_id = None
+            self.m_settled_success_signature = None
+            previous_last_turn = self.m_active_turn_previous_last_turn
+
+        if active_anchor is None:
+            return previous_last_turn
+
+        if diagnostics.availability in {"error", "tui_down", "unavailable"}:
+            return previous_last_turn
+
+        terminal_result: TrackedLastTurnResult | None = None
+        if detected_turn_signals.interrupted:
+            terminal_result = "interrupted"
+            self.m_anchor_should_expire_after_publish = True
+            self.m_settled_success_signature = None
+        elif detected_turn_signals.known_failure:
+            terminal_result = "known_failure"
+            self.m_anchor_should_expire_after_publish = True
+            self.m_settled_success_signature = None
+        elif (
+            reduction.completion_state == "completed"
+            and surface.ready_posture == "yes"
+            and not detected_turn_signals.success_blocked
+        ):
+            terminal_result = "success"
+            if (
+                active_anchor_id == self.m_last_published_turn_anchor_id
+                and previous_last_turn.result == "success"
+                and detected_turn_signals.surface_signature == self.m_settled_success_signature
+            ):
+                self.m_anchor_should_expire_after_publish = True
+            else:
+                self.m_settled_success_signature = detected_turn_signals.surface_signature
+
+        if terminal_result is None:
+            return previous_last_turn
+
+        if active_anchor_id == self.m_last_published_turn_anchor_id and previous_last_turn.result == terminal_result:
+            return previous_last_turn
+
+        self.m_last_published_turn_anchor_id = active_anchor_id
+        return HoumaoTrackedLastTurn(
+            result=terminal_result,
+            source=_tracked_last_turn_source(active_anchor),
+            updated_at_utc=observed_at_utc,
+        )
+
 
 def _build_initial_state(
     *,
@@ -858,6 +1008,14 @@ def _build_initial_state(
     return HoumaoTerminalStateResponse(
         terminal_id=_terminal_alias(identity),
         tracked_session=identity,
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="unknown",
+            transport_state="tmux_missing",
+            process_state="unknown",
+            parse_status="transport_unavailable",
+            probe_error=None,
+            parse_error=None,
+        ),
         transport_state="tmux_missing",
         process_state="unknown",
         parse_status="transport_unavailable",
@@ -865,6 +1023,17 @@ def _build_initial_state(
         probe_error=None,
         parse_error=None,
         parsed_surface=None,
+        surface=HoumaoTrackedSurface(
+            accepting_input="unknown",
+            editing_input="unknown",
+            ready_posture="unknown",
+        ),
+        turn=HoumaoTrackedTurn(phase="unknown"),
+        last_turn=HoumaoTrackedLastTurn(
+            result="none",
+            source="none",
+            updated_at_utc=None,
+        ),
         operator_state=HoumaoOperatorState(
             status="unknown",
             readiness_state="unknown",
@@ -978,34 +1147,22 @@ def _build_operator_state(
 
 def _visible_signature_payload(
     *,
-    transport_state: TransportState,
-    process_state: ProcessState,
-    parse_status: ParseStatus,
-    probe_error: HoumaoErrorDetail | None,
-    parse_error: HoumaoErrorDetail | None,
+    diagnostics: HoumaoTrackedDiagnostics,
     parsed_surface: HoumaoParsedSurface | None,
-    operator_state: HoumaoOperatorState,
-    lifecycle_authority: HoumaoLifecycleAuthorityMetadata,
+    surface: HoumaoTrackedSurface,
+    turn: HoumaoTrackedTurn,
+    last_turn: HoumaoTrackedLastTurn,
 ) -> dict[str, object]:
     """Return the operator-visible signature payload used for stability timing."""
 
     return {
-        "transport_state": transport_state,
-        "process_state": process_state,
-        "parse_status": parse_status,
-        "probe_error": probe_error.model_dump(mode="json") if probe_error is not None else None,
-        "parse_error": parse_error.model_dump(mode="json") if parse_error is not None else None,
+        "diagnostics": diagnostics.model_dump(mode="json"),
         "parsed_surface": parsed_surface.model_dump(mode="json")
         if parsed_surface is not None
         else None,
-        "operator_state": {
-            "status": operator_state.status,
-            "readiness_state": operator_state.readiness_state,
-            "completion_state": operator_state.completion_state,
-            "detail": operator_state.detail,
-            "projection_changed": operator_state.projection_changed,
-        },
-        "lifecycle_authority": lifecycle_authority.model_dump(mode="json"),
+        "surface": surface.model_dump(mode="json"),
+        "turn": turn.model_dump(mode="json"),
+        "last_turn": last_turn.model_dump(mode="json"),
     }
 
 
@@ -1017,40 +1174,32 @@ def _build_transition(
     """Return one recent transition when the visible state changed."""
 
     field_pairs: list[tuple[str, object, object]] = [
+        (
+            "diagnostics_availability",
+            previous.diagnostics.availability,
+            current.diagnostics.availability,
+        ),
         ("transport_state", previous.transport_state, current.transport_state),
         ("process_state", previous.process_state, current.process_state),
         ("parse_status", previous.parse_status, current.parse_status),
-        ("operator_status", previous.operator_state.status, current.operator_state.status),
         (
-            "readiness_state",
-            previous.operator_state.readiness_state,
-            current.operator_state.readiness_state,
+            "surface_accepting_input",
+            previous.surface.accepting_input,
+            current.surface.accepting_input,
         ),
         (
-            "completion_state",
-            previous.operator_state.completion_state,
-            current.operator_state.completion_state,
+            "surface_editing_input",
+            previous.surface.editing_input,
+            current.surface.editing_input,
         ),
         (
-            "projection_changed",
-            previous.operator_state.projection_changed,
-            current.operator_state.projection_changed,
+            "surface_ready_posture",
+            previous.surface.ready_posture,
+            current.surface.ready_posture,
         ),
-        (
-            "completion_authority",
-            previous.lifecycle_authority.completion_authority,
-            current.lifecycle_authority.completion_authority,
-        ),
-        (
-            "turn_anchor_state",
-            previous.lifecycle_authority.turn_anchor_state,
-            current.lifecycle_authority.turn_anchor_state,
-        ),
-        (
-            "completion_monitoring_armed",
-            previous.lifecycle_authority.completion_monitoring_armed,
-            current.lifecycle_authority.completion_monitoring_armed,
-        ),
+        ("turn_phase", previous.turn.phase, current.turn.phase),
+        ("last_turn_result", previous.last_turn.result, current.last_turn.result),
+        ("last_turn_source", previous.last_turn.source, current.last_turn.source),
         ("probe_error", _error_message(previous.probe_error), _error_message(current.probe_error)),
         ("parse_error", _error_message(previous.parse_error), _error_message(current.parse_error)),
         (
@@ -1079,14 +1228,115 @@ def _build_transition(
         if before != after
     )
     return HoumaoRecentTransition(
-        recorded_at_utc=current.operator_state.updated_at_utc,
+        recorded_at_utc=current.last_turn.updated_at_utc or current.operator_state.updated_at_utc,
         summary=summary,
         changed_fields=list(changed_fields),
+        diagnostics_availability=current.diagnostics.availability,
+        turn_phase=current.turn.phase,
+        last_turn_result=current.last_turn.result,
+        last_turn_source=current.last_turn.source,
         transport_state=current.transport_state,
         process_state=current.process_state,
         parse_status=current.parse_status,
         operator_status=current.operator_state.status,
     )
+
+
+def _build_tracked_diagnostics(
+    *,
+    transport_state: TransportState,
+    process_state: ProcessState,
+    parse_status: ParseStatus,
+    probe_error: HoumaoErrorDetail | None,
+    parse_error: HoumaoErrorDetail | None,
+    parsed_surface: HoumaoParsedSurface | None,
+) -> HoumaoTrackedDiagnostics:
+    """Build the low-level diagnostics view for one tracked sample."""
+
+    return HoumaoTrackedDiagnostics(
+        availability=_diagnostics_availability(
+            transport_state=transport_state,
+            process_state=process_state,
+            parse_status=parse_status,
+            probe_error=probe_error,
+            parse_error=parse_error,
+            parsed_surface=parsed_surface,
+        ),
+        transport_state=transport_state,
+        process_state=process_state,
+        parse_status=parse_status,
+        probe_error=probe_error,
+        parse_error=parse_error,
+    )
+
+
+def _diagnostics_availability(
+    *,
+    transport_state: TransportState,
+    process_state: ProcessState,
+    parse_status: ParseStatus,
+    probe_error: HoumaoErrorDetail | None,
+    parse_error: HoumaoErrorDetail | None,
+    parsed_surface: HoumaoParsedSurface | None,
+) -> TrackedDiagnosticsAvailability:
+    """Map low-level observation outcomes into diagnostic availability."""
+
+    if (
+        probe_error is not None
+        or parse_error is not None
+        or transport_state == "probe_error"
+        or process_state == "probe_error"
+        or parse_status in {"probe_error", "parse_error"}
+    ):
+        return "error"
+    if transport_state == "tmux_missing":
+        return "unavailable"
+    if process_state == "tui_down":
+        return "tui_down"
+    if process_state == "unsupported_tool" or parse_status == "unsupported_tool":
+        return "unknown"
+    if parse_status == "parsed" and parsed_surface is not None and parsed_surface.availability == "supported":
+        return "available"
+    return "unknown"
+
+
+def _build_turn_phase(
+    *,
+    diagnostics: HoumaoTrackedDiagnostics,
+    surface: HoumaoTrackedSurface,
+    active_turn_anchor: TurnAnchor | None,
+    reduction: SurfaceReduction,
+    detected_turn_signals: DetectedTurnSignals,
+    last_turn: HoumaoTrackedLastTurn,
+) -> ManagedAgentTurnPhase:
+    """Map the current cycle into the simplified public turn phase."""
+
+    if diagnostics.availability in {"error", "tui_down", "unavailable"}:
+        return "unknown"
+    if active_turn_anchor is not None:
+        if (
+            last_turn.result == "success"
+            and reduction.completion_state == "completed"
+            and surface.ready_posture == "yes"
+            and not detected_turn_signals.success_blocked
+        ):
+            return "ready"
+        return "active"
+    if detected_turn_signals.active_evidence:
+        return "active"
+    if detected_turn_signals.ambiguous_interactive_surface:
+        return "unknown"
+    if surface.ready_posture == "yes":
+        return "ready"
+    return "unknown"
+
+
+def _tracked_last_turn_source(active_turn_anchor: TurnAnchor) -> TrackedLastTurnSource:
+    """Map one internal turn-anchor source to the public last-turn source enum."""
+
+    if active_turn_anchor.source == "terminal_input":
+        return "explicit_input"
+    return "surface_inference"
 
 
 def _terminal_alias(identity: HoumaoTrackedSessionIdentity) -> str:

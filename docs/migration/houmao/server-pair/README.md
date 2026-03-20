@@ -28,11 +28,14 @@ Implemented server scope includes:
 - derived child listener address `public_port + 1`
 - Houmao-owned `GET /health` additive metadata
 - Houmao-owned current-instance metadata
+- shared managed-agent routes under `/houmao/agents/*` for transport-neutral discovery, coarse state, and bounded history
+- native headless lifecycle routes for launch, stop, turns, events, artifacts, and interrupt
 - one background worker per known tmux-backed tracked session
 - direct tmux pane capture and process-based TUI up/down detection
 - official live parsing through the shared parser stack
-- explicit transport/process/parse state, derived operator state, stability metadata, and bounded in-memory recent transitions
+- explicit transport/process/parse diagnostics, simplified `diagnostics` / `surface` / `turn` / `last_turn` tracked state, generic stability metadata, and bounded in-memory recent transitions
 - server-local delegated-launch registration records
+- server-owned native headless authority records under `state/managed_agents/<tracked_agent_id>/`
 - a Houmao-owned server root under `<runtime-root>/houmao_servers/<host>-<port>/`
 
 ### `houmao-srv-ctrl`
@@ -51,7 +54,8 @@ Implemented CLI scope includes:
   - `shutdown`
 - delegation of most commands to the installed `cao` executable
 - supported-pair enforcement for commands that must target a real `houmao-server`
-- `launch` follow-up registration back into `houmao-server`
+- delegated terminal-backed `launch` follow-up registration back into `houmao-server`
+- native `launch --headless` translation into the Houmao headless launch API instead of CAO delegation
 - Houmao-owned runtime artifact materialization after successful delegated launch
 
 ### Runtime Integration
@@ -68,6 +72,7 @@ Implemented runtime scope includes:
 - runtime-owned session roots and manifests for delegated launches
 - gateway and registry compatibility through those runtime-owned artifacts
 - runtime control paths that route `houmao_server_rest` sessions through `houmao-server`
+- native headless runtime sessions that remain on their headless backend while exposing server-owned control through `/houmao/agents/*`
 
 ## What Stayed The Same
 

@@ -14,6 +14,8 @@ The server tracker is built around one core rule: `houmao-server` is the source 
 - readiness and completion timing through the shared ReactiveX lifecycle kernel
 - turn-anchor authority, visible-state stability, and bounded recent transition history
 
+Native headless managed agents now sit beside that tracker rather than inside it. They use the shared `/houmao/agents/*` read API, persist server-owned admission state under `state/managed_agents/<tracked_agent_id>/`, and expose durable per-turn inspection under `/houmao/agents/{agent_ref}/turns/*`. That headless control plane is implemented in the same service, but it is intentionally separate from the terminal-tracking reducer documented by this guide.
+
 ## Reading Order
 
 | Page | Use it for |
@@ -42,3 +44,10 @@ The shorter reference pages remain useful for quick lookups and operator workflo
 - [Houmao Server Pair](../../reference/houmao_server_pair.md)
 
 Those pages intentionally stay higher level. If you are changing tracker semantics, state transitions, or the public live-state payload, treat this developer guide as the maintained home for the detailed explanation.
+
+If you are changing native headless lifecycle, authority persistence, or managed-agent alias resolution, start in:
+
+- `src/houmao/server/service.py`
+- `src/houmao/server/managed_agents.py`
+- `src/houmao/server/models.py`
+- `src/houmao/server/app.py`

@@ -27,7 +27,9 @@ Those combinations are outside the supported contract of this implementation.
 
 ## 2. Keep `cao` Installed
 
-`houmao-srv-ctrl` delegates most CAO-compatible commands to the installed `cao` executable in v1, so the migration still requires `cao` to be present on `PATH`.
+`houmao-srv-ctrl` delegates most CAO-compatible commands to the installed `cao` executable in v1, so the migration still requires `cao` to be present on `PATH` for the delegated TUI path.
+
+The main exception is `houmao-srv-ctrl launch --headless`, which now resolves a native headless launch request and sends it directly to `houmao-server` instead of delegating that mode through CAO.
 
 You are moving the public authority to Houmao, not removing CAO internals from the shallow-cut implementation yet.
 
@@ -69,7 +71,8 @@ pixi run houmao-srv-ctrl info
 pixi run houmao-srv-ctrl init
 pixi run houmao-srv-ctrl install gpu-kernel-coder
 pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex --headless
+pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex
+pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
 pixi run houmao-srv-ctrl shutdown --all
 ```
 
@@ -100,9 +103,22 @@ These commands expose Houmao-owned views such as:
 - derived operator-facing live state and stability metadata
 - bounded in-memory recent transitions
 
+For native headless agents, inspect the Houmao-owned HTTP routes rather than the terminal-keyed surface:
+
+- `GET /houmao/agents`
+- `GET /houmao/agents/{agent_ref}`
+- `GET /houmao/agents/{agent_ref}/state`
+- `GET /houmao/agents/{agent_ref}/history`
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
+
 ## 6. Understand What `launch` Does Differently Now
 
-`houmao-srv-ctrl launch` still delegates the underlying launch to `cao`, but successful launches now also trigger Houmao-owned follow-up work:
+`houmao-srv-ctrl launch` now has two different launch paths.
+
+Terminal-backed TUI launch still delegates the underlying launch to `cao`, and successful launches still trigger Houmao-owned follow-up work:
 
 - register the launched session in `houmao-server`
 - materialize a runtime-owned session root
@@ -110,11 +126,19 @@ These commands expose Houmao-owned views such as:
 - publish compatibility pointers when transitional registry flows need them
 - let `houmao-server` rediscover and continuously track the tmux-backed session from its registration seed
 
-This is the key migration seam that lets later runtime, registry, gateway, and mailbox flows treat the session as Houmao-owned rather than as raw CAO state.
+Native headless launch is now different:
+
+- `houmao-srv-ctrl launch --headless` resolves a native launch request with `tool`, `working_directory`, `agent_def_dir`, `brain_manifest_path`, and `role_name`
+- it calls `POST /houmao/agents/headless/launches` on the selected `houmao-server`
+- `houmao-server` launches the headless runtime directly instead of creating a CAO session or terminal first
+- server-owned admission and restart-recovery state is persisted under `state/managed_agents/<tracked_agent_id>/`
+- later prompt submission, interrupt, status, event, and artifact inspection run through `/houmao/agents/{agent_ref}/turns/*`
+
+This split is the key migration seam: terminal-backed compatibility still flows through CAO, while native headless lifecycle is already Houmao-owned end to end.
 
 ## 7. Runtime Sessions Now Persist As `houmao_server_rest`
 
-When a session is launched through the Houmao server pair and runtime artifacts are materialized, the persisted session identity is:
+When a terminal-backed session is launched through the Houmao server pair and runtime artifacts are materialized, the persisted session identity is:
 
 ```text
 backend = "houmao_server_rest"
@@ -126,6 +150,8 @@ That means:
 - runtime follow-up control should use the persisted Houmao server identity
 - the session should not be mentally modeled as plain `cao_rest` anymore
 
+That statement does not apply to native headless launch. Headless agents keep their native runtime backend such as `claude_headless`; the new server-owned state for that path lives in the managed-agent authority subtree plus the `/houmao/agents/*` API.
+
 ## 8. Roll Out In A Safe Sequence
 
 Recommended migration order:
@@ -134,9 +160,9 @@ Recommended migration order:
 2. Replace operator command usage from `cao` to `houmao-srv-ctrl`.
 3. Verify `houmao-server health` and `houmao-srv-ctrl info`.
 4. If needed, install agent profiles through `houmao-srv-ctrl install --port <public-port> ...`.
-5. Launch one new session through `houmao-srv-ctrl launch`.
-6. Inspect the session through `houmao-server sessions` and `houmao-server terminals`.
-7. Move runtime and follow-up tooling toward the persisted `houmao_server_rest` artifacts.
+5. Launch one new terminal-backed session through `houmao-srv-ctrl launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
+6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
+7. Move terminal-backed runtime tooling toward the persisted `houmao_server_rest` artifacts, and move native headless tooling toward `/houmao/agents/{agent_ref}/turns/*`.
 
 ## 9. Roll Back If Needed
 

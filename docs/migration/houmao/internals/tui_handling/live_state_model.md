@@ -1,6 +1,8 @@
 # Live State Model
 
-The public live-state payload is `HoumaoTerminalStateResponse` in [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py). The response is returned by `GET /houmao/terminals/{terminal_id}/state`, but the actual state is held in memory by `LiveSessionTracker`.
+The public live-state payload is `HoumaoTerminalStateResponse` in [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py). The response is returned by `GET /houmao/terminals/{terminal_id}/state`, but the authoritative state is held in memory by `LiveSessionTracker`.
+
+This migration note focuses on the current implementation shape: a simplified public state model built over existing internal anchor/settle machinery.
 
 ## Identity And Aliases
 
@@ -18,22 +20,19 @@ Important identity fields are:
 
 The public terminal route resolves through `m_terminal_aliases`, then returns the tracker state for the bound `tracked_session_id`. This is why terminal id remains the route key while tracked session identity remains the in-memory authority.
 
-## Top-Level State Fields
+## Public State Shape
 
-`HoumaoTerminalStateResponse` is intentionally split into layers instead of exposing only one summarized status.
+`HoumaoTerminalStateResponse` is now organized around four primary consumer-facing groups plus supporting diagnostics:
 
-The top-level groups are:
-
-- probe transport: `transport_state`
-- process liveliness: `process_state`
-- parse outcome: `parse_status`
-- raw evidence: `probe_snapshot`, `probe_error`, `parse_error`
-- parsed TUI surface: `parsed_surface`
-- operator-facing reduction: `operator_state`
-- lifecycle timing metadata: `lifecycle_timing`
-- lifecycle authority metadata: `lifecycle_authority`
-- stability metadata: `stability`
+- low-level diagnostics: `diagnostics`
+- raw evidence: `probe_snapshot`, `parsed_surface`
+- foundational observables: `surface`
+- current turn posture: `turn`
+- sticky terminal outcome: `last_turn`
+- generic stability: `stability`
 - bounded recent history: `recent_transitions`
+
+Low-level `transport_state`, `process_state`, `parse_status`, `probe_error`, and `parse_error` are still carried on the model for service/debug use, but the public API contract is the simplified `diagnostics / surface / turn / last_turn` surface.
 
 The compatible history route, `GET /houmao/terminals/{terminal_id}/history`, returns the same recent transition entries without the rest of the current-state payload.
 
@@ -43,134 +42,144 @@ When a tracker is first created, `LiveSessionTracker` builds an explicit unknown
 
 The initial values are:
 
+- `diagnostics.availability="unknown"`
 - `transport_state="tmux_missing"`
 - `process_state="unknown"`
 - `parse_status="transport_unavailable"`
-- `operator_state.status="unknown"`
-- `operator_state.completion_state="inactive"`
-- `lifecycle_authority.completion_authority="unanchored_background"`
-- `lifecycle_authority.turn_anchor_state="absent"`
+- `surface.accepting_input="unknown"`
+- `surface.editing_input="unknown"`
+- `surface.ready_posture="unknown"`
+- `turn.phase="unknown"`
+- `last_turn.result="none"`
+- `last_turn.source="none"`
 - empty `recent_transitions`
 
 That state means “the tracker exists, but no successful live observation has been recorded yet.”
 
-## Derived Operator State
+## Diagnostics Mapping
 
-`operator_state` is computed in `_build_operator_state()` inside [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py).
+`diagnostics` is the public low-level sample health view.
 
-The high-level mapping is:
+Current `diagnostics.availability` mapping is:
 
-- probe failures become `status="error"`
-- missing tmux becomes `status="unavailable"`
-- `tui_down` becomes `status="tui_down"`
-- unsupported tools become `status="unknown"`
-- parse failures become `status="error"`
-- parsed `awaiting_operator` surfaces become `status="waiting_user_answer"`
-- parsed `working` surfaces become `status="processing"`
-- stable completed parsed surfaces become `status="completed"`
-- parsed submit-ready surfaces become `status="ready"`
+- `error` when probe or parse failed for the current sample
+- `unavailable` when the tracked tmux target is gone
+- `tui_down` when tmux is reachable but the supported TUI process is not running
+- `available` when the parser produced a supported parsed surface
+- `unknown` when the server is still watching but the current sample is not classifiable confidently enough for normal interpretation
 
-The operator-facing state also carries:
+The full `diagnostics` object also carries:
 
-- `readiness_state`
-- `completion_state`
-- `detail`
-- `projection_changed`
-- `updated_at_utc`
+- `transport_state`
+- `process_state`
+- `parse_status`
+- optional `probe_error`
+- optional `parse_error`
 
-## Readiness And Completion Reduction
+## Foundational Surface Observables
 
-`LiveSessionTracker` now feeds parsed observations into the shared ReactiveX lifecycle kernel in [`../../../../../src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../../../src/houmao/lifecycle/rx_lifecycle_kernel.py). The server still owns the tmux/process polling loop imperatively, but timer-driven lifecycle semantics are now shared with the CAO runtime instead of being implemented by a server-local mutable reducer.
+`surface` is now the public “what is directly observable right now?” layer.
 
-Current readiness rules are:
+Its fields are:
 
-- `failed` when the parser reports unsupported or disconnected availability
-- `blocked` when the parsed surface shows `awaiting_operator`
-- `unknown` when the parser output is effectively unknown
-- `ready` when the surface is `supported + idle + freeform`
-- `waiting` otherwise
+- `accepting_input`
+- `editing_input`
+- `ready_posture`
 
-Current completion rules are:
+These are produced by tool/version-specific signal detection in [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py), using:
 
-- `failed`, `blocked`, or `unknown` when the parsed surface is already in one of those conditions
-- `in_progress` while the surface reports `business_state="working"`
-- `waiting` when the cycle has not yet satisfied completion conditions
-- `candidate_complete` when an active server-owned turn anchor exists, the surface looks submit-ready after real work or projection change, and the anchored cycle has not stayed stable long enough yet
-- `completed` once that anchored candidate state remains stable for at least `completion_stability_seconds`
-- `inactive` when no anchored completion cycle is active or when background watch is intentionally conservative
+- current raw `output_text`
+- optional `parsed_surface`
+- tool-specific matchers for active work, interruption, failure, and ready/success cues
 
-The important contract split is:
+Important consequences of the current implementation:
 
-- continuous background watch is always authoritative for `ready`, `waiting`, `blocked`, `failed`, `unknown`, `stalled`, and the generic visible-state `stability` metadata
-- turn-anchored completion is authoritative for `candidate_complete` and `completed` only after the server itself accepts a supported input submission through `POST /terminals/{terminal_id}/input`
-- unanchored background watch does not infer `candidate_complete` or `completed` from ready-surface churn alone
+- visible progress rows are supporting evidence only, not a required condition for activity
+- a submit-ready parsed surface can still yield `ready_posture=yes` even if the raw tool prompt chrome is partially missing
+- ambiguous interactive UI such as menus, selection boxes, and permission prompts degrades `ready_posture` toward `unknown`
 
-Anchors are scoped to one completion cycle. A successful server-owned submission arms one anchor, blocked/failed/stalled/completed outcomes expire it for later observations, and broken observation ownership paths mark it as `lost` instead of pretending the cycle completed.
+## Turn And Last-Turn Mapping
 
-`projection_changed` tracks whether the normalized dialog projection changed relative to the working-cycle baseline. This keeps “the model actually advanced” separate from “the surface is merely idle again.”
+The public turn model is intentionally smaller than the internal reducer graph.
 
-## Lifecycle Authority
+### `turn.phase`
 
-`lifecycle_authority` tells consumers whether the current completion semantics are background-best-effort or submit-anchored.
+The current implementation uses:
 
-The structured fields are:
+- `ready` when no active anchor remains and the surface looks ready for another turn
+- `active` when an explicit or inferred anchor is armed, or when the detector has strong current active evidence
+- `unknown` when diagnostics are degraded or the current posture is ambiguous
 
-- `completion_authority`: `turn_anchored` or `unanchored_background`
-- `turn_anchor_state`: `active`, `absent`, or `lost`
-- `completion_monitoring_armed`: whether the server currently has an active completion anchor
-- anchor timestamps and loss reason fields for diagnostics
+Ambiguous interactive UI does not create a dedicated ask-user public phase. It contributes to `turn.phase="unknown"` unless stronger active or terminal evidence exists.
 
-The default for passive tracked sessions is `unanchored_background` plus `absent`. Consumers such as the Houmao dual-shadow monitor should read these fields directly instead of recreating completion timers locally.
+### `last_turn`
 
-## Stability Metadata
+`last_turn` is sticky and updates only when a tracked turn reaches a terminal outcome:
 
-`stability` is different from completion timing.
+- `success`
+- `interrupted`
+- `known_failure`
+- `none`
 
-For every recorded cycle, the tracker builds a visible-state signature from:
+The source is:
 
-- transport state
-- process state
-- parse status
-- probe and parse errors
-- parsed surface payload
-- reduced operator-facing state
+- `explicit_input` for the supported server-owned input route
+- `surface_inference` for inferred direct tmux prompting
+- `none` before any terminal turn is recorded
 
-That payload is JSON-serialized, hashed with SHA-1, and stored in `HoumaoStabilityMetadata`.
+The current success path is important:
 
-The tracker resets `stable_since_utc` whenever the visible signature changes. `stable=True` means the current visible state has remained unchanged for at least the configured stability threshold.
+- success still depends on the shared ReactiveX settle window
+- success does not require a `Worked for <duration>`-style marker on every turn
+- the tracker may retract a premature success if a later observation proves the same turn surface was still evolving
 
-This is a generic “how long has the current visible state remained identical?” signal, not only a parser-completion signal.
+## Internal Timing And Authority Still Exist
+
+The simplified public contract did not remove the underlying timing machinery.
+
+Internally, the tracker still keeps:
+
+- shared readiness snapshots
+- anchored completion snapshots
+- active/lost/expired turn anchors
+- settle timing driven by the ReactiveX kernel
+- internal operator/lifecycle metadata used for service/debug paths
+
+Those fields remain valuable for debugging and coarse service projection, but they are no longer the primary consumer-facing contract.
 
 ## Recent Transitions
 
 `recent_transitions` is a bounded in-memory list of `HoumaoRecentTransition`.
 
-A new transition entry is created only when one of the operator-visible fields changes. The current diff includes:
+A new transition entry is created when visible public state changes. The current diff includes:
 
+- `diagnostics_availability`
 - `transport_state`
 - `process_state`
 - `parse_status`
-- operator status
-- readiness state
-- completion state
-- `projection_changed`
-- probe error message
-- parse error message
+- `surface_accepting_input`
+- `surface_editing_input`
+- `surface_ready_posture`
+- `turn_phase`
+- `last_turn_result`
+- `last_turn_source`
 - parsed surface `business_state`
 - parsed surface `input_mode`
 - parsed surface `ui_context`
+- probe and parse error messages
 
 Each entry records:
 
 - `recorded_at_utc`
 - a human-readable `summary`
 - the tuple of `changed_fields`
-- the resulting `transport_state`, `process_state`, `parse_status`, and `operator_status`
+- the resulting diagnostics/turn/last-turn fields plus low-level transport/process/parse fields
 
-The buffer is bounded by `recent_transition_limit`, so it is useful for recent diagnosis without becoming a persistent event log.
+The buffer remains bounded by `recent_transition_limit`, so it is useful for recent diagnosis without becoming a persistent event log.
 
 ## Related Sources
 
 - [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py)
+- [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py)
 - [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py)
 - [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py)

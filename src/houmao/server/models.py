@@ -20,6 +20,10 @@ ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentTurnPhase = Literal["ready", "active", "unknown"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
+Tristate = Literal["yes", "no", "unknown"]
+TrackedDiagnosticsAvailability = Literal["available", "unavailable", "tui_down", "error", "unknown"]
+TrackedLastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
+TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "none"]
 TransportState = Literal["tmux_up", "tmux_missing", "probe_error"]
 ProcessState = Literal["tui_up", "tui_down", "unsupported_tool", "probe_error", "unknown"]
 ParseStatus = Literal[
@@ -257,10 +261,47 @@ class HoumaoRecentTransition(_HoumaoModel):
     recorded_at_utc: str
     summary: str
     changed_fields: list[str] = Field(default_factory=list)
+    diagnostics_availability: TrackedDiagnosticsAvailability
+    turn_phase: ManagedAgentTurnPhase
+    last_turn_result: TrackedLastTurnResult
+    last_turn_source: TrackedLastTurnSource
     transport_state: TransportState
     process_state: ProcessState
     parse_status: ParseStatus
-    operator_status: OperatorStatus
+    operator_status: OperatorStatus | None = Field(default=None, exclude=True)
+
+
+class HoumaoTrackedDiagnostics(_HoumaoModel):
+    """Low-level diagnostics for one tracked-state sample."""
+
+    availability: TrackedDiagnosticsAvailability
+    transport_state: TransportState
+    process_state: ProcessState
+    parse_status: ParseStatus
+    probe_error: HoumaoErrorDetail | None = None
+    parse_error: HoumaoErrorDetail | None = None
+
+
+class HoumaoTrackedSurface(_HoumaoModel):
+    """Foundational surface observables for one tracked-state sample."""
+
+    accepting_input: Tristate
+    editing_input: Tristate
+    ready_posture: Tristate
+
+
+class HoumaoTrackedTurn(_HoumaoModel):
+    """Current public turn posture for one tracked terminal."""
+
+    phase: ManagedAgentTurnPhase
+
+
+class HoumaoTrackedLastTurn(_HoumaoModel):
+    """Most recent public terminal outcome for one tracked terminal."""
+
+    result: TrackedLastTurnResult
+    source: TrackedLastTurnSource
+    updated_at_utc: str | None = None
 
 
 class HoumaoTerminalStateResponse(_HoumaoModel):
@@ -268,18 +309,24 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
 
     terminal_id: str
     tracked_session: HoumaoTrackedSessionIdentity
-    transport_state: TransportState
-    process_state: ProcessState
-    parse_status: ParseStatus
+    diagnostics: HoumaoTrackedDiagnostics
     probe_snapshot: HoumaoProbeSnapshot | None = None
-    probe_error: HoumaoErrorDetail | None = None
-    parse_error: HoumaoErrorDetail | None = None
     parsed_surface: HoumaoParsedSurface | None = None
-    operator_state: HoumaoOperatorState
-    lifecycle_timing: HoumaoLifecycleTimingMetadata
-    lifecycle_authority: HoumaoLifecycleAuthorityMetadata
+    surface: HoumaoTrackedSurface
+    turn: HoumaoTrackedTurn
+    last_turn: HoumaoTrackedLastTurn
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
+    transport_state: TransportState = Field(default="tmux_missing", exclude=True)
+    process_state: ProcessState = Field(default="unknown", exclude=True)
+    parse_status: ParseStatus = Field(default="transport_unavailable", exclude=True)
+    probe_error: HoumaoErrorDetail | None = Field(default=None, exclude=True)
+    parse_error: HoumaoErrorDetail | None = Field(default=None, exclude=True)
+    operator_state: HoumaoOperatorState | None = Field(default=None, exclude=True)
+    lifecycle_timing: HoumaoLifecycleTimingMetadata | None = Field(default=None, exclude=True)
+    lifecycle_authority: HoumaoLifecycleAuthorityMetadata | None = Field(
+        default=None, exclude=True
+    )
 
 
 class HoumaoTerminalHistoryResponse(_HoumaoModel):

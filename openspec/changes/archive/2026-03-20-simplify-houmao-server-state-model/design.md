@@ -256,18 +256,18 @@ Any one of the following signal groups is sufficient active-turn evidence for th
    Conditions:
    - a current visible activity line contains a live thinking verb such as `Cerebrating…`
    - that line is part of the current active region, not stale scrollback
-   - the footer shows `esc to interrupt`
+   - the footer shows a current interrupt affordance such as `esc to interrupt` or a nearby-compatible truncated form like `esc to…`
 
 2. Tool activity plus interruptable footer
    Conditions:
    - a current visible tool block such as `Fetch(...)` is present
    - its continuation/status line shows in-flight activity text such as `Fetching…`
-   - the footer shows `esc to interrupt`
+   - the footer shows a current interrupt affordance such as `esc to interrupt` or a nearby-compatible truncated form like `esc to…`
 
 3. Answer growth while still interruptable
    Conditions:
    - the latest answer content is visibly appearing in the transcript
-   - the footer still shows `esc to interrupt`
+   - the footer still shows a current interrupt affordance such as `esc to interrupt` or a nearby-compatible truncated form like `esc to…`
    - the surface has not yet reached a success-settle marker such as `Worked for <duration>`
 
 Additional Claude-specific rule:
@@ -309,16 +309,19 @@ Success is not emitted when answer text first appears. It is emitted only when t
 
 For Claude Code `v2.1.80`, all of the following are required:
 
-1. the latest answer content is present in the transcript
-2. a completion marker of the form `Worked for <duration>` is visible
-3. a fresh `❯` input prompt is visible
-4. no current known error signal is present for the latest turn
-5. the relevant visible TUI has remained stable for a short settle window such as `1s`
-6. that stability check includes the whole current visible state, not only the answer body; volatile markers such as the thinking/spinner line must also stop changing
+1. the latest answer content or other success-candidate output from the latest turn is present in the transcript
+2. a fresh `❯` input prompt is visible
+3. either a completion marker of the form `Worked for <duration>` is visible, or the answer-bearing ready surface otherwise satisfies the Claude success-candidate rule for this version
+4. no current interrupt affordance, current interrupt signal, or current known error signal is present for the latest turn
+5. no current ready-footer advisory or other detector-defined success blocker is present for the latest turn surface
+6. the relevant visible TUI has remained stable for a short settle window such as `1s`
+7. that stability check includes the whole current visible state, not only the answer body; volatile markers such as the thinking/spinner line, footer state, and other current-state indicators must also stop changing
 
 Important recency rule:
 
 - stale failure or interruption lines from previous chats that remain in scrollback do not block success for the latest turn by themselves
+- short-answer turns may legitimately return directly to a fresh prompt without rendering `Worked for <duration>`; those turns must still be allowed to settle to `last_turn.result=success`
+- if an earlier answer-bearing ready surface appears to have settled but later observations show newer answer growth or another materially different success-candidate surface, that earlier success is invalidated and settle timing restarts against the final stable candidate surface
 
 ##### E. Current-region rule for Claude
 
@@ -355,6 +358,7 @@ The mapping intent is:
 - `turn.phase=active` once a turn has been submitted or inferred and enough active-turn evidence exists
 - `turn.phase=unknown` when the tool cannot safely distinguish the current posture, including ambiguous menus, selections, permission prompts, unmatched failure-looking surfaces, or version-specific interactive UI
 - `last_turn` updates only when one active turn reaches a terminal outcome
+- if a success outcome was emitted from an earlier candidate surface and later observations prove the surface was still evolving, the tracker may retract that premature success and wait for the final stable candidate surface before re-emitting `last_turn.result=success`
 
 Rationale:
 
@@ -372,6 +376,7 @@ That includes at minimum:
 - settle timing before recording `last_turn.result=success`
 - unknown-duration or degraded-visibility timing
 - cancellation and reset when later observations invalidate a pending timed outcome
+- invalidation of prematurely emitted success when later observations prove the earlier candidate surface was not final
 - deterministic scheduler-driven tests for those timing rules
 
 This change SHALL NOT replace those timed paths with mutable timestamp fields, ad hoc polling arithmetic, or hand-rolled manual timers in the tracker.
@@ -494,6 +499,39 @@ Rationale:
 - The simplified contract is only successful if the primary consumer actually uses it.
 
 Alternative considered: simplify the server contract first and leave the demo unchanged until a later change. Rejected because the demo currently names the old semantics explicitly and would immediately drift out of sync.
+
+### 9. Live validation should compare content-first groundtruth against replayed reducer behavior
+
+The external Claude harness demonstrated that state-model correctness is easiest to trust when it is validated through two independent paths over the same recorded pane samples:
+
+```text
+tmux pane snapshots + runtime liveness
+-> content-first groundtruth classification
+-> expected timeline
+
+the same recorded observations
+-> ReactiveX reducer replay
+-> actual timeline
+
+compare expected timeline vs actual timeline
+```
+
+That validation loop should be treated as a maintainer-facing verification method for the simplified state model, not as one-off exploratory scaffolding.
+
+At minimum, the maintained workflow should preserve these properties:
+
+- the recording source is the raw visible pane plus runtime liveness/probe evidence
+- groundtruth classification is content-first and may use future knowledge to decide which success surface was actually final
+- reducer replay runs independently over the same ordered observations
+- mismatches are reported as timeline divergence rather than hand-inspected guesses
+- when live testing discovers a stable new tool/version signal, that matcher is formalized in a signal note under `tui-signals/`
+
+Rationale:
+
+- The proven demo found real bugs that looked plausible until replay and groundtruth were compared on the same capture.
+- This keeps signal discovery disciplined and auditable instead of burying behavioral changes in code alone.
+
+Alternative considered: rely only on unit tests plus ad hoc live spot checks. Rejected because the working demo showed that visually plausible state logic can still settle success too early or miss current-region details without replay-grade comparison.
 
 ## Risks / Trade-offs
 

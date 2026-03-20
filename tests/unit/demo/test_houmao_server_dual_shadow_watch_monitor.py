@@ -16,15 +16,16 @@ from houmao.demo.houmao_server_dual_shadow_watch.models import (
     save_demo_state,
 )
 from houmao.server.models import (
-    HoumaoLifecycleAuthorityMetadata,
-    HoumaoLifecycleTimingMetadata,
-    HoumaoOperatorState,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
     HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSurface,
     HoumaoTrackedSessionIdentity,
+    HoumaoTrackedTurn,
 )
 
 
@@ -37,6 +38,14 @@ def _terminal_state(terminal_id: str, *, tool: str, slot: str) -> HoumaoTerminal
             tool=tool,
             tmux_session_name=f"cao-{slot}",
             terminal_aliases=[terminal_id],
+        ),
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="available",
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_error=None,
+            parse_error=None,
         ),
         transport_state="tmux_up",
         process_state="tui_up",
@@ -68,28 +77,13 @@ def _terminal_state(terminal_id: str, *, tool: str, slot: str) -> HoumaoTerminal
             baseline_invalidated=True,
             operator_blocked_excerpt=None,
         ),
-        operator_state=HoumaoOperatorState(
-            status="ready",
-            readiness_state="ready",
-            completion_state="candidate_complete",
-            detail="Supported TUI is ready for input.",
-            projection_changed=True,
-            updated_at_utc="2026-03-19T10:00:00+00:00",
+        surface=HoumaoTrackedSurface(
+            accepting_input="yes",
+            editing_input="no",
+            ready_posture="yes",
         ),
-        lifecycle_timing=HoumaoLifecycleTimingMetadata(
-            readiness_unknown_elapsed_seconds=None,
-            completion_unknown_elapsed_seconds=None,
-            completion_candidate_elapsed_seconds=0.7,
-            unknown_to_stalled_timeout_seconds=30.0,
-            completion_stability_seconds=1.0,
-        ),
-        lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
-            completion_authority="turn_anchored",
-            turn_anchor_state="active",
-            completion_monitoring_armed=True,
-            detail="Server-owned turn anchor is active for completion monitoring.",
-            anchor_armed_at_utc="2026-03-19T09:59:58+00:00",
-        ),
+        turn=HoumaoTrackedTurn(phase="ready"),
+        last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
         stability=HoumaoStabilityMetadata(
             signature="deadbeef",
             stable=False,
@@ -99,8 +93,12 @@ def _terminal_state(terminal_id: str, *, tool: str, slot: str) -> HoumaoTerminal
         recent_transitions=[
             HoumaoRecentTransition(
                 recorded_at_utc="2026-03-19T10:00:00+00:00",
-                summary=f"{slot} became candidate_complete",
-                changed_fields=["completion_state"],
+                summary=f"{slot} turn became ready",
+                changed_fields=["turn_phase"],
+                diagnostics_availability="available",
+                turn_phase="ready",
+                last_turn_result="none",
+                last_turn_source="none",
                 transport_state="tmux_up",
                 process_state="tui_up",
                 parse_status="parsed",
@@ -297,11 +295,10 @@ def test_monitor_consumes_server_state_and_writes_samples_and_transitions(
     ]
 
     assert len(samples) == 2
-    assert (
-        samples[0]["terminal_state"]["operator_state"]["completion_state"] == "candidate_complete"
-    )
+    assert samples[0]["terminal_state"]["turn"]["phase"] == "ready"
+    assert samples[0]["terminal_state"]["surface"]["ready_posture"] == "yes"
     assert len(transitions) == 2
-    assert transitions[0]["summary"].endswith("became candidate_complete")
+    assert transitions[0]["summary"].endswith("turn became ready")
 
 
 def test_render_agent_panel_uses_server_owned_status_fields() -> None:
@@ -317,16 +314,13 @@ def test_render_agent_panel_uses_server_owned_status_fields() -> None:
     output = console.export_text()
 
     assert "current: ready" in output
-    assert "ready/complete: ready / candidate_complete" in output
-    assert "authority: turn_anchored / active" in output
-    assert "health: tmux_up / tui_up / parsed" in output
-    assert "surface: supported / idle / freeform / normal_prompt" in output
-    assert "projection: changed" in output
+    assert "last turn: none / none" in output
+    assert "diagnostics: available | tmux_up / tui_up / parsed" in output
+    assert "surface: accepting=yes / editing=no / ready=yes" in output
+    assert "parsed surface: supported / idle / freeform / normal_prompt" in output
     assert "visible stability: changing for 0.7s" in output
-    assert "timing: candidate_for=0.7s" in output
+    assert "detail: Terminal looks ready for the next turn." in output
     assert "last transition:" in output
-    assert "transport/process/parse:" not in output
-    assert "tmux:" not in output
 
 
 def test_render_header_and_transition_panels_separate_monitor_and_server_posture(
@@ -344,8 +338,8 @@ def test_render_header_and_transition_panels_separate_monitor_and_server_posture
         slot="codex",
         tool="codex",
         terminal_id="dcba4321",
-        summary="codex became candidate_complete",
-        changed_fields=("completion_state",),
+        summary="codex turn became ready",
+        changed_fields=("turn_phase",),
     )
 
     header_console = Console(record=True, width=140)
@@ -357,7 +351,7 @@ def test_render_header_and_transition_panels_separate_monitor_and_server_posture
     assert "Houmao Server State Watch" in header_output
     assert "monitor: poll=0.5s" in header_output
     assert "server posture: completion_debounce=1.0s  unknown->stalled=30.0s" in header_output
-    assert "current: codex: ready (ready/candidate_complete)" in header_output
+    assert "current: codex: ready (last=none, ready=yes)" in header_output
 
     transition_console = Console(record=True, width=140)
     transition_console.print(
@@ -368,21 +362,15 @@ def test_render_header_and_transition_panels_separate_monitor_and_server_posture
     assert "Recent Server Transitions" in transition_output
     assert "monitor: poll=0.5s" in transition_output
     assert "server posture: completion_debounce=1.0s  unknown->stalled=30.0s" in transition_output
-    assert "10:00:00 codex: codex became candidate_complete" in transition_output
+    assert "10:00:00 codex: codex turn became ready" in transition_output
 
 
 def test_styled_token_uses_category_state_colors() -> None:
     """State tokens should carry Rich styles for the dashboard."""
 
-    assert monitor_module._styled_token("ready", category="operator_status").style == "bold cyan"
-    assert (
-        monitor_module._styled_token("candidate_complete", category="completion_state").style
-        == "cyan"
-    )
-    assert (
-        monitor_module._styled_token("turn_anchored", category="completion_authority").style
-        == "bold cyan"
-    )
+    assert monitor_module._styled_token("ready", category="turn_phase").style == "bold cyan"
+    assert monitor_module._styled_token("success", category="last_turn_result").style == "bold green"
+    assert monitor_module._styled_token("available", category="diagnostics_availability").style == "green"
     assert monitor_module._styled_token("tmux_missing", category="transport_state").style == "red"
     assert monitor_module._styled_token("changing", category="stability_state").style == "yellow"
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
 from houmao.owned_paths import AGENTSYS_JOB_DIR_ENV_VAR, resolve_runtime_root, resolve_session_job_dir
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -35,6 +37,7 @@ from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import set_tmux_session_environment
+from houmao.server.models import HoumaoHeadlessLaunchRequest
 
 _TOOL_BY_PROVIDER: dict[str, str] = {
     "claude_code": "claude",
@@ -203,7 +206,84 @@ def materialize_delegated_launch(
     return manifest_path, session_root, canonical_agent_name, agent_id
 
 
+def materialize_headless_launch_request(
+    *,
+    runtime_root: Path | None,
+    provider: str,
+    agent_profile: str,
+    working_directory: Path,
+) -> HoumaoHeadlessLaunchRequest:
+    """Resolve pair convenience inputs into a native headless launch request."""
+
+    resolved_workdir = working_directory.resolve()
+    tool = _TOOL_BY_PROVIDER.get(provider, provider)
+    agent_def_dir = _resolve_headless_agent_def_dir(cwd=resolved_workdir)
+    recipe_path = _resolve_headless_recipe_path(
+        agent_def_dir=agent_def_dir,
+        tool=tool,
+        agent_profile=agent_profile,
+    )
+    recipe = load_brain_recipe(recipe_path)
+    if recipe.tool != tool:
+        raise ValueError(
+            f"Resolved recipe `{recipe_path}` targets tool `{recipe.tool}`, not `{tool}`."
+        )
+    role_name = _safe_role_name(agent_profile)
+    build_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=runtime_root,
+            tool=recipe.tool,
+            skills=recipe.skills,
+            config_profile=recipe.config_profile,
+            credential_profile=recipe.credential_profile,
+            mailbox=recipe.mailbox,
+            agent_name=recipe.default_agent_name,
+        )
+    )
+    return HoumaoHeadlessLaunchRequest(
+        tool=tool,
+        working_directory=str(resolved_workdir),
+        agent_def_dir=str(agent_def_dir),
+        brain_manifest_path=str(build_result.manifest_path.resolve()),
+        role_name=role_name,
+        agent_name=recipe.default_agent_name,
+        agent_id=None,
+    )
+
+
 def _safe_role_name(value: str) -> str:
     stripped = "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in value)
     stripped = stripped.strip("-_")
     return stripped or "delegated-launch"
+
+
+def _resolve_headless_agent_def_dir(*, cwd: Path) -> Path:
+    """Resolve the agent-definition root for native headless launch translation."""
+
+    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
+    if env_value is not None and env_value.strip():
+        return Path(env_value).expanduser().resolve()
+    return (cwd / ".agentsys" / "agents").resolve()
+
+
+def _resolve_headless_recipe_path(
+    *,
+    agent_def_dir: Path,
+    tool: str,
+    agent_profile: str,
+) -> Path:
+    """Resolve one native headless recipe from pair convenience inputs."""
+
+    recipe_root = (agent_def_dir / "brains" / "brain-recipes" / tool).resolve()
+    candidates = [
+        recipe_root / f"{agent_profile}.yaml",
+        recipe_root / f"{agent_profile}-default.yaml",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        "Could not resolve a native headless brain recipe for "
+        f"`{agent_profile}` under `{recipe_root}`."
+    )

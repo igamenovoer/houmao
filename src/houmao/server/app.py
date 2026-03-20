@@ -12,9 +12,20 @@ from fastapi import FastAPI, Query, Response
 from .config import HoumaoServerConfig
 from .models import (
     HoumaoCurrentInstance,
+    HoumaoHeadlessLaunchRequest,
+    HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnEventsResponse,
+    HoumaoHeadlessTurnRequest,
+    HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentStateResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
@@ -260,6 +271,82 @@ def create_app(
             working_directory=working_directory,
         )
         return resolved_service.install_agent_profile(request_model)
+
+    @app.get("/houmao/agents")
+    def list_managed_agents() -> HoumaoManagedAgentListResponse:
+        return resolved_service.list_managed_agents()
+
+    @app.get("/houmao/agents/{agent_ref}")
+    def managed_agent(agent_ref: str) -> HoumaoManagedAgentIdentity:
+        return resolved_service.managed_agent(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/state")
+    def managed_agent_state(agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        return resolved_service.managed_agent_state(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/history")
+    def managed_agent_history(
+        agent_ref: str,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> HoumaoManagedAgentHistoryResponse:
+        return resolved_service.managed_agent_history(agent_ref, limit=limit)
+
+    @app.post("/houmao/agents/headless/launches")
+    def launch_headless_agent(
+        request_model: HoumaoHeadlessLaunchRequest,
+    ) -> HoumaoHeadlessLaunchResponse:
+        return resolved_service.launch_headless_agent(request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/stop")
+    def stop_managed_agent(agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        return resolved_service.stop_managed_agent(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/turns")
+    def submit_headless_turn(
+        agent_ref: str,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        return resolved_service.submit_headless_turn(agent_ref, request_model)
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}")
+    def headless_turn_status(
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnStatusResponse:
+        return resolved_service.headless_turn_status(agent_ref, turn_id)
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}/events")
+    def headless_turn_events(
+        agent_ref: str,
+        turn_id: str,
+    ) -> HoumaoHeadlessTurnEventsResponse:
+        return resolved_service.headless_turn_events(agent_ref, turn_id)
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout")
+    def headless_turn_stdout(agent_ref: str, turn_id: str) -> Response:
+        return Response(
+            content=resolved_service.headless_turn_artifact_text(
+                agent_ref,
+                turn_id,
+                artifact_name="stdout",
+            ),
+            media_type="text/plain",
+        )
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr")
+    def headless_turn_stderr(agent_ref: str, turn_id: str) -> Response:
+        return Response(
+            content=resolved_service.headless_turn_artifact_text(
+                agent_ref,
+                turn_id,
+                artifact_name="stderr",
+            ),
+            media_type="text/plain",
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/interrupt")
+    def interrupt_managed_agent(agent_ref: str) -> HoumaoManagedAgentActionResponse:
+        return resolved_service.interrupt_managed_agent(agent_ref)
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:
