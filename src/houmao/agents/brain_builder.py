@@ -81,6 +81,7 @@ class BuildRequest:
     agent_id: str | None = None
     home_id: str | None = None
     reuse_home: bool = False
+    launch_args_override: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -334,10 +335,28 @@ def _build_launch_helper(
     home_path: Path,
     helper_path: Path,
     adapter: ToolAdapter,
-    env_file: Path,
+    launch_args: list[str],
+    env_exports: dict[str, str],
 ) -> str:
+    """Build one runtime launch helper script.
+
+    Parameters
+    ----------
+    home_path:
+        Generated runtime home to launch.
+    helper_path:
+        Output shell helper path.
+    adapter:
+        Tool adapter contract for environment projection and bootstrap.
+    launch_args:
+        Effective tool launch arguments for this generated helper.
+    env_exports:
+        Parsed allowlisted environment variables that should be exported by the
+        launch helper.
+    """
+
     allowlist = adapter.credential_env_allowlist
-    args = " ".join(shlex.quote(arg) for arg in adapter.launch_args)
+    args = " ".join(shlex.quote(arg) for arg in launch_args)
     executable = shlex.quote(adapter.launch_executable)
     command_suffix = f" {args}" if args else ""
     project_root = Path(__file__).resolve().parents[3]
@@ -352,29 +371,11 @@ def _build_launch_helper(
         f"export {adapter.home_selector_env_var}={shlex.quote(str(home_path))}",
     ]
 
-    if allowlist:
-        script_lines.extend(
-            [
-                f"ENV_FILE={shlex.quote(str(env_file))}",
-                'if [[ -f "${ENV_FILE}" ]]; then',
-                '  while IFS= read -r line || [[ -n "${line}" ]]; do',
-                '    [[ -z "${line}" ]] && continue',
-                '    [[ "${line:0:1}" == "#" ]] && continue',
-                '    key="${line%%=*}"',
-                '    value="${line#*=}"',
-                '    case "${key}" in',
-            ]
-        )
-        for key in allowlist:
-            script_lines.append(f'      {key}) export "${{key}}=${{value}}" ;;')
-        script_lines.extend(
-            [
-                "      *) ;;",
-                "    esac",
-                '  done < "${ENV_FILE}"',
-                "fi",
-            ]
-        )
+    for key in allowlist:
+        value = env_exports.get(key)
+        if value is None:
+            continue
+        script_lines.append(f"export {key}={shlex.quote(value)}")
 
     if adapter.tool in {"claude", "codex"}:
         script_lines.extend(
@@ -453,6 +454,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         raise BuildError(
             f"Adapter tool mismatch: requested `{request.tool}`, adapter says `{adapter.tool}`"
         )
+    launch_args = (
+        list(request.launch_args_override)
+        if request.launch_args_override is not None
+        else list(adapter.launch_args)
+    )
 
     skills_root = agent_def_dir / "brains" / "skills"
     config_profile_dir = (
@@ -546,7 +552,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
-        env_file=credential_env_file,
+        launch_args=launch_args,
+        env_exports={key: env_values[key] for key in selected_env_names},
     )
 
     manifest: dict[str, Any] = {
@@ -569,7 +576,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 "value": str(home_path),
             },
             "launch_executable": adapter.launch_executable,
-            "launch_args": adapter.launch_args,
+            "launch_args": launch_args,
         },
         "credentials": {
             "profile_path": str(credential_profile_dir),

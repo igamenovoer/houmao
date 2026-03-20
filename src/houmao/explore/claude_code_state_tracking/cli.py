@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from houmao.explore.claude_code_state_tracking.compare import compare_timelines
 from houmao.explore.claude_code_state_tracking.groundtruth import classify_groundtruth
+from houmao.explore.claude_code_state_tracking.interactive_watch import (
+    inspect_interactive_watch,
+    run_dashboard,
+    start_interactive_watch,
+    stop_interactive_watch,
+)
 from houmao.explore.claude_code_state_tracking.live import run_live_capture
 from houmao.explore.claude_code_state_tracking.models import (
     HarnessPaths,
@@ -85,6 +92,51 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(output_path)
         return 0
+    if args.command == "start":
+        result = start_interactive_watch(
+            repo_root=_repo_root(),
+            output_root=Path(args.output_root).expanduser().resolve() if args.output_root else None,
+            recipe_path=Path(args.recipe).expanduser().resolve() if args.recipe else None,
+            sample_interval_seconds=float(args.sample_interval_seconds),
+            settle_seconds=float(args.settle_seconds),
+            trace_enabled=bool(args.trace),
+        )
+        payload = {
+            "run_root": str(result.run_root),
+            "runtime_root": result.manifest.runtime_root,
+            "brain_home_path": result.manifest.brain_home_path,
+            "brain_manifest_path": result.manifest.brain_manifest_path,
+            "claude_attach_command": result.manifest.claude_attach_command,
+            "dashboard_attach_command": result.manifest.dashboard_attach_command,
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(result.run_root)
+        return 0
+    if args.command == "inspect":
+        payload = inspect_interactive_watch(
+            repo_root=_repo_root(),
+            run_root=Path(args.run_root).expanduser().resolve() if args.run_root else None,
+        )
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(payload["run_root"])
+        return 0
+    if args.command == "stop":
+        payload = stop_interactive_watch(
+            repo_root=_repo_root(),
+            run_root=Path(args.run_root).expanduser().resolve() if args.run_root else None,
+            stop_reason=str(args.reason),
+        )
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(payload["report_path"])
+        return 0
+    if args.command == "dashboard":
+        return run_dashboard(run_root=Path(args.run_root).expanduser().resolve())
     raise ValueError(f"Unsupported command: {args.command}")
 
 
@@ -117,6 +169,26 @@ def _build_parser() -> argparse.ArgumentParser:
     signal_note.add_argument("--slug", required=True)
     signal_note.add_argument("--output-path", required=True)
     signal_note.add_argument("--observed-version", default="2.1.80 (Claude Code)")
+
+    start = subparsers.add_parser("start", help="Start one interactive Claude watch run")
+    start.add_argument("--output-root")
+    start.add_argument("--recipe")
+    start.add_argument("--sample-interval-seconds", type=float, default=0.2)
+    start.add_argument("--settle-seconds", type=float, default=1.0)
+    start.add_argument("--trace", action="store_true")
+    start.add_argument("--json", action="store_true")
+
+    inspect = subparsers.add_parser("inspect", help="Inspect one interactive watch run")
+    inspect.add_argument("--run-root")
+    inspect.add_argument("--json", action="store_true")
+
+    stop = subparsers.add_parser("stop", help="Stop one interactive watch run")
+    stop.add_argument("--run-root")
+    stop.add_argument("--reason", default="operator_requested")
+    stop.add_argument("--json", action="store_true")
+
+    dashboard = subparsers.add_parser("dashboard", help="Run the interactive watch dashboard loop")
+    dashboard.add_argument("--run-root", required=True)
     return parser
 
 

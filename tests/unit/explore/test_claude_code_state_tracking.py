@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from reactivex.testing import TestScheduler
+
 from houmao.explore.claude_code_state_tracking.compare import compare_timelines
 from houmao.explore.claude_code_state_tracking.detectors import select_claude_detector
 from houmao.explore.claude_code_state_tracking.groundtruth import classify_groundtruth
 from houmao.explore.claude_code_state_tracking.models import RecordedObservation, RuntimeObservation
 from houmao.explore.claude_code_state_tracking.replay import replay_timeline
 from houmao.explore.claude_code_state_tracking.scenario import load_scenario
+from houmao.explore.claude_code_state_tracking.state_reducer import StreamStateReducer
 
 
 def _observation(
@@ -115,6 +118,18 @@ def _short_success_surface_with_footer_bullet() -> str:
         "────────────────────────────────────────────────────────────────────────────────\n"
         "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
         "  ● high · /effort\n"
+    )
+
+
+def _short_success_surface_with_installer_notice() -> str:
+    return (
+        "❯ Reply with the single word READY and stop.\n\n"
+        "● READY\n\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+        "❯\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+        "  ? for shortcuts  Claude Code has switched from npm to native installer. "
+        "Run `claude install` or see https://docs.anthropic.com/\n"
     )
 
 
@@ -350,6 +365,43 @@ def test_replay_invalidates_early_settled_success_when_surface_keeps_growing() -
     assert any(item.note == "success_invalidated" for item in events)
 
 
+def test_replay_delays_success_until_ready_footer_advisory_clears() -> None:
+    observations = [
+        _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface()),
+        _observation(
+            sample_id="s000002",
+            elapsed_seconds=1.0,
+            output_text=_short_success_surface_with_installer_notice(),
+        ),
+        _observation(
+            sample_id="s000003",
+            elapsed_seconds=2.2,
+            output_text=_short_success_surface_with_installer_notice(),
+        ),
+        _observation(
+            sample_id="s000004",
+            elapsed_seconds=2.6,
+            output_text=_short_success_surface(),
+        ),
+        _observation(
+            sample_id="s000005",
+            elapsed_seconds=3.8,
+            output_text=_short_success_surface(),
+        ),
+    ]
+
+    timeline, _events = replay_timeline(
+        observations=observations,
+        observed_version="2.1.80 (Claude Code)",
+        settle_seconds=1.0,
+    )
+
+    assert timeline[1].last_turn_result == "none"
+    assert timeline[2].last_turn_result == "none"
+    assert timeline[3].last_turn_result == "none"
+    assert timeline[4].last_turn_result == "success"
+
+
 def test_groundtruth_uses_final_stable_success_surface_when_output_keeps_growing() -> None:
     observations = [
         _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface()),
@@ -478,3 +530,59 @@ def test_compare_timelines_reports_first_divergence() -> None:
     assert comparison.first_divergence_sample_id == "s000002"
     assert "turn_phase" in comparison.first_divergence_fields
     assert "s000002" in markdown
+
+
+def test_stream_state_reducer_handles_live_style_success_settle() -> None:
+    scheduler = TestScheduler()
+    reducer = StreamStateReducer(
+        observed_version="2.1.80 (Claude Code)",
+        settle_seconds=1.0,
+        scheduler=scheduler,
+    )
+
+    active_state = reducer.process_observation(
+        _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface())
+    )
+    active_events = reducer.drain_events()
+
+    scheduler.advance_to(1.0)
+    candidate_state = reducer.process_observation(
+        _observation(sample_id="s000002", elapsed_seconds=1.0, output_text=_short_success_surface())
+    )
+    candidate_events = reducer.drain_events()
+    scheduler.advance_to(2.1)
+    settled_events = reducer.drain_events()
+
+    assert active_state.turn_phase == "active"
+    assert any(item.note == "active_signal" for item in active_events)
+    assert candidate_state.last_turn_result == "none"
+    assert any(item.note == "success_candidate" for item in candidate_events)
+    assert any(item.note == "success_settled" for item in settled_events)
+
+
+def test_stream_state_reducer_keeps_last_success_sticky_during_next_active_turn() -> None:
+    scheduler = TestScheduler()
+    reducer = StreamStateReducer(
+        observed_version="2.1.80 (Claude Code)",
+        settle_seconds=1.0,
+        scheduler=scheduler,
+    )
+
+    reducer.process_observation(
+        _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface())
+    )
+    reducer.drain_events()
+
+    reducer.process_observation(
+        _observation(sample_id="s000002", elapsed_seconds=1.0, output_text=_short_success_surface())
+    )
+    reducer.drain_events()
+    scheduler.advance_to(2.1)
+    reducer.drain_events()
+
+    next_active_state = reducer.process_observation(
+        _observation(sample_id="s000003", elapsed_seconds=2.6, output_text=_active_surface())
+    )
+
+    assert next_active_state.turn_phase == "active"
+    assert next_active_state.last_turn_result == "success"

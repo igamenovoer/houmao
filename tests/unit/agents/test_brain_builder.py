@@ -118,7 +118,13 @@ credential_projection:
     )
     _write(
         agent_def_dir / "brains/api-creds/claude/personal-a/env/vars.env",
-        "ANTHROPIC_API_KEY=sk-test\n",
+        "\n".join(
+            [
+                "ANTHROPIC_API_KEY='sk-test'",
+                'ANTHROPIC_BASE_URL="https://api.example.test"',
+            ]
+        )
+        + "\n",
     )
 
 
@@ -393,6 +399,33 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     assert (result.home_path / "claude_state.template.json").is_file()
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
     assert "ensure_claude_home_bootstrap" in launch_script
+    assert "export ANTHROPIC_API_KEY=sk-test" in launch_script
+    assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
+    assert "ENV_FILE=" not in launch_script
+
+
+def test_build_brain_home_supports_launch_args_override(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-interactive",
+            launch_args_override=[],
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    assert manifest["runtime"]["launch_args"] == []
+    assert 'exec claude "$@"' in launch_script
 
 
 def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> None:

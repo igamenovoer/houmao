@@ -2,12 +2,12 @@
 
 This harness validates the proposed simplified Claude turn-state model outside of `houmao-server`.
 
-It does four things:
+It has two complementary workflows:
 
-1. launches `claude-yunwu` in tmux,
-2. records the pane with `tools/terminal_record` in `passive` mode,
-3. derives content-first groundtruth from recorded pane snapshots plus runtime liveness observations, and
-4. replays the same observation stream through an independent ReactiveX tracker and compares the two timelines.
+1. batch scenario capture/replay for repeatable scripted cases, and
+2. interactive watch for manual prompting with a live dashboard plus final replay-grade analysis.
+
+Both workflows stay independent from `houmao-server`. They launch Claude through repo brain fixtures, record the tmux pane with `tools/terminal_record` in `passive` mode, derive content-first groundtruth from recorded pane snapshots plus runtime liveness observations, and replay the same observation stream through an independent ReactiveX tracker.
 
 ## Main Workflow
 
@@ -39,6 +39,45 @@ pixi run python scripts/explore/claude-code-state-tracking/run.py compare \
   --run-root tmp/explore/claude-code-state-tracking/<run-id>
 ```
 
+## Interactive Watch
+
+Start one interactive watch run:
+
+```bash
+pixi run python scripts/explore/claude-code-state-tracking/run.py start \
+  --json \
+  --trace \
+  --output-root tmp/explore/claude-code-state-tracking/interactive-watch/<run-id>
+```
+
+Inspect the live run and attach points:
+
+```bash
+pixi run python scripts/explore/claude-code-state-tracking/run.py inspect \
+  --json \
+  --run-root tmp/explore/claude-code-state-tracking/interactive-watch/<run-id>
+```
+
+Stop the run and finalize the replay/comparison report:
+
+```bash
+pixi run python scripts/explore/claude-code-state-tracking/run.py stop \
+  --json \
+  --run-root tmp/explore/claude-code-state-tracking/interactive-watch/<run-id>
+```
+
+The interactive watch:
+
+- builds a fresh Claude brain home from `tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml`
+- writes that generated runtime under the run-local `runtime/` subtree
+- launches the generated `launch.sh` directly in tmux
+- relies on Claude config in `tests/fixtures/agents/brains/cli-configs/claude/default/settings.json` for the dangerous-permissions prompt behavior
+- does not use `houmao-server` routes or Houmao lifecycle CLIs for normal start/inspect/stop flow
+
+The validated interactive run from 2026-03-20 is documented in:
+
+- `scripts/explore/claude-code-state-tracking/reports/interactive-watch-live-20260320.md`
+
 ## Output Layout
 
 Each run writes under:
@@ -52,12 +91,15 @@ Important artifacts:
 - `artifacts/capture_manifest.json`
 - `artifacts/drive_events.ndjson`
 - `artifacts/runtime_observations.ndjson`
+- `runtime/homes/<home-id>/launch.sh`
+- `runtime/manifests/<home-id>.yaml`
 - `terminal_record/pane_snapshots.ndjson`
 - `analysis/groundtruth_timeline.ndjson`
 - `analysis/replay_timeline.ndjson`
 - `analysis/replay_events.ndjson`
 - `analysis/comparison.json`
 - `analysis/comparison.md`
+- `analysis/interactive_watch_report.md`
 
 ## Signal Discovery Workflow
 
@@ -76,4 +118,3 @@ Then fill the generated note with:
 - current-region / recency constraints
 - non-match guidance
 - concrete artifact references
-

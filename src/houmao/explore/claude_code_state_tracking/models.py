@@ -16,6 +16,7 @@ Tristate = Literal["yes", "no", "unknown"]
 Availability = Literal["available", "unavailable", "tui_down", "error", "unknown"]
 TurnPhase = Literal["ready", "active", "unknown"]
 LastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
+InteractiveWatchStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
 
 
 @dataclass(frozen=True)
@@ -205,6 +206,175 @@ class ReplayEvent:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class LiveStateSample:
+    """One live state sample or timer-driven state emission."""
+
+    source: Literal["observation", "timer"]
+    sample_id: str | None
+    elapsed_seconds: float
+    ts_utc: str
+    diagnostics_availability: Availability
+    surface_accepting_input: Tristate
+    surface_editing_input: Tristate
+    surface_ready_posture: Tristate
+    turn_phase: TurnPhase
+    last_turn_result: LastTurnResult
+    detector_name: str
+    detector_version: str
+    active_reasons: tuple[str, ...]
+    notes: tuple[str, ...]
+    transition_note: str
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class InteractiveWatchPaths:
+    """Filesystem layout for one interactive watch run."""
+
+    run_root: Path
+    runtime_root: Path
+    workdir: Path
+    artifacts_dir: Path
+    logs_dir: Path
+    analysis_dir: Path
+    traces_dir: Path
+    terminal_record_run_root: Path
+    watch_manifest_path: Path
+    live_state_path: Path
+    runtime_observations_path: Path
+    latest_state_path: Path
+    state_samples_path: Path
+    transitions_path: Path
+    report_path: Path
+
+    @classmethod
+    def from_run_root(cls, *, run_root: Path) -> "InteractiveWatchPaths":
+        """Return canonical paths for one interactive watch run root."""
+
+        resolved = run_root.resolve()
+        artifacts_dir = resolved / "artifacts"
+        return cls(
+            run_root=resolved,
+            runtime_root=resolved / "runtime",
+            workdir=resolved / "workdir",
+            artifacts_dir=artifacts_dir,
+            logs_dir=resolved / "logs",
+            analysis_dir=resolved / "analysis",
+            traces_dir=resolved / "traces",
+            terminal_record_run_root=resolved / f"terminal-record-{resolved.name}",
+            watch_manifest_path=artifacts_dir / "interactive_watch_manifest.json",
+            live_state_path=artifacts_dir / "interactive_watch_live_state.json",
+            runtime_observations_path=artifacts_dir / "runtime_observations.ndjson",
+            latest_state_path=artifacts_dir / "latest_state.json",
+            state_samples_path=artifacts_dir / "state_samples.ndjson",
+            transitions_path=artifacts_dir / "transitions.ndjson",
+            report_path=resolved / "analysis" / "interactive_watch_report.md",
+        )
+
+
+@dataclass(frozen=True)
+class InteractiveWatchManifest:
+    """Persisted manifest for one interactive watch run."""
+
+    schema_version: int
+    run_id: str
+    repo_root: str
+    run_root: str
+    runtime_root: str
+    recipe_path: str
+    brain_home_path: str
+    brain_manifest_path: str
+    launch_helper_path: str
+    workdir: str
+    claude_session_name: str
+    claude_attach_command: str
+    dashboard_session_name: str
+    dashboard_attach_command: str
+    dashboard_command: str
+    terminal_record_run_root: str
+    sample_interval_seconds: float
+    settle_seconds: float
+    observed_version: str | None
+    trace_enabled: bool
+    started_at_utc: str
+    stopped_at_utc: str | None
+    stop_reason: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "InteractiveWatchManifest":
+        """Parse one persisted interactive watch manifest."""
+
+        return cls(
+            schema_version=int(payload.get("schema_version", 0)),
+            run_id=str(payload["run_id"]),
+            repo_root=str(payload["repo_root"]),
+            run_root=str(payload["run_root"]),
+            runtime_root=str(payload["runtime_root"]),
+            recipe_path=str(payload["recipe_path"]),
+            brain_home_path=str(payload["brain_home_path"]),
+            brain_manifest_path=str(payload["brain_manifest_path"]),
+            launch_helper_path=str(payload["launch_helper_path"]),
+            workdir=str(payload["workdir"]),
+            claude_session_name=str(payload["claude_session_name"]),
+            claude_attach_command=str(payload["claude_attach_command"]),
+            dashboard_session_name=str(payload["dashboard_session_name"]),
+            dashboard_attach_command=str(payload["dashboard_attach_command"]),
+            dashboard_command=str(payload["dashboard_command"]),
+            terminal_record_run_root=str(payload["terminal_record_run_root"]),
+            sample_interval_seconds=float(payload["sample_interval_seconds"]),
+            settle_seconds=float(payload["settle_seconds"]),
+            observed_version=_optional_string(payload.get("observed_version")),
+            trace_enabled=bool(payload.get("trace_enabled", False)),
+            started_at_utc=str(payload["started_at_utc"]),
+            stopped_at_utc=_optional_string(payload.get("stopped_at_utc")),
+            stop_reason=_optional_string(payload.get("stop_reason")),
+        )
+
+
+@dataclass(frozen=True)
+class InteractiveWatchLiveState:
+    """Mutable live-state record for one interactive watch run."""
+
+    schema_version: int
+    run_id: str
+    run_root: str
+    status: InteractiveWatchStatus
+    latest_state_path: str
+    stop_requested_at_utc: str | None
+    last_error: str | None
+    updated_at_utc: str
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "InteractiveWatchLiveState":
+        """Parse one interactive watch live-state payload."""
+
+        return cls(
+            schema_version=int(payload.get("schema_version", 0)),
+            run_id=str(payload["run_id"]),
+            run_root=str(payload["run_root"]),
+            status=cast(InteractiveWatchStatus, str(payload["status"])),
+            latest_state_path=str(payload["latest_state_path"]),
+            stop_requested_at_utc=_optional_string(payload.get("stop_requested_at_utc")),
+            last_error=_optional_string(payload.get("last_error")),
+            updated_at_utc=str(payload["updated_at_utc"]),
+        )
+
+
 def append_ndjson(path: Path, payload: dict[str, Any]) -> None:
     """Append one NDJSON payload.
 
@@ -247,6 +417,14 @@ def save_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def load_json(path: Path) -> dict[str, Any] | None:
+    """Load one JSON payload when the file exists."""
+
+    if not path.is_file():
+        return None
+    return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
+
+
 def load_runtime_observations(path: Path) -> list[RuntimeObservation]:
     """Load runtime observations from disk."""
 
@@ -271,3 +449,11 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, str):
         return int(value)
     return None
+
+
+def _optional_string(value: object) -> str | None:
+    """Return one optional string value."""
+
+    if value is None:
+        return None
+    return str(value)

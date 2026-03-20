@@ -28,6 +28,10 @@ ACTIVE_TOOL_PATTERNS = (
     "Searching…",
     "Reading…",
 )
+READY_FOOTER_ADVISORY_PATTERNS = (
+    "Claude Code has switched from npm to native installer.",
+    "Run `claude install`",
+)
 COMPLETION_MARKER_RE = re.compile(r"Worked for \d+[smh]")
 COLOR_RE = re.compile(r"\x1b\[38;5;(\d+)m")
 INTERRUPTED_RE = re.compile(r"^⎿\s+Interrupted · What should Claude do instead\?$")
@@ -70,6 +74,11 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseTurnSignalDetector):
         prompt_visible = last_prompt_index is not None
         footer_interruptable = any(
             FOOTER_INTERRUPT_RE.search(line) is not None for line in surface.footer_lines()
+        )
+        footer_has_ready_advisory = any(
+            pattern in line
+            for line in surface.footer_lines()
+            for pattern in READY_FOOTER_ADVISORY_PATTERNS
         )
         latest_status_index = surface.last_status_index()
         latest_status_line = surface.latest_status_line()
@@ -150,6 +159,7 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseTurnSignalDetector):
             (completion_marker is not None or response_candidate_visible)
             and prompt_visible
             and not footer_interruptable
+            and not footer_has_ready_advisory
             and not current_error_present
             and not interrupted
             and not known_failure
@@ -161,6 +171,8 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseTurnSignalDetector):
                 notes.append("response_block_success_candidate")
         if slash_menu_visible:
             notes.append("slash_menu_visible")
+        if footer_has_ready_advisory:
+            notes.append("ready_footer_advisory")
 
         ready_posture: Tristate = (
             "yes"
