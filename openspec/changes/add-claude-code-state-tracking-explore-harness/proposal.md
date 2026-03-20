@@ -8,7 +8,9 @@ The proposed `houmao-server` state model needs an external verification harness 
 - Add a content-first Claude state classifier that derives foundational observables and turn-state groundtruth from raw recorded pane snapshots, including ANSI-aware and recency-aware signal matching.
 - Add an independent ReactiveX-driven replay tracker that consumes recorded snapshots and emits the simplified turn states without importing `houmao-server` tracker code.
 - Add a comparison/report step that highlights mismatches between offline groundtruth and replay-detected state timelines.
-- Add a small initial scenario set focused on the proposed model's highest-value cases: success, interruption, and active-turn noise such as slash-menu churn during an active turn.
+- Add an initial but important scenario matrix covering success, interruption, current known failure, stale known-failure suppression, ready-surface noise without submit, unknown-plus-recovery behavior, active-turn slash noise, settle-reset-before-success, abrupt process death with tmux still alive, and full target disappearance.
+- Record newly discovered stable Claude TUI signals found during harness testing and formalize them as maintained state-discovery signal notes instead of leaving them as ad hoc implementation knowledge.
+- Support subprocess-owned network fault injection so the harness can deliberately trigger Claude error paths and observe the resulting TUI signals for known-failure and unknown-state classification.
 
 ## Capabilities
 
@@ -27,3 +29,5 @@ The proposed `houmao-server` state model needs an external verification harness 
 - Reuse of existing `tools/terminal_record` and tmux/libtmux-based capture workflows
 - New dependency on the locally available `claude-yunwu` wrapper as the live Claude launch path for scenario capture
 - New dependency on `reactivex` for replay-timing semantics in the external harness
+- Optional use of subprocess-level fault injection tools such as `strace --inject` for deterministic network-error scenarios
+- Additional harness-owned runtime observation artifacts for tmux-target and child-process liveness during abrupt process-death scenarios
