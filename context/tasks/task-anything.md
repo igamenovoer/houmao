@@ -1,8 +1,0 @@
-# hack-through testing
-
-hack-through testing is a way to test a given program that potentially has a lot of problems (crashes, hangs, etc.), by running it and whenever a problem is hit, log it, and apply a quick and dirty fix to move forward, in order to find out what problems are still ahead. The goal is to find out as many problems as possible in a short amount of time, keeping fixes as diffs and logs all problems, so that later on, we can consider all problems together and devise a more comprehensive solution, including design changes, protocol changes, etc, instead of just patching each problem one by one. The applied fixes will then be discarded in the end, real fixes will be implemented after carefully considering all problems together and planned.
-
-to do that, we:
-1) use git to create a temporary branch, snapshot the current state of the code, see `context/hints/howto-git-snapshot-branch-without-switching.md`, using the throwaway branch, adding everything (including untracked files) to that branch to preserve the current state.
-2) cd into that branch, run the program, and whenever a problem is hit, log it, and apply a quick and dirty fix to move forward, commit the fix to the throwaway branch, and repeat until we find out as many problems as possible, and run through the whole program reaching the end.
-3) after that, review all the problems and fixes together, and then plan for a more comprehensive solution, including design changes, protocol changes, etc, instead of just patching each problem one by one. 
