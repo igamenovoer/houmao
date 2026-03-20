@@ -97,7 +97,7 @@ class ScenarioLaunchSpec:
     fault_injection: FaultInjectionSpec | None = None
     ready_timeout_seconds: float = 45.0
     settle_seconds: float = 1.0
-    sample_interval_seconds: float = 0.2
+    sample_interval_seconds: float = 0.25
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any] | None) -> "ScenarioLaunchSpec":
@@ -112,7 +112,7 @@ class ScenarioLaunchSpec:
             fault_injection=fault_injection,
             ready_timeout_seconds=float(payload.get("ready_timeout_seconds", 45.0)),
             settle_seconds=float(payload.get("settle_seconds", 1.0)),
-            sample_interval_seconds=float(payload.get("sample_interval_seconds", 0.2)),
+            sample_interval_seconds=float(payload.get("sample_interval_seconds", 0.25)),
         )
 
     def to_payload(self) -> dict[str, Any]:

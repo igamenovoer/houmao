@@ -178,6 +178,12 @@ class HoumaoServerConfig(BaseModel):
         return (self.state_dir / "terminals").resolve()
 
     @property
+    def managed_agents_root(self) -> Path:
+        """Return the native managed-agent authority root."""
+
+        return (self.state_dir / "managed_agents").resolve()
+
+    @property
     def terminal_history_root(self) -> Path:
         """Return the append-only history root for per-terminal views."""
 

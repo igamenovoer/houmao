@@ -188,7 +188,7 @@ def test_start_interactive_watch_builds_run_local_runtime(tmp_path: Path, monkey
     dashboard_script = (run_root / "logs" / "dashboard_launch.sh").read_text(encoding="utf-8")
     assert result.run_root == run_root
     assert requested["runtime_root"] == run_root / "runtime"
-    assert requested["launch_args_override"] == []
+    assert requested["launch_args_override"] == ["--dangerously-skip-permissions"]
     assert manifest_payload["runtime_root"] == str(run_root / "runtime")
     assert manifest_payload["brain_home_path"].startswith(str(run_root / "runtime"))
     assert "exec bash -lc" in dashboard_script

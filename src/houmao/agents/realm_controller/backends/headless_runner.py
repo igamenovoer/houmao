@@ -57,6 +57,7 @@ class HeadlessCliRunner:
         output_format: str,
         tmux_session_name: str | None = None,
         turn_artifacts_root: Path | None = None,
+        turn_artifact_dir_name: str | None = None,
         completion_timeout_seconds: float = _DEFAULT_COMPLETION_TIMEOUT_SECONDS,
         completion_poll_interval_seconds: float = (_DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS),
     ) -> HeadlessRunResult:
@@ -83,6 +84,7 @@ class HeadlessCliRunner:
             turn_artifacts_root=turn_artifacts_root
             if turn_artifacts_root is not None
             else cwd / ".agentsys-headless-turns",
+            turn_artifact_dir_name=turn_artifact_dir_name,
             completion_timeout_seconds=completion_timeout_seconds,
             completion_poll_interval_seconds=completion_poll_interval_seconds,
         )
@@ -246,10 +248,12 @@ class HeadlessCliRunner:
         output_format: str,
         tmux_session_name: str,
         turn_artifacts_root: Path,
+        turn_artifact_dir_name: str | None,
         completion_timeout_seconds: float,
         completion_poll_interval_seconds: float,
     ) -> HeadlessRunResult:
-        turn_dir = (turn_artifacts_root / f"turn-{turn_index:04d}").resolve()
+        turn_dir_name = turn_artifact_dir_name or f"turn-{turn_index:04d}"
+        turn_dir = (turn_artifacts_root / turn_dir_name).resolve()
         turn_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = turn_dir / "stdout.jsonl"
         stderr_path = turn_dir / "stderr.log"
@@ -335,8 +339,8 @@ class HeadlessCliRunner:
 
         stderr_text = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
         stdout_text = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
-        returncode = _read_turn_return_code(status_path=status_path)
-        events = _parse_headless_output(
+        returncode = read_headless_turn_return_code(status_path=status_path)
+        events = parse_headless_output_text(
             output_format=output_format,
             stdout_text=stdout_text,
             turn_index=turn_index,
@@ -383,12 +387,14 @@ def extract_session_id(events: list[SessionEvent]) -> str | None:
     return None
 
 
-def _parse_headless_output(
+def parse_headless_output_text(
     *,
     output_format: str,
     stdout_text: str,
     turn_index: int,
 ) -> list[SessionEvent]:
+    """Parse one persisted headless stdout payload into structured events."""
+
     events: list[SessionEvent] = []
     if output_format == "stream-json":
         for raw_line in stdout_text.splitlines():
@@ -400,7 +406,25 @@ def _parse_headless_output(
     return _parse_json_payload(text=stdout_text, turn_index=turn_index)
 
 
-def _read_turn_return_code(*, status_path: Path) -> int:
+def load_headless_turn_events(
+    *,
+    stdout_path: Path,
+    output_format: str,
+    turn_index: int,
+) -> list[SessionEvent]:
+    """Read one persisted headless stdout artifact and parse it."""
+
+    stdout_text = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+    return parse_headless_output_text(
+        output_format=output_format,
+        stdout_text=stdout_text,
+        turn_index=turn_index,
+    )
+
+
+def read_headless_turn_return_code(*, status_path: Path) -> int:
+    """Read one persisted headless exit-code marker."""
+
     raw = status_path.read_text(encoding="utf-8").strip()
     if not raw:
         raise BackendExecutionError(

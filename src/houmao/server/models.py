@@ -15,6 +15,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
+ManagedAgentTransportKind = Literal["tui", "headless"]
+ManagedAgentAvailability = Literal["available", "unavailable", "error"]
+ManagedAgentTurnPhase = Literal["ready", "active", "unknown"]
+ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
+ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
 TransportState = Literal["tmux_up", "tmux_missing", "probe_error"]
 ProcessState = Literal["tui_up", "tui_down", "unsupported_tool", "probe_error", "unknown"]
 ParseStatus = Literal[
@@ -352,3 +357,328 @@ class HoumaoRegisterLaunchResponse(CaoSuccessResponse):
 
     session_name: str
     terminal_id: str
+
+
+class HoumaoManagedAgentIdentity(_HoumaoModel):
+    """Transport-neutral managed-agent identity."""
+
+    tracked_agent_id: str
+    transport: ManagedAgentTransportKind
+    tool: str
+    session_name: str | None = None
+    terminal_id: str | None = None
+    runtime_session_id: str | None = None
+    tmux_session_name: str | None = None
+    tmux_window_name: str | None = None
+    manifest_path: str | None = None
+    session_root: str | None = None
+    agent_name: str | None = None
+    agent_id: str | None = None
+
+    @field_validator(
+        "tracked_agent_id",
+        "tool",
+        "session_name",
+        "terminal_id",
+        "runtime_session_id",
+        "tmux_session_name",
+        "tmux_window_name",
+        "manifest_path",
+        "session_root",
+        "agent_name",
+        "agent_id",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentListResponse(_HoumaoModel):
+    """Response for `GET /houmao/agents`."""
+
+    agents: list[HoumaoManagedAgentIdentity] = Field(default_factory=list)
+
+
+class HoumaoManagedAgentTurnView(_HoumaoModel):
+    """Shared coarse turn posture for one managed agent."""
+
+    phase: ManagedAgentTurnPhase
+    active_turn_id: str | None = None
+
+    @field_validator("active_turn_id")
+    @classmethod
+    def _active_turn_not_blank(cls, value: str | None) -> str | None:
+        """Require optional active-turn ids to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentLastTurnView(_HoumaoModel):
+    """Shared coarse last-turn summary."""
+
+    result: ManagedAgentLastTurnResult
+    turn_id: str | None = None
+    turn_index: int | None = None
+    updated_at_utc: str | None = None
+
+    @field_validator("turn_id", "updated_at_utc")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentStateResponse(_HoumaoModel):
+    """Response for `GET /houmao/agents/{agent_ref}/state`."""
+
+    tracked_agent_id: str
+    identity: HoumaoManagedAgentIdentity
+    availability: ManagedAgentAvailability
+    turn: HoumaoManagedAgentTurnView
+    last_turn: HoumaoManagedAgentLastTurnView
+    diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
+
+    @field_validator("tracked_agent_id")
+    @classmethod
+    def _tracked_agent_id_not_blank(cls, value: str) -> str:
+        """Require a non-empty tracked-agent id."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentHistoryEntry(_HoumaoModel):
+    """One bounded coarse managed-agent history entry."""
+
+    recorded_at_utc: str
+    summary: str
+    availability: ManagedAgentAvailability
+    turn_phase: ManagedAgentTurnPhase
+    last_turn_result: ManagedAgentLastTurnResult
+    turn_id: str | None = None
+
+    @field_validator("recorded_at_utc", "summary", "turn_id")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentHistoryResponse(_HoumaoModel):
+    """Response for `GET /houmao/agents/{agent_ref}/history`."""
+
+    tracked_agent_id: str
+    entries: list[HoumaoManagedAgentHistoryEntry] = Field(default_factory=list)
+
+    @field_validator("tracked_agent_id")
+    @classmethod
+    def _tracked_agent_id_not_blank(cls, value: str) -> str:
+        """Require a non-empty tracked-agent id."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessLaunchRequest(_HoumaoModel):
+    """Resolved native headless launch request."""
+
+    tool: str
+    working_directory: str
+    agent_def_dir: str
+    brain_manifest_path: str
+    role_name: str
+    agent_name: str | None = None
+    agent_id: str | None = None
+
+    @field_validator(
+        "tool",
+        "working_directory",
+        "agent_def_dir",
+        "brain_manifest_path",
+        "role_name",
+        "agent_name",
+        "agent_id",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string inputs to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessLaunchResponse(CaoSuccessResponse):
+    """Response for native headless launch."""
+
+    tracked_agent_id: str
+    identity: HoumaoManagedAgentIdentity
+    manifest_path: str
+    session_root: str
+    detail: str
+
+
+class HoumaoManagedAgentActionResponse(CaoSuccessResponse):
+    """Generic success response for managed-agent actions."""
+
+    tracked_agent_id: str
+    detail: str
+    turn_id: str | None = None
+
+    @field_validator("tracked_agent_id", "detail", "turn_id")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessTurnRequest(_HoumaoModel):
+    """Prompt submission for one managed headless turn."""
+
+    prompt: str
+
+    @field_validator("prompt")
+    @classmethod
+    def _prompt_not_blank(cls, value: str) -> str:
+        """Require a non-empty prompt."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessTurnAcceptedResponse(CaoSuccessResponse):
+    """Acceptance response for one managed headless turn."""
+
+    tracked_agent_id: str
+    turn_id: str
+    turn_index: int
+    status: ManagedAgentTurnStatus
+    detail: str
+
+    @field_validator("tracked_agent_id", "turn_id", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty string fields."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessTurnStatusResponse(_HoumaoModel):
+    """Status response for one persisted headless turn."""
+
+    tracked_agent_id: str
+    turn_id: str
+    turn_index: int
+    status: ManagedAgentTurnStatus
+    started_at_utc: str
+    completed_at_utc: str | None = None
+    returncode: int | None = None
+    completion_source: str | None = None
+    stdout_path: str | None = None
+    stderr_path: str | None = None
+    status_path: str | None = None
+    history_summary: str | None = None
+    error: str | None = None
+
+    @field_validator(
+        "tracked_agent_id",
+        "turn_id",
+        "started_at_utc",
+        "completed_at_utc",
+        "completion_source",
+        "stdout_path",
+        "stderr_path",
+        "status_path",
+        "history_summary",
+        "error",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessTurnEvent(_HoumaoModel):
+    """Structured headless turn event."""
+
+    kind: str
+    message: str
+    turn_index: int
+    timestamp_utc: str
+    payload: dict[str, object] | None = None
+
+    @field_validator("kind", "message", "timestamp_utc")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty string fields."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessTurnEventsResponse(_HoumaoModel):
+    """Structured event list for one headless turn."""
+
+    tracked_agent_id: str
+    turn_id: str
+    entries: list[HoumaoHeadlessTurnEvent] = Field(default_factory=list)
+
+    @field_validator("tracked_agent_id", "turn_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty string fields."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped

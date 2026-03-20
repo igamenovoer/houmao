@@ -71,7 +71,8 @@ The interactive watch:
 - builds a fresh Claude brain home from `tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml`
 - writes that generated runtime under the run-local `runtime/` subtree
 - launches the generated `launch.sh` directly in tmux
-- relies on Claude config in `tests/fixtures/agents/brains/cli-configs/claude/default/settings.json` for the dangerous-permissions prompt behavior
+- forces Claude to start with `--dangerously-skip-permissions`
+- still keeps Claude config in `tests/fixtures/agents/brains/cli-configs/claude/default/settings.json` for baseline startup behavior
 - does not use `houmao-server` routes or Houmao lifecycle CLIs for normal start/inspect/stop flow
 
 The validated interactive run from 2026-03-20 is documented in:

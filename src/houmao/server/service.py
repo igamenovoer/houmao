@@ -19,11 +19,33 @@ from urllib import error, parse, request
 
 from fastapi import HTTPException, Response
 
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_runner import (
+    load_headless_turn_events,
+    read_headless_turn_return_code,
+)
 from houmao.cao.models import CaoTerminal
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
+from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.runtime import (
+    RuntimeSessionController,
+    resume_runtime_session,
+    start_runtime_session,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
+    list_tmux_panes,
+    run_tmux,
     tmux_session_exists,
+    tmux_error_detail,
+)
+from houmao.server.managed_agents import (
+    ManagedHeadlessActiveTurnRecord,
+    ManagedHeadlessAuthorityRecord,
+    ManagedHeadlessStore,
+    ManagedHeadlessTurnRecord,
 )
 from houmao.server.tui import (
     KnownSessionRecord,
@@ -44,9 +66,24 @@ from houmao.server.models import (
     ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoErrorDetail,
+    HoumaoHeadlessLaunchRequest,
+    HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnEvent,
+    HoumaoHeadlessTurnEventsResponse,
+    HoumaoHeadlessTurnRequest,
+    HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentHistoryEntry,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTurnView,
     HoumaoProbeSnapshot,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
@@ -56,6 +93,45 @@ from houmao.server.models import (
 from houmao.server.tracking_debug import TrackingDebugSink
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _ManagedHeadlessAgentHandle:
+    """One live native headless managed-agent runtime binding."""
+
+    def __init__(
+        self,
+        *,
+        authority: ManagedHeadlessAuthorityRecord,
+        controller: RuntimeSessionController,
+    ) -> None:
+        """Initialize the managed headless handle."""
+
+        self.m_authority = authority
+        self.m_controller = controller
+        self.m_active_thread: threading.Thread | None = None
+
+    @property
+    def authority(self) -> ManagedHeadlessAuthorityRecord:
+        """Return the persisted authority record."""
+
+        return self.m_authority
+
+    @property
+    def controller(self) -> RuntimeSessionController:
+        """Return the bound runtime controller."""
+
+        return self.m_controller
+
+    @property
+    def active_thread(self) -> threading.Thread | None:
+        """Return the optional active background turn thread."""
+
+        return self.m_active_thread
+
+    def set_active_thread(self, value: threading.Thread | None) -> None:
+        """Update the active background turn thread binding."""
+
+        self.m_active_thread = value
 
 
 class ProxyResponse:
@@ -168,6 +244,7 @@ class HoumaoServerService:
         transport: ProxyTransport | None = None,
         child_manager: ChildCaoManager | None = None,
         known_session_registry: KnownSessionRegistry | None = None,
+        managed_headless_store: ManagedHeadlessStore | None = None,
         transport_resolver: TmuxTransportResolver | None = None,
         process_inspector: PaneProcessInspector | None = None,
         parser_adapter: OfficialTuiParserAdapter | None = None,
@@ -181,6 +258,9 @@ class HoumaoServerService:
         self.m_known_session_registry = known_session_registry or KnownSessionRegistry(
             config=config
         )
+        self.m_managed_headless_store = managed_headless_store or ManagedHeadlessStore(
+            config=config
+        )
         self.m_transport_resolver = transport_resolver or TmuxTransportResolver()
         self.m_process_inspector = process_inspector or PaneProcessInspector(
             supported_processes=config.supported_tui_processes
@@ -190,15 +270,18 @@ class HoumaoServerService:
         self.m_lock = threading.RLock()
         self.m_trackers: dict[str, LiveSessionTracker] = {}
         self.m_terminal_aliases: dict[str, str] = {}
+        self.m_headless_agents: dict[str, _ManagedHeadlessAgentHandle] = {}
         self.m_supervisor = TuiTrackingSupervisor(runtime=self)
 
     def startup(self) -> None:
         """Start the service runtime."""
 
         self._ensure_directories()
+        self.m_managed_headless_store.ensure_directories()
         if self.m_config.startup_child:
             self.m_child_manager.start()
         self._write_current_instance()
+        self._rebuild_headless_agents()
         self.m_supervisor.start()
         self.m_supervisor.request_reconcile()
 

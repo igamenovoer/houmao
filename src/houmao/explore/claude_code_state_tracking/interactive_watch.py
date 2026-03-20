@@ -56,10 +56,10 @@ DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path("tmp/explore/claude-code-state-tracki
 DEFAULT_INTERACTIVE_RECIPE = Path(
     "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
 )
-DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.2
+DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.25
 DEFAULT_SETTLE_SECONDS = 1.0
 DEFAULT_DASHBOARD_REFRESH_PER_SECOND = 4.0
-CLAUDE_INTERACTIVE_LAUNCH_ARGS: list[str] = []
+CLAUDE_INTERACTIVE_LAUNCH_ARGS: list[str] = ["--dangerously-skip-permissions"]
 
 
 @dataclass(frozen=True)

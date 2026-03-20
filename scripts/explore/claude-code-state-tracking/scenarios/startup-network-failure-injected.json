@@ -10,7 +10,7 @@
     },
     "ready_timeout_seconds": 15.0,
     "settle_seconds": 1.0,
-    "sample_interval_seconds": 0.2
+    "sample_interval_seconds": 0.25
   },
   "steps": [
     {
@@ -20,4 +20,3 @@
     }
   ]
 }
-

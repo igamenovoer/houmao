@@ -90,7 +90,12 @@ class HeadlessInteractiveSession:
 
         self._force_cleanup_on_terminate = force_cleanup
 
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+    ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
 
         if not prompt.strip():
@@ -112,14 +117,20 @@ class HeadlessInteractiveSession:
                 working_directory=self._plan.working_directory,
             )
 
+        run_kwargs: dict[str, Any] = {
+            "command": command,
+            "env": env,
+            "cwd": self._plan.working_directory,
+            "turn_index": turn_index,
+            "output_format": self._output_format,
+            "tmux_session_name": session_name,
+            "turn_artifacts_root": self._turn_artifacts_root,
+        }
+        if turn_artifact_dir_name is not None:
+            run_kwargs["turn_artifact_dir_name"] = turn_artifact_dir_name
+
         run_result = self._runner.run(
-            command=command,
-            env=env,
-            cwd=self._plan.working_directory,
-            turn_index=turn_index,
-            output_format=self._output_format,
-            tmux_session_name=session_name,
-            turn_artifacts_root=self._turn_artifacts_root,
+            **run_kwargs,
         )
 
         if run_result.returncode != 0:

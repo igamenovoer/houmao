@@ -173,7 +173,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start", help="Start one interactive Claude watch run")
     start.add_argument("--output-root")
     start.add_argument("--recipe")
-    start.add_argument("--sample-interval-seconds", type=float, default=0.2)
+    start.add_argument("--sample-interval-seconds", type=float, default=0.25)
     start.add_argument("--settle-seconds", type=float, default=1.0)
     start.add_argument("--trace", action="store_true")
     start.add_argument("--json", action="store_true")
