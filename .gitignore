@@ -31,6 +31,7 @@ MANIFEST
 .DS_Store
 .idea/
 .vscode/
+/.vsfavorite
 *.swp
 *.swo
 
