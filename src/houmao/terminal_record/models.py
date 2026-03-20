@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 
 TERMINAL_RECORD_SCHEMA_VERSION = 1
@@ -98,10 +98,14 @@ class TerminalRecordManifest:
 
         target_payload = _require_mapping(payload.get("target"), context="target")
         target = TerminalRecordTarget(
-            session_name=_require_string(target_payload.get("session_name"), context="target.session_name"),
+            session_name=_require_string(
+                target_payload.get("session_name"), context="target.session_name"
+            ),
             pane_id=_require_string(target_payload.get("pane_id"), context="target.pane_id"),
             window_id=_require_string(target_payload.get("window_id"), context="target.window_id"),
-            window_name=_require_string(target_payload.get("window_name"), context="target.window_name"),
+            window_name=_require_string(
+                target_payload.get("window_name"), context="target.window_name"
+            ),
         )
         taint_reasons_raw = payload.get("taint_reasons", [])
         if not isinstance(taint_reasons_raw, list) or not all(
@@ -116,8 +120,12 @@ class TerminalRecordManifest:
             run_root=_require_string(payload.get("run_root"), context="run_root"),
             target=target,
             tool=_optional_string(payload.get("tool")),
-            sample_interval_seconds=float(payload.get("sample_interval_seconds", DEFAULT_SAMPLE_INTERVAL_SECONDS)),
-            visual_recording_kind=_require_visual_recording_kind(payload.get("visual_recording_kind")),
+            sample_interval_seconds=float(
+                payload.get("sample_interval_seconds", DEFAULT_SAMPLE_INTERVAL_SECONDS)
+            ),
+            visual_recording_kind=_require_visual_recording_kind(
+                payload.get("visual_recording_kind")
+            ),
             input_capture_level=_require_input_capture_level(payload.get("input_capture_level")),
             run_tainted=bool(payload.get("run_tainted")),
             taint_reasons=tuple(taint_reasons_raw),
@@ -250,7 +258,9 @@ class TerminalRecordLabels:
         labels: list[TerminalRecordLabel] = []
         for raw in labels_raw:
             item = _require_mapping(raw, context="labels[]")
-            expectations = _require_mapping(item.get("expectations"), context="labels[].expectations")
+            expectations = _require_mapping(
+                item.get("expectations"), context="labels[].expectations"
+            )
             labels.append(
                 TerminalRecordLabel(
                     label_id=_require_string(item.get("label_id"), context="labels[].label_id"),
@@ -387,7 +397,7 @@ def _require_mode(value: Any) -> RecorderMode:
 
     if value not in {"active", "passive"}:
         raise ValueError(f"Unsupported recorder mode: {value!r}")
-    return value
+    return cast(RecorderMode, value)
 
 
 def _require_status(value: Any) -> RecorderStatus:
@@ -395,7 +405,7 @@ def _require_status(value: Any) -> RecorderStatus:
 
     if value not in {"starting", "running", "stopping", "stopped", "failed"}:
         raise ValueError(f"Unsupported recorder status: {value!r}")
-    return value
+    return cast(RecorderStatus, value)
 
 
 def _require_visual_recording_kind(value: Any) -> VisualRecordingKind:
@@ -403,7 +413,7 @@ def _require_visual_recording_kind(value: Any) -> VisualRecordingKind:
 
     if value not in {"interactive_client", "readonly_observer"}:
         raise ValueError(f"Unsupported visual recording kind: {value!r}")
-    return value
+    return cast(VisualRecordingKind, value)
 
 
 def _require_input_capture_level(value: Any) -> InputCaptureLevel:
@@ -411,4 +421,4 @@ def _require_input_capture_level(value: Any) -> InputCaptureLevel:
 
     if value not in {"authoritative_managed", "managed_only", "output_only"}:
         raise ValueError(f"Unsupported input capture level: {value!r}")
-    return value
+    return cast(InputCaptureLevel, value)

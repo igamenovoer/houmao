@@ -1,0 +1,25 @@
+{
+  "id": "target-disappeared-unavailable",
+  "description": "Remove the tmux target itself during capture.",
+  "launch": {
+    "ready_timeout_seconds": 45.0,
+    "settle_seconds": 1.0,
+    "sample_interval_seconds": 0.2
+  },
+  "steps": [
+    {
+      "action": "wait_seconds",
+      "name": "give-session-time-to-start",
+      "seconds": 2.0
+    },
+    {
+      "action": "kill_session",
+      "name": "kill-session"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "observe-unavailable",
+      "seconds": 2.0
+    }
+  ]
+}

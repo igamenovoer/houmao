@@ -1,0 +1,23 @@
+{
+  "id": "startup-network-failure-injected",
+  "description": "Inject a startup network failure at Claude launch time.",
+  "launch": {
+    "fault_injection": {
+      "mode": "launch_strace_inject",
+      "syscall": "connect",
+      "error": "ECONNREFUSED",
+      "when": "1"
+    },
+    "ready_timeout_seconds": 15.0,
+    "settle_seconds": 1.0,
+    "sample_interval_seconds": 0.2
+  },
+  "steps": [
+    {
+      "action": "wait_seconds",
+      "name": "wait-for-startup-failure",
+      "seconds": 8.0
+    }
+  ]
+}
+

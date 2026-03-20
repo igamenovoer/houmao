@@ -1,0 +1,23 @@
+{
+  "id": "current-known-failure",
+  "description": "Launch Claude through deliberate startup fault injection to surface a current failure frame.",
+  "launch": {
+    "fault_injection": {
+      "mode": "launch_strace_inject",
+      "syscall": "connect",
+      "error": "ECONNREFUSED",
+      "when": "1"
+    },
+    "ready_timeout_seconds": 15.0,
+    "settle_seconds": 1.0,
+    "sample_interval_seconds": 0.2
+  },
+  "steps": [
+    {
+      "action": "wait_seconds",
+      "name": "wait-for-failure-surface",
+      "seconds": 8.0
+    }
+  ]
+}
+
