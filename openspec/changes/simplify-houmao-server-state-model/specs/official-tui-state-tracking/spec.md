@@ -1,70 +1,80 @@
 ## ADDED Requirements
 
-### Requirement: Live tracked state exposes foundational observables and simplified work-cycle semantics for consumer dashboards
-For supported parsed tmux-backed sessions, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus current work-cycle semantics.
+### Requirement: Live tracked state exposes foundational observables and unified turn semantics for consumer dashboards
+For supported parsed tmux-backed sessions, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus one unified turn lifecycle.
 
 At minimum, that simplified model SHALL include:
 
-- `surface.processing`: whether the TUI is actively processing work now
 - `surface.accepting_input`: whether typed input would currently land in the prompt area
 - `surface.editing_input`: whether prompt-area input is actively being edited now
-- `surface.input_kind`: whether the visible input posture is `chat`, `command`, `none`, or `unknown`
-- `work.kind`: whether the current ready/active work is `chat`, `command`, `none`, or `unknown`
-- `work.phase`: whether the current work posture is `ready`, `active`, `awaiting_user`, or `unknown`
-- `last_outcome.kind`: whether the most recent completed cycle was `chat`, `command`, or `none`
-- `last_outcome.result`: whether the most recent completed cycle ended in `success`, `interrupted`, `failed`, `ask_user`, or `none`
+- `surface.ready_posture`: whether the visible surface looks ready for immediate submit
+- `turn.phase`: whether the current turn posture is `ready`, `active`, or `unknown`
+- `last_turn.result`: whether the most recent completed turn ended in `success`, `interrupted`, `known_failure`, or `none`
+- `last_turn.source`: whether the most recent completed turn came from `explicit_input`, `surface_inference`, or `none`
 
 The system SHALL treat those fields as the primary consumer-facing state contract instead of requiring dashboards to interpret reducer-internal readiness, completion, or anchor-bookkeeping terms.
 
-The tracker MAY continue using richer internal reduction and timing machinery, but the public tracked-state contract SHALL present the simplified model above as the first-class state surface.
+The system SHALL NOT distinguish chat turns from slash commands in the public tracked-state contract. Submitted input is modeled as one turn lifecycle because command-looking prompt text is not a reliable semantic discriminator.
 
-For this capability, `surface.input_kind=command` and `work.kind=command` SHALL apply only when the current unsubmitted prompt text is exactly `/<command-name>` from the first character of the prompt, with no leading spaces, no additional arguments or text, and optional trailing spaces only.
+The system SHALL NOT assume that every visible TUI change has a known cause. Surface churn such as prompt repaint, cursor movement, tab handling, left/right navigation, local prompt editing, or other unexplained UI changes MAY alter the visible sample without starting, advancing, or completing a tracked turn.
 
-The system SHALL NOT assume that every visible TUI change has a known cause. Surface churn such as prompt repaint, cursor movement, tab handling, left/right navigation, local prompt editing, or other unexplained UI changes MAY alter the visible sample without starting, advancing, or completing a tracked work cycle.
+Such unexplained surface churn MAY update diagnostics, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `turn.phase=active` or emit a new `last_turn` unless the stricter turn-evidence rules are satisfied.
 
-Such unexplained surface churn MAY update diagnostics, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `work.phase=active`, change `work.kind`, or emit a new `last_outcome` unless the stricter cycle-evidence rules are satisfied.
+Visible progress or spinner signals SHALL be treated as supporting evidence only. When present, they are sufficient evidence for active-turn inference. When absent, they SHALL NOT by themselves negate the possibility of an active turn.
 
-#### Scenario: Idle freeform prompt surfaces a ready chat posture
-- **WHEN** the parsed live surface is supported, idle, and accepting freeform prompt input
-- **THEN** the tracked state reports `surface.processing=no`
-- **AND THEN** the tracked state reports `surface.accepting_input=yes`
-- **AND THEN** the tracked state reports `surface.input_kind=chat`
-- **AND THEN** the tracked state reports `work.kind=chat` and `work.phase=ready`
+Ambiguous menus, selection boxes, permission prompts, slash-command UI, and similar tool-specific interactive surfaces SHALL NOT create a dedicated public ask-user state or terminal outcome. Unless stronger active or terminal evidence exists, those observations SHALL be folded into `turn.phase=unknown`.
 
-#### Scenario: Active prompt processing surfaces an active chat posture
-- **WHEN** the parsed live surface shows a submitted chat turn still being processed
-- **THEN** the tracked state reports `work.kind=chat` and `work.phase=active`
-- **AND THEN** `surface.processing=yes`
-- **AND THEN** the tracked state does not require the caller to interpret `in_progress` or other reducer-internal completion labels to understand that the TUI is busy
+The system SHALL NOT publish a generic catch-all failure outcome. Only specifically recognized failure signatures SHALL produce `last_turn.result=known_failure`. Failure-like but unmatched surfaces SHALL degrade to `turn.phase=unknown` unless stronger evidence supports another state.
 
-#### Scenario: Slash-command entry surfaces a ready command posture
-- **WHEN** the parsed live surface shows an unsubmitted prompt whose text is exactly `/<command-name>` with optional trailing spaces only
+#### Scenario: Ready posture surfaces a ready turn
+- **WHEN** the parsed live surface is supported, accepting prompt input, and visibly ready for immediate submit
 - **THEN** the tracked state reports `surface.accepting_input=yes`
-- **AND THEN** the tracked state reports `surface.input_kind=command`
-- **AND THEN** the tracked state reports `work.kind=command` and `work.phase=ready`
+- **AND THEN** the tracked state reports `surface.ready_posture=yes`
+- **AND THEN** the tracked state reports `turn.phase=ready`
 
-#### Scenario: Leading spaces or extra arguments do not count as a slash command
-- **WHEN** the parsed live surface shows an unsubmitted prompt whose text has leading spaces before `/`, or contains additional non-space text after `/<command-name>`
-- **THEN** the tracked state does not report `surface.input_kind=command`
-- **AND THEN** the tracked state does not report `work.kind=command` from that prompt alone
+#### Scenario: Response-region growth surfaces an active turn without spinner evidence
+- **WHEN** the parsed live surface shows scrolling dialog or tool-response growth that satisfies the tracker's active-turn evidence rules
+- **AND WHEN** no spinner or progress banner is currently visible
+- **THEN** the tracked state reports `turn.phase=active`
+- **AND THEN** the tracked state does not require spinner visibility to recognize that the turn is in flight
 
-#### Scenario: Unexplained prompt-area churn does not create a work cycle
+#### Scenario: Spinner evidence is sufficient for an active turn
+- **WHEN** the parsed live surface shows a visible spinner, progress signal, or equivalent activity banner during a tracked turn
+- **THEN** the tracked state may report `turn.phase=active` from that evidence
+- **AND THEN** the same contract does not require such a signal to exist on every active turn
+
+#### Scenario: Slash-looking input does not create a separate lifecycle kind
+- **WHEN** the visible prompt text is shaped like `/<command-name>` or another slash-looking token
+- **THEN** the tracked state does not create a separate public command lifecycle from that text shape alone
+- **AND THEN** the tracked state continues to treat submitted input through the unified turn model
+
+#### Scenario: Unexplained prompt-area churn does not create a turn
 - **WHEN** the visible prompt area changes because of tab, cursor navigation, repaint, or other unexplained UI-local churn
-- **AND WHEN** no explicit input route, strict surface-inference threshold, active-work evidence, operator gate, interrupt, or terminal failure signal is present
-- **THEN** the tracked state does not create a new active work cycle from that churn alone
+- **AND WHEN** no explicit input route, strict surface-inference threshold, active-turn evidence, interrupt, or known-failure signal is present
+- **THEN** the tracked state does not create a new active turn from that churn alone
 - **AND THEN** any resulting state change is limited to diagnostics, `surface`, generic stability, or recent transitions
 
-#### Scenario: Operator gate surfaces awaiting-user work plus terminal ask-user outcome
-- **WHEN** an active tracked cycle reaches a parser-recognized operator gate that requires user action
-- **THEN** the tracked state reports `work.phase=awaiting_user`
-- **AND THEN** the most recent terminal outcome recorded for that cycle becomes `last_outcome.result=ask_user`
-- **AND THEN** the caller does not need to interpret separate blocked-versus-authority fields to know user attention is required
+#### Scenario: Ambiguous interactive UI degrades to unknown rather than a dedicated operator state
+- **WHEN** the live surface shows a menu, selection box, permission prompt, slash-command picker, or similar interactive UI whose semantics are not stable enough for a dedicated public state
+- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
+- **AND THEN** the tracked state does not emit a dedicated operator-handoff terminal outcome
+- **AND THEN** the caller is not required to interpret tool-specific operator-gate styling as a stable API contract
+
+#### Scenario: Unmatched failure-like UI degrades to unknown rather than known-failure
+- **WHEN** the live surface shows failure-looking text or layout churn that does not match a supported known-failure rule
+- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
+- **AND THEN** the tracked state does not emit `last_turn.result=known_failure` from that observation alone
+
+#### Scenario: Recognized failure signature records known-failure
+- **WHEN** the live surface shows a specifically recognized failure signature for the supported tool
+- **THEN** the tracked state records `last_turn.result=known_failure`
+- **AND THEN** the caller can distinguish that explicit known failure from generic unknown posture
 
 #### Scenario: Settled return to ready records a success outcome
-- **WHEN** an active tracked cycle returns to a stable ready posture after observable post-submit activity that satisfies the tracker’s cycle-evidence rules
-- **THEN** the tracked state returns `work.phase=ready` for the next cycle
-- **AND THEN** the tracked state records `last_outcome.result=success` for the completed cycle
-- **AND THEN** the caller does not need to interpret public `candidate_complete` or `completed` states to know the cycle ended successfully
+- **WHEN** an active tracked turn returns to a stable ready posture after observable post-submit activity that satisfies the tracker’s turn-evidence rules
+- **THEN** the tracked state returns `turn.phase=ready` for the next turn
+- **AND THEN** the tracked state records `last_turn.result=success` for the completed turn
+- **AND THEN** the caller does not need to interpret public `candidate_complete` or `completed` states to know the turn ended successfully
 
 ## MODIFIED Requirements
 
@@ -74,7 +84,7 @@ For supported parsed tmux-backed sessions, all timed behavior in this capability
 That ReactiveX timing layer SHALL remain authoritative for:
 
 - unknown-duration and degraded-visibility timing,
-- success settle timing before the tracker records `last_outcome.result=success`,
+- success settle timing before the tracker records `last_turn.result=success`,
 - cancellation or reset when later observations invalidate a pending timed outcome, and
 - deterministic scheduler-driven tests for those timing rules.
 
@@ -86,10 +96,10 @@ That ReactiveX timing layer SHALL remain authoritative for:
 - **AND THEN** the tracked state continues from the returned known observation instead of entering a degraded timed outcome
 
 #### Scenario: Success settle timing resets on later observation change
-- **WHEN** an active tracked cycle has already reached a ready-looking post-activity posture
+- **WHEN** an active tracked turn has already reached a ready-looking post-activity posture
 - **AND WHEN** a later observation changes the settle signature before the success settle window elapses
 - **THEN** the pending success recording resets
-- **AND THEN** the tracked state does not record `last_outcome.result=success` until the settle signature remains stable for the full configured window
+- **AND THEN** the tracked state does not record `last_turn.result=success` until the settle signature remains stable for the full configured window
 
 #### Scenario: Timed behavior is testable without real sleeps
 - **WHEN** unit tests exercise unknown-duration handling, timed recovery, or success settle timing for this capability
@@ -97,7 +107,7 @@ That ReactiveX timing layer SHALL remain authoritative for:
 - **AND THEN** the tests do not require real wall-clock sleeps to verify the timed behavior
 
 ### Requirement: Live tracked state distinguishes transport, process, and parse outcomes explicitly
-The tracked-state contract SHALL expose low-level diagnostics separately from the simplified work model.
+The tracked-state contract SHALL expose low-level diagnostics separately from the simplified turn model.
 
 At minimum, the tracked-state contract SHALL expose:
 
@@ -110,7 +120,7 @@ At minimum, the tracked-state contract SHALL expose:
 - optional `parse_error` detail,
 - nullable parsed TUI surface,
 - diagnostic availability/health metadata for the current sample, and
-- the simplified foundational/work/outcome state defined by this capability.
+- the simplified foundational/turn/last-turn state defined by this capability.
 
 For supported parsed tools, parse failure SHALL be represented explicitly rather than fabricated as a successful parsed surface.
 
@@ -118,13 +128,13 @@ For supported parsed tools, parse failure SHALL be represented explicitly rather
 - **WHEN** the tmux session is live, the supported TUI process is up, and the official parser fails for that cycle
 - **THEN** the live tracked state records an explicit parse-failure status
 - **AND THEN** the parsed-surface field is absent or null for that cycle
-- **AND THEN** the simplified work state degrades through diagnostic availability rather than fabricating a successful work-phase interpretation
+- **AND THEN** the simplified turn state degrades through diagnostic availability rather than fabricating a successful turn interpretation
 
 #### Scenario: TUI-down cycle still exposes transport and process state
 - **WHEN** the tmux session remains live but the expected supported TUI process is down
 - **THEN** the live tracked state still exposes the transport and process fields for that session
 - **AND THEN** the parse stage is represented as skipped or unavailable for that cycle
-- **AND THEN** the simplified work state does not fabricate a ready or active posture for that cycle
+- **AND THEN** the simplified turn state does not fabricate a ready or active posture for that cycle
 
 ### Requirement: Live tracking exposes stability metadata over the visible state signature
 The system SHALL track how long the operator-visible tracked-state signature remains unchanged and SHALL expose stability metadata for that signature as diagnostic evidence in the in-memory tracked state.
@@ -146,6 +156,6 @@ That stability metadata SHALL support operator validation and internal settle lo
 ## REMOVED Requirements
 
 ### Requirement: Live tracked state exposes lifecycle timing and stalled classification for consumer dashboards
-**Reason**: The old public readiness/completion/authority-heavy lifecycle surface exposed reducer internals rather than the simpler foundational observables and work-cycle contract the server now intends to publish.
+**Reason**: The old public readiness/completion/authority-heavy lifecycle surface exposed reducer internals rather than the simpler foundational observables and unified turn contract the server now intends to publish.
 
-**Migration**: Consumer dashboards and docs SHALL read `surface`, `work`, and `last_outcome` from tracked-state responses as the primary state contract. Deep timing or reducer-debug needs SHALL move to diagnostic stability/parsed-surface evidence and the existing tracking-debug workflow rather than to public `candidate_complete`, `completed`, `stalled`, or anchor-authority fields.
+**Migration**: Consumer dashboards and docs SHALL read `surface`, `turn`, and `last_turn` from tracked-state responses as the primary state contract. Deep timing or reducer-debug needs SHALL move to diagnostic stability/parsed-surface evidence and the existing tracking-debug workflow rather than to public `candidate_complete`, `completed`, `stalled`, or anchor-authority fields.

@@ -1,24 +1,82 @@
 # TUI state tracking goal
 
-here is what we really want to track:
+Here is what we really want to track.
 
-## foundational state: these are always observable, and can be considered as the lowest level state where higher level state can be built on top of it.
-- is the TUI processing some prompt? Meaning, the prompt is already submitted, and the TUI is either waiting for LLM response or processing LLM response. The characteristics of this state is that the TUI will have something changing constantly, like progress bar, something spinning, LLM response comes up in the scrolling area, etc. Note that, to determine this state, one needs to look for LLM response area and the TUI itself for system signals like spinning or progress bar, any change of these will be considered as the TUI is processing some prompt. 
-- is the TUI accepting user input? Meaning, if user type something, it will be put into the prompt-input area. Note that, accepting user input does not necessarily mean the TUI is idle, it can be accepting user input while processing LLM response. Our target agentic coding TUI has the property that while TUI is working on previous prompt, user can still enter things into the prompting area, like using esc to interrupt the current process, send new prompts and queue by the TUI, enter slash command and get a list of slash command options, etc.
-- is the user entering something into the prompt-input area? Meaning, user is actively taking control and typing things into the prompt area. The characteristics of this state is that the prompt-input area is changing frequently, and user input is being reflected in the prompt-input area. Note that, this state can only be observed when the TUI is accepting user input. Note that, for tmux sessions, those send-keys called is also considered as user input.
+## Foundational observable state
 
-## turn-processing state: these are the states that are only meaningful if we are in a dialog turn with LLM prompting (not slash commands)
-- is the TUI ready for another turn? Meaning, if yes, then the next prompt will be processed immediately if sent (like, pressing Enter after input). Note that, if the TUI is already processing some prompt, then it is not ready for another turn, even if it is accepting user input.
-- after a prompt is sent, is the TUI now in the process of dealing with the prompt?
-- is the TUI processing the prompt reaches:
-    - chat_success. This means LLM response is fully generated and the TUI has finished any post-processing related to the prompt. The characteristics of this state is that the TUI is not showing any progress bar or spinning sign for some time, and becomes idle and ready for another turn, or some predefined pattern of response is observed (this is only valid if user prompt the LLM to terminate in some way) around the end of dialog text.
-    - chat_interrupted. This means the TUI is interrupted by user input while processing the prompt, like pressing ESC or ctrl+c. The characteristics of this state is that the TUI is showing some interruption signal (different TUI may have different way to show interruption).
-    - chat_failed. This means the TUI shows some error message related to the prompt, like disconnected from LLM, rate limited, user token expired. Anything that leads to LLM response is not successfully generated can be considered as failure.
-    - chat_ask_user. This means the TUI determins that it requires user to operate, and control is handed over to user. It happens when the TUI wants user to permit some operation, or provide some selection to user due to LLM tool calls, etc. Anyway, it just means user attention is needed to let the LLM processing continue.
+These are the lowest-level facts we can observe from the live TUI surface. Higher-level turn state must be built on top of these facts rather than replacing them.
 
-## command-processing state: these are the states that are only meaningful if we are executing a slash command (not LLM prompting)
-- is the TUI ready to execute another command? Meaning, if yes, then the next slash command will be processed immediately if sent.
-- after a slash command is sent, is the TUI now in the process of executing the command?
-- is the TUI processing the command reaches:
-    - command_success. This means the command is executed and any post-processing is done. The characteristics of this state is that the TUI is not showing any progress bar or spinning sign for some time, and becomes idle and ready for another command.
-    - command_failed. This means the TUI shows some error message related to the command, like invalid command, wrong parameters, execution error, etc. Anything that leads to slash command not successfully executed can be considered as failure. Currently we have no such case, just leave it as a placeholder for future.
+- Is the TUI accepting user input?
+  Meaning: if the user types now, the text will land in the prompt-input area.
+  Note: accepting input does not necessarily mean the TUI is idle. Some TUIs may accept prompt edits while an earlier turn is still in flight.
+
+- Is the user actively editing the prompt-input area?
+  Meaning: the prompt-input area is changing from user control.
+  Note: for tmux-backed sessions, `send-keys` also counts as user input.
+
+- Is the TUI visibly in a ready posture?
+  Meaning: the surface looks ready to accept immediate submit for the next turn.
+  Note: this is a visible-surface fact, not a claim that no background work exists anywhere in the tool.
+
+- Is there an explicit interruption signal visible?
+  Meaning: the surface shows that the active turn was interrupted by the user or by an equivalent stop action.
+
+- Is there an explicit known-failure signal visible?
+  Meaning: the surface shows an error, disconnection, unsupported state, or other specifically recognized failure pattern that prevents the turn from completing normally.
+  Note: failure modes are not fully stable across tools and versions. Unmatched failure-like surfaces do not automatically become a dedicated failure state; they fall back to `turn_unknown`.
+
+- Is the visible surface changing?
+  Meaning: the prompt area, scrolling dialog area, tool transcript area, or other visible TUI region changed between observations.
+  Important: a visible change does not automatically have a known cause. The user may hit `Tab`, `Left`, `Right`, or trigger repaint or other UI-local churn. Surface change is evidence, not automatic lifecycle meaning.
+
+## Turn-processing state
+
+These states are inferred over time from the observable facts above. We do not maintain a separate command-processing model. Anything submitted through the TUI is treated as one turn lifecycle.
+
+- `turn_ready`
+  Meaning: the visible surface indicates the next submit would be accepted immediately.
+
+- `turn_active`
+  Meaning: the tracker has enough evidence that a submitted turn is in flight.
+  Active-turn evidence may include:
+  - scrolling dialog content growth
+  - tool transcript or tool-call region changes that look turn-related
+  - explicit activity strings or banners
+  - visible progress or spinner signals
+
+- `turn_unknown`
+  Meaning: the tracker cannot safely classify the current posture as `turn_ready` or `turn_active`, and it cannot safely claim a supported terminal outcome.
+  Note: ambiguous menus, selection boxes, permission prompts, tool-owned popups, slash-command UI, and version-specific interactive surfaces fall here unless stronger evidence supports another state.
+
+- Did the active turn end in one of these terminal outcomes?
+  - `turn_success`
+    Meaning: the turn reached a stable ready posture after post-submit activity and any required settle window.
+  - `turn_interrupted`
+    Meaning: the turn was interrupted by the user or by an equivalent stop action.
+  - `turn_known_failure`
+    Meaning: the turn ended in a specifically recognized failure mode captured by supported TUI string matching or another strong tool-specific signal.
+
+## Important constraints
+
+- We do not distinguish chat turns from slash commands.
+  Reason: a prompt shaped like `/<command-name>` is not a reliable discriminator. It may be a built-in command, a user-defined subcommand that sends a predefined prompt, or a typo that the TUI forwards literally to the model.
+
+- We do not publish a dedicated operator-handoff state.
+  Reason: menus, selection boxes, permission prompts, and similar interactive UI are tool-specific and unstable across versions. Unless stronger evidence exists, they collapse into `turn_unknown`.
+
+- We do not publish a generic catch-all failure outcome.
+  Reason: many failure-looking TUI surfaces are unstable, partial, or version-specific. Only specifically recognized failure signatures become `turn_known_failure`; unmatched cases collapse into `turn_unknown`.
+
+- Progress bars, spinners, and similar activity signals are supporting evidence only.
+  If such a signal is visible, that is strong evidence that a turn is active.
+  If no such signal is visible, that does not mean no turn is active.
+
+- Generic surface change is not a known-cause signal by default.
+  Unexplained UI churn may update diagnostics or visible-surface state without advancing turn lifecycle state.
+
+- Turn state should be inferred from a combination of:
+  - prompt-area changes
+  - scrolling dialog-content changes
+  - explicit visible strings or signs
+  - stable return to ready posture
+  - ReactiveX-driven timing for settle and degraded-visibility behavior
