@@ -74,6 +74,9 @@ The interactive watch:
 - forces Claude to start with `--dangerously-skip-permissions`
 - still keeps Claude config in `tests/fixtures/agents/brains/cli-configs/claude/default/settings.json` for baseline startup behavior
 - does not use `houmao-server` routes or Houmao lifecycle CLIs for normal start/inspect/stop flow
+- leaves a successful `start` run live for manual prompting until the operator later runs `stop`
+- automatically reaps run-owned `cc-track-*` and `HMREC-*` tmux sessions if startup fails or is interrupted before the run reaches steady state
+- preserves the run root and its logs/artifacts for debugging even when failed or interrupted startup cleanup reaps live tmux resources
 
 The validated interactive run from 2026-03-20 is documented in:
 

@@ -1,7 +1,10 @@
 # Enhancement Proposal: CLI-Agent Test Fixtures Should Use Dummy Projects And Lightweight Roles
 
 ## Status
-Proposed
+Resolved on 2026-03-20.
+
+## Resolution Summary
+Tracked dummy projects now exist under `tests/fixtures/dummy-projects/`, lightweight runtime/demo roles such as `mailbox-demo` exist under `tests/fixtures/agents/roles/`, dedicated `mailbox-demo-{claude,codex}` blueprints bind those roles, and the mailbox tutorial/demo packs now provision copied dummy-project workdirs instead of defaulting to a worktree of the full repository.
 
 ## Summary
 Several CAO-backed demo and test flows currently hand Claude Code and Codex a git worktree of this repository as their working directory while also assigning heavyweight GPU-performance roles from `tests/fixtures/agents/roles/`.

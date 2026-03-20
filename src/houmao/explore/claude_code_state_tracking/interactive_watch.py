@@ -17,8 +17,8 @@ from rich.text import Text
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
 from houmao.agents.realm_controller.backends.tmux_runtime import (
+    cleanup_tmux_session,
     ensure_tmux_available,
-    kill_tmux_session,
     tmux_session_exists,
 )
 from houmao.explore.claude_code_state_tracking.models import (
@@ -70,6 +70,16 @@ class InteractiveWatchStartResult:
     manifest: InteractiveWatchManifest
 
 
+@dataclass
+class _InteractiveWatchStartupResources:
+    """Track workflow-owned resources created during startup."""
+
+    claude_session_name: str | None = None
+    dashboard_session_name: str | None = None
+    terminal_record_run_root: Path | None = None
+    metadata_written: bool = False
+
+
 def start_interactive_watch(
     *,
     repo_root: Path,
@@ -112,77 +122,88 @@ def start_interactive_watch(
     observed_version = detect_claude_version()
     claude_session_name = _session_name(prefix="cc-track-watch", run_id=run_root.name)
     dashboard_session_name = _session_name(prefix="cc-track-dashboard", run_id=run_root.name)
+    resources = _InteractiveWatchStartupResources()
+    try:
+        launch_tmux_session(
+            session_name=claude_session_name,
+            workdir=paths.workdir,
+            launch_script=build_result.launch_helper_path,
+        )
+        resources.claude_session_name = claude_session_name
+        pane_id = resolve_active_pane_id(session_name=claude_session_name)
+        resources.terminal_record_run_root = paths.terminal_record_run_root
+        terminal_record_payload = start_terminal_record(
+            mode="passive",
+            target_session=claude_session_name,
+            target_pane=pane_id,
+            tool="claude",
+            run_root=paths.terminal_record_run_root,
+            sample_interval_seconds=sample_interval_seconds,
+        )
 
-    launch_tmux_session(
-        session_name=claude_session_name,
-        workdir=paths.workdir,
-        launch_script=build_result.launch_helper_path,
-    )
-    pane_id = resolve_active_pane_id(session_name=claude_session_name)
-    terminal_record_payload = start_terminal_record(
-        mode="passive",
-        target_session=claude_session_name,
-        target_pane=pane_id,
-        tool="claude",
-        run_root=paths.terminal_record_run_root,
-        sample_interval_seconds=sample_interval_seconds,
-    )
+        dashboard_command = (
+            f"cd {repo_root} && "
+            f"pixi run python scripts/explore/claude-code-state-tracking/run.py dashboard "
+            f"--run-root {run_root}"
+        )
+        dashboard_script = _write_command_script(
+            script_path=paths.logs_dir / "dashboard_launch.sh",
+            command=dashboard_command,
+        )
+        manifest = InteractiveWatchManifest(
+            schema_version=INTERACTIVE_WATCH_SCHEMA_VERSION,
+            run_id=run_root.name,
+            repo_root=str(repo_root),
+            run_root=str(paths.run_root),
+            runtime_root=str(paths.runtime_root),
+            recipe_path=str(selected_recipe_path),
+            brain_home_path=str(build_result.home_path),
+            brain_manifest_path=str(build_result.manifest_path),
+            launch_helper_path=str(build_result.launch_helper_path),
+            workdir=str(paths.workdir),
+            claude_session_name=claude_session_name,
+            claude_attach_command=f"tmux attach-session -t {claude_session_name}",
+            dashboard_session_name=dashboard_session_name,
+            dashboard_attach_command=f"tmux attach-session -t {dashboard_session_name}",
+            dashboard_command=dashboard_command,
+            terminal_record_run_root=str(paths.terminal_record_run_root),
+            sample_interval_seconds=sample_interval_seconds,
+            settle_seconds=settle_seconds,
+            observed_version=observed_version,
+            trace_enabled=trace_enabled,
+            started_at_utc=now_utc_iso(),
+            stopped_at_utc=None,
+            stop_reason=None,
+        )
+        live_state = InteractiveWatchLiveState(
+            schema_version=INTERACTIVE_WATCH_SCHEMA_VERSION,
+            run_id=manifest.run_id,
+            run_root=manifest.run_root,
+            status="starting",
+            latest_state_path=str(paths.latest_state_path),
+            stop_requested_at_utc=None,
+            last_error=None,
+            updated_at_utc=now_utc_iso(),
+        )
+        _save_watch_manifest(paths.watch_manifest_path, manifest)
+        _save_watch_live_state(paths.live_state_path, live_state)
+        save_json(paths.artifacts_dir / "start_payload.json", terminal_record_payload)
+        resources.metadata_written = True
 
-    dashboard_command = (
-        f"cd {repo_root} && "
-        f"pixi run python scripts/explore/claude-code-state-tracking/run.py dashboard "
-        f"--run-root {run_root}"
-    )
-    dashboard_script = _write_command_script(
-        script_path=paths.logs_dir / "dashboard_launch.sh",
-        command=dashboard_command,
-    )
-    manifest = InteractiveWatchManifest(
-        schema_version=INTERACTIVE_WATCH_SCHEMA_VERSION,
-        run_id=run_root.name,
-        repo_root=str(repo_root),
-        run_root=str(paths.run_root),
-        runtime_root=str(paths.runtime_root),
-        recipe_path=str(selected_recipe_path),
-        brain_home_path=str(build_result.home_path),
-        brain_manifest_path=str(build_result.manifest_path),
-        launch_helper_path=str(build_result.launch_helper_path),
-        workdir=str(paths.workdir),
-        claude_session_name=claude_session_name,
-        claude_attach_command=f"tmux attach-session -t {claude_session_name}",
-        dashboard_session_name=dashboard_session_name,
-        dashboard_attach_command=f"tmux attach-session -t {dashboard_session_name}",
-        dashboard_command=dashboard_command,
-        terminal_record_run_root=str(paths.terminal_record_run_root),
-        sample_interval_seconds=sample_interval_seconds,
-        settle_seconds=settle_seconds,
-        observed_version=observed_version,
-        trace_enabled=trace_enabled,
-        started_at_utc=now_utc_iso(),
-        stopped_at_utc=None,
-        stop_reason=None,
-    )
-    live_state = InteractiveWatchLiveState(
-        schema_version=INTERACTIVE_WATCH_SCHEMA_VERSION,
-        run_id=manifest.run_id,
-        run_root=manifest.run_root,
-        status="starting",
-        latest_state_path=str(paths.latest_state_path),
-        stop_requested_at_utc=None,
-        last_error=None,
-        updated_at_utc=now_utc_iso(),
-    )
-    _save_watch_manifest(paths.watch_manifest_path, manifest)
-    _save_watch_live_state(paths.live_state_path, live_state)
-    save_json(paths.artifacts_dir / "start_payload.json", terminal_record_payload)
-
-    launch_tmux_session(
-        session_name=dashboard_session_name,
-        workdir=repo_root,
-        launch_script=dashboard_script,
-    )
-    _wait_for_dashboard_running(paths=paths)
-    return InteractiveWatchStartResult(run_root=run_root, manifest=manifest)
+        launch_tmux_session(
+            session_name=dashboard_session_name,
+            workdir=repo_root,
+            launch_script=dashboard_script,
+        )
+        resources.dashboard_session_name = dashboard_session_name
+        _wait_for_dashboard_running(paths=paths)
+        return InteractiveWatchStartResult(run_root=run_root, manifest=manifest)
+    except KeyboardInterrupt as exc:
+        _cleanup_failed_start(paths=paths, resources=resources, last_error=_error_text(exc))
+        raise
+    except Exception as exc:
+        _cleanup_failed_start(paths=paths, resources=resources, last_error=_error_text(exc))
+        raise
 
 
 def inspect_interactive_watch(*, repo_root: Path, run_root: Path | None) -> dict[str, Any]:
@@ -551,6 +572,77 @@ def _load_watch_live_state(path: Path) -> InteractiveWatchLiveState:
     return InteractiveWatchLiveState.from_payload(payload)
 
 
+def _cleanup_failed_start(
+    *, paths: InteractiveWatchPaths, resources: _InteractiveWatchStartupResources, last_error: str
+) -> None:
+    """Best-effort cleanup for one failed or interrupted startup."""
+
+    if resources.metadata_written:
+        _mark_start_failed(paths=paths, last_error=last_error)
+    if resources.terminal_record_run_root is not None:
+        _cleanup_terminal_record_start(run_root=resources.terminal_record_run_root)
+    if resources.dashboard_session_name is not None:
+        _kill_tmux_session_if_exists(session_name=resources.dashboard_session_name)
+    if resources.claude_session_name is not None:
+        _kill_tmux_session_if_exists(session_name=resources.claude_session_name)
+
+
+def _mark_start_failed(*, paths: InteractiveWatchPaths, last_error: str) -> None:
+    """Persist failed startup state when watch metadata exists."""
+
+    try:
+        live_state = _load_watch_live_state(paths.live_state_path)
+    except (FileNotFoundError, KeyError, TypeError, ValueError):
+        return
+    _save_watch_live_state(
+        paths.live_state_path,
+        InteractiveWatchLiveState(
+            schema_version=live_state.schema_version,
+            run_id=live_state.run_id,
+            run_root=live_state.run_root,
+            status="failed",
+            latest_state_path=live_state.latest_state_path,
+            stop_requested_at_utc=live_state.stop_requested_at_utc,
+            last_error=last_error,
+            updated_at_utc=now_utc_iso(),
+        ),
+    )
+
+
+def _cleanup_terminal_record_start(*, run_root: Path) -> None:
+    """Best-effort cleanup for one partially started terminal-record run."""
+
+    recorder_paths = TerminalRecordPaths.from_run_root(run_root=run_root)
+    if recorder_paths.live_state_path.is_file():
+        try:
+            stop_terminal_record(run_root=run_root)
+        except (FileNotFoundError, KeyError, TypeError, ValueError, RuntimeError):
+            pass
+    _kill_tmux_session_if_exists(session_name=_terminal_record_session_name(run_root=run_root))
+
+
+def _terminal_record_session_name(*, run_root: Path) -> str:
+    """Return the recorder tmux session name for one run root."""
+
+    recorder_paths = TerminalRecordPaths.from_run_root(run_root=run_root)
+    if recorder_paths.manifest_path.is_file():
+        try:
+            return load_manifest(recorder_paths.manifest_path).recorder_session_name
+        except (FileNotFoundError, KeyError, TypeError, ValueError):
+            pass
+    normalized = run_root.name.replace(":", "-").replace(".", "-")
+    return f"HMREC-{normalized}"
+
+
+def _error_text(error: BaseException) -> str:
+    """Return a stable error string for live-state persistence."""
+
+    message = str(error).strip()
+    if message:
+        return message
+    return error.__class__.__name__
+
+
 def _wait_for_dashboard_running(*, paths: InteractiveWatchPaths) -> None:
     """Wait until the dashboard updates live state to running."""
 
@@ -585,7 +677,7 @@ def _kill_tmux_session_if_exists(*, session_name: str) -> None:
 
     if not tmux_session_exists(session_name=session_name):
         return
-    kill_tmux_session(session_name=session_name)
+    cleanup_tmux_session(session_name=session_name)
 
 
 def _sample_runtime_observation(

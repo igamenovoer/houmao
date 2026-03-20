@@ -32,6 +32,30 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _write_recipe(path: Path) -> None:
+    _write(
+        path,
+        "\n".join(
+            [
+                "schema_version: 1",
+                "name: interactive-watch-default",
+                "tool: claude",
+                "skills:",
+                "  - openspec-explore",
+                "config_profile: default",
+                "credential_profile: personal-a-default",
+            ]
+        )
+        + "\n",
+    )
+
+
+def _mock_terminal_record_start(paths: InteractiveWatchPaths) -> dict[str, str]:
+    paths.terminal_record_run_root.mkdir(parents=True, exist_ok=True)
+    _write(paths.terminal_record_run_root / "live_state.json", "{}\n")
+    return {"run_root": str(paths.terminal_record_run_root)}
+
+
 def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
     return InteractiveWatchManifest(
         schema_version=1,
@@ -114,21 +138,7 @@ def _save_terminal_record_manifest(paths: InteractiveWatchPaths) -> None:
 
 def test_start_interactive_watch_builds_run_local_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     recipe_path = tmp_path / "recipe.yaml"
-    _write(
-        recipe_path,
-        "\n".join(
-            [
-                "schema_version: 1",
-                "name: interactive-watch-default",
-                "tool: claude",
-                "skills:",
-                "  - openspec-explore",
-                "config_profile: default",
-                "credential_profile: personal-a-default",
-            ]
-        )
-        + "\n",
-    )
+    _write_recipe(recipe_path)
     requested: dict[str, object] = {}
 
     def _fake_build(request):
@@ -192,6 +202,243 @@ def test_start_interactive_watch_builds_run_local_runtime(tmp_path: Path, monkey
     assert manifest_payload["runtime_root"] == str(run_root / "runtime")
     assert manifest_payload["brain_home_path"].startswith(str(run_root / "runtime"))
     assert "exec bash -lc" in dashboard_script
+
+
+def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write_recipe(recipe_path)
+    run_root = tmp_path / "interactive-run"
+    paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
+    cleaned_sessions: list[str] = []
+    recorder_stop_calls: list[Path] = []
+
+    def _fake_build(_request):
+        home_path = paths.runtime_root / "homes" / "claude-home"
+        manifest_path = paths.runtime_root / "manifests" / "claude-home.yaml"
+        launch_path = home_path / "launch.sh"
+        home_path.mkdir(parents=True, exist_ok=True)
+        launch_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
+        return SimpleNamespace(
+            home_path=home_path,
+            manifest_path=manifest_path,
+            launch_helper_path=launch_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.build_brain_home",
+        _fake_build,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.launch_tmux_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.resolve_active_pane_id",
+        lambda **_kwargs: "%1",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.start_terminal_record",
+        lambda **_kwargs: _mock_terminal_record_start(paths),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.stop_terminal_record",
+        lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
+        lambda: "2.1.80 (Claude Code)",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.tmux_session_exists",
+        lambda *, session_name: True,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.cleanup_tmux_session",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+
+    with pytest.raises(RuntimeError, match="dashboard failed"):
+        start_interactive_watch(
+            repo_root=tmp_path,
+            output_root=run_root,
+            recipe_path=recipe_path,
+            sample_interval_seconds=0.25,
+            settle_seconds=1.5,
+            trace_enabled=True,
+        )
+
+    live_state_payload = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
+    assert recorder_stop_calls == [paths.terminal_record_run_root]
+    assert set(cleaned_sessions) == {
+        "cc-track-watch-interactive-run",
+        "cc-track-dashboard-interactive-run",
+        "HMREC-terminal-record-interactive-run",
+    }
+    assert live_state_payload["status"] == "failed"
+    assert live_state_payload["last_error"] == "dashboard failed"
+
+
+def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write_recipe(recipe_path)
+    run_root = tmp_path / "interactive-run"
+    paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
+    cleaned_sessions: list[str] = []
+    recorder_stop_calls: list[Path] = []
+
+    def _fake_build(_request):
+        home_path = paths.runtime_root / "homes" / "claude-home"
+        manifest_path = paths.runtime_root / "manifests" / "claude-home.yaml"
+        launch_path = home_path / "launch.sh"
+        home_path.mkdir(parents=True, exist_ok=True)
+        launch_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
+        return SimpleNamespace(
+            home_path=home_path,
+            manifest_path=manifest_path,
+            launch_helper_path=launch_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.build_brain_home",
+        _fake_build,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.launch_tmux_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.resolve_active_pane_id",
+        lambda **_kwargs: "%1",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.start_terminal_record",
+        lambda **_kwargs: _mock_terminal_record_start(paths),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.stop_terminal_record",
+        lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
+        lambda: "2.1.80 (Claude Code)",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
+        lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.tmux_session_exists",
+        lambda *, session_name: True,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.cleanup_tmux_session",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        start_interactive_watch(
+            repo_root=tmp_path,
+            output_root=run_root,
+            recipe_path=recipe_path,
+            sample_interval_seconds=0.25,
+            settle_seconds=1.5,
+            trace_enabled=True,
+        )
+
+    live_state_payload = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
+    assert recorder_stop_calls == [paths.terminal_record_run_root]
+    assert set(cleaned_sessions) == {
+        "cc-track-watch-interactive-run",
+        "cc-track-dashboard-interactive-run",
+        "HMREC-terminal-record-interactive-run",
+    }
+    assert live_state_payload["status"] == "failed"
+    assert live_state_payload["last_error"] == "KeyboardInterrupt"
+
+
+def test_start_interactive_watch_falls_back_to_direct_recorder_session_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write_recipe(recipe_path)
+    run_root = tmp_path / "interactive-run"
+    paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
+    cleaned_sessions: list[str] = []
+
+    def _fake_build(_request):
+        home_path = paths.runtime_root / "homes" / "claude-home"
+        manifest_path = paths.runtime_root / "manifests" / "claude-home.yaml"
+        launch_path = home_path / "launch.sh"
+        home_path.mkdir(parents=True, exist_ok=True)
+        launch_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
+        return SimpleNamespace(
+            home_path=home_path,
+            manifest_path=manifest_path,
+            launch_helper_path=launch_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.build_brain_home",
+        _fake_build,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.launch_tmux_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.resolve_active_pane_id",
+        lambda **_kwargs: "%1",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.start_terminal_record",
+        lambda **_kwargs: _mock_terminal_record_start(paths),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.stop_terminal_record",
+        lambda *, run_root: (_ for _ in ()).throw(RuntimeError("stop failed")),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
+        lambda: "2.1.80 (Claude Code)",
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.tmux_session_exists",
+        lambda *, session_name: True,
+    )
+    monkeypatch.setattr(
+        "houmao.explore.claude_code_state_tracking.interactive_watch.cleanup_tmux_session",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+
+    with pytest.raises(RuntimeError, match="dashboard failed"):
+        start_interactive_watch(
+            repo_root=tmp_path,
+            output_root=run_root,
+            recipe_path=recipe_path,
+            sample_interval_seconds=0.25,
+            settle_seconds=1.5,
+            trace_enabled=True,
+        )
+
+    assert "HMREC-terminal-record-interactive-run" in cleaned_sessions
 
 
 def test_inspect_interactive_watch_returns_latest_state_and_artifacts(
