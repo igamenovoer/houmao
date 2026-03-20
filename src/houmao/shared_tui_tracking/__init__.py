@@ -1,0 +1,73 @@
+"""Shared tracked-TUI core for official/runtime live and replay paths."""
+
+from houmao.shared_tui_tracking.detectors import (
+    BaseTrackedTurnSignalDetector,
+    ClaudeCodeSignalDetectorV2_1_X,
+    CodexTrackedTurnSignalDetector,
+    FallbackClaudeDetector,
+    FallbackTrackedTurnSignalDetector,
+    select_claude_detector,
+    select_tracked_turn_signal_detector,
+)
+from houmao.shared_tui_tracking.models import (
+    CompletionState,
+    DetectedTurnSignals,
+    ParseStatus,
+    ParsedSurfaceContext,
+    ProcessState,
+    ReadinessState,
+    RecordedInputEvent,
+    RecordedObservation,
+    ReplayEvent,
+    RuntimeObservation,
+    TrackedDiagnosticsAvailability,
+    TrackedLastTurnResult,
+    TrackedLastTurnSource,
+    TrackedTimelineState,
+    Tristate,
+    TurnPhase,
+    TransportState,
+)
+from houmao.shared_tui_tracking.public_state import (
+    diagnostics_availability,
+    tracked_last_turn_source_from_anchor_source,
+    turn_phase_from_signals,
+)
+from houmao.shared_tui_tracking.reducer import (
+    StreamStateReducer,
+    classify_runtime_availability,
+    replay_timeline,
+)
+
+__all__ = [
+    "BaseTrackedTurnSignalDetector",
+    "ClaudeCodeSignalDetectorV2_1_X",
+    "CodexTrackedTurnSignalDetector",
+    "CompletionState",
+    "DetectedTurnSignals",
+    "FallbackClaudeDetector",
+    "FallbackTrackedTurnSignalDetector",
+    "ParseStatus",
+    "ParsedSurfaceContext",
+    "ProcessState",
+    "ReadinessState",
+    "RecordedInputEvent",
+    "RecordedObservation",
+    "ReplayEvent",
+    "RuntimeObservation",
+    "StreamStateReducer",
+    "TrackedDiagnosticsAvailability",
+    "TrackedLastTurnResult",
+    "TrackedLastTurnSource",
+    "TrackedTimelineState",
+    "Tristate",
+    "TransportState",
+    "TurnPhase",
+    "classify_runtime_availability",
+    "diagnostics_availability",
+    "replay_timeline",
+    "select_claude_detector",
+    "select_tracked_turn_signal_detector",
+    "tracked_last_turn_source_from_anchor_source",
+    "turn_phase_from_signals",
+]

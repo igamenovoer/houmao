@@ -82,19 +82,22 @@ def _differing_fields(*, ground_item: TimelineState, replay_item: TimelineState)
         fields.append("turn_phase")
     if ground_item.last_turn_result != replay_item.last_turn_result:
         fields.append("last_turn_result")
+    if ground_item.last_turn_source != replay_item.last_turn_source:
+        fields.append("last_turn_source")
     return fields
 
 
-def _transition_sequence(timeline: list[TimelineState]) -> list[tuple[str, str, str]]:
+def _transition_sequence(timeline: list[TimelineState]) -> list[tuple[str, str, str, str]]:
     """Return ordered public-state transitions for one timeline."""
 
-    transitions: list[tuple[str, str, str]] = []
-    previous: tuple[str, str, str] | None = None
+    transitions: list[tuple[str, str, str, str]] = []
+    previous: tuple[str, str, str, str] | None = None
     for item in timeline:
         current = (
             item.diagnostics_availability,
             item.turn_phase,
             item.last_turn_result,
+            item.last_turn_source,
         )
         if current != previous:
             transitions.append(current)

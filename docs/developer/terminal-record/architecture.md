@@ -56,10 +56,12 @@ Replay-grade artifacts:
 - `pane_snapshots.ndjson`
 - `input_events.ndjson` when `input_capture_level` is `authoritative_managed` or `managed_only`
 - `parser_observed.ndjson`
-- `state_observed.ndjson`
+- `state_observed.ndjson` using the official tracked-state vocabulary for diagnostics posture, `surface`, `turn`, and `last_turn`
 - `labels.json`
 
 The most important downstream rule is simple: parser/state replay should use pane snapshots, not cast reconstruction.
+
+`terminal_record add-label` remains the primary repo-owned label-authoring surface. Replay-grade labels should target official tracked-state fields such as diagnostics posture, `surface_accepting_input`, `turn_phase`, `last_turn_result`, and `last_turn_source` rather than older readiness/completion names.
 
 ## Runtime Integration Points
 

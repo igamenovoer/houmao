@@ -84,7 +84,9 @@ def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
     )
 
 
-def _watch_live_state(paths: InteractiveWatchPaths, *, status: str, stop_requested: bool = False) -> InteractiveWatchLiveState:
+def _watch_live_state(
+    paths: InteractiveWatchPaths, *, status: str, stop_requested: bool = False
+) -> InteractiveWatchLiveState:
     return InteractiveWatchLiveState(
         schema_version=1,
         run_id=paths.run_root.name,
@@ -97,7 +99,9 @@ def _watch_live_state(paths: InteractiveWatchPaths, *, status: str, stop_request
     )
 
 
-def _save_watch_files(paths: InteractiveWatchPaths, *, status: str = "running", stop_requested: bool = False) -> None:
+def _save_watch_files(
+    paths: InteractiveWatchPaths, *, status: str = "running", stop_requested: bool = False
+) -> None:
     save_json(paths.watch_manifest_path, _watch_manifest(paths).to_payload())
     save_json(
         paths.live_state_path,
@@ -136,7 +140,9 @@ def _save_terminal_record_manifest(paths: InteractiveWatchPaths) -> None:
     )
 
 
-def test_start_interactive_watch_builds_run_local_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_interactive_watch_builds_run_local_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     recipe_path = tmp_path / "recipe.yaml"
     _write_recipe(recipe_path)
     requested: dict[str, object] = {}
@@ -453,6 +459,7 @@ def test_inspect_interactive_watch_returns_latest_state_and_artifacts(
         {
             "turn_phase": "ready",
             "last_turn_result": "success",
+            "last_turn_source": "surface_inference",
             "diagnostics_availability": "available",
         },
     )
@@ -474,7 +481,9 @@ def test_inspect_interactive_watch_returns_latest_state_and_artifacts(
     assert payload["artifact_paths"]["state_samples"] == str(paths.state_samples_path)
 
 
-def test_stop_interactive_watch_finalizes_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stop_interactive_watch_finalizes_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
     paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -577,7 +586,9 @@ def test_run_dashboard_persists_live_state_artifacts(
     assert paths.transitions_path.read_text(encoding="utf-8").strip()
 
 
-def test_cli_start_prints_json_payload(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_start_prints_json_payload(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     run_root = tmp_path / "interactive-run"
     manifest = _watch_manifest(InteractiveWatchPaths.from_run_root(run_root=run_root))
     monkeypatch.setattr(

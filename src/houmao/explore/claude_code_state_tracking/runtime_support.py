@@ -61,7 +61,9 @@ def send_key(*, pane_id: str, key: str) -> None:
     run_tmux(["send-keys", "-t", pane_id, key])
 
 
-def wait_for_ready(*, pane_id: str, detector: BaseTurnSignalDetector, timeout_seconds: float) -> None:
+def wait_for_ready(
+    *, pane_id: str, detector: BaseTurnSignalDetector, timeout_seconds: float
+) -> None:
     """Wait until the detector reports a ready posture."""
 
     deadline = _monotonic_deadline(timeout_seconds=timeout_seconds)

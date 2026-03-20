@@ -23,6 +23,12 @@ from houmao.lifecycle import (
     build_readiness_pipeline,
     normalize_projection_text,
 )
+from houmao.shared_tui_tracking.models import ParsedSurfaceContext
+from houmao.shared_tui_tracking.public_state import (
+    diagnostics_availability as shared_diagnostics_availability,
+    tracked_last_turn_source_from_anchor_source,
+    turn_phase_from_signals,
+)
 from houmao.server.models import (
     CompletionState,
     HoumaoTrackedDiagnostics,
@@ -45,7 +51,6 @@ from houmao.server.models import (
     ParseStatus,
     ProcessState,
     ReadinessState,
-    TrackedDiagnosticsAvailability,
     TrackedLastTurnResult,
     TrackedLastTurnSource,
     TransportState,
@@ -517,7 +522,7 @@ class LiveSessionTracker:
             )
             detected_turn_signals = select_tracked_turn_signal_detector(tool=identity.tool).detect(
                 output_text=output_text,
-                parsed_surface=parsed_surface,
+                parsed_surface=_parsed_surface_context(parsed_surface),
             )
             diagnostics = _build_tracked_diagnostics(
                 transport_state=transport_state,
@@ -985,7 +990,10 @@ class LiveSessionTracker:
         if terminal_result is None:
             return previous_last_turn
 
-        if active_anchor_id == self.m_last_published_turn_anchor_id and previous_last_turn.result == terminal_result:
+        if (
+            active_anchor_id == self.m_last_published_turn_anchor_id
+            and previous_last_turn.result == terminal_result
+        ):
             return previous_last_turn
 
         self.m_last_published_turn_anchor_id = active_anchor_id
@@ -1254,13 +1262,15 @@ def _build_tracked_diagnostics(
     """Build the low-level diagnostics view for one tracked sample."""
 
     return HoumaoTrackedDiagnostics(
-        availability=_diagnostics_availability(
+        availability=shared_diagnostics_availability(
             transport_state=transport_state,
             process_state=process_state,
             parse_status=parse_status,
-            probe_error=probe_error,
-            parse_error=parse_error,
-            parsed_surface=parsed_surface,
+            probe_error_present=probe_error is not None,
+            parse_error_present=parse_error is not None,
+            parsed_surface_available=(
+                parsed_surface is not None and parsed_surface.availability == "supported"
+            ),
         ),
         transport_state=transport_state,
         process_state=process_state,
@@ -1268,36 +1278,6 @@ def _build_tracked_diagnostics(
         probe_error=probe_error,
         parse_error=parse_error,
     )
-
-
-def _diagnostics_availability(
-    *,
-    transport_state: TransportState,
-    process_state: ProcessState,
-    parse_status: ParseStatus,
-    probe_error: HoumaoErrorDetail | None,
-    parse_error: HoumaoErrorDetail | None,
-    parsed_surface: HoumaoParsedSurface | None,
-) -> TrackedDiagnosticsAvailability:
-    """Map low-level observation outcomes into diagnostic availability."""
-
-    if (
-        probe_error is not None
-        or parse_error is not None
-        or transport_state == "probe_error"
-        or process_state == "probe_error"
-        or parse_status in {"probe_error", "parse_error"}
-    ):
-        return "error"
-    if transport_state == "tmux_missing":
-        return "unavailable"
-    if process_state == "tui_down":
-        return "tui_down"
-    if process_state == "unsupported_tool" or parse_status == "unsupported_tool":
-        return "unknown"
-    if parse_status == "parsed" and parsed_surface is not None and parsed_surface.availability == "supported":
-        return "available"
-    return "unknown"
 
 
 def _build_turn_phase(
@@ -1311,32 +1291,34 @@ def _build_turn_phase(
 ) -> ManagedAgentTurnPhase:
     """Map the current cycle into the simplified public turn phase."""
 
-    if diagnostics.availability in {"error", "tui_down", "unavailable"}:
-        return "unknown"
-    if active_turn_anchor is not None:
-        if (
-            last_turn.result == "success"
-            and reduction.completion_state == "completed"
-            and surface.ready_posture == "yes"
-            and not detected_turn_signals.success_blocked
-        ):
-            return "ready"
-        return "active"
-    if detected_turn_signals.active_evidence:
-        return "active"
-    if detected_turn_signals.ambiguous_interactive_surface:
-        return "unknown"
-    if surface.ready_posture == "yes":
-        return "ready"
-    return "unknown"
+    return turn_phase_from_signals(
+        diagnostics_availability_value=diagnostics.availability,
+        surface_ready_posture=surface.ready_posture,
+        active_turn_anchor_present=active_turn_anchor is not None,
+        reduction_completion_state=reduction.completion_state,
+        detected_turn_signals=detected_turn_signals,
+        last_turn_result=last_turn.result,
+    )
 
 
 def _tracked_last_turn_source(active_turn_anchor: TurnAnchor) -> TrackedLastTurnSource:
     """Map one internal turn-anchor source to the public last-turn source enum."""
 
-    if active_turn_anchor.source == "terminal_input":
-        return "explicit_input"
-    return "surface_inference"
+    return tracked_last_turn_source_from_anchor_source(active_turn_anchor.source)
+
+
+def _parsed_surface_context(
+    parsed_surface: HoumaoParsedSurface | None,
+) -> ParsedSurfaceContext | None:
+    """Return the detector-facing parsed-surface context when available."""
+
+    if parsed_surface is None:
+        return None
+    return ParsedSurfaceContext(
+        business_state=parsed_surface.business_state,
+        input_mode=parsed_surface.input_mode,
+        ui_context=parsed_surface.ui_context,
+    )
 
 
 def _terminal_alias(identity: HoumaoTrackedSessionIdentity) -> str:

@@ -17,6 +17,7 @@ from houmao.explore.claude_code_state_tracking.interactive_watch import (
 from houmao.explore.claude_code_state_tracking.live import run_live_capture
 from houmao.explore.claude_code_state_tracking.models import (
     HarnessPaths,
+    RecordedInputEvent,
     RecordedObservation,
     RuntimeObservation,
     load_ndjson,
@@ -212,10 +213,12 @@ def _run_replay_workflow(
         observed_version=observed_version,
         settle_seconds=settle_seconds,
     )
+    input_events = _load_recorded_input_events(recording_root=source_root)
     replay, replay_events = replay_timeline(
         observations=observations,
         observed_version=observed_version,
         settle_seconds=settle_seconds,
+        input_events=input_events,
     )
     overwrite_ndjson(paths.groundtruth_timeline_path, [item.to_payload() for item in groundtruth])
     overwrite_ndjson(paths.replay_timeline_path, [item.to_payload() for item in replay])
@@ -253,6 +256,23 @@ def _load_recorded_observations(
             )
         )
     return observations
+
+
+def _load_recorded_input_events(*, recording_root: Path) -> list[RecordedInputEvent]:
+    """Load structured input events captured with one terminal-record run."""
+
+    input_path = recording_root / "input_events.ndjson"
+    events: list[RecordedInputEvent] = []
+    for payload in load_ndjson(input_path):
+        events.append(
+            RecordedInputEvent(
+                event_id=str(payload["event_id"]),
+                elapsed_seconds=float(payload["elapsed_seconds"]),
+                ts_utc=str(payload["ts_utc"]),
+                source=str(payload.get("source", "unknown")),
+            )
+        )
+    return events
 
 
 def _resolve_scenario_path(path: Path) -> Path:

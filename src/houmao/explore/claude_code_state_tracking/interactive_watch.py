@@ -52,7 +52,9 @@ from houmao.terminal_record.service import (
 
 
 INTERACTIVE_WATCH_SCHEMA_VERSION = 1
-DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path("tmp/explore/claude-code-state-tracking/interactive-watch")
+DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path(
+    "tmp/explore/claude-code-state-tracking/interactive-watch"
+)
 DEFAULT_INTERACTIVE_RECIPE = Path(
     "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
 )
@@ -228,9 +230,7 @@ def inspect_interactive_watch(*, repo_root: Path, run_root: Path | None) -> dict
         "dashboard_session_running": tmux_session_exists(
             session_name=manifest.dashboard_session_name
         ),
-        "recorder_status": status_terminal_record(
-            run_root=Path(manifest.terminal_record_run_root)
-        ),
+        "recorder_status": status_terminal_record(run_root=Path(manifest.terminal_record_run_root)),
         "live_status": live_state.to_payload(),
         "latest_state": latest_state,
         "artifact_paths": {
@@ -405,6 +405,7 @@ def run_dashboard(*, run_root: Path) -> int:
                         surface_ready_posture=observation_state.surface_ready_posture,
                         turn_phase=observation_state.turn_phase,
                         last_turn_result=observation_state.last_turn_result,
+                        last_turn_source=observation_state.last_turn_source,
                         detector_name=observation_state.detector_name,
                         detector_version=observation_state.detector_version,
                         active_reasons=observation_state.active_reasons,
@@ -427,18 +428,29 @@ def run_dashboard(*, run_root: Path) -> int:
                     reducer=reducer,
                     paths=paths,
                     latest_state_payload_ref=lambda payload=latest_state_payload: payload,
-                    latest_state_setter=lambda payload: _set_latest_state(paths=paths, payload=payload),
+                    latest_state_setter=lambda payload: _set_latest_state(
+                        paths=paths, payload=payload
+                    ),
                 )
                 latest_state_payload = load_json(paths.latest_state_path)
                 render_signature = json.dumps(latest_state_payload or {}, sort_keys=True)
                 if render_signature != last_render_signature:
                     last_render_signature = render_signature
-                    _trace_dashboard_render(paths=paths, payload=latest_state_payload, enabled=manifest.trace_enabled)
-                live.update(_render_dashboard(manifest=manifest, latest_state_payload=latest_state_payload))
+                    _trace_dashboard_render(
+                        paths=paths, payload=latest_state_payload, enabled=manifest.trace_enabled
+                    )
+                live.update(
+                    _render_dashboard(manifest=manifest, latest_state_payload=latest_state_payload)
+                )
 
                 current_live_state = _load_watch_live_state(paths.live_state_path)
-                recorder_status = status_terminal_record(run_root=Path(manifest.terminal_record_run_root))
-                if current_live_state.stop_requested_at_utc is not None and recorder_status["status"] != "running":
+                recorder_status = status_terminal_record(
+                    run_root=Path(manifest.terminal_record_run_root)
+                )
+                if (
+                    current_live_state.stop_requested_at_utc is not None
+                    and recorder_status["status"] != "running"
+                ):
                     break
                 time.sleep(manifest.sample_interval_seconds)
     except Exception as exc:
@@ -771,6 +783,7 @@ def _append_transition_events(
                 surface_ready_posture=latest_signals.ready_posture,
                 turn_phase=event.turn_phase,
                 last_turn_result=event.last_turn_result,
+                last_turn_source=event.last_turn_source,
                 detector_name=latest_signals.detector_name,
                 detector_version=latest_signals.detector_version,
                 active_reasons=latest_signals.active_reasons,
@@ -812,12 +825,9 @@ def _render_dashboard(
                 ),
                 _styled_state_line("turn", str(latest_state_payload["turn_phase"])),
                 _styled_state_line("last", str(latest_state_payload["last_turn_result"])),
-                _styled_state_line(
-                    "input", str(latest_state_payload["surface_accepting_input"])
-                ),
-                _styled_state_line(
-                    "editing", str(latest_state_payload["surface_editing_input"])
-                ),
+                _styled_state_line("source", str(latest_state_payload["last_turn_source"])),
+                _styled_state_line("input", str(latest_state_payload["surface_accepting_input"])),
+                _styled_state_line("editing", str(latest_state_payload["surface_editing_input"])),
                 _styled_state_line(
                     "ready_posture", str(latest_state_payload["surface_ready_posture"])
                 ),

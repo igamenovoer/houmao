@@ -518,6 +518,7 @@ def test_compare_timelines_reports_first_divergence() -> None:
         surface_ready_posture=replay[1].surface_ready_posture,
         turn_phase="unknown",
         last_turn_result=replay[1].last_turn_result,
+        last_turn_source=replay[1].last_turn_source,
         detector_name=replay[1].detector_name,
         detector_version=replay[1].detector_version,
         active_reasons=replay[1].active_reasons,

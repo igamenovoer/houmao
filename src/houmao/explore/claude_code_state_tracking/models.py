@@ -1,8 +1,4 @@
-"""Shared models for the Claude Code state-tracking explore harness.
-
-This module intentionally mirrors the simplified tracked-state vocabulary from
-OpenSpec without importing `houmao-server` tracker implementation code.
-"""
+"""Shared models for the Claude Code state-tracking explore harness."""
 
 from __future__ import annotations
 
@@ -11,12 +7,51 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from houmao.shared_tui_tracking.models import (
+    DetectedTurnSignals as DetectedSignals,
+    ParsedSurfaceContext,
+    RecordedInputEvent,
+    RecordedObservation,
+    ReplayEvent,
+    RuntimeObservation,
+    TrackedDiagnosticsAvailability as Availability,
+    TrackedLastTurnResult as LastTurnResult,
+    TrackedLastTurnSource as LastTurnSource,
+    TrackedTimelineState as TimelineState,
+    Tristate,
+    TurnPhase,
+)
 
-Tristate = Literal["yes", "no", "unknown"]
-Availability = Literal["available", "unavailable", "tui_down", "error", "unknown"]
-TurnPhase = Literal["ready", "active", "unknown"]
-LastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
+
 InteractiveWatchStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
+
+__all__ = [
+    "Availability",
+    "DetectedSignals",
+    "HarnessPaths",
+    "InteractiveWatchLiveState",
+    "InteractiveWatchManifest",
+    "InteractiveWatchPaths",
+    "InteractiveWatchStatus",
+    "LastTurnResult",
+    "LastTurnSource",
+    "LiveStateSample",
+    "ParsedSurfaceContext",
+    "RecordedInputEvent",
+    "RecordedObservation",
+    "ReplayEvent",
+    "RuntimeObservation",
+    "TimelineState",
+    "Tristate",
+    "TurnPhase",
+    "append_ndjson",
+    "load_json",
+    "load_ndjson",
+    "load_runtime_observations",
+    "load_timeline",
+    "overwrite_ndjson",
+    "save_json",
+]
 
 
 @dataclass(frozen=True)
@@ -69,144 +104,6 @@ class HarnessPaths:
 
 
 @dataclass(frozen=True)
-class RuntimeObservation:
-    """One runtime liveness sample captured alongside pane snapshots."""
-
-    ts_utc: str
-    elapsed_seconds: float
-    session_exists: bool
-    pane_exists: bool
-    pane_dead: bool
-    pane_pid: int | None
-    pane_pid_alive: bool
-    supported_process_pid: int | None
-    supported_process_alive: bool
-
-    def to_payload(self) -> dict[str, Any]:
-        """Return a JSON-serializable payload."""
-
-        return asdict(self)
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "RuntimeObservation":
-        """Parse one runtime-observation payload."""
-
-        return cls(
-            ts_utc=str(payload["ts_utc"]),
-            elapsed_seconds=float(payload["elapsed_seconds"]),
-            session_exists=bool(payload["session_exists"]),
-            pane_exists=bool(payload["pane_exists"]),
-            pane_dead=bool(payload.get("pane_dead", False)),
-            pane_pid=_optional_int(payload.get("pane_pid")),
-            pane_pid_alive=bool(payload.get("pane_pid_alive", False)),
-            supported_process_pid=_optional_int(payload.get("supported_process_pid")),
-            supported_process_alive=bool(payload.get("supported_process_alive", False)),
-        )
-
-
-@dataclass(frozen=True)
-class RecordedObservation:
-    """One replay-grade observation combining pane text and runtime diagnostics."""
-
-    sample_id: str
-    elapsed_seconds: float
-    ts_utc: str
-    output_text: str
-    runtime: RuntimeObservation | None
-
-
-@dataclass(frozen=True)
-class DetectedSignals:
-    """Normalized detector output for one visible surface."""
-
-    detector_name: str
-    detector_version: str
-    accepting_input: Tristate
-    editing_input: Tristate
-    ready_posture: Tristate
-    prompt_visible: bool
-    prompt_text: str | None
-    footer_interruptable: bool
-    active_evidence: bool
-    active_reasons: tuple[str, ...]
-    interrupted: bool
-    known_failure: bool
-    current_error_present: bool
-    success_candidate: bool
-    completion_marker: str | None
-    latest_status_line: str | None
-    surface_signature: str
-    notes: tuple[str, ...]
-
-    def to_payload(self) -> dict[str, Any]:
-        """Return a JSON-serializable payload."""
-
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class TimelineState:
-    """One sample-aligned state timeline row."""
-
-    sample_id: str
-    elapsed_seconds: float
-    ts_utc: str
-    diagnostics_availability: Availability
-    surface_accepting_input: Tristate
-    surface_editing_input: Tristate
-    surface_ready_posture: Tristate
-    turn_phase: TurnPhase
-    last_turn_result: LastTurnResult
-    detector_name: str
-    detector_version: str
-    active_reasons: tuple[str, ...]
-    notes: tuple[str, ...]
-
-    def to_payload(self) -> dict[str, Any]:
-        """Return a JSON-serializable payload."""
-
-        return asdict(self)
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "TimelineState":
-        """Parse one timeline payload."""
-
-        return cls(
-            sample_id=str(payload["sample_id"]),
-            elapsed_seconds=float(payload["elapsed_seconds"]),
-            ts_utc=str(payload["ts_utc"]),
-            diagnostics_availability=cast(Availability, str(payload["diagnostics_availability"])),
-            surface_accepting_input=cast(Tristate, str(payload["surface_accepting_input"])),
-            surface_editing_input=cast(Tristate, str(payload["surface_editing_input"])),
-            surface_ready_posture=cast(Tristate, str(payload["surface_ready_posture"])),
-            turn_phase=cast(TurnPhase, str(payload["turn_phase"])),
-            last_turn_result=cast(LastTurnResult, str(payload["last_turn_result"])),
-            detector_name=str(payload["detector_name"]),
-            detector_version=str(payload["detector_version"]),
-            active_reasons=tuple(str(item) for item in payload.get("active_reasons", [])),
-            notes=tuple(str(item) for item in payload.get("notes", [])),
-        )
-
-
-@dataclass(frozen=True)
-class ReplayEvent:
-    """One internal replay state-change event."""
-
-    source: Literal["observation", "timer"]
-    at_seconds: float
-    diagnostics_availability: Availability
-    turn_phase: TurnPhase
-    last_turn_result: LastTurnResult
-    sample_id: str | None
-    note: str
-
-    def to_payload(self) -> dict[str, Any]:
-        """Return a JSON-serializable payload."""
-
-        return asdict(self)
-
-
-@dataclass(frozen=True)
 class LiveStateSample:
     """One live state sample or timer-driven state emission."""
 
@@ -220,6 +117,7 @@ class LiveStateSample:
     surface_ready_posture: Tristate
     turn_phase: TurnPhase
     last_turn_result: LastTurnResult
+    last_turn_source: LastTurnSource
     detector_name: str
     detector_version: str
     active_reasons: tuple[str, ...]

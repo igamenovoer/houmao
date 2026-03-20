@@ -13,27 +13,24 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
+from houmao.shared_tui_tracking.models import (
+    CompletionState,
+    ParseStatus,
+    ProcessState,
+    ReadinessState,
+    TrackedDiagnosticsAvailability,
+    TrackedLastTurnResult,
+    TrackedLastTurnSource,
+    Tristate,
+    TransportState,
+    TurnPhase as ManagedAgentTurnPhase,
+)
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
 ManagedAgentTransportKind = Literal["tui", "headless"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
-ManagedAgentTurnPhase = Literal["ready", "active", "unknown"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
-Tristate = Literal["yes", "no", "unknown"]
-TrackedDiagnosticsAvailability = Literal["available", "unavailable", "tui_down", "error", "unknown"]
-TrackedLastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
-TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "none"]
-TransportState = Literal["tmux_up", "tmux_missing", "probe_error"]
-ProcessState = Literal["tui_up", "tui_down", "unsupported_tool", "probe_error", "unknown"]
-ParseStatus = Literal[
-    "parsed",
-    "skipped_tui_down",
-    "unsupported_tool",
-    "transport_unavailable",
-    "probe_error",
-    "parse_error",
-]
 OperatorStatus = Literal[
     "ready",
     "processing",
@@ -43,18 +40,6 @@ OperatorStatus = Literal[
     "unavailable",
     "error",
     "unknown",
-]
-ReadinessState = Literal["ready", "waiting", "blocked", "failed", "unknown", "stalled"]
-CompletionState = Literal[
-    "inactive",
-    "in_progress",
-    "candidate_complete",
-    "completed",
-    "waiting",
-    "blocked",
-    "failed",
-    "unknown",
-    "stalled",
 ]
 CompletionAuthority = Literal["turn_anchored", "unanchored_background"]
 TurnAnchorState = Literal["active", "absent", "lost"]
@@ -324,9 +309,7 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     parse_error: HoumaoErrorDetail | None = Field(default=None, exclude=True)
     operator_state: HoumaoOperatorState | None = Field(default=None, exclude=True)
     lifecycle_timing: HoumaoLifecycleTimingMetadata | None = Field(default=None, exclude=True)
-    lifecycle_authority: HoumaoLifecycleAuthorityMetadata | None = Field(
-        default=None, exclude=True
-    )
+    lifecycle_authority: HoumaoLifecycleAuthorityMetadata | None = Field(default=None, exclude=True)
 
 
 class HoumaoTerminalHistoryResponse(_HoumaoModel):

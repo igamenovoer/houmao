@@ -25,11 +25,12 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     run_tmux,
     tmux_error_detail,
 )
-from houmao.demo.cao_dual_shadow_watch.models import (
-    AgentSessionState,
-    MonitorObservation,
+from houmao.shared_tui_tracking.models import (
+    ParsedSurfaceContext,
+    RecordedInputEvent,
+    RecordedObservation,
 )
-from houmao.demo.cao_dual_shadow_watch.monitor import AgentStateTracker
+from houmao.shared_tui_tracking.reducer import replay_timeline
 
 from .models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -112,10 +113,14 @@ class TerminalRecordController:
             if self._active_mode_has_extra_clients():
                 self._taint_run("multiple_clients_attached")
             if self._stop_requested():
-                self._write_live_state(status="stopping", controller_pid=os.getpid(), last_error=None)
+                self._write_live_state(
+                    status="stopping", controller_pid=os.getpid(), last_error=None
+                )
                 return
             if self._recorder_session_stopped():
-                self._write_live_state(status="stopping", controller_pid=os.getpid(), last_error=None)
+                self._write_live_state(
+                    status="stopping", controller_pid=os.getpid(), last_error=None
+                )
                 return
             time.sleep(self.m_manifest.sample_interval_seconds)
 
@@ -147,7 +152,9 @@ class TerminalRecordController:
         output_text = capture_tmux_pane(target=self.m_manifest.target.pane_id)
         existing_count = 0
         if self.m_paths.pane_snapshots_path.is_file():
-            existing_count = sum(1 for _ in self.m_paths.pane_snapshots_path.open("r", encoding="utf-8"))
+            existing_count = sum(
+                1 for _ in self.m_paths.pane_snapshots_path.open("r", encoding="utf-8")
+            )
         snapshot = TerminalRecordPaneSnapshot(
             sample_id=f"s{existing_count + 1:06d}",
             elapsed_seconds=_elapsed_seconds(self.m_manifest.started_at_utc),
@@ -345,9 +352,7 @@ def start_terminal_record(
     recorder_session_name = _recorder_session_name(run_id=selected_run_root.name)
     if mode == "active":
         attach_command = f"env -u TMUX tmux attach-session -t {recorder_session_name}"
-    visual_recording_kind = (
-        "interactive_client" if mode == "active" else "readonly_observer"
-    )
+    visual_recording_kind = "interactive_client" if mode == "active" else "readonly_observer"
     input_capture_level: InputCaptureLevel = (
         "authoritative_managed" if mode == "active" else "output_only"
     )
@@ -501,13 +506,9 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
         )
 
     parser_stack = ShadowParserStack(tool=selected_tool)
-    tracker = AgentStateTracker(
-        session=_dummy_agent_session(tool=selected_tool, session_name=manifest.target.session_name),
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-    )
     parser_payloads: list[dict[str, Any]] = []
-    state_payloads: list[dict[str, Any]] = []
+    observations: list[RecordedObservation] = []
+    parser_payload_by_sample_id: dict[str, dict[str, Any]] = {}
     for snapshot in _load_snapshots(paths.pane_snapshots_path):
         parsed = parser_stack.parse_snapshot(
             snapshot.output_text,
@@ -526,51 +527,80 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
                 "parser_preset_id": assessment.parser_metadata.parser_preset_id,
                 "parser_preset_version": assessment.parser_metadata.parser_preset_version,
                 "baseline_invalidated": assessment.parser_metadata.baseline_invalidated,
+                "anomaly_codes": [
+                    anomaly.code
+                    for anomaly in (
+                        *assessment.parser_metadata.anomalies,
+                        *assessment.anomalies,
+                        *projection.anomalies,
+                    )
+                ],
                 "dialog_tail": projection.tail,
                 "normalized_text": projection.normalized_text,
             }
         )
-        observation = MonitorObservation(
-            slot="recorded",
-            tool=selected_tool,
-            terminal_id=manifest.target.pane_id,
-            tmux_session_name=manifest.target.session_name,
-            cao_status="recorded",
-            parser_family=parser_stack.parser_family,
-            parser_preset_id=assessment.parser_metadata.parser_preset_id,
-            parser_preset_version=assessment.parser_metadata.parser_preset_version,
-            availability=assessment.availability,
-            business_state=assessment.business_state,
-            input_mode=assessment.input_mode,
-            ui_context=assessment.ui_context,
-            normalized_projection_text=projection.normalized_text,
-            dialog_tail=projection.tail,
-            operator_blocked_excerpt=assessment.operator_blocked_excerpt,
-            anomaly_codes=tuple(
-                anomaly.code
-                for anomaly in (
-                    *assessment.parser_metadata.anomalies,
-                    *assessment.anomalies,
-                    *projection.anomalies,
-                )
-            ),
-            baseline_invalidated=assessment.parser_metadata.baseline_invalidated,
-            monotonic_ts=snapshot.elapsed_seconds,
-            error_detail=None,
+        parser_payload_by_sample_id[snapshot.sample_id] = parser_payloads[-1]
+        observations.append(
+            RecordedObservation(
+                sample_id=snapshot.sample_id,
+                elapsed_seconds=snapshot.elapsed_seconds,
+                ts_utc=snapshot.ts_utc,
+                output_text=snapshot.output_text,
+                runtime=None,
+                surface_context=ParsedSurfaceContext(
+                    business_state=assessment.business_state,
+                    input_mode=assessment.input_mode,
+                    ui_context=assessment.ui_context,
+                ),
+            )
         )
-        state, _ = tracker.observe(observation)
+    input_events = [
+        RecordedInputEvent(
+            event_id=item.event_id,
+            elapsed_seconds=item.elapsed_seconds,
+            ts_utc=item.ts_utc,
+            source=item.source,
+        )
+        for item in _load_input_events(paths.input_events_path)
+    ]
+    replay_timeline_rows, _ = replay_timeline(
+        observations=observations,
+        tool=selected_tool,
+        observed_version=None,
+        settle_seconds=1.0,
+        input_events=input_events,
+    )
+    state_payloads: list[dict[str, Any]] = []
+    for item in replay_timeline_rows:
+        parser_payload = parser_payload_by_sample_id[item.sample_id]
         state_payloads.append(
             {
-                "sample_id": snapshot.sample_id,
-                "elapsed_seconds": snapshot.elapsed_seconds,
-                "readiness_state": state.readiness_state,
-                "completion_state": state.completion_state,
-                "business_state": state.business_state,
-                "input_mode": state.input_mode,
-                "ui_context": state.ui_context,
-                "projection_changed": state.projection_changed,
-                "baseline_invalidated": state.baseline_invalidated,
-                "anomaly_codes": list(state.anomaly_codes),
+                "sample_id": item.sample_id,
+                "elapsed_seconds": item.elapsed_seconds,
+                "diagnostics_availability": item.diagnostics_availability,
+                "surface_accepting_input": item.surface_accepting_input,
+                "surface_editing_input": item.surface_editing_input,
+                "surface_ready_posture": item.surface_ready_posture,
+                "turn_phase": item.turn_phase,
+                "last_turn_result": item.last_turn_result,
+                "last_turn_source": item.last_turn_source,
+                "detector_name": item.detector_name,
+                "detector_version": item.detector_version,
+                "business_state": parser_payload["business_state"],
+                "input_mode": parser_payload["input_mode"],
+                "ui_context": parser_payload["ui_context"],
+                "baseline_invalidated": parser_payload["baseline_invalidated"],
+                "anomaly_codes": parser_payload["anomaly_codes"],
+                "readiness_state": _debug_readiness_state_from_parser(
+                    business_state=parser_payload["business_state"],
+                    input_mode=parser_payload["input_mode"],
+                    ui_context=parser_payload["ui_context"],
+                ),
+                "completion_state": _debug_completion_state_from_parser(
+                    business_state=parser_payload["business_state"],
+                    input_mode=parser_payload["input_mode"],
+                    ui_context=parser_payload["ui_context"],
+                ),
             }
         )
 
@@ -688,7 +718,9 @@ def parse_asciinema_cast_input_events(
             if event_kind != "i" or not isinstance(data, str):
                 continue
             elapsed_seconds = float(elapsed)
-            ts_value = (started_at + _duration_from_seconds(elapsed_seconds)).isoformat(timespec="seconds")
+            ts_value = (started_at + _duration_from_seconds(elapsed_seconds)).isoformat(
+                timespec="seconds"
+            )
             events.append(
                 TerminalRecordInputEvent(
                     event_id=f"i{len(events) + 1:06d}",
@@ -741,6 +773,13 @@ def _build_parser() -> argparse.ArgumentParser:
     add_label.add_argument("--business-state", default=None)
     add_label.add_argument("--input-mode", default=None)
     add_label.add_argument("--ui-context", default=None)
+    add_label.add_argument("--diagnostics-availability", default=None)
+    add_label.add_argument("--surface-accepting-input", default=None)
+    add_label.add_argument("--surface-editing-input", default=None)
+    add_label.add_argument("--surface-ready-posture", default=None)
+    add_label.add_argument("--turn-phase", default=None)
+    add_label.add_argument("--last-turn-result", default=None)
+    add_label.add_argument("--last-turn-source", default=None)
     add_label.add_argument("--readiness-state", default=None)
     add_label.add_argument("--completion-state", default=None)
     add_label.add_argument("--note", default=None)
@@ -768,13 +807,23 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 0
         if args.command == "status":
-            print(json.dumps(status_terminal_record(run_root=args.run_root), indent=2, sort_keys=True))
+            print(
+                json.dumps(status_terminal_record(run_root=args.run_root), indent=2, sort_keys=True)
+            )
             return 0
         if args.command == "stop":
-            print(json.dumps(stop_terminal_record(run_root=args.run_root), indent=2, sort_keys=True))
+            print(
+                json.dumps(stop_terminal_record(run_root=args.run_root), indent=2, sort_keys=True)
+            )
             return 0
         if args.command == "analyze":
-            print(json.dumps(analyze_terminal_record(run_root=args.run_root, tool=args.tool), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    analyze_terminal_record(run_root=args.run_root, tool=args.tool),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 0
         if args.command == "add-label":
             expectations = {
@@ -783,6 +832,13 @@ def main(argv: list[str] | None = None) -> int:
                     "business_state": args.business_state,
                     "input_mode": args.input_mode,
                     "ui_context": args.ui_context,
+                    "diagnostics_availability": args.diagnostics_availability,
+                    "surface_accepting_input": args.surface_accepting_input,
+                    "surface_editing_input": args.surface_editing_input,
+                    "surface_ready_posture": args.surface_ready_posture,
+                    "turn_phase": args.turn_phase,
+                    "last_turn_result": args.last_turn_result,
+                    "last_turn_source": args.last_turn_source,
                     "readiness_state": args.readiness_state,
                     "completion_state": args.completion_state,
                 }.items()
@@ -795,7 +851,9 @@ def main(argv: list[str] | None = None) -> int:
                         output_dir=args.output_dir,
                         label_id=str(args.label_id),
                         sample_id=str(args.sample_id),
-                        sample_end_id=str(args.sample_end_id) if args.sample_end_id is not None else None,
+                        sample_end_id=str(args.sample_end_id)
+                        if args.sample_end_id is not None
+                        else None,
                         scenario_id=str(args.scenario_id) if args.scenario_id is not None else None,
                         expectations=expectations,
                         note=str(args.note) if args.note is not None else None,
@@ -911,27 +969,45 @@ def _wait_for_final_status(live_state_path: Path) -> None:
         time.sleep(0.05)
 
 
-def _dummy_agent_session(*, tool: str, session_name: str) -> AgentSessionState:
-    """Return one minimal demo-session model for state tracking reuse."""
+def _debug_readiness_state_from_parser(
+    *,
+    business_state: str,
+    input_mode: str,
+    ui_context: str,
+) -> str:
+    """Return one conservative debug-only readiness state from parser fields."""
 
-    return AgentSessionState(
-        slot="recorded",
-        tool=tool,
-        blueprint_path="recorded",
-        brain_recipe_path="recorded",
-        role_name="recorded",
-        workdir="recorded",
-        brain_home_path="recorded",
-        brain_manifest_path="recorded",
-        launch_helper_path="recorded",
-        session_manifest_path="recorded",
-        agent_identity="recorded",
-        agent_id="recorded",
-        tmux_session_name=session_name,
-        cao_session_name="recorded",
-        terminal_id="recorded",
-        parsing_mode="shadow_only",
+    if input_mode == "modal" or ui_context in {"selection_menu", "slash_command"}:
+        return "blocked"
+    if business_state == "awaiting_operator":
+        return "blocked"
+    if business_state == "working":
+        return "waiting"
+    if input_mode == "freeform" and business_state == "idle":
+        return "ready"
+    return "unknown"
+
+
+def _debug_completion_state_from_parser(
+    *,
+    business_state: str,
+    input_mode: str,
+    ui_context: str,
+) -> str:
+    """Return one conservative debug-only completion state from parser fields."""
+
+    readiness_state = _debug_readiness_state_from_parser(
+        business_state=business_state,
+        input_mode=input_mode,
+        ui_context=ui_context,
     )
+    if readiness_state == "blocked":
+        return "blocked"
+    if business_state == "working":
+        return "in_progress"
+    if input_mode == "freeform" and business_state == "idle":
+        return "inactive"
+    return "waiting"
 
 
 def _load_snapshots(path: Path) -> list[TerminalRecordPaneSnapshot]:

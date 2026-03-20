@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+from houmao.demo.cao_dual_shadow_watch.models import AgentSessionState, MonitorObservation
+from houmao.demo.cao_dual_shadow_watch.monitor import AgentStateTracker
 from houmao.terminal_record import service as terminal_record_service
 from houmao.terminal_record.models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -67,9 +70,7 @@ def _manifest(
         target=_target(),
         tool=tool,
         sample_interval_seconds=DEFAULT_SAMPLE_INTERVAL_SECONDS,
-        visual_recording_kind=(
-            "interactive_client" if mode == "active" else "readonly_observer"
-        ),
+        visual_recording_kind=("interactive_client" if mode == "active" else "readonly_observer"),
         input_capture_level=capture_level,
         run_tainted=False,
         taint_reasons=(),
@@ -85,7 +86,9 @@ def _manifest(
     )
 
 
-def _live_state(*, run_root: Path, mode: str = "active", status: str = "running") -> TerminalRecordLiveState:
+def _live_state(
+    *, run_root: Path, mode: str = "active", status: str = "running"
+) -> TerminalRecordLiveState:
     paths = TerminalRecordPaths.from_run_root(run_root=run_root)
     return TerminalRecordLiveState(
         schema_version=TERMINAL_RECORD_SCHEMA_VERSION,
@@ -119,10 +122,29 @@ def _write_run_artifacts(
 
 def _read_ndjson(path: Path) -> list[dict[str, object]]:
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
+
+
+def _demo_session(*, tool: str, session_name: str) -> AgentSessionState:
+    return AgentSessionState(
+        slot="recorded",
+        tool=tool,
+        blueprint_path="recorded",
+        brain_recipe_path="recorded",
+        role_name="recorded",
+        workdir="recorded",
+        brain_home_path="recorded",
+        brain_manifest_path="recorded",
+        launch_helper_path="recorded",
+        session_manifest_path="recorded",
+        agent_identity="recorded",
+        agent_id="recorded",
+        tmux_session_name=session_name,
+        cao_session_name="recorded",
+        terminal_id="recorded",
+        parsing_mode="shadow_only",
+    )
 
 
 def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
@@ -469,6 +491,12 @@ def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: P
     assert parser_payload["business_state"] == "idle"
     assert parser_payload["input_mode"] == "freeform"
     assert parser_payload["ui_context"] == "normal_prompt"
+    assert state_payload["diagnostics_availability"] == "available"
+    assert state_payload["surface_accepting_input"] == "yes"
+    assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["turn_phase"] == "ready"
+    assert state_payload["last_turn_result"] == "none"
+    assert state_payload["last_turn_source"] == "none"
     assert state_payload["readiness_state"] == "ready"
     assert state_payload["completion_state"] == "inactive"
     assert state_payload["sample_id"] == "s000001"
@@ -486,7 +514,11 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
         sample_id="s000021",
         sample_end_id=None,
         scenario_id="trust-prompt-recovery",
-        expectations={"business_state": "awaiting_operator", "readiness_state": "blocked"},
+        expectations={
+            "business_state": "awaiting_operator",
+            "diagnostics_availability": "available",
+            "turn_phase": "unknown",
+        },
         note="Operator approval requested",
     )
     second = add_terminal_record_label(
@@ -496,7 +528,11 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
         sample_id="s000021",
         sample_end_id="s000025",
         scenario_id="trust-prompt-recovery",
-        expectations={"business_state": "awaiting_operator", "completion_state": "inactive"},
+        expectations={
+            "business_state": "awaiting_operator",
+            "surface_accepting_input": "no",
+            "last_turn_source": "none",
+        },
         note=None,
     )
 
@@ -514,9 +550,78 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
                 sample_end_id="s000025",
                 expectations={
                     "business_state": "awaiting_operator",
-                    "completion_state": "inactive",
+                    "surface_accepting_input": "no",
+                    "last_turn_source": "none",
                 },
                 note=None,
             ),
         ),
     )
+
+
+def test_analyze_terminal_record_keeps_demo_tracker_as_reference_only(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-009"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
+    fixture_text = Path("tests/fixtures/shadow_parser/codex/tui_completed.txt").read_text(
+        encoding="utf-8"
+    )
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-03-19T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": fixture_text,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    analyze_terminal_record(run_root=run_root, tool=None)
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+
+    parser_stack = ShadowParserStack(tool="codex")
+    parsed = parser_stack.parse_snapshot(fixture_text, baseline_pos=0)
+    assessment = parsed.surface_assessment
+    projection = parsed.dialog_projection
+    tracker = AgentStateTracker(
+        session=_demo_session(tool="codex", session_name=_target().session_name),
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    reference_state, _ = tracker.observe(
+        MonitorObservation(
+            slot="recorded",
+            tool="codex",
+            terminal_id=_target().pane_id,
+            tmux_session_name=_target().session_name,
+            cao_status="recorded",
+            parser_family=parser_stack.parser_family,
+            parser_preset_id=assessment.parser_metadata.parser_preset_id,
+            parser_preset_version=assessment.parser_metadata.parser_preset_version,
+            availability=assessment.availability,
+            business_state=assessment.business_state,
+            input_mode=assessment.input_mode,
+            ui_context=assessment.ui_context,
+            normalized_projection_text=projection.normalized_text,
+            dialog_tail=projection.tail,
+            operator_blocked_excerpt=assessment.operator_blocked_excerpt,
+            anomaly_codes=tuple(
+                anomaly.code
+                for anomaly in (
+                    *assessment.parser_metadata.anomalies,
+                    *assessment.anomalies,
+                    *projection.anomalies,
+                )
+            ),
+            baseline_invalidated=assessment.parser_metadata.baseline_invalidated,
+            monotonic_ts=0.0,
+            error_detail=None,
+        )
+    )
+
+    assert state_payload["readiness_state"] == reference_state.readiness_state
+    assert state_payload["completion_state"] == reference_state.completion_state

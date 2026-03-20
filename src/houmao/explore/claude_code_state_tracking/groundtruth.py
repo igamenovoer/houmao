@@ -10,6 +10,7 @@ from houmao.explore.claude_code_state_tracking.models import (
     Availability,
     DetectedSignals,
     LastTurnResult,
+    LastTurnSource,
     RecordedObservation,
     TimelineState,
     TurnPhase,
@@ -63,15 +64,19 @@ def classify_groundtruth(
     success_start_indices = _find_success_start_indices(rows=rows, settle_seconds=settle_seconds)
     timeline: list[TimelineState] = []
     last_result: LastTurnResult = "none"
+    last_source: LastTurnSource = "none"
     for index, row in enumerate(rows):
         signals = row.signals
         if row.availability == "available":
             if getattr(signals, "interrupted"):
                 last_result = "interrupted"
+                last_source = "surface_inference"
             elif getattr(signals, "known_failure"):
                 last_result = "known_failure"
+                last_source = "surface_inference"
             elif index in success_start_indices:
                 last_result = "success"
+                last_source = "surface_inference"
         timeline.append(
             TimelineState(
                 sample_id=row.observation.sample_id,
@@ -83,6 +88,7 @@ def classify_groundtruth(
                 surface_ready_posture=getattr(signals, "ready_posture"),
                 turn_phase=row.phase,
                 last_turn_result=last_result,
+                last_turn_source=last_source,
                 detector_name=getattr(signals, "detector_name"),
                 detector_version=getattr(signals, "detector_version"),
                 active_reasons=getattr(signals, "active_reasons"),
