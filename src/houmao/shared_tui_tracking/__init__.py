@@ -20,9 +20,12 @@ from houmao.shared_tui_tracking.models import (
     RecordedObservation,
     ReplayEvent,
     RuntimeObservation,
+    TrackerConfig,
     TrackedDiagnosticsAvailability,
     TrackedLastTurnResult,
     TrackedLastTurnSource,
+    TrackedStateSnapshot,
+    TrackedStateTransition,
     TrackedTimelineState,
     Tristate,
     TurnPhase,
@@ -33,11 +36,13 @@ from houmao.shared_tui_tracking.public_state import (
     tracked_last_turn_source_from_anchor_source,
     turn_phase_from_signals,
 )
+from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
 from houmao.shared_tui_tracking.reducer import (
     StreamStateReducer,
     classify_runtime_availability,
     replay_timeline,
 )
+from houmao.shared_tui_tracking.session import TuiTrackerSession
 
 __all__ = [
     "BaseTrackedTurnSignalDetector",
@@ -56,13 +61,19 @@ __all__ = [
     "ReplayEvent",
     "RuntimeObservation",
     "StreamStateReducer",
+    "TrackerConfig",
+    "TrackedStateSnapshot",
+    "TrackedStateTransition",
     "TrackedDiagnosticsAvailability",
     "TrackedLastTurnResult",
     "TrackedLastTurnSource",
     "TrackedTimelineState",
+    "TuiTrackerSession",
     "Tristate",
     "TransportState",
     "TurnPhase",
+    "DetectorProfileRegistry",
+    "app_id_from_tool",
     "classify_runtime_availability",
     "diagnostics_availability",
     "replay_timeline",

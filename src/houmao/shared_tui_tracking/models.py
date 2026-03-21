@@ -33,6 +33,75 @@ CompletionState = Literal[
     "unknown",
     "stalled",
 ]
+TrackerEventSource = Literal["snapshot", "timer", "input"]
+
+
+@dataclass(frozen=True)
+class TrackerConfig:
+    """Configuration for one standalone tracker session."""
+
+    settle_seconds: float
+    stability_threshold_seconds: float = 0.0
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TrackedStateSnapshot:
+    """Current standalone tracker state."""
+
+    surface_accepting_input: Tristate
+    surface_editing_input: Tristate
+    surface_ready_posture: Tristate
+    turn_phase: TurnPhase
+    last_turn_result: TrackedLastTurnResult
+    last_turn_source: TrackedLastTurnSource
+    detector_name: str
+    detector_version: str
+    active_reasons: tuple[str, ...]
+    notes: tuple[str, ...]
+    stability_signature: str
+    stable: bool
+    stable_for_seconds: float
+    stable_since_seconds: float
+    observed_at_seconds: float
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TrackedStateTransition:
+    """One emitted standalone tracker transition."""
+
+    source: TrackerEventSource
+    at_seconds: float
+    note: str
+    sample_id: str | None
+    surface_accepting_input: Tristate
+    surface_editing_input: Tristate
+    surface_ready_posture: Tristate
+    turn_phase: TurnPhase
+    last_turn_result: TrackedLastTurnResult
+    last_turn_source: TrackedLastTurnSource
+    detector_name: str
+    detector_version: str
+    active_reasons: tuple[str, ...]
+    notes: tuple[str, ...]
+    stability_signature: str
+    stable: bool
+    stable_for_seconds: float
+    stable_since_seconds: float
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
 
 
 @dataclass(frozen=True)

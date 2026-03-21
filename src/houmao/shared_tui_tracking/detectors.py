@@ -8,11 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from houmao.shared_tui_tracking.models import (
-    DetectedTurnSignals,
-    ParsedSurfaceContext,
-    Tristate,
-)
+from houmao.shared_tui_tracking.models import DetectedTurnSignals, ParsedSurfaceContext, Tristate
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -302,15 +298,7 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
             and surface.prompt_visible_after(latest_response_index)
         )
 
-        ambiguous_interactive_surface = bool(
-            parsed_surface is not None
-            and (
-                parsed_surface.input_mode == "modal"
-                or parsed_surface.ui_context in {"selection_menu", "slash_command"}
-                or parsed_surface.business_state == "awaiting_operator"
-            )
-            and not active_evidence
-        )
+        ambiguous_interactive_surface = slash_menu_visible and not active_evidence
         success_blocked = bool(
             footer_interruptable
             or footer_has_ready_advisory
@@ -341,10 +329,6 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
         )
         accepting_input: Tristate = "yes" if prompt_visible else "unknown"
         editing_input: Tristate = "yes" if prompt_text else "no" if prompt_visible else "unknown"
-        if parsed_surface is not None and parsed_surface.input_mode in {"modal", "closed"}:
-            accepting_input = "no"
-        if parsed_surface is not None and parsed_surface.input_mode == "modal":
-            editing_input = "unknown"
         if ambiguous_interactive_surface:
             ready_posture = "unknown"
         if active_evidence:
@@ -466,39 +450,21 @@ class CodexTrackedTurnSignalDetector(BaseTrackedTurnSignalDetector):
         )
         interrupted = _CODEX_INTERRUPTED_TEXT in text and prompt_visible and not active_status_row
         current_error_present = any(_CODEX_ERROR_CELL_RE.match(line) is not None for line in lines)
-        ambiguous_interactive_surface = bool(
-            (parsed_surface is not None and parsed_surface.input_mode == "modal")
-            or (
-                parsed_surface is not None
-                and parsed_surface.ui_context in {"selection_menu", "slash_command"}
-            )
-            or any(hint in text for hint in _CODEX_APPROVAL_HINTS)
-        )
-        active_evidence = bool(
-            steer_handoff
-            or active_status_row
-            or (parsed_surface is not None and parsed_surface.business_state == "working")
-        )
+        ambiguous_interactive_surface = any(hint in text for hint in _CODEX_APPROVAL_HINTS)
+        active_evidence = bool(steer_handoff or active_status_row)
         ready_posture: Tristate
         if ambiguous_interactive_surface and not active_evidence:
             ready_posture = "unknown"
-        elif (
-            parsed_surface is not None
-            and parsed_surface.input_mode == "freeform"
-            and parsed_surface.business_state == "idle"
-            and not active_evidence
-        ):
+        elif prompt_visible and not active_evidence and not ambiguous_interactive_surface:
             ready_posture = "yes"
-        elif parsed_surface is not None and (
-            parsed_surface.input_mode == "closed" or parsed_surface.business_state == "working"
-        ):
+        elif active_evidence:
             ready_posture = "no"
         else:
             ready_posture = "unknown"
         accepting_input: Tristate
-        if parsed_surface is not None and parsed_surface.input_mode == "freeform":
+        if prompt_visible and not ambiguous_interactive_surface:
             accepting_input = "yes"
-        elif parsed_surface is not None and parsed_surface.input_mode in {"modal", "closed"}:
+        elif ambiguous_interactive_surface:
             accepting_input = "no"
         else:
             accepting_input = "unknown"
@@ -575,26 +541,6 @@ class FallbackTrackedTurnSignalDetector(BaseTrackedTurnSignalDetector):
         editing_input: Tristate = "unknown"
         ambiguous_interactive_surface = False
         active_evidence = False
-        if parsed_surface is not None:
-            if parsed_surface.input_mode == "freeform":
-                accepting_input = "yes"
-                editing_input = "no"
-            elif parsed_surface.input_mode in {"modal", "closed"}:
-                accepting_input = "no"
-            if (
-                parsed_surface.business_state == "idle"
-                and parsed_surface.input_mode == "freeform"
-                and parsed_surface.ui_context == "normal_prompt"
-            ):
-                ready_posture = "yes"
-            elif parsed_surface.business_state == "working":
-                active_evidence = True
-                ready_posture = "no"
-            elif parsed_surface.input_mode == "modal" or parsed_surface.ui_context in {
-                "selection_menu",
-                "slash_command",
-            }:
-                ambiguous_interactive_surface = True
         surface_signature = hashlib.sha256(text.encode("utf-8")).hexdigest()
         notes: tuple[str, ...] = ("fallback_detector",)
         if ambiguous_interactive_surface:
@@ -626,14 +572,13 @@ class FallbackTrackedTurnSignalDetector(BaseTrackedTurnSignalDetector):
 def select_claude_detector(*, observed_version: str | None) -> BaseTrackedTurnSignalDetector:
     """Return the closest-compatible Claude detector for one observed version."""
 
-    candidates: list[BaseVersionedClaudeDetector] = [
-        ClaudeCodeSignalDetectorV2_1_X(),
-        FallbackClaudeDetector(),
-    ]
-    return max(
-        candidates,
-        key=lambda item: item.compatibility_score(observed_version=observed_version),
+    from houmao.shared_tui_tracking.registry import DetectorProfileRegistry
+
+    resolved = DetectorProfileRegistry.default().resolve(
+        app_id="claude_code",
+        observed_version=observed_version,
     )
+    return resolved.detector
 
 
 def select_tracked_turn_signal_detector(
@@ -643,11 +588,13 @@ def select_tracked_turn_signal_detector(
 ) -> BaseTrackedTurnSignalDetector:
     """Return the best available detector for one official/runtime tool."""
 
-    if tool == "claude":
-        return select_claude_detector(observed_version=observed_version)
-    if tool == "codex":
-        return CodexTrackedTurnSignalDetector()
-    return FallbackTrackedTurnSignalDetector()
+    from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
+
+    resolved = DetectorProfileRegistry.default().resolve(
+        app_id=app_id_from_tool(tool=tool),
+        observed_version=observed_version,
+    )
+    return resolved.detector
 
 
 def strip_ansi(text: str) -> str:

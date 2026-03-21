@@ -26,7 +26,6 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_error_detail,
 )
 from houmao.shared_tui_tracking.models import (
-    ParsedSurfaceContext,
     RecordedInputEvent,
     RecordedObservation,
 )
@@ -547,11 +546,6 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
                 ts_utc=snapshot.ts_utc,
                 output_text=snapshot.output_text,
                 runtime=None,
-                surface_context=ParsedSurfaceContext(
-                    business_state=assessment.business_state,
-                    input_mode=assessment.input_mode,
-                    ui_context=assessment.ui_context,
-                ),
             )
         )
     input_events = [

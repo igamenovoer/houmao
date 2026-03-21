@@ -6,12 +6,11 @@ This guide catalogs every public state value exposed by the houmao-server TUI te
 
 ## Architecture Note
 
-The public state contract is implemented by two independent consumers that share the same type vocabulary and mapping helpers:
+The public state contract is now centered on one shared tracker engine plus host adapters:
 
-- **`LiveSessionTracker`** in `src/houmao/server/tui/tracking.py` — the live server polling path. It maintains in-memory state per tracked terminal, drives settle timing through the ReactiveX lifecycle kernel, and publishes `HoumaoTerminalStateResponse`.
-- **`StreamStateReducer`** in `src/houmao/shared_tui_tracking/reducer.py` — the replay and offline reduction path. It consumes recorded observation streams and produces the same public state vocabulary, enabling content-first groundtruth comparison against live tracker output.
-
-Both consumers use the shared helpers in `shared_tui_tracking/public_state.py` (`diagnostics_availability()`, `turn_phase_from_signals()`, `tracked_last_turn_source_from_anchor_source()`) to derive public state from low-level observations.
+- **`TuiTrackerSession`** in `src/houmao/shared_tui_tracking/session.py` owns raw-snapshot signal detection, internal Rx settle timing, and tracker-owned `surface` / `turn` / `last_turn` reduction.
+- **`LiveSessionTracker`** in `src/houmao/server/tui/tracking.py` is the live server host adapter. It feeds raw captured TUI text and explicit input events into the shared session, then merges the resulting tracker state with server-owned diagnostics, lifecycle timing, authority, and visible-stability metadata.
+- **`StreamStateReducer`** in `src/houmao/shared_tui_tracking/reducer.py` is now a compatibility wrapper for replay and offline consumers; it no longer owns the core state machine.
 
 **`ManagedAgentTurnPhase` alias:** The server models import `TurnPhase` from `shared_tui_tracking.models` as `ManagedAgentTurnPhase`. This means TUI terminals and managed headless agents share the same turn vocabulary — `ready`, `active`, and `unknown` carry identical semantics regardless of the transport path.
 
@@ -27,7 +26,7 @@ Three detector families exist:
 | `codex_app_server` | `CodexTrackedTurnSignalDetector` | Codex | Selected when `tool == "codex"` |
 | `unsupported_tool` | `FallbackTrackedTurnSignalDetector` | All others | Default fallback for unrecognized tools |
 
-The selection entry point is `select_tracked_turn_signal_detector(tool=..., observed_version=...)`. Claude tools additionally use `select_claude_detector()` with version-scored compatibility, falling back to `FallbackClaudeDetector` when no version-specific detector matches closely.
+The selection entry point remains `select_tracked_turn_signal_detector(tool=..., observed_version=...)`, but it now resolves through the tracker-local app/profile registry with closest-compatible semver-floor matching rather than ad hoc scoring.
 
 **Why this matters:** Different tools yield different `unknown` vs `yes`/`no` distributions for the same underlying conditions. The `unsupported_tool` fallback is intentionally conservative — it produces more `unknown` values because it lacks tool-specific prompt and activity patterns. A `ready_posture=unknown` from an unsupported tool does not mean the same thing as `ready_posture=unknown` from the Claude detector.
 
@@ -114,7 +113,7 @@ Whether typed input would currently land in the TUI's prompt area.
 
 **Intuitive meaning:** The TUI has a visible, active prompt area that will accept typed characters.
 
-**Derivation:** For Claude: the detector found a `❯` prompt line. For Codex: `parsed_surface.input_mode == "freeform"`. For fallback: `parsed_surface.input_mode == "freeform"` if a parsed surface is available.
+**Derivation:** These values are now derived from raw snapshot text by the selected detector profile. For Claude: the detector found a `❯` prompt line. For Codex: the detector found a live `›` prompt without an approval overlay. Fallback detectors remain conservative and may leave the value as `unknown`.
 
 **Operational implications:** Text sent to the tmux pane will reach the prompt. This does not necessarily mean the TUI is *ready for submission* — it may be in an editing state or showing a menu.
 
@@ -122,7 +121,7 @@ Whether typed input would currently land in the TUI's prompt area.
 
 **Intuitive meaning:** The TUI's input area is closed or blocked. Typed characters will not reach a prompt.
 
-**Derivation:** For Claude: `parsed_surface.input_mode` is `"modal"` or `"closed"`. For Codex: `parsed_surface.input_mode` is `"modal"` or `"closed"`. This typically occurs during permission dialogs, modal confirmations, or while the TUI is not showing a prompt.
+**Derivation:** Raw-text detector profiles emit `no` when the visible surface clearly blocks prompt input, for example approval prompts, trust dialogs, or other modal overlays. If the detector cannot prove that block from raw text alone, it stays conservative and returns `unknown`.
 
 **Operational implications:** Do not send input. It will not reach the intended prompt. Wait for the input mode to change.
 
@@ -158,7 +157,7 @@ Whether prompt-area input is actively being edited — i.e., there is user-enter
 
 **Intuitive meaning:** The detector cannot determine whether text is being edited.
 
-**Derivation:** No prompt was found, the parsed surface is in modal mode, or the tool is unsupported.
+**Derivation:** No prompt was found, the visible surface is ambiguous, or the tool/profile is unsupported.
 
 **Operational implications:** Treat as uncertain.
 
@@ -170,7 +169,7 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Intuitive meaning:** The TUI appears idle with a clean prompt, ready to accept and process a new submission.
 
-**Derivation:** For Claude: a prompt is visible, the footer is not showing an interrupt indicator, and no slash menu is open. For Codex: `parsed_surface.business_state == "idle"` and `input_mode == "freeform"` and no active evidence. For fallback: `parsed_surface.business_state == "idle"` and `input_mode == "freeform"` and `ui_context == "normal_prompt"`.
+**Derivation:** Raw-text detector profiles emit `yes` when a prompt is visible, the surface is not actively working, and no ambiguous overlay is present. Claude and Codex use their own prompt/activity heuristics; fallback profiles stay conservative.
 
 **Operational implications:** The terminal is ready to receive and begin processing a new prompt. This is the ideal state for sending input via `POST /houmao/terminals/{terminal_id}/input`.
 
@@ -178,7 +177,7 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Intuitive meaning:** The TUI is actively working or its input is closed.
 
-**Derivation:** For Codex: `parsed_surface.input_mode == "closed"` or `business_state == "working"`. For fallback: `business_state == "working"`. The Claude detector does not produce `ready_posture=no` — it uses `unknown` instead when the posture is not confidently ready.
+**Derivation:** Detector profiles emit `no` when the raw surface clearly shows active work or a blocked prompt. The Claude profile still prefers `unknown` over `no` when the posture is not confidently classifiable.
 
 **Operational implications:** Do not send new prompts. The TUI is either processing a turn or in a state that cannot accept submissions.
 
@@ -215,7 +214,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The TUI appears ready for another turn — no active work is in progress, and the surface looks ready for submission.
 
-**Derivation:** `turn_phase_from_signals()` returns `ready` when: (1) an active anchor exists and `last_turn_result == "success"` with completion settled and `ready_posture == "yes"` and not `success_blocked`; or (2) no active anchor, no active evidence, no ambiguous interactive surface, and `ready_posture == "yes"`.
+**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server publishes that tracker-owned turn posture together with separate server-owned diagnostics and lifecycle metadata.
 
 **Operational implications:** It is safe to send a new prompt via `POST /houmao/terminals/{terminal_id}/input`. The terminal is idle and waiting for the next instruction.
 
@@ -223,7 +222,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** A turn is currently in flight — the agent is working on a prompt.
 
-**Derivation:** Returns `active` when: (1) an active turn anchor is present and the turn has not completed yet; or (2) no explicit anchor, but the detector reports `active_evidence` (thinking lines, tool activity, interruptable footer, etc.).
+**Derivation:** The standalone tracker session returns `active` when explicit input has armed tracker authority or when the detector reports active evidence such as thinking lines, tool activity, or interruptable work footers.
 
 **Operational implications:** Do not send new input — the agent is processing the current prompt. Poll for turn completion. You may observe `last_turn.result` changing to `success`, `interrupted`, or `known_failure` when the turn ends.
 
@@ -307,7 +306,7 @@ This field answers: "How was the most recent completed turn initiated?"
 
 **Intuitive meaning:** The turn was initiated through the server API — a consumer sent input via `POST /houmao/terminals/{terminal_id}/input` and the server armed an explicit turn anchor.
 
-**Derivation:** `tracked_last_turn_source_from_anchor_source()` returns `explicit_input` when the internal anchor source is `"terminal_input"`.
+**Derivation:** The standalone tracker returns `explicit_input` when the most recent terminal outcome is still attributed to an explicit `on_input_submitted()` event.
 
 **Operational implications:** The server has full lifecycle authority over this turn. Settle guarantees are tighter because the exact submission timestamp is known.
 
@@ -315,7 +314,7 @@ This field answers: "How was the most recent completed turn initiated?"
 
 **Intuitive meaning:** The turn was inferred from direct tmux interaction — someone typed into the TUI directly (bypassing the server API), and the tracker inferred a new turn from surface changes.
 
-**Derivation:** Returns `surface_inference` for any anchor source that is not `"terminal_input"`. The inference path requires: no active anchor, a previous parsed surface that was submit-ready and stable, and material output growth relative to the previous observation.
+**Derivation:** The standalone tracker returns `surface_inference` when it had to infer turn ownership from raw-surface activity rather than from an explicit input event.
 
 **Operational implications:** The server did not initiate this turn, so it has less precise timing. Settle times may be slightly longer because the exact submission moment is estimated from surface changes rather than known precisely.
 

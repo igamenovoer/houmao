@@ -1,9 +1,4 @@
-# shared-tui-tracking-core Specification
-
-## Purpose
-Define the repo-owned shared tracked-TUI core for the official/runtime path, including neutral tracked-state models, reducer semantics, detector ownership, and explicit-input authority handling.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Shared core exposes a raw-snapshot tracker session for tracker-owned state
 The repository SHALL provide a reusable tracked-state core outside server, demo, replay-adapter, and recorder ownership.
@@ -75,35 +70,3 @@ The shared core SHALL also remain independent of transport ownership. It SHALL N
 - **WHEN** the repository maintains a demo intended to show the correct tracking approach independently from the official/runtime implementation
 - **THEN** that demo may keep its own tracker implementation
 - **AND THEN** the shared core does not require the demo to become an adapter over official/runtime tracking code
-
-### Requirement: Shared core owns the official/runtime detector boundary
-The shared official/runtime tracking stack SHALL own the detector boundary used by live server tracking, recorder replay, and harness replay for supported tools.
-
-Bundled detector implementations used by that official/runtime path SHALL live at or below the shared-core boundary and SHALL NOT import from `houmao.server` or `houmao.explore` adapter packages.
-
-Reference or validation paths MAY keep separate detector implementations when they are intentionally modeling an independent groundtruth or demo/reference path rather than the official/runtime reducer.
-
-#### Scenario: Official/runtime replay and live tracking select detectors without upward adapter imports
-- **WHEN** the repository selects a supported-tool detector for live tracking, recorder replay, or harness replay
-- **THEN** it resolves that detector from the shared official/runtime detector boundary
-- **AND THEN** that path does not require importing `houmao.server` or `houmao.explore` adapter modules
-
-#### Scenario: Groundtruth path may keep a separate detector implementation
-- **WHEN** the explore harness computes its independent content-first groundtruth timeline
-- **THEN** it may use a separate detector implementation outside the shared official/runtime detector boundary
-- **AND THEN** that separate detector does not become the implementation dependency for live or replay tracked-state reduction
-
-### Requirement: Shared core supports explicit-input and inferred turn authority
-The shared tracked-state core SHALL allow callers to supply explicit prompt-submission evidence when authoritative input events are available, and SHALL otherwise support surface-inference reduction when only parsed surface observations exist.
-
-When that input evidence is available, the emitted tracked-state output SHALL preserve whether the last completed turn came from explicit input or surface inference.
-
-#### Scenario: Active-mode replay preserves explicit-input turn source
-- **WHEN** replay artifacts include authoritative managed input events for a recorded turn
-- **THEN** the shared core can arm turn authority from that input evidence
-- **AND THEN** the resulting tracked-state output can report `last_turn.source=explicit_input` for the completed turn
-
-#### Scenario: Passive replay degrades to inferred or unknown turn source
-- **WHEN** replay artifacts contain only pane snapshots without authoritative input events
-- **THEN** the shared core reduces the run without requiring explicit input authority
-- **AND THEN** the resulting tracked-state output uses `surface_inference` or `none` rather than fabricating explicit-input provenance

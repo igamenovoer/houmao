@@ -2,7 +2,7 @@
 
 `houmao-server` owns live tracked state for supported interactive TUIs. Clients, dashboards, and demo packs consume `HoumaoTerminalStateResponse`; they do not run a second reducer.
 
-The public models live in [`src/houmao/server/models.py`](../../../src/houmao/server/models.py), which re-exports core types from [`src/houmao/shared_tui_tracking/models.py`](../../../src/houmao/shared_tui_tracking/models.py). The canonical mapping functions live in [`src/houmao/shared_tui_tracking/public_state.py`](../../../src/houmao/shared_tui_tracking/public_state.py). The core implementation is `LiveSessionTracker` in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py). Timed readiness and settle behavior still reuse the shared ReactiveX kernel in [`src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../src/houmao/lifecycle/rx_lifecycle_kernel.py).
+The public models live in [`src/houmao/server/models.py`](../../../src/houmao/server/models.py), which re-exports core types from [`src/houmao/shared_tui_tracking/models.py`](../../../src/houmao/shared_tui_tracking/models.py). The standalone tracker engine now lives in [`src/houmao/shared_tui_tracking/session.py`](../../../src/houmao/shared_tui_tracking/session.py), while [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) acts as the live host adapter that merges shared tracker state with server-owned diagnostics and lifecycle metadata. Timed readiness and completion behavior still reuse the shared ReactiveX lifecycle kernel in [`src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../src/houmao/lifecycle/rx_lifecycle_kernel.py).
 
 ## Public Contract
 
@@ -46,24 +46,25 @@ flowchart TD
     Proc["process inspection"]
     Parse["official parser"]
     Surf["HoumaoParsedSurface"]
-    Detect["tool/version<br/>turn-signal detector"]
+    Detect["tool/version<br/>raw-text detector profile"]
+    Shared["standalone tracker session<br/>surface / turn / last_turn"]
     Ready["readiness pipeline"]
     Anchor{"turn anchor?"}
     Anch["anchored settle pipeline"]
-    Reduce["shared reduction"]
-    Public["diagnostics / surface / turn / last_turn"]
+    Public["diagnostics + shared tracker state"]
     Stable["stability"]
     Hist["recent_transitions"]
 
     Probe --> Proc --> Parse --> Surf
     Surf --> Detect
+    Probe --> Detect
     Surf --> Ready
     Surf --> Anchor
     Anchor -->|active| Anch
-    Ready --> Reduce
-    Anch --> Reduce
-    Detect --> Public
-    Reduce --> Public --> Stable --> Hist
+    Detect --> Shared
+    Ready --> Public
+    Anch --> Public
+    Shared --> Public --> Stable --> Hist
 ```
 
 `LiveSessionTracker.record_cycle()` keeps the internal timing and anchor bookkeeping, but it now maps those internals into the simplified public contract rather than exposing readiness/completion/authority terms directly.

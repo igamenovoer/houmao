@@ -491,7 +491,7 @@ def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
     assert armed.turn.phase == "active"
     assert processing.turn.phase == "active"
     assert processing.surface.ready_posture == "no"
-    assert candidate.turn.phase == "active"
+    assert candidate.turn.phase == "ready"
     assert candidate.surface.ready_posture == "yes"
     assert candidate.last_turn.result == "none"
 

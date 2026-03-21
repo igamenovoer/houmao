@@ -14,7 +14,7 @@ The maintained contract is built around these layers:
 - `asciinema` captures the operator-facing visual session
 - `tmux capture-pane` produces the machine-readable pane snapshot stream used for replay and validation
 - active mode publishes recorder state back into tmux so repo-managed `send-keys` calls can append structured managed-input events
-- analyze and label flows derive parser/state observations from pane snapshots after the live run has ended
+- analyze and label flows derive parser/state observations from pane snapshots after the live run has ended, with replay/state analysis now driven through the standalone shared tracker session rather than a recorder-local reducer
 
 ## Reading Order
 

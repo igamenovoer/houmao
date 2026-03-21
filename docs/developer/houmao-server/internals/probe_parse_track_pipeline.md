@@ -100,7 +100,7 @@ The parsing sequence is:
 
 ## Turn-Signal Detection
 
-After capture and parse, `LiveSessionTracker` also runs tool-specific signal detection over the current raw `output_text` plus the optional `parsed_surface`.
+After capture and parse, `LiveSessionTracker` feeds the current raw `output_text` into the standalone shared tracker session. Parsed surface metadata remains server-owned and is not required by the tracker boundary.
 
 This detector layer lives in [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py) and is responsible for:
 
@@ -109,13 +109,13 @@ This detector layer lives in [`../../../../src/houmao/server/tui/turn_signals.py
 - recognized interruption and narrow known-failure signatures
 - success-candidate and success-blocker hints used by the shared settle logic
 
-The server currently selects detectors by tool identity:
+The shared tracker now selects detectors through a tracker-local app/profile registry:
 
-- Claude uses the proven `claude_code_state_tracking` detector wrapper
-- Codex uses a conservative server-local detector
-- everything else falls back to a minimal parsed-surface-based detector
+- Claude uses closest-compatible semver-floor resolution across raw-text profiles
+- Codex uses a raw-text Codex profile under the same tracker contract
+- unsupported tools fall back to a conservative raw-text detector
 
-This keeps tool/version string matching outside the shared turn reducer while still letting the public tracked-state contract expose one common `surface / turn / last_turn` model.
+This keeps tool/version selection inside the shared tracker module while still letting the public tracked-state contract expose one common `surface / turn / last_turn` model.
 
 ## Recorded Outcomes
 

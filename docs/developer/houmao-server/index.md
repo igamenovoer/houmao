@@ -25,14 +25,15 @@ Native headless managed agents now sit beside that tracker rather than inside it
 
 ## Source Of Truth Map
 
-Core state type definitions and mapping logic live in the shared TUI tracking module, not in the server module:
+Core state type definitions and tracker reduction logic live in the shared TUI tracking module, not in the server module:
 
 | Module | Role |
 |--------|------|
 | `src/houmao/shared_tui_tracking/models.py` | Canonical type definitions: `Tristate`, `TrackedDiagnosticsAvailability`, `TurnPhase`, `TrackedLastTurnResult`, `TrackedLastTurnSource`, `TransportState`, `ProcessState`, `ParseStatus` |
-| `src/houmao/shared_tui_tracking/public_state.py` | Canonical mapping functions: `diagnostics_availability()`, `turn_phase_from_signals()`, `tracked_last_turn_source_from_anchor_source()` |
-| `src/houmao/shared_tui_tracking/detectors.py` | Tool-specific signal detectors: `ClaudeCodeSignalDetectorV2_1_X`, `CodexTrackedTurnSignalDetector`, `FallbackTrackedTurnSignalDetector` |
-| `src/houmao/shared_tui_tracking/reducer.py` | `StreamStateReducer` — shared replay/offline reducer implementing the same public state contract |
+| `src/houmao/shared_tui_tracking/session.py` | `TuiTrackerSession` — standalone raw-snapshot tracker with internal Rx timers and thread-safe live API |
+| `src/houmao/shared_tui_tracking/registry.py` | App/profile registry and closest-compatible semver-floor detector resolution |
+| `src/houmao/shared_tui_tracking/detectors.py` | Tool-specific raw-text detector profiles: `ClaudeCodeSignalDetectorV2_1_X`, `CodexTrackedTurnSignalDetector`, `FallbackTrackedTurnSignalDetector` |
+| `src/houmao/shared_tui_tracking/reducer.py` | Compatibility replay wrappers over the standalone tracker session |
 | `src/houmao/server/tui/tracking.py` | `LiveSessionTracker` — live server polling tracker |
 | `src/houmao/server/service.py` | Top-level wiring, registration, alias maps, poll cycle |
 | `src/houmao/server/app.py` | HTTP route definitions |

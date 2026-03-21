@@ -4,7 +4,7 @@ This guide documents how houmao-server state values change over time and what op
 
 For the definition of each individual state value, see the [State Reference Guide](state-reference.md). For the internal pipeline architecture, see [State Tracking](state-tracking.md).
 
-> **Source of truth:** Transition logic is implemented in [`src/houmao/shared_tui_tracking/public_state.py`](../../../src/houmao/shared_tui_tracking/public_state.py) (mapping helpers) and [`src/houmao/shared_tui_tracking/reducer.py`](../../../src/houmao/shared_tui_tracking/reducer.py) (reducer state machine). The live server tracker in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) applies the same priorities through equivalent internal logic.
+> **Source of truth:** Tracker-owned transition logic is implemented in [`src/houmao/shared_tui_tracking/session.py`](../../../src/houmao/shared_tui_tracking/session.py) together with raw-text detector profiles in [`src/houmao/shared_tui_tracking/detectors.py`](../../../src/houmao/shared_tui_tracking/detectors.py). The live server tracker in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) feeds that shared session and then merges the result with server-owned diagnostics and lifecycle metadata.
 
 ---
 
@@ -144,9 +144,9 @@ flowchart TD
     Proc["process inspection<br/><i>PaneProcessInspector</i>"]
     Parse["official parser<br/><i>OfficialTuiParserAdapter</i>"]
     Surf["HoumaoParsedSurface"]
-    Detect["signal detector<br/><i>shared_tui_tracking/detectors.py</i><br/>claude_code / codex / fallback"]
+    Detect["raw-text detector profile<br/><i>shared_tui_tracking/detectors.py</i>"]
+    Shared["TuiTrackerSession<br/><i>shared_tui_tracking/session.py</i>"]
     MapDiag["diagnostics_availability()<br/><i>shared_tui_tracking/public_state.py</i>"]
-    MapTurn["turn_phase_from_signals()<br/><i>shared_tui_tracking/public_state.py</i>"]
     Anchor{"turn anchor<br/>lifecycle"}
     Settle["settle timer<br/><i>ReactiveX kernel</i>"]
     PubDiag["diagnostics<br/>.availability"]
@@ -160,15 +160,14 @@ flowchart TD
     Probe --> MapDiag
     Proc --> MapDiag
     Parse --> MapDiag
-    Surf --> Detect
-    Detect --> PubSurf
-    Detect --> MapTurn
+    Probe --> Detect
+    Detect --> Shared
+    Shared --> PubSurf
+    Shared --> PubTurn
+    Shared --> PubLast
     MapDiag --> PubDiag
-    MapTurn --> PubTurn
-    Anchor --> MapTurn
-    Detect --> Anchor
+    Surf --> Anchor
     Anchor --> Settle
-    Settle --> PubLast
     PubDiag --> Stable
     PubSurf --> Stable
     PubTurn --> Stable
@@ -211,7 +210,7 @@ The reducer records the surface signature when a success settles. If a subsequen
 
 ### Settle Window
 
-The settle window is a configurable duration (via the ReactiveX kernel or the `StreamStateReducer`'s `settle_seconds` parameter) during which a `success_candidate` surface must remain stable before being promoted to `success`. If any of the following occur during the window, the pending success is cancelled:
+The settle window is a configurable duration in the standalone `TuiTrackerSession` (`TrackerConfig.settle_seconds`) during which a `success_candidate` surface must remain stable before being promoted to `success`. If any of the following occur during the window, the pending success is cancelled:
 
 - Diagnostics degrade (availability leaves `available`)
 - An `interrupted` signal is detected
@@ -243,7 +242,7 @@ The two anchor sources have different timing characteristics:
 
 ## Reducer Transition Rules
 
-The `StreamStateReducer` in `shared_tui_tracking/reducer.py` applies a strict priority chain when processing each observation. The same priorities are applied by the `LiveSessionTracker` in the live server path.
+The standalone `TuiTrackerSession` in `shared_tui_tracking/session.py` applies a strict priority chain when processing each raw snapshot. The compatibility `StreamStateReducer` wrapper and the live server host adapter both reuse that same core behavior.
 
 ### Priority Chain
 
