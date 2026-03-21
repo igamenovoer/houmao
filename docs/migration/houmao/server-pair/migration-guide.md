@@ -27,9 +27,9 @@ Those combinations are outside the supported contract of this implementation.
 
 ## 2. Keep `cao` Installed
 
-`houmao-srv-ctrl` delegates most CAO-compatible commands to the installed `cao` executable in v1, so the migration still requires `cao` to be present on `PATH` for the delegated TUI path.
+`houmao-srv-ctrl` still requires `cao` to be present on `PATH` in v1, but only for the local-only compatibility commands under `houmao-srv-ctrl cao` such as `flow`, `init`, `install`, and `mcp-server`.
 
-The main exception is `houmao-srv-ctrl launch --headless`, which now resolves a native headless launch request and sends it directly to `houmao-server` instead of delegating that mode through CAO.
+Top-level `houmao-srv-ctrl launch` and `install`, plus pair-aware compatibility wrappers such as `houmao-srv-ctrl cao launch`, `houmao-srv-ctrl cao info`, and `houmao-srv-ctrl cao shutdown`, now target `houmao-server` directly instead of blindly delegating to local `cao`.
 
 You are moving the public authority to Houmao, not removing CAO internals from the shallow-cut implementation yet.
 
@@ -54,6 +54,7 @@ pixi run houmao-server serve \
 What changes when you do this:
 
 - `houmao-server` becomes the public HTTP authority
+- root `/health` and `/houmao/*` stay Houmao-owned, while CAO-compatible session and terminal routes move under `/cao/*`
 - the child `cao-server` is supervised internally by `houmao-server`
 - live terminal tracking becomes server-owned and runs from direct tmux/process observation
 - the child listener stays internal and is derived as `public_port + 1`
@@ -62,21 +63,21 @@ What changes when you do this:
 
 ## 4. Switch Service-Management Commands To `houmao-srv-ctrl`
 
-Replace direct `cao` usage with `houmao-srv-ctrl`.
+Replace direct `cao` usage with `houmao-srv-ctrl` top-level commands for Houmao-owned pair operations and `houmao-srv-ctrl cao ...` for the explicit compatibility family.
 
 Examples:
 
 ```bash
-pixi run houmao-srv-ctrl info
-pixi run houmao-srv-ctrl init
-pixi run houmao-srv-ctrl install gpu-kernel-coder
+pixi run houmao-srv-ctrl cao info
+pixi run houmao-srv-ctrl cao init
 pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex
+pixi run houmao-srv-ctrl cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
-pixi run houmao-srv-ctrl shutdown --all
+pixi run houmao-srv-ctrl cao shutdown --all
 ```
 
-If your workflow depends on the familiar `cao` command name, shell aliasing remains viable as long as the alias resolves to `houmao-srv-ctrl` in the supported pair.
+Do not alias bare `cao` to bare `houmao-srv-ctrl`; the top level is now Houmao-owned. If you need compatibility-command muscle memory, alias `cao` to `houmao-srv-ctrl cao` instead.
 
 Use the additive `--port` form when you are intentionally targeting a running Houmao pair instance. That path routes install through the selected `houmao-server`, so the child-managed CAO home stays an internal implementation detail instead of a caller-computed path.
 
@@ -116,9 +117,11 @@ For native headless agents, inspect the Houmao-owned HTTP routes rather than the
 
 ## 6. Understand What `launch` Does Differently Now
 
-`houmao-srv-ctrl launch` now has two different launch paths.
+`houmao-srv-ctrl` now exposes two public launch families.
 
-Terminal-backed TUI launch still delegates the underlying launch to `cao`, and successful launches still trigger Houmao-owned follow-up work:
+Top-level `houmao-srv-ctrl launch` is the Houmao-owned pair launch. `houmao-srv-ctrl cao launch` is the explicit CAO-compatible launch surface.
+
+Terminal-backed TUI launch through either surface still creates the underlying CAO session through `houmao-server`, and successful launches still trigger Houmao-owned follow-up work:
 
 - register the launched session in `houmao-server`
 - materialize a runtime-owned session root
@@ -133,6 +136,12 @@ Native headless launch is now different:
 - `houmao-server` launches the headless runtime directly instead of creating a CAO session or terminal first
 - server-owned admission and restart-recovery state is persisted under `state/managed_agents/<tracked_agent_id>/`
 - later prompt submission, interrupt, status, event, and artifact inspection run through `/houmao/agents/{agent_ref}/turns/*`
+
+The explicit compatibility variant stays distinct:
+
+- `houmao-srv-ctrl cao launch` remains the CAO-compatible launch surface
+- `houmao-srv-ctrl cao launch --headless` keeps compatibility-style detached-session behavior through `/cao/*`
+- `houmao-srv-ctrl launch --headless` remains the canonical Houmao-native headless path
 
 This split is the key migration seam: terminal-backed compatibility still flows through CAO, while native headless lifecycle is already Houmao-owned end to end.
 
@@ -158,9 +167,9 @@ Recommended migration order:
 
 1. Start `houmao-server` on the CAO-facing public base URL you want to own.
 2. Replace operator command usage from `cao` to `houmao-srv-ctrl`.
-3. Verify `houmao-server health` and `houmao-srv-ctrl info`.
+3. Verify `houmao-server health` and `houmao-srv-ctrl cao info`.
 4. If needed, install agent profiles through `houmao-srv-ctrl install --port <public-port> ...`.
-5. Launch one new terminal-backed session through `houmao-srv-ctrl launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
+5. Launch one new terminal-backed session through `houmao-srv-ctrl launch` or `houmao-srv-ctrl cao launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
 6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
 7. Move terminal-backed runtime tooling toward the persisted `houmao_server_rest` artifacts, and move native headless tooling toward `/houmao/agents/{agent_ref}/turns/*`.
 

@@ -18,12 +18,12 @@ This pack is intentionally about the pair, not about isolated cross-product comb
 
 `houmao-server` is now a first-party HTTP service with two responsibilities:
 
-1. It exposes the CAO-compatible HTTP surface that current callers already expect.
+1. It exposes the CAO-compatible HTTP surface under an explicit `/cao/*` namespace.
 2. It owns Houmao-specific state that CAO did not own before.
 
 Implemented server scope includes:
 
-- CAO-compatible HTTP route mapping for the supported upstream CAO surface
+- CAO-compatible `/cao/*` HTTP route mapping for the supported upstream CAO surface
 - a supervised child `cao-server` in the shallow v1 architecture
 - derived child listener address `public_port + 1`
 - Houmao-owned `GET /health` additive metadata
@@ -40,11 +40,14 @@ Implemented server scope includes:
 
 ### `houmao-srv-ctrl`
 
-`houmao-srv-ctrl` is now a CAO-compatible service-management CLI that preserves the familiar command family while keeping Houmao in the authority path.
+`houmao-srv-ctrl` is now a pair service-management CLI with an explicit CAO-compatible namespace.
 
 Implemented CLI scope includes:
 
-- supported command family:
+- top-level Houmao-owned pair commands:
+  - `install`
+  - `launch`
+- explicit CAO-compatible namespace under `houmao-srv-ctrl cao`:
   - `flow`
   - `info`
   - `init`
@@ -52,11 +55,11 @@ Implemented CLI scope includes:
   - `launch`
   - `mcp-server`
   - `shutdown`
-- delegation of most commands to the installed `cao` executable
-- supported-pair enforcement for commands that must target a real `houmao-server`
-- delegated terminal-backed `launch` follow-up registration back into `houmao-server`
-- native `launch --headless` translation into the Houmao headless launch API instead of CAO delegation
-- Houmao-owned runtime artifact materialization after successful delegated launch
+- local-only delegation of `cao flow`, `cao init`, `cao install`, and `cao mcp-server` to the installed `cao` executable
+- pair-aware `cao launch`, `cao info`, and `cao shutdown` wrappers over the supported `houmao-server` boundary
+- terminal-backed launch follow-up registration back into `houmao-server`
+- native top-level `launch --headless` translation into the Houmao headless launch API
+- Houmao-owned runtime artifact materialization after successful terminal-backed launch
 
 ### Runtime Integration
 

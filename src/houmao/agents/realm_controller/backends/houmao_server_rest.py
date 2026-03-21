@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.cao.rest_client import CaoRestClient
 from houmao.server.client import HoumaoServerClient
 
 from ..models import CaoParsingMode, LaunchPlan
@@ -52,6 +53,11 @@ class HoumaoServerRestSession(CaoRestSession):
         super().__init__(
             launch_plan=launch_plan,
             api_base_url=api_base_url,
+            client=CaoRestClient(
+                api_base_url,
+                timeout_seconds=timeout_seconds,
+                path_prefix="/cao",
+            ),
             role_name=role_name,
             role_prompt=role_prompt,
             parsing_mode=parsing_mode,

@@ -14,7 +14,6 @@ from .common import (
     extract_option_value,
     require_supported_houmao_pair,
     resolve_server_base_url,
-    run_passthrough,
 )
 
 _DEFAULT_PROVIDER = "kiro_cli"
@@ -26,17 +25,15 @@ _DEFAULT_PROVIDER = "kiro_cli"
 )
 @click.pass_context
 def install_command(ctx: click.Context) -> None:
-    """Install an agent profile locally or through a targeted Houmao pair."""
+    """Install an agent profile through the supported Houmao pair."""
 
     port_value = extract_option_value(ctx.args, "--port")
-    if port_value is None:
-        result = run_passthrough(command_name="install", extra_args=ctx.args)
-        ctx.exit(result.returncode)
-
-    try:
-        port = int(port_value)
-    except ValueError as exc:
-        raise click.ClickException(f"Invalid `--port` value: `{port_value}`.") from exc
+    port: int | None = None
+    if port_value is not None:
+        try:
+            port = int(port_value)
+        except ValueError as exc:
+            raise click.ClickException(f"Invalid `--port` value: `{port_value}`.") from exc
 
     agent_source, provider = _parse_pair_install_args(ctx.args)
     base_url = resolve_server_base_url(port=port)

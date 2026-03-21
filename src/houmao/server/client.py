@@ -41,10 +41,15 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 class HoumaoServerClient(CaoRestClient):
     """HTTP client for `houmao-server` compatibility and extension routes."""
 
+    def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+        """Initialize the pair-owned server client."""
+
+        super().__init__(base_url, timeout_seconds=timeout_seconds, path_prefix="/cao")
+
     def health_extended(self) -> HoumaoHealthResponse:
         """Call `GET /health` and parse Houmao extensions."""
 
-        return self._request_model("GET", "/health", HoumaoHealthResponse)
+        return self._request_root_model("GET", "/health", HoumaoHealthResponse)
 
     def get_session(self, session_name: str) -> CaoSessionDetail:
         """Call `GET /sessions/{session_name}`."""
@@ -70,7 +75,7 @@ class HoumaoServerClient(CaoRestClient):
     def current_instance(self) -> HoumaoCurrentInstance:
         """Call `GET /houmao/server/current-instance`."""
 
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             "/houmao/server/current-instance",
             HoumaoCurrentInstance,
@@ -80,7 +85,7 @@ class HoumaoServerClient(CaoRestClient):
         """Call `GET /houmao/terminals/{terminal_id}/state`."""
 
         escaped = parse.quote(terminal_id, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/terminals/{escaped}/state",
             HoumaoTerminalStateResponse,
@@ -98,7 +103,7 @@ class HoumaoServerClient(CaoRestClient):
         params: dict[str, str] | None = None
         if limit is not None:
             params = {"limit": str(limit)}
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/terminals/{escaped}/history",
             HoumaoTerminalHistoryResponse,
@@ -132,7 +137,7 @@ class HoumaoServerClient(CaoRestClient):
             for key, value in request_model.model_dump(mode="json").items()
             if value is not None
         }
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             "/houmao/agent-profiles/install",
             HoumaoInstallAgentProfileResponse,
@@ -142,19 +147,23 @@ class HoumaoServerClient(CaoRestClient):
     def list_managed_agents(self) -> HoumaoManagedAgentListResponse:
         """Call `GET /houmao/agents`."""
 
-        return self._request_model("GET", "/houmao/agents", HoumaoManagedAgentListResponse)
+        return self._request_root_model("GET", "/houmao/agents", HoumaoManagedAgentListResponse)
 
     def get_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
         """Call `GET /houmao/agents/{agent_ref}`."""
 
         escaped = parse.quote(agent_ref, safe="")
-        return self._request_model("GET", f"/houmao/agents/{escaped}", HoumaoManagedAgentIdentity)
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}",
+            HoumaoManagedAgentIdentity,
+        )
 
     def get_managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
         """Call `GET /houmao/agents/{agent_ref}/state`."""
 
         escaped = parse.quote(agent_ref, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/agents/{escaped}/state",
             HoumaoManagedAgentStateResponse,
@@ -172,7 +181,7 @@ class HoumaoServerClient(CaoRestClient):
         params: dict[str, str] | None = None
         if limit is not None:
             params = {"limit": str(limit)}
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/agents/{escaped}/history",
             HoumaoManagedAgentHistoryResponse,
@@ -185,7 +194,7 @@ class HoumaoServerClient(CaoRestClient):
     ) -> HoumaoHeadlessLaunchResponse:
         """Call `POST /houmao/agents/headless/launches`."""
 
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             "/houmao/agents/headless/launches",
             HoumaoHeadlessLaunchResponse,
@@ -196,7 +205,7 @@ class HoumaoServerClient(CaoRestClient):
         """Call `POST /houmao/agents/{agent_ref}/stop`."""
 
         escaped = parse.quote(agent_ref, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/stop",
             HoumaoManagedAgentActionResponse,
@@ -210,7 +219,7 @@ class HoumaoServerClient(CaoRestClient):
         """Call `POST /houmao/agents/{agent_ref}/turns`."""
 
         escaped = parse.quote(agent_ref, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/turns",
             HoumaoHeadlessTurnAcceptedResponse,
@@ -226,7 +235,7 @@ class HoumaoServerClient(CaoRestClient):
 
         escaped_agent = parse.quote(agent_ref, safe="")
         escaped_turn = parse.quote(turn_id, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}",
             HoumaoHeadlessTurnStatusResponse,
@@ -241,7 +250,7 @@ class HoumaoServerClient(CaoRestClient):
 
         escaped_agent = parse.quote(agent_ref, safe="")
         escaped_turn = parse.quote(turn_id, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "GET",
             f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}/events",
             HoumaoHeadlessTurnEventsResponse,
@@ -258,7 +267,7 @@ class HoumaoServerClient(CaoRestClient):
 
         escaped_agent = parse.quote(agent_ref, safe="")
         escaped_turn = parse.quote(turn_id, safe="")
-        payload, _status_code, _url = self._request_json(
+        payload, _status_code, _url = self._request_root_json(
             "GET",
             f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}/artifacts/{artifact_name}",
             raw_text_ok=True,
@@ -271,13 +280,13 @@ class HoumaoServerClient(CaoRestClient):
         """Call `POST /houmao/agents/{agent_ref}/interrupt`."""
 
         escaped = parse.quote(agent_ref, safe="")
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/interrupt",
             HoumaoManagedAgentActionResponse,
         )
 
-    def _request_json(
+    def _request_root_json(
         self,
         method: str,
         path: str,
@@ -340,7 +349,7 @@ class HoumaoServerClient(CaoRestClient):
                 detail=f"Connection failed after {self.timeout_seconds}s: {exc}",
             ) from exc
 
-    def _request_model(
+    def _request_root_model(
         self,
         method: str,
         path: str,
@@ -349,7 +358,7 @@ class HoumaoServerClient(CaoRestClient):
         params: dict[str, str] | None = None,
         json_body: object | None = None,
     ) -> _ModelT:
-        payload, status_code, url = self._request_json(
+        payload, status_code, url = self._request_root_json(
             method,
             path,
             params=params,

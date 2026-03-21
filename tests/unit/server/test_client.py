@@ -65,11 +65,16 @@ def test_terminal_state_parses_simplified_tracked_state_contract(monkeypatch) ->
     }
     client = HoumaoServerClient("http://127.0.0.1:9889")
 
-    def _request_model(method: str, path: str, model: type[HoumaoTerminalStateResponse], **kwargs):
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoTerminalStateResponse],
+        **kwargs,
+    ):
         del method, path, kwargs
         return model.model_validate(payload)
 
-    monkeypatch.setattr(client, "_request_model", _request_model)
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
     state = client.terminal_state("abcd1234")
 
@@ -113,13 +118,18 @@ def test_launch_headless_agent_posts_resolved_json_body(monkeypatch) -> None:
         "detail": "launched",
     }
 
-    def _request_model(method: str, path: str, model: type[HoumaoHeadlessLaunchResponse], **kwargs):
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoHeadlessLaunchResponse],
+        **kwargs,
+    ):
         recorded["method"] = method
         recorded["path"] = path
         recorded["kwargs"] = kwargs
         return model.model_validate(response_payload)
 
-    monkeypatch.setattr(client, "_request_model", _request_model)
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
     response = client.launch_headless_agent(request_model)
 
@@ -163,13 +173,18 @@ def test_get_managed_agent_state_percent_encodes_alias(monkeypatch) -> None:
         "diagnostics": [],
     }
 
-    def _request_model(method: str, path: str, model: type[HoumaoManagedAgentStateResponse], **kwargs):
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentStateResponse],
+        **kwargs,
+    ):
         recorded["method"] = method
         recorded["path"] = path
         recorded["kwargs"] = kwargs
         return model.model_validate(payload)
 
-    monkeypatch.setattr(client, "_request_model", _request_model)
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
     state = client.get_managed_agent_state("AGENTSYS gpu/1")
 
@@ -178,4 +193,30 @@ def test_get_managed_agent_state_percent_encodes_alias(monkeypatch) -> None:
         "method": "GET",
         "path": "/houmao/agents/AGENTSYS%20gpu%2F1/state",
         "kwargs": {},
+    }
+
+
+def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: dict[str, object] = {}
+    payload = {
+        "session": {"id": "cao-gpu", "name": "cao-gpu", "status": "attached"},
+        "terminals": [],
+    }
+
+    def _request_json(method: str, path: str, **kwargs):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return payload, 200, "http://127.0.0.1:9889/cao/sessions/cao-gpu"
+
+    monkeypatch.setattr(client, "_request_json", _request_json)
+
+    detail = client.get_session("cao-gpu")
+
+    assert detail.session.id == "cao-gpu"
+    assert recorded == {
+        "method": "GET",
+        "path": "/sessions/cao-gpu",
+        "kwargs": {"params": None},
     }

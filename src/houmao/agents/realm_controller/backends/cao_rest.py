@@ -428,6 +428,7 @@ class CaoRestSession:
         *,
         launch_plan: LaunchPlan,
         api_base_url: str,
+        client: CaoRestClient | None = None,
         role_name: str,
         role_prompt: str,
         parsing_mode: CaoParsingMode,
@@ -447,7 +448,7 @@ class CaoRestSession:
         self._api_base_url = api_base_url
         self._poll_interval_seconds = poll_interval_seconds
         self._timeout_seconds = timeout_seconds
-        self._client = CaoRestClient(api_base_url, timeout_seconds=timeout_seconds)
+        self._client = client or CaoRestClient(api_base_url, timeout_seconds=timeout_seconds)
         self._profile_store_dir = profile_store_dir or default_cao_agent_store()
         self._provider = _provider_for_tool(launch_plan.tool)
         self._parsing_mode = self._require_supported_parsing_mode(parsing_mode)

@@ -4,23 +4,19 @@ from __future__ import annotations
 
 import click
 
+from .cao import cao_group
 from .install import install_command
 from .launch import launch_command
-from .passthrough import passthrough_command
 
 
 @click.group(name="houmao-srv-ctrl")
 def cli() -> None:
-    """CAO-compatible Houmao service-management CLI."""
+    """Houmao service-management CLI with explicit CAO compatibility namespace."""
 
 
-cli.add_command(passthrough_command("flow"))
-cli.add_command(passthrough_command("info", require_pair=True))
-cli.add_command(passthrough_command("init"))
+cli.add_command(cao_group)
 cli.add_command(install_command)
 cli.add_command(launch_command)
-cli.add_command(passthrough_command("mcp-server"))
-cli.add_command(passthrough_command("shutdown", require_pair=True))
 
 
 def main(argv: list[str] | None = None) -> int:

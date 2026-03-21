@@ -440,11 +440,17 @@ def _compat_route_inventory() -> set[tuple[str, str]]:
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
-        if route.path.startswith("/houmao/"):
+        if not route.path.startswith("/cao/"):
             continue
         for method in route.methods:
+            if method in {"HEAD", "OPTIONS"}:
+                continue
             routes.add((method, route.path))
     return routes
+
+
+def _extract_namespaced_upstream_http_routes() -> set[tuple[str, str]]:
+    return {(method, f"/cao{path}") for method, path in _extract_upstream_http_routes()}
 
 
 def _route(path: str, method: str, *, app=None) -> APIRoute:
@@ -473,11 +479,11 @@ def _query_contract(route: APIRoute) -> dict[str, dict[str, object]]:
 
 
 def test_compat_route_inventory_matches_pinned_upstream() -> None:
-    assert _compat_route_inventory() == _extract_upstream_http_routes()
+    assert _compat_route_inventory() == _extract_namespaced_upstream_http_routes()
 
 
 def test_create_session_route_query_contract_matches_pinned_upstream_expectations() -> None:
-    contract = _query_contract(_route("/sessions", "POST"))
+    contract = _query_contract(_route("/cao/sessions", "POST"))
 
     assert contract == {
         "provider": {"required": True, "default": None, "le": None},
@@ -488,7 +494,7 @@ def test_create_session_route_query_contract_matches_pinned_upstream_expectation
 
 
 def test_inbox_messages_route_query_contract_matches_pinned_upstream_expectations() -> None:
-    contract = _query_contract(_route("/terminals/{terminal_id}/inbox/messages", "GET"))
+    contract = _query_contract(_route("/cao/terminals/{terminal_id}/inbox/messages", "GET"))
 
     assert contract == {
         "limit": {"required": False, "default": 10, "le": 100},
@@ -497,7 +503,7 @@ def test_inbox_messages_route_query_contract_matches_pinned_upstream_expectation
 
 
 def test_output_route_query_contract_matches_pinned_upstream_expectations() -> None:
-    contract = _query_contract(_route("/terminals/{terminal_id}/output", "GET"))
+    contract = _query_contract(_route("/cao/terminals/{terminal_id}/output", "GET"))
 
     assert contract == {
         "mode": {"required": False, "default": "full", "le": None},
@@ -530,7 +536,7 @@ def test_create_session_endpoint_forwards_expected_request_surface() -> None:
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/sessions"
+        and candidate.path == "/cao/sessions"
         and "POST" in candidate.methods
     )
 
@@ -577,14 +583,14 @@ def test_session_path_routes_percent_encode_before_proxy() -> None:
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/sessions/{session_name}"
+        and candidate.path == "/cao/sessions/{session_name}"
         and "GET" in candidate.methods
     )
     create_terminal_route = next(
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/sessions/{session_name}/terminals"
+        and candidate.path == "/cao/sessions/{session_name}/terminals"
         and "POST" in candidate.methods
     )
 
@@ -611,7 +617,7 @@ def test_output_endpoint_forwards_mode_query_to_child() -> None:
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/terminals/{terminal_id}/output"
+        and candidate.path == "/cao/terminals/{terminal_id}/output"
         and "GET" in candidate.methods
     )
 
@@ -642,7 +648,7 @@ def test_inbox_messages_endpoint_forwards_status_filter_to_child() -> None:
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/terminals/{terminal_id}/inbox/messages"
+        and candidate.path == "/cao/terminals/{terminal_id}/inbox/messages"
         and "GET" in candidate.methods
     )
 
@@ -666,7 +672,7 @@ def test_send_input_records_prompt_submission_on_success() -> None:
         candidate
         for candidate in app.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/terminals/{terminal_id}/input"
+        and candidate.path == "/cao/terminals/{terminal_id}/input"
         and "POST" in candidate.methods
     )
 
@@ -758,11 +764,24 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert service.m_register_requests[0].session_name == "cao-gpu"
     assert service.m_register_requests[0].tool == "codex"
     assert service.m_register_requests[0].agent_name == "AGENTSYS-gpu"
-
     assert state_response.terminal_id == "abcd1234"
-
     assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
+
+
+def test_root_cao_routes_are_removed_from_public_inventory() -> None:
+    app = create_app(service=_AppServiceDouble())
+
+    with_root_sessions = any(
+        isinstance(route, APIRoute) and route.path == "/sessions" for route in app.routes
+    )
+    with_root_terminals = any(
+        isinstance(route, APIRoute) and route.path == "/terminals/{terminal_id}"
+        for route in app.routes
+    )
+
+    assert with_root_sessions is False
+    assert with_root_terminals is False
 
 
 def test_managed_agent_routes_delegate_to_service_methods() -> None:

@@ -13,7 +13,7 @@ pixi install
 - Runtime CLI: `houmao-cli`
 - CAO launcher CLI: `houmao-cao-server`
 - Houmao server CLI: `houmao-server`
-- Houmao CAO-wrapper CLI: `houmao-srv-ctrl`
+- Houmao pair CLI: `houmao-srv-ctrl`
 
 Runtime subcommands:
 
@@ -45,6 +45,8 @@ Useful `start-session` overrides:
 - `--mailbox-address <full-address>`
 
 The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctrl`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
+
+Within that pair, `houmao-srv-ctrl` is split deliberately: top-level `launch` and `install` are Houmao-owned pair commands, while `houmao-srv-ctrl cao ...` is the explicit CAO-compatible namespace.
 
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 

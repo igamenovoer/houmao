@@ -5,7 +5,7 @@
 The intent of this pair is narrow and explicit:
 
 - `houmao-server` is the public HTTP authority.
-- `houmao-srv-ctrl` is the CAO-compatible CLI wrapper that still delegates most commands to the installed `cao` executable, but `launch --headless` now targets a Houmao-native server API instead of CAO.
+- `houmao-srv-ctrl` is the pair CLI. Its top level is Houmao-owned, and its explicit `cao` subgroup carries the CAO-compatible command family.
 - Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported in this change.
 
 For the maintained deep explanation of the live state tracker, turn anchors, lifecycle authority, and state transition rules behind `GET /houmao/terminals/{terminal_id}/state`, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
@@ -24,8 +24,8 @@ That exact commit is the parity oracle for the CAO-compatible HTTP and CLI behav
 
 Primary entrypoints for the paired replacement:
 
-- `houmao-server`: serves the Houmao-owned CAO-compatible HTTP surface and Houmao extension routes
-- `houmao-srv-ctrl`: exposes the supported CAO-compatible command family and delegates most commands to installed `cao`
+- `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` CAO-compatibility namespace
+- `houmao-srv-ctrl`: exposes top-level Houmao pair commands plus the explicit `cao` compatibility namespace
 - `houmao-cli`: remains the runtime/agent lifecycle CLI and stays outside the CAO-compatible service-management surface
 
 Representative usage:
@@ -33,8 +33,9 @@ Representative usage:
 ```bash
 houmao-server serve --api-base-url http://127.0.0.1:9889
 houmao-srv-ctrl install projection-demo --provider codex --port 9889
-houmao-srv-ctrl info --port 9889
+houmao-srv-ctrl cao info --port 9889
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
+houmao-srv-ctrl cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
 ```
 
@@ -54,12 +55,16 @@ The public contract stays Houmao-owned:
 - child CAO details stay behind the public contract for the delegated control plane
 - terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity instead of making `terminal_id` the internal watch authority
 
-The pair now exposes two Houmao-owned server surfaces:
+The pair now exposes three public server surfaces:
 
-- terminal-backed compatibility routes for delegated TUI sessions:
-  - `/sessions/*`
-  - `/terminals/*`
+- Houmao-owned root routes and terminal-tracking routes:
+  - `/health`
   - `/houmao/terminals/{terminal_id}/*`
+- explicit CAO-compatible routes:
+  - `/cao/health`
+  - `/cao/sessions/*`
+  - `/cao/terminals/*`
+  - `/cao/terminals/{terminal_id}/working-directory`
 - native managed-agent routes for Houmao-launched headless agents:
   - `GET /houmao/agents`
   - `GET /houmao/agents/{agent_ref}`
@@ -74,11 +79,14 @@ The pair now exposes two Houmao-owned server surfaces:
   - `POST /houmao/agents/{agent_ref}/interrupt`
   - `POST /houmao/agents/{agent_ref}/stop`
 
+Root `/sessions/*` and `/terminals/*` are intentionally not public in this boundary reset.
+
 The child listener address is derived mechanically as `public_port + 1` and stays loopback-only. There is no separate user-facing child-port override in this design.
 
 Pair-targeted profile installation follows the same boundary:
 
 - `houmao-srv-ctrl install --port <public-port> ...` identifies one public `houmao-server`
+- raw local CAO install remains under `houmao-srv-ctrl cao install ...`
 - `houmao-server` resolves the child-managed CAO home internally
 - callers do not compute or mutate hidden `child_cao` filesystem paths directly
 

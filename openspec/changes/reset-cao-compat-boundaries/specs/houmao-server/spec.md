@@ -37,6 +37,7 @@ The following routes are explicitly called out because current Houmao usage alre
 - `GET /cao/sessions/{session_name}/terminals`
 - `POST /cao/sessions/{session_name}/terminals`
 - `GET /cao/terminals/{terminal_id}`
+- `GET /cao/terminals/{terminal_id}/working-directory`
 - `POST /cao/terminals/{terminal_id}/input`
 - `GET /cao/terminals/{terminal_id}/output`
 - `POST /cao/terminals/{terminal_id}/exit`

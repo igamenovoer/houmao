@@ -141,7 +141,10 @@ class CaoGatewayAdapter:
             self.m_client = CaoRestClient(cao_metadata.api_base_url)
         else:
             houmao_metadata = cast(GatewayAttachBackendMetadataHoumaoServerV1, metadata)
-            self.m_client = CaoRestClient(houmao_metadata.api_base_url)
+            self.m_client = CaoRestClient(
+                houmao_metadata.api_base_url,
+                path_prefix="/cao",
+            )
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:

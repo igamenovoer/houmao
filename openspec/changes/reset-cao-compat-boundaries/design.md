@@ -50,6 +50,7 @@ Examples:
 - `GET /cao/sessions`
 - `POST /cao/sessions`
 - `GET /cao/terminals/{terminal_id}`
+- `GET /cao/terminals/{terminal_id}/working-directory`
 - `POST /cao/terminals/{terminal_id}/input`
 
 Root CAO routes such as `/sessions/*` and `/terminals/*` are removed instead of being kept as deprecated aliases.

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import time
 from urllib import parse
 
-from fastapi import FastAPI, Query, Response
+from fastapi import APIRouter, FastAPI, Query, Response
 
 from .config import HoumaoServerConfig
 from .models import (
@@ -61,6 +61,8 @@ def create_app(
         lifespan=_lifespan,
     )
 
+    cao_router = APIRouter(prefix="/cao")
+
     @app.get("/health")
     def health() -> HoumaoHealthResponse:
         return resolved_service.health_response()
@@ -69,7 +71,11 @@ def create_app(
     def current_instance() -> HoumaoCurrentInstance:
         return resolved_service.current_instance_response()
 
-    @app.post("/sessions", status_code=201)
+    @cao_router.get("/health")
+    def cao_health() -> Response:
+        return resolved_service.proxy(method="GET", path="/health").to_fastapi_response()
+
+    @cao_router.post("/sessions", status_code=201)
     def create_session(
         provider: str,
         agent_profile: str,
@@ -92,18 +98,18 @@ def create_app(
             resolved_service.sync_created_terminal(result.json_payload)
         return result.to_fastapi_response()
 
-    @app.get("/sessions")
+    @cao_router.get("/sessions")
     def list_sessions() -> Response:
         return resolved_service.proxy(method="GET", path="/sessions").to_fastapi_response()
 
-    @app.get("/sessions/{session_name}")
+    @cao_router.get("/sessions/{session_name}")
     def get_session(session_name: str) -> Response:
         return resolved_service.proxy(
             method="GET",
             path=f"/sessions/{_quote_path_segment(session_name)}",
         ).to_fastapi_response()
 
-    @app.delete("/sessions/{session_name}")
+    @cao_router.delete("/sessions/{session_name}")
     def delete_session(session_name: str) -> Response:
         result = resolved_service.proxy(
             method="DELETE",
@@ -113,7 +119,7 @@ def create_app(
             resolved_service.handle_deleted_session(session_name)
         return result.to_fastapi_response()
 
-    @app.post("/sessions/{session_name}/terminals", status_code=201)
+    @cao_router.post("/sessions/{session_name}/terminals", status_code=201)
     def create_terminal(
         session_name: str,
         provider: str,
@@ -135,28 +141,28 @@ def create_app(
             resolved_service.sync_created_terminal(result.json_payload)
         return result.to_fastapi_response()
 
-    @app.get("/sessions/{session_name}/terminals")
+    @cao_router.get("/sessions/{session_name}/terminals")
     def list_session_terminals(session_name: str) -> Response:
         return resolved_service.proxy(
             method="GET",
             path=f"/sessions/{_quote_path_segment(session_name)}/terminals",
         ).to_fastapi_response()
 
-    @app.get("/terminals/{terminal_id}")
+    @cao_router.get("/terminals/{terminal_id}")
     def get_terminal(terminal_id: TerminalId) -> Response:
         return resolved_service.proxy(
             method="GET",
             path=f"/terminals/{_quote_path_segment(terminal_id)}",
         ).to_fastapi_response()
 
-    @app.get("/terminals/{terminal_id}/working-directory")
+    @cao_router.get("/terminals/{terminal_id}/working-directory")
     def get_terminal_working_directory(terminal_id: TerminalId) -> Response:
         return resolved_service.proxy(
             method="GET",
             path=f"/terminals/{_quote_path_segment(terminal_id)}/working-directory",
         ).to_fastapi_response()
 
-    @app.post("/terminals/{terminal_id}/input")
+    @cao_router.post("/terminals/{terminal_id}/input")
     def send_input(terminal_id: TerminalId, message: str) -> Response:
         monotonic_ts = time.monotonic()
         resolved_service.emit_tracking_debug(
@@ -189,7 +195,7 @@ def create_app(
             )
         return result.to_fastapi_response()
 
-    @app.get("/terminals/{terminal_id}/output")
+    @cao_router.get("/terminals/{terminal_id}/output")
     def get_output(terminal_id: TerminalId, mode: str = "full") -> Response:
         return resolved_service.proxy(
             method="GET",
@@ -197,14 +203,14 @@ def create_app(
             params={"mode": mode},
         ).to_fastapi_response()
 
-    @app.post("/terminals/{terminal_id}/exit")
+    @cao_router.post("/terminals/{terminal_id}/exit")
     def exit_terminal(terminal_id: TerminalId) -> Response:
         return resolved_service.proxy(
             method="POST",
             path=f"/terminals/{_quote_path_segment(terminal_id)}/exit",
         ).to_fastapi_response()
 
-    @app.delete("/terminals/{terminal_id}")
+    @cao_router.delete("/terminals/{terminal_id}")
     def delete_terminal(terminal_id: TerminalId) -> Response:
         result = resolved_service.proxy(
             method="DELETE",
@@ -214,7 +220,7 @@ def create_app(
             resolved_service.handle_deleted_terminal(terminal_id)
         return result.to_fastapi_response()
 
-    @app.post("/terminals/{receiver_id}/inbox/messages")
+    @cao_router.post("/terminals/{receiver_id}/inbox/messages")
     def create_inbox_message(receiver_id: TerminalId, sender_id: str, message: str) -> Response:
         return resolved_service.proxy(
             method="POST",
@@ -222,7 +228,7 @@ def create_app(
             params={"sender_id": sender_id, "message": message},
         ).to_fastapi_response()
 
-    @app.get("/terminals/{terminal_id}/inbox/messages")
+    @cao_router.get("/terminals/{terminal_id}/inbox/messages")
     def list_inbox_messages(
         terminal_id: TerminalId,
         limit: int = Query(default=10, le=100),
@@ -358,6 +364,8 @@ def create_app(
         limit: int = Query(default=100, ge=1, le=500),
     ) -> HoumaoTerminalHistoryResponse:
         return resolved_service.terminal_history(terminal_id, limit=limit)
+
+    app.include_router(cao_router)
 
     return app
 
