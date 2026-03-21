@@ -176,7 +176,9 @@ def replay_timeline(
     for observation in observations:
         scheduler.schedule_absolute(
             observation.elapsed_seconds,
-            _build_observation_emit_action(tracker=tracker, observation=observation, timeline=timeline),
+            _build_observation_emit_action(
+                tracker=tracker, observation=observation, timeline=timeline
+            ),
         )
     if observations:
         scheduler.advance_to(observations[-1].elapsed_seconds + settle_seconds + 1.0)

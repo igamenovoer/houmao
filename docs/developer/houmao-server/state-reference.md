@@ -16,17 +16,17 @@ The public state contract is now centered on one shared tracker engine plus host
 
 ## Detector Families
 
-Surface observables (`accepting_input`, `editing_input`, `ready_posture`) and signal evidence (`active_evidence`, `interrupted`, `known_failure`, `success_candidate`) are produced by tool-specific detectors defined in [`src/houmao/shared_tui_tracking/detectors.py`](../../../src/houmao/shared_tui_tracking/detectors.py).
+Surface observables (`accepting_input`, `editing_input`, `ready_posture`) and signal evidence (`active_evidence`, `interrupted`, `known_failure`, `success_candidate`) are produced by tool-specific tracked-TUI profiles. [`src/houmao/shared_tui_tracking/detectors.py`](../../../src/houmao/shared_tui_tracking/detectors.py) now defines the shared contract and compatibility exports, while concrete implementations live under app-owned modules such as [`src/houmao/shared_tui_tracking/apps/codex_tui/`](../../../src/houmao/shared_tui_tracking/apps/codex_tui/).
 
 Three detector families exist:
 
 | Family | Class | Tool | Selection |
 |--------|-------|------|-----------|
 | `claude_code` (version `2.1.x`) | `ClaudeCodeSignalDetectorV2_1_X` | Claude Code | Best-match by observed CLI version; highest score for `2.1.*`, fallback for other `2.*` |
-| `codex_app_server` | `CodexTrackedTurnSignalDetector` | Codex | Selected when `tool == "codex"` |
+| `codex_tui` | `CodexTuiSignalDetector` | Codex interactive TUI | Selected when `tool == "codex"` for tracked raw-snapshot TUI sessions |
 | `unsupported_tool` | `FallbackTrackedTurnSignalDetector` | All others | Default fallback for unrecognized tools |
 
-The selection entry point remains `select_tracked_turn_signal_detector(tool=..., observed_version=...)`, but it now resolves through the tracker-local app/profile registry with closest-compatible semver-floor matching rather than ad hoc scoring.
+The selection entry point remains `select_tracked_turn_signal_detector(tool=..., observed_version=...)`, but it now resolves through the tracker-local app/profile registry with closest-compatible semver-floor matching rather than ad hoc scoring. For `codex_tui`, the resolved profile may also contribute temporal hints from a recent sliding window while keeping the single-snapshot `DetectedTurnSignals` contract intact.
 
 **Why this matters:** Different tools yield different `unknown` vs `yes`/`no` distributions for the same underlying conditions. The `unsupported_tool` fallback is intentionally conservative — it produces more `unknown` values because it lacks tool-specific prompt and activity patterns. A `ready_posture=unknown` from an unsupported tool does not mean the same thing as `ready_posture=unknown` from the Claude detector.
 
@@ -103,7 +103,7 @@ stateDiagram-v2
 
 The `surface` group contains three foundational observables that describe what is directly visible in the TUI right now. All three are `Tristate` values: `yes`, `no`, or `unknown`.
 
-These values are **detector-produced** — they come from tool-specific signal detection in `shared_tui_tracking/detectors.py`, not from the reducer or mapping helpers. Different detector families may produce different tristate distributions for the same underlying TUI conditions.
+These values are **profile-produced** — they come from tool-specific tracked-TUI profile logic, not from the reducer or mapping helpers. Different profile families may produce different tristate distributions for the same underlying TUI conditions.
 
 ### `surface.accepting_input`
 

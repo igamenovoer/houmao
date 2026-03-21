@@ -76,7 +76,7 @@ def test_detector_profile_registry_uses_closest_compatible_floor() -> None:
 
 def test_tracker_session_accepts_direct_tmux_raw_text_fixture() -> None:
     session = TuiTrackerSession.from_config(
-        app_id="codex_app_server",
+        app_id="codex_tui",
         observed_version=None,
         config=TrackerConfig(settle_seconds=1.0),
         scheduler=TestScheduler(),

@@ -32,7 +32,10 @@ Core state type definitions and tracker reduction logic live in the shared TUI t
 | `src/houmao/shared_tui_tracking/models.py` | Canonical type definitions: `Tristate`, `TrackedDiagnosticsAvailability`, `TurnPhase`, `TrackedLastTurnResult`, `TrackedLastTurnSource`, `TransportState`, `ProcessState`, `ParseStatus` |
 | `src/houmao/shared_tui_tracking/session.py` | `TuiTrackerSession` — standalone raw-snapshot tracker with internal Rx timers and thread-safe live API |
 | `src/houmao/shared_tui_tracking/registry.py` | App/profile registry and closest-compatible semver-floor detector resolution |
-| `src/houmao/shared_tui_tracking/detectors.py` | Tool-specific raw-text detector profiles: `ClaudeCodeSignalDetectorV2_1_X`, `CodexTrackedTurnSignalDetector`, `FallbackTrackedTurnSignalDetector` |
+| `src/houmao/shared_tui_tracking/detectors.py` | Shared detector/profile contracts plus compatibility exports |
+| `src/houmao/shared_tui_tracking/apps/claude_code/` | Claude Code raw-text detector/profile implementations |
+| `src/houmao/shared_tui_tracking/apps/codex_tui/` | Codex interactive TUI detector/profile implementations, including temporal hint logic |
+| `src/houmao/shared_tui_tracking/apps/unsupported_tool/` | Conservative fallback detector/profile implementation |
 | `src/houmao/shared_tui_tracking/reducer.py` | Compatibility replay wrappers over the standalone tracker session |
 | `src/houmao/server/tui/tracking.py` | `LiveSessionTracker` — live server polling tracker |
 | `src/houmao/server/service.py` | Top-level wiring, registration, alias maps, poll cycle |

@@ -16,13 +16,16 @@ The key architectural boundary is:
 - [`../../../../src/houmao/server/tui/transport.py`](../../../../src/houmao/server/tui/transport.py): tmux pane resolution and capture
 - [`../../../../src/houmao/server/tui/process.py`](../../../../src/houmao/server/tui/process.py): live process-tree inspection for supported TUI detection
 - [`../../../../src/houmao/server/tui/parser.py`](../../../../src/houmao/server/tui/parser.py): official parser adapter over the shared shadow parser stack
-- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py): tool/version-specific turn-signal detection; re-exports from `shared_tui_tracking/detectors.py`
+- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py): compatibility exports for the shared tracked-TUI detector/profile boundary
 - [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py): in-memory tracked state, internal settle/anchor machinery, public simplified turn mapping, stability, and recent transitions
 - [`../../../../src/houmao/server/tui/supervisor.py`](../../../../src/houmao/server/tui/supervisor.py): reconcile loop and per-session watch workers
 - [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py): public route payloads for tracked state, history, and registration
 - [`../../../../src/houmao/shared_tui_tracking/models.py`](../../../../src/houmao/shared_tui_tracking/models.py): canonical type definitions (`Tristate`, `TurnPhase`, `TrackedDiagnosticsAvailability`, etc.)
 - [`../../../../src/houmao/shared_tui_tracking/public_state.py`](../../../../src/houmao/shared_tui_tracking/public_state.py): canonical mapping functions (`diagnostics_availability()`, `turn_phase_from_signals()`)
-- [`../../../../src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py): tool-specific signal detectors (Claude, Codex, fallback)
+- [`../../../../src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py): shared detector/profile contracts and compatibility exports
+- [`../../../../src/houmao/shared_tui_tracking/apps/claude_code/`](../../../../src/houmao/shared_tui_tracking/apps/claude_code/): Claude Code detector/profile implementations
+- [`../../../../src/houmao/shared_tui_tracking/apps/codex_tui/`](../../../../src/houmao/shared_tui_tracking/apps/codex_tui/): Codex interactive TUI detector/profile implementations and temporal hint logic
+- [`../../../../src/houmao/shared_tui_tracking/apps/unsupported_tool/`](../../../../src/houmao/shared_tui_tracking/apps/unsupported_tool/): fallback detector/profile implementation
 
 ## Public Surface Versus Internal Authority
 
@@ -54,3 +57,4 @@ Internally, the tracker is not keyed by `terminal_id`. The authoritative identit
 - [`../../../../src/houmao/shared_tui_tracking/models.py`](../../../../src/houmao/shared_tui_tracking/models.py)
 - [`../../../../src/houmao/shared_tui_tracking/public_state.py`](../../../../src/houmao/shared_tui_tracking/public_state.py)
 - [`../../../../src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py)
+- [`../../../../src/houmao/shared_tui_tracking/apps/codex_tui/`](../../../../src/houmao/shared_tui_tracking/apps/codex_tui/)

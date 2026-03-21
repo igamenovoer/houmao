@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -17,6 +18,8 @@ from reactivex.subject import Subject
 
 from houmao.shared_tui_tracking.models import (
     DetectedTurnSignals,
+    RecentProfileFrame,
+    TemporalHintSignals,
     TrackerConfig,
     TrackedLastTurnResult,
     TrackedLastTurnSource,
@@ -77,13 +80,17 @@ class TuiTrackerSession:
         self.m_all_events: list[TrackedStateTransition] = []
         self.m_pending_events: list[TrackedStateTransition] = []
         self.m_latest_signals: DetectedTurnSignals | None = None
+        self.m_latest_effective_signals: DetectedTurnSignals | None = None
+        self.m_latest_temporal_hints: TemporalHintSignals | None = None
+        self.m_recent_frames: deque[RecentProfileFrame] = deque()
         self.m_armed_turn_source: TrackedLastTurnSource | None = None
         self.m_pending_success_signature: str | None = None
         self.m_pending_success_sample_id: str | None = None
         self.m_settled_success_signature: str | None = None
         self.m_started_at_seconds: float = _absolute_seconds(self.m_scheduler.now)
-        initial_signals = self.m_resolved_profile.detector.detect(output_text="")
+        initial_signals = self.m_resolved_profile.profile.detect(output_text="")
         self.m_latest_signals = initial_signals
+        self.m_latest_effective_signals = initial_signals
         self.m_state = _MutableTrackerState(
             surface_accepting_input="unknown",
             surface_editing_input="unknown",
@@ -207,8 +214,26 @@ class TuiTrackerSession:
         """Apply one raw snapshot event under lock."""
 
         with self.m_lock:
-            signals = self.m_resolved_profile.detector.detect(output_text=raw_text)
+            at_seconds = self._current_seconds_locked()
+            signals = self.m_resolved_profile.profile.detect(output_text=raw_text)
             self.m_latest_signals = signals
+            temporal_frame = self.m_resolved_profile.profile.build_temporal_frame(
+                output_text=raw_text,
+                signals=signals,
+                observed_at_seconds=at_seconds,
+            )
+            if temporal_frame is not None:
+                self.m_recent_frames.append(
+                    RecentProfileFrame(observed_at_seconds=at_seconds, payload=temporal_frame)
+                )
+            self._evict_recent_frames_locked()
+            temporal_hints = self.m_resolved_profile.profile.derive_temporal_hints(
+                recent_frames=tuple(self.m_recent_frames)
+            )
+            self.m_latest_temporal_hints = temporal_hints
+            effective_signals = _merge_temporal_hints(signals=signals, hints=temporal_hints)
+            effective_signals = self._apply_success_authority_guard_locked(effective_signals)
+            self.m_latest_effective_signals = effective_signals
             self._trace(
                 "detector_signals",
                 {
@@ -217,12 +242,19 @@ class TuiTrackerSession:
                     "signals": signals.to_payload(),
                 },
             )
+            self._trace("temporal_hints", {"hints": temporal_hints.to_payload()})
+            self._trace(
+                "effective_signals",
+                {
+                    "signals": effective_signals.to_payload(),
+                },
+            )
 
-            if signals.interrupted:
+            if effective_signals.interrupted:
                 self._cancel_success_timer_locked()
                 self.m_settled_success_signature = None
                 self._emit_state_from_signals_locked(
-                    signals=signals,
+                    signals=effective_signals,
                     note="interrupted_signal",
                     turn_phase="ready",
                     last_turn_result="interrupted",
@@ -231,11 +263,11 @@ class TuiTrackerSession:
                 self.m_armed_turn_source = None
                 return
 
-            if signals.known_failure:
+            if effective_signals.known_failure:
                 self._cancel_success_timer_locked()
                 self.m_settled_success_signature = None
                 self._emit_state_from_signals_locked(
-                    signals=signals,
+                    signals=effective_signals,
                     note="known_failure_signal",
                     turn_phase="ready",
                     last_turn_result="known_failure",
@@ -244,12 +276,12 @@ class TuiTrackerSession:
                 self.m_armed_turn_source = None
                 return
 
-            if signals.active_evidence:
+            if effective_signals.active_evidence:
                 self._cancel_success_timer_locked()
                 if self.m_armed_turn_source is None:
                     self.m_armed_turn_source = "surface_inference"
                 self._emit_state_from_signals_locked(
-                    signals=signals,
+                    signals=effective_signals,
                     note="active_signal",
                     turn_phase="active",
                     last_turn_result=self.m_state.last_turn_result,
@@ -257,34 +289,38 @@ class TuiTrackerSession:
                 )
                 return
 
-            if signals.success_candidate:
+            if effective_signals.success_candidate:
                 if (
                     self.m_state.last_turn_result == "success"
                     and self.m_settled_success_signature is not None
-                    and signals.surface_signature != self.m_settled_success_signature
+                    and effective_signals.surface_signature != self.m_settled_success_signature
                 ):
                     self.m_settled_success_signature = None
                     self._emit_state_from_signals_locked(
-                        signals=signals,
+                        signals=effective_signals,
                         note="success_invalidated",
                         turn_phase="ready",
                         last_turn_result="none",
                         last_turn_source="none",
                     )
                 self._emit_state_from_signals_locked(
-                    signals=signals,
+                    signals=effective_signals,
                     note="success_candidate",
                     turn_phase="ready",
                     last_turn_result=self.m_state.last_turn_result,
                     last_turn_source=self.m_state.last_turn_source,
                 )
-                self._arm_success_timer_locked(surface_signature=signals.surface_signature)
+                self._arm_success_timer_locked(
+                    surface_signature=effective_signals.surface_signature
+                )
                 return
 
             self._cancel_success_timer_locked()
-            default_phase: TurnPhase = "ready" if signals.ready_posture == "yes" else "unknown"
+            default_phase: TurnPhase = (
+                "ready" if effective_signals.ready_posture == "yes" else "unknown"
+            )
             self._emit_state_from_signals_locked(
-                signals=signals,
+                signals=effective_signals,
                 note="default_snapshot",
                 turn_phase=default_phase,
                 last_turn_result=self.m_state.last_turn_result,
@@ -342,7 +378,7 @@ class TuiTrackerSession:
         """Settle one success candidate after the configured delay."""
 
         with self.m_lock:
-            signals = self.m_latest_signals
+            signals = self.m_latest_effective_signals
             if signals is None:
                 return
             if not signals.success_candidate:
@@ -369,6 +405,56 @@ class TuiTrackerSession:
             self.m_settled_success_signature = self.m_pending_success_signature
             self.m_armed_turn_source = None
             self._cancel_success_timer_locked()
+
+    def _evict_recent_frames_locked(self) -> None:
+        """Evict expired profile frames from the temporal recent window."""
+
+        window_seconds = self.m_resolved_profile.profile.temporal_window_seconds
+        if window_seconds <= 0.0:
+            self.m_recent_frames.clear()
+            return
+        cutoff_seconds = self._current_seconds_locked() - window_seconds
+        while self.m_recent_frames and self.m_recent_frames[0].observed_at_seconds < cutoff_seconds:
+            self.m_recent_frames.popleft()
+
+    def _apply_success_authority_guard_locked(
+        self,
+        signals: DetectedTurnSignals,
+    ) -> DetectedTurnSignals:
+        """Return signals with ready-return success blocked until authority is armed."""
+
+        if not signals.success_candidate:
+            return signals
+        if self._has_armed_turn_authority_locked():
+            return signals
+        notes = tuple(dict.fromkeys((*signals.notes, "success_candidate_requires_authority")))
+        return DetectedTurnSignals(
+            detector_name=signals.detector_name,
+            detector_version=signals.detector_version,
+            accepting_input=signals.accepting_input,
+            editing_input=signals.editing_input,
+            ready_posture=signals.ready_posture,
+            prompt_visible=signals.prompt_visible,
+            prompt_text=signals.prompt_text,
+            footer_interruptable=signals.footer_interruptable,
+            active_evidence=signals.active_evidence,
+            active_reasons=signals.active_reasons,
+            interrupted=signals.interrupted,
+            known_failure=signals.known_failure,
+            current_error_present=signals.current_error_present,
+            success_candidate=False,
+            completion_marker=signals.completion_marker,
+            latest_status_line=signals.latest_status_line,
+            ambiguous_interactive_surface=signals.ambiguous_interactive_surface,
+            success_blocked=True,
+            surface_signature=signals.surface_signature,
+            notes=notes,
+        )
+
+    def _has_armed_turn_authority_locked(self) -> bool:
+        """Return whether the current session has prior armed turn authority."""
+
+        return self.m_armed_turn_source in {"explicit_input", "surface_inference"}
 
     def _terminal_turn_source_locked(self) -> TrackedLastTurnSource:
         """Return the best available turn source for one terminal outcome."""
@@ -538,3 +624,72 @@ def _state_signature(state: _MutableTrackerState) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _merge_temporal_hints(
+    *,
+    signals: DetectedTurnSignals,
+    hints: TemporalHintSignals,
+) -> DetectedTurnSignals:
+    """Return one effective signal payload after applying temporal hints."""
+
+    accepting_input = (
+        hints.accepting_input if hints.accepting_input is not None else signals.accepting_input
+    )
+    editing_input = (
+        hints.editing_input if hints.editing_input is not None else signals.editing_input
+    )
+    ready_posture = (
+        hints.ready_posture if hints.ready_posture is not None else signals.ready_posture
+    )
+    active_evidence = (
+        hints.active_evidence if hints.active_evidence is not None else signals.active_evidence
+    )
+    interrupted = hints.interrupted if hints.interrupted is not None else signals.interrupted
+    known_failure = (
+        hints.known_failure if hints.known_failure is not None else signals.known_failure
+    )
+    current_error_present = (
+        hints.current_error_present
+        if hints.current_error_present is not None
+        else signals.current_error_present
+    )
+    success_candidate = (
+        hints.success_candidate
+        if hints.success_candidate is not None
+        else signals.success_candidate
+    )
+    success_blocked = (
+        hints.success_blocked if hints.success_blocked is not None else signals.success_blocked
+    )
+    active_reasons = tuple(dict.fromkeys((*signals.active_reasons, *hints.active_reasons)))
+    notes = tuple(dict.fromkeys((*signals.notes, *hints.notes)))
+    if active_evidence and hints.active_reasons:
+        success_blocked = True
+    if current_error_present or interrupted or known_failure:
+        success_candidate = False
+        success_blocked = True
+    if active_evidence and hints.ready_posture is None and ready_posture == "yes":
+        ready_posture = "no"
+    return DetectedTurnSignals(
+        detector_name=signals.detector_name,
+        detector_version=signals.detector_version,
+        accepting_input=accepting_input,
+        editing_input=editing_input,
+        ready_posture=ready_posture,
+        prompt_visible=signals.prompt_visible,
+        prompt_text=signals.prompt_text,
+        footer_interruptable=signals.footer_interruptable,
+        active_evidence=active_evidence,
+        active_reasons=active_reasons if active_evidence else (),
+        interrupted=interrupted,
+        known_failure=known_failure,
+        current_error_present=current_error_present,
+        success_candidate=success_candidate and not success_blocked,
+        completion_marker=signals.completion_marker,
+        latest_status_line=signals.latest_status_line,
+        ambiguous_interactive_surface=signals.ambiguous_interactive_surface,
+        success_blocked=success_blocked or active_evidence,
+        surface_signature=signals.surface_signature,
+        notes=notes,
+    )

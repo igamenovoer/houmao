@@ -1319,7 +1319,7 @@ def _synthetic_codex_snapshot(
     """Return a minimal Codex-like raw surface for compatibility-only server tests."""
 
     if parsed_surface.business_state == "working":
-        return "• Working (1s)\n› \n"
+        return "• Working (1s • esc to interrupt)\n› \n"
     if parsed_surface.input_mode == "modal" or parsed_surface.business_state == "awaiting_operator":
         return "Would you like to run the following command?\n› \n"
     if (

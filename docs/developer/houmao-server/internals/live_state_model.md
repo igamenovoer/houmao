@@ -66,7 +66,7 @@ In brief, `diagnostics.availability` maps low-level observation outcomes (`trans
 
 For the full definition of each surface observable (`accepting_input`, `editing_input`, `ready_posture`) and their tristate values, see the [State Reference Guide](../state-reference.md#surface-observables).
 
-In brief, surface observables are produced by tool/version-specific signal detectors in [`src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py) from raw snapshot text alone. The live server feeds that raw text into the standalone tracker session and keeps parsed-surface metadata on the server side.
+In brief, surface observables are produced by tool/version-specific tracked-TUI profiles. [`src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py) now defines the shared contract and compatibility exports, while concrete logic lives under app-owned modules such as [`src/houmao/shared_tui_tracking/apps/codex_tui/`](../../../../src/houmao/shared_tui_tracking/apps/codex_tui/). The live server feeds raw snapshot text into the standalone tracker session and keeps parsed-surface metadata on the server side.
 
 ## Turn And Last-Turn Mapping
 

@@ -9,7 +9,7 @@ from typing import Callable
 from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
-    CodexTrackedTurnSignalDetector,
+    CodexTuiSignalDetector,
     FallbackClaudeDetector,
     FallbackTrackedTurnSignalDetector,
 )
@@ -26,7 +26,7 @@ class DetectorProfileRegistration:
     detector_name: str
     detector_version: str
     minimum_supported_version: tuple[int, ...] | None
-    detector_factory: Callable[[], BaseTrackedTurnSignalDetector]
+    profile_factory: Callable[[], BaseTrackedTurnSignalDetector]
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,13 @@ class ResolvedDetectorProfile:
     detector_name: str
     detector_version: str
     minimum_supported_version: tuple[int, ...] | None
-    detector: BaseTrackedTurnSignalDetector
+    profile: BaseTrackedTurnSignalDetector
+
+    @property
+    def detector(self) -> BaseTrackedTurnSignalDetector:
+        """Return the resolved profile through the legacy detector name."""
+
+        return self.profile
 
 
 class DetectorProfileRegistry:
@@ -59,28 +65,28 @@ class DetectorProfileRegistry:
                     detector_name="claude_code",
                     detector_version="2.1.x",
                     minimum_supported_version=(2, 1, 0),
-                    detector_factory=ClaudeCodeSignalDetectorV2_1_X,
+                    profile_factory=ClaudeCodeSignalDetectorV2_1_X,
                 ),
                 DetectorProfileRegistration(
                     app_id="claude_code",
                     detector_name="claude_code",
                     detector_version="fallback",
                     minimum_supported_version=None,
-                    detector_factory=FallbackClaudeDetector,
+                    profile_factory=FallbackClaudeDetector,
                 ),
                 DetectorProfileRegistration(
-                    app_id="codex_app_server",
-                    detector_name="codex_app_server",
+                    app_id="codex_tui",
+                    detector_name="codex_tui",
                     detector_version="builtin",
                     minimum_supported_version=None,
-                    detector_factory=CodexTrackedTurnSignalDetector,
+                    profile_factory=CodexTuiSignalDetector,
                 ),
                 DetectorProfileRegistration(
                     app_id="unsupported_tool",
                     detector_name="unsupported_tool",
                     detector_version="builtin",
                     minimum_supported_version=None,
-                    detector_factory=FallbackTrackedTurnSignalDetector,
+                    profile_factory=FallbackTrackedTurnSignalDetector,
                 ),
             )
         )
@@ -93,9 +99,7 @@ class DetectorProfileRegistry:
     ) -> ResolvedDetectorProfile:
         """Resolve one app id and observed version to the best detector profile."""
 
-        candidates = [
-            item for item in self.m_registrations if item.app_id == app_id
-        ] or [
+        candidates = [item for item in self.m_registrations if item.app_id == app_id] or [
             item for item in self.m_registrations if item.app_id == "unsupported_tool"
         ]
         observed_version_tuple = _parse_version(observed_version)
@@ -108,7 +112,7 @@ class DetectorProfileRegistry:
             detector_name=selected.detector_name,
             detector_version=selected.detector_version,
             minimum_supported_version=selected.minimum_supported_version,
-            detector=selected.detector_factory(),
+            profile=selected.profile_factory(),
         )
 
 
@@ -118,7 +122,7 @@ def app_id_from_tool(*, tool: str) -> str:
     if tool == "claude":
         return "claude_code"
     if tool == "codex":
-        return "codex_app_server"
+        return "codex_tui"
     return "unsupported_tool"
 
 
@@ -143,7 +147,9 @@ def _select_best_registration(
 ) -> DetectorProfileRegistration:
     """Select the closest-compatible profile from one registration set."""
 
-    fallback = next((item for item in registrations if item.minimum_supported_version is None), None)
+    fallback = next(
+        (item for item in registrations if item.minimum_supported_version is None), None
+    )
     if observed_version is None:
         return fallback or registrations[0]
 

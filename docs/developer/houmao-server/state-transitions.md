@@ -4,7 +4,7 @@ This guide documents how houmao-server state values change over time and what op
 
 For the definition of each individual state value, see the [State Reference Guide](state-reference.md). For the internal pipeline architecture, see [State Tracking](state-tracking.md).
 
-> **Source of truth:** Tracker-owned transition logic is implemented in [`src/houmao/shared_tui_tracking/session.py`](../../../src/houmao/shared_tui_tracking/session.py) together with raw-text detector profiles in [`src/houmao/shared_tui_tracking/detectors.py`](../../../src/houmao/shared_tui_tracking/detectors.py). The live server tracker in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) feeds that shared session and then merges the result with server-owned diagnostics and lifecycle metadata.
+> **Source of truth:** Tracker-owned transition logic is implemented in [`src/houmao/shared_tui_tracking/session.py`](../../../src/houmao/shared_tui_tracking/session.py) together with the shared detector/profile contract in [`src/houmao/shared_tui_tracking/detectors.py`](../../../src/houmao/shared_tui_tracking/detectors.py) and app-owned implementations such as [`src/houmao/shared_tui_tracking/apps/codex_tui/`](../../../src/houmao/shared_tui_tracking/apps/codex_tui/). The live server tracker in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) feeds that shared session and then merges the result with server-owned diagnostics and lifecycle metadata.
 
 ---
 
@@ -113,6 +113,8 @@ sequenceDiagram
     loop Poll cycles
         T->>D: detect(output_text,<br/>parsed_surface)
         D-->>T: DetectedTurnSignals
+        T->>D: derive_temporal_hints(recent_frames)
+        D-->>T: TemporalHintSignals
     end
 
     alt Successful turn
@@ -144,7 +146,7 @@ flowchart TD
     Proc["process inspection<br/><i>PaneProcessInspector</i>"]
     Parse["official parser<br/><i>OfficialTuiParserAdapter</i>"]
     Surf["HoumaoParsedSurface"]
-    Detect["raw-text detector profile<br/><i>shared_tui_tracking/detectors.py</i>"]
+    Detect["tracked-TUI profile<br/><i>shared_tui_tracking/apps/&lt;app_id&gt;/</i>"]
     Shared["TuiTrackerSession<br/><i>shared_tui_tracking/session.py</i>"]
     MapDiag["diagnostics_availability()<br/><i>shared_tui_tracking/public_state.py</i>"]
     Anchor{"turn anchor<br/>lifecycle"}

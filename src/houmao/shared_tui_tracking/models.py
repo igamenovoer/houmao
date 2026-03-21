@@ -203,6 +203,36 @@ class DetectedTurnSignals:
 
 
 @dataclass(frozen=True)
+class TemporalHintSignals:
+    """Temporal lifecycle hints derived from recent ordered profile frames."""
+
+    accepting_input: Tristate | None = None
+    editing_input: Tristate | None = None
+    ready_posture: Tristate | None = None
+    active_evidence: bool | None = None
+    active_reasons: tuple[str, ...] = ()
+    interrupted: bool | None = None
+    known_failure: bool | None = None
+    current_error_present: bool | None = None
+    success_candidate: bool | None = None
+    success_blocked: bool | None = None
+    notes: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RecentProfileFrame:
+    """One session-owned profile frame held in the temporal recent-window."""
+
+    observed_at_seconds: float
+    payload: object
+
+
+@dataclass(frozen=True)
 class TrackedTimelineState:
     """One sample-aligned tracked-state row in the official vocabulary."""
 
