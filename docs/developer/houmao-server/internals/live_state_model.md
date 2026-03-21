@@ -1,6 +1,6 @@
 # Live State Model
 
-The public live-state payload is `HoumaoTerminalStateResponse` in [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py). The response is returned by `GET /houmao/terminals/{terminal_id}/state`, but the authoritative state is held in memory by `LiveSessionTracker`.
+The public live-state payload is `HoumaoTerminalStateResponse` in [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py). The response is returned by `GET /houmao/terminals/{terminal_id}/state`, but the authoritative state is held in memory by `LiveSessionTracker`.
 
 This migration note focuses on the current implementation shape: a simplified public state model built over existing internal anchor/settle machinery.
 
@@ -58,80 +58,21 @@ That state means “the tracker exists, but no successful live observation has b
 
 ## Diagnostics Mapping
 
-`diagnostics` is the public low-level sample health view.
+For the full definition of each `diagnostics.availability` value (intuitive meaning, technical derivation, operational implications), see the [State Reference Guide](../state-reference.md#diagnosticsavailability).
 
-Current `diagnostics.availability` mapping is:
-
-- `error` when probe or parse failed for the current sample
-- `unavailable` when the tracked tmux target is gone
-- `tui_down` when tmux is reachable but the supported TUI process is not running
-- `available` when the parser produced a supported parsed surface
-- `unknown` when the server is still watching but the current sample is not classifiable confidently enough for normal interpretation
-
-The full `diagnostics` object also carries:
-
-- `transport_state`
-- `process_state`
-- `parse_status`
-- optional `probe_error`
-- optional `parse_error`
+In brief, `diagnostics.availability` maps low-level observation outcomes (`transport_state`, `process_state`, `parse_status`, errors) into one of five values: `available`, `unavailable`, `tui_down`, `error`, `unknown`. The full `diagnostics` object also carries those low-level fields for service/debug use.
 
 ## Foundational Surface Observables
 
-`surface` is now the public “what is directly observable right now?” layer.
+For the full definition of each surface observable (`accepting_input`, `editing_input`, `ready_posture`) and their tristate values, see the [State Reference Guide](../state-reference.md#surface-observables).
 
-Its fields are:
-
-- `accepting_input`
-- `editing_input`
-- `ready_posture`
-
-These are produced by tool/version-specific signal detection in [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py), using:
-
-- current raw `output_text`
-- optional `parsed_surface`
-- tool-specific matchers for active work, interruption, failure, and ready/success cues
-
-Important consequences of the current implementation:
-
-- visible progress rows are supporting evidence only, not a required condition for activity
-- a submit-ready parsed surface can still yield `ready_posture=yes` even if the raw tool prompt chrome is partially missing
-- ambiguous interactive UI such as menus, selection boxes, and permission prompts degrades `ready_posture` toward `unknown`
+In brief, surface observables are produced by tool/version-specific signal detectors in [`src/houmao/shared_tui_tracking/detectors.py`](../../../../src/houmao/shared_tui_tracking/detectors.py) using raw `output_text` and optional `parsed_surface`. The server's `tui/turn_signals.py` re-exports from the shared module.
 
 ## Turn And Last-Turn Mapping
 
-The public turn model is intentionally smaller than the internal reducer graph.
+For the full definition of `turn.phase`, `last_turn.result`, and `last_turn.source` values, see the [State Reference Guide](../state-reference.md#turnphase). For transition diagrams and operation acceptability, see the [State Transitions Guide](../state-transitions.md).
 
-### `turn.phase`
-
-The current implementation uses:
-
-- `ready` when no active anchor remains and the surface looks ready for another turn
-- `active` when an explicit or inferred anchor is armed, or when the detector has strong current active evidence
-- `unknown` when diagnostics are degraded or the current posture is ambiguous
-
-Ambiguous interactive UI does not create a dedicated ask-user public phase. It contributes to `turn.phase="unknown"` unless stronger active or terminal evidence exists.
-
-### `last_turn`
-
-`last_turn` is sticky and updates only when a tracked turn reaches a terminal outcome:
-
-- `success`
-- `interrupted`
-- `known_failure`
-- `none`
-
-The source is:
-
-- `explicit_input` for the supported server-owned input route
-- `surface_inference` for inferred direct tmux prompting
-- `none` before any terminal turn is recorded
-
-The current success path is important:
-
-- success still depends on the shared ReactiveX settle window
-- success does not require a `Worked for <duration>`-style marker on every turn
-- the tracker may retract a premature success if a later observation proves the same turn surface was still evolving
+In brief: `turn.phase` is narrower than the internal reducer graph, collapsing ambiguous states into `unknown`. `last_turn` is sticky and only changes on terminal outcomes. Success depends on the settle window, does not require a completion marker, and may be retracted if the surface proves to still be evolving.
 
 ## Internal Timing And Authority Still Exist
 
@@ -179,7 +120,7 @@ The buffer remains bounded by `recent_transition_limit`, so it is useful for rec
 
 ## Related Sources
 
-- [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py)
-- [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py)
-- [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py)
-- [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py)
+- [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py)
+- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py)
+- [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py)
+- [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py)

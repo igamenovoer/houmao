@@ -2,9 +2,11 @@
 
 `houmao-server` owns live tracked state for supported interactive TUIs. Clients, dashboards, and demo packs consume `HoumaoTerminalStateResponse`; they do not run a second reducer.
 
-The public models live in [`src/houmao/server/models.py`](../../src/houmao/server/models.py). The core implementation is `LiveSessionTracker` in [`src/houmao/server/tui/tracking.py`](../../src/houmao/server/tui/tracking.py). Timed readiness and settle behavior still reuse the shared ReactiveX kernel in [`src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../src/houmao/lifecycle/rx_lifecycle_kernel.py).
+The public models live in [`src/houmao/server/models.py`](../../../src/houmao/server/models.py), which re-exports core types from [`src/houmao/shared_tui_tracking/models.py`](../../../src/houmao/shared_tui_tracking/models.py). The canonical mapping functions live in [`src/houmao/shared_tui_tracking/public_state.py`](../../../src/houmao/shared_tui_tracking/public_state.py). The core implementation is `LiveSessionTracker` in [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py). Timed readiness and settle behavior still reuse the shared ReactiveX kernel in [`src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../src/houmao/lifecycle/rx_lifecycle_kernel.py).
 
 ## Public Contract
+
+> For the full definition of each state value (intuitive meaning, technical derivation, operational implications), see the [State Reference Guide](state-reference.md). For state transition diagrams and operation acceptability, see the [State Transitions Guide](state-transitions.md).
 
 The public state is intentionally small:
 
@@ -33,6 +35,8 @@ Low-level observation detail still remains available alongside the simplified mo
 Those lower-level fields are diagnostic evidence, not the primary consumer-facing lifecycle vocabulary.
 
 ## End-To-End Flow
+
+> A more detailed state composition flowchart reflecting the `shared_tui_tracking/` module extraction is maintained in [state-transitions.md § State Composition](state-transitions.md#state-composition).
 
 One tracking cycle moves through these layers:
 
@@ -118,7 +122,7 @@ Anchors are armed from two sources:
 
 | Source | How it is armed | Public source |
 |--------|-----------------|---------------|
-| `terminal_input` | `POST /terminals/{terminal_id}/input` succeeds and the service calls `note_prompt_submission()` | `explicit_input` |
+| `terminal_input` | `POST /houmao/terminals/{terminal_id}/input` succeeds and the service calls `note_prompt_submission()` | `explicit_input` |
 | `surface_inference` | direct interactive tmux input changed the surface enough that the tracker can safely infer a submitted turn | `surface_inference` |
 
 The guarded `surface_inference` path is intentionally narrow. The tracker requires:

@@ -1,6 +1,6 @@
 # Supervisor And Lifecycle
 
-The server-owned tracker runs as one supervisor thread plus one watch worker per live known session. This logic lives in [`../../../../../src/houmao/server/tui/supervisor.py`](../../../../../src/houmao/server/tui/supervisor.py).
+The server-owned tracker runs as one supervisor thread plus one watch worker per live known session. This logic lives in [`../../../../src/houmao/server/tui/supervisor.py`](../../../../src/houmao/server/tui/supervisor.py).
 
 ## Runtime Contract
 
@@ -112,7 +112,7 @@ Without the guard, one unexpected exception could stall the whole watch plane un
 
 ## Related Sources
 
-- [`../../../../../src/houmao/server/tui/supervisor.py`](../../../../../src/houmao/server/tui/supervisor.py)
-- [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py)
-- [`../../../../../src/houmao/server/tui/registry.py`](../../../../../src/houmao/server/tui/registry.py)
-- [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py)
+- [`../../../../src/houmao/server/tui/supervisor.py`](../../../../src/houmao/server/tui/supervisor.py)
+- [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py)
+- [`../../../../src/houmao/server/tui/registry.py`](../../../../src/houmao/server/tui/registry.py)
+- [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py)

@@ -9,6 +9,10 @@ It has two complementary workflows:
 
 Both workflows stay independent from `houmao-server`. They launch Claude through repo brain fixtures, record the tmux pane with `tools/terminal_record` in `passive` mode, derive content-first groundtruth from recorded pane snapshots plus runtime liveness observations, and replay the same observation stream through an independent ReactiveX tracker.
 
+For the demo state model itself, and how it differs from and relates to the production `houmao-server` tracker that was later developed using this demo as a reference, see:
+
+- `scripts/explore/claude-code-state-tracking/state-model.md`
+
 ## Main Workflow
 
 Run one live scenario end to end:

@@ -1,6 +1,6 @@
 # Probe, Parse, And Track Pipeline
 
-One live tracking cycle in `houmao-server` is implemented by `HoumaoServerService.poll_known_session()` in [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py). The service does not ask the child CAO for terminal status. It probes tmux directly, inspects the pane process tree, parses captured output, and records the result into the in-memory tracker.
+One live tracking cycle in `houmao-server` is implemented by `HoumaoServerService.poll_known_session()` in [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py). The service does not ask the child CAO for terminal status. It probes tmux directly, inspects the pane process tree, parses captured output, and records the result into the in-memory tracker.
 
 ## Poll Cycle Overview
 
@@ -19,7 +19,7 @@ The worker keeps running for most outcomes. The only normal case that returns `F
 
 ## Transport Resolution
 
-`TmuxTransportResolver` in [`../../../../../src/houmao/server/tui/transport.py`](../../../../../src/houmao/server/tui/transport.py) resolves one tmux pane target.
+`TmuxTransportResolver` in [`../../../../src/houmao/server/tui/transport.py`](../../../../src/houmao/server/tui/transport.py) resolves one tmux pane target.
 
 Current selection rules are:
 
@@ -33,7 +33,7 @@ The hardening change matters here: specifying a window name no longer falls back
 
 ## Process Inspection
 
-`PaneProcessInspector` in [`../../../../../src/houmao/server/tui/process.py`](../../../../../src/houmao/server/tui/process.py) determines whether the supported TUI process is actually running inside the tracked pane.
+`PaneProcessInspector` in [`../../../../src/houmao/server/tui/process.py`](../../../../src/houmao/server/tui/process.py) determines whether the supported TUI process is actually running inside the tracked pane.
 
 It works by:
 
@@ -71,7 +71,7 @@ The excerpt is intentionally bounded to the last 4000 characters so the live sta
 
 ## Official Parsing
 
-`OfficialTuiParserAdapter` in [`../../../../../src/houmao/server/tui/parser.py`](../../../../../src/houmao/server/tui/parser.py) is a thin adapter over the shared `ShadowParserStack`.
+`OfficialTuiParserAdapter` in [`../../../../src/houmao/server/tui/parser.py`](../../../../src/houmao/server/tui/parser.py) is a thin adapter over the shared `ShadowParserStack`.
 
 The server-side naming is intentionally different from the lower-level implementation:
 
@@ -102,7 +102,7 @@ The parsing sequence is:
 
 After capture and parse, `LiveSessionTracker` also runs tool-specific signal detection over the current raw `output_text` plus the optional `parsed_surface`.
 
-This detector layer lives in [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py) and is responsible for:
+This detector layer lives in [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py) and is responsible for:
 
 - foundational surface observables such as `accepting_input`, `editing_input`, and `ready_posture`
 - current active-turn evidence that can come from more than visible spinner rows
@@ -146,9 +146,9 @@ This remains true even when the cycle ended in a probe or parse error.
 
 ## Related Sources
 
-- [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py)
-- [`../../../../../src/houmao/server/tui/transport.py`](../../../../../src/houmao/server/tui/transport.py)
-- [`../../../../../src/houmao/server/tui/process.py`](../../../../../src/houmao/server/tui/process.py)
-- [`../../../../../src/houmao/server/tui/parser.py`](../../../../../src/houmao/server/tui/parser.py)
-- [`../../../../../src/houmao/server/tui/turn_signals.py`](../../../../../src/houmao/server/tui/turn_signals.py)
-- [`../../../../../src/houmao/server/tui/tracking.py`](../../../../../src/houmao/server/tui/tracking.py)
+- [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py)
+- [`../../../../src/houmao/server/tui/transport.py`](../../../../src/houmao/server/tui/transport.py)
+- [`../../../../src/houmao/server/tui/process.py`](../../../../src/houmao/server/tui/process.py)
+- [`../../../../src/houmao/server/tui/parser.py`](../../../../src/houmao/server/tui/parser.py)
+- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py)
+- [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py)

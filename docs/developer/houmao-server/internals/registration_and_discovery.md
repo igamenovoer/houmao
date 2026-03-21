@@ -4,7 +4,7 @@
 
 ## Registration Route
 
-The entrypoint is `POST /houmao/launches/register` in [`../../../../../src/houmao/server/app.py`](../../../../../src/houmao/server/app.py). The payload model is `HoumaoRegisterLaunchRequest` in [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py).
+The entrypoint is `POST /houmao/launches/register` in [`../../../../src/houmao/server/app.py`](../../../../src/houmao/server/app.py). The payload model is `HoumaoRegisterLaunchRequest` in [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py).
 
 Important request fields are:
 
@@ -16,7 +16,7 @@ Important request fields are:
 - `tmux_session_name`: optional explicit tmux session name; defaults to `session_name` later if omitted
 - `tmux_window_name`: optional explicit tmux window identity
 
-`register_launch()` in [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py) performs the following steps:
+`register_launch()` in [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py) performs the following steps:
 
 1. Validate `session_name` with `_validated_registration_session_name()`.
 2. If `terminal_id` is absent, query the child CAO-compatible surface for `/sessions/{session_name}/terminals` and take the first returned terminal id.
@@ -63,7 +63,7 @@ This is the path that removed the old wrong-pane race during the first polling c
 
 ### Supervisor rediscovery
 
-`KnownSessionRegistry.load_live_sessions()` in [`../../../../../src/houmao/server/tui/registry.py`](../../../../../src/houmao/server/tui/registry.py) rebuilds the live known-session set by scanning:
+`KnownSessionRegistry.load_live_sessions()` in [`../../../../src/houmao/server/tui/registry.py`](../../../../src/houmao/server/tui/registry.py) rebuilds the live known-session set by scanning:
 
 ```text
 <sessions-dir>/*/registration.json
@@ -112,7 +112,7 @@ This is why a registration can exist on disk but still not appear in the active 
 
 ## Related Sources
 
-- [`../../../../../src/houmao/server/app.py`](../../../../../src/houmao/server/app.py)
-- [`../../../../../src/houmao/server/service.py`](../../../../../src/houmao/server/service.py)
-- [`../../../../../src/houmao/server/tui/registry.py`](../../../../../src/houmao/server/tui/registry.py)
-- [`../../../../../src/houmao/server/models.py`](../../../../../src/houmao/server/models.py)
+- [`../../../../src/houmao/server/app.py`](../../../../src/houmao/server/app.py)
+- [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py)
+- [`../../../../src/houmao/server/tui/registry.py`](../../../../src/houmao/server/tui/registry.py)
+- [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py)
