@@ -28,6 +28,8 @@ Three detector families exist:
 
 The selection entry point remains `select_tracked_turn_signal_detector(tool=..., observed_version=...)`, but it now resolves through the tracker-local app/profile registry with closest-compatible semver-floor matching rather than ad hoc scoring. For `codex_tui`, the resolved profile may also contribute temporal hints from a recent sliding window while keeping the single-snapshot `DetectedTurnSignals` contract intact.
 
+The shipped Codex tracker contract is currently one `codex_tui` v1 profile. Profile-specific frame details such as latest-turn-region signatures remain private to that profile rather than widening the shared normalized signal contract.
+
 **Why this matters:** Different tools yield different `unknown` vs `yes`/`no` distributions for the same underlying conditions. The `unsupported_tool` fallback is intentionally conservative — it produces more `unknown` values because it lacks tool-specific prompt and activity patterns. A `ready_posture=unknown` from an unsupported tool does not mean the same thing as `ready_posture=unknown` from the Claude detector.
 
 ---
