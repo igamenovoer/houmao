@@ -232,12 +232,13 @@ class LiveWatchManifest:
     def from_payload(cls, payload: dict[str, Any]) -> "LiveWatchManifest":
         """Parse one live-watch manifest payload."""
 
+        run_root = str(payload["run_root"])
         return cls(
             schema_version=int(payload.get("schema_version", 0)),
             run_id=str(payload["run_id"]),
             tool=cast(ToolName, str(payload["tool"])),
             repo_root=str(payload["repo_root"]),
-            run_root=str(payload["run_root"]),
+            run_root=run_root,
             runtime_root=str(payload["runtime_root"]),
             recipe_path=str(payload["recipe_path"]),
             brain_home_path=str(payload["brain_home_path"]),
@@ -250,7 +251,14 @@ class LiveWatchManifest:
             dashboard_attach_command=str(payload["dashboard_attach_command"]),
             dashboard_command=str(payload["dashboard_command"]),
             terminal_record_run_root=str(payload["terminal_record_run_root"]),
-            resolved_config_path=str(payload["resolved_config_path"]),
+            resolved_config_path=str(
+                payload.get(
+                    "resolved_config_path",
+                    LiveWatchPaths.from_run_root(
+                        run_root=Path(run_root)
+                    ).resolved_config_path,
+                )
+            ),
             sample_interval_seconds=float(payload["sample_interval_seconds"]),
             runtime_observer_interval_seconds=float(
                 payload.get(

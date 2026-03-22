@@ -33,6 +33,13 @@ Validate the whole committed corpus:
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus
 ```
 
+To emit the replay-path debug logs from `houmao.shared_tui_tracking` and the demo pack itself during investigation, set `HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL` to a normal Python logging level before running the command:
+
+```bash
+HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL=DEBUG \
+  scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus --skip-video
+```
+
 Recorded validation writes under `tmp/demo/shared-tui-tracking-demo-pack/recorded/...` unless `--output-root` overrides it.
 
 Each run produces:

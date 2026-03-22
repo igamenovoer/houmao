@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,10 +16,17 @@ from .recorded import run_recorded_capture, validate_fixture_corpus, validate_re
 from .scenario import load_scenario
 from .sweep import run_recorded_sweep
 
+_TRACKER_LOG_LEVEL_ENV_VAR = "HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL"
+_DEBUG_LOGGER_PREFIXES = (
+    "houmao.shared_tui_tracking",
+    "houmao.demo.shared_tui_tracking_demo_pack",
+)
+
 
 def main(argv: list[str] | None = None) -> int:
     """Run the tracked-TUI demo pack driver."""
 
+    _configure_logging_from_env()
     parser = _build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
     try:
@@ -293,6 +302,26 @@ def _build_parser() -> argparse.ArgumentParser:
     dashboard = subparsers.add_parser("dashboard", help="Run the live dashboard loop")
     dashboard.add_argument("--run-root", required=True)
     return parser
+
+
+def _configure_logging_from_env() -> None:
+    """Enable targeted shared-TUI debug logs when the env requests them."""
+
+    raw_level = os.environ.get(_TRACKER_LOG_LEVEL_ENV_VAR)
+    if raw_level is None or not raw_level.strip():
+        return
+    level_name = raw_level.strip().upper()
+    numeric_level = getattr(logging, level_name, None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(
+            f"invalid {_TRACKER_LOG_LEVEL_ENV_VAR} value `{raw_level}`; use a standard logging level"
+        )
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    for logger_name in _DEBUG_LOGGER_PREFIXES:
+        logging.getLogger(logger_name).setLevel(numeric_level)
 
 
 def _repo_root() -> Path:

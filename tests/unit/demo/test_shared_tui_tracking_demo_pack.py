@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.groundtruth import (
 from houmao.demo.shared_tui_tracking_demo_pack.live_watch import (
     inspect_live_watch,
     start_live_watch,
+    stop_live_watch,
 )
 from houmao.demo.shared_tui_tracking_demo_pack.models import (
     LiveWatchManifest,
@@ -455,6 +457,102 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     assert live_state_payload["last_error"] == "dashboard failed"
 
 
+def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stopping a pre-config-reference live-watch run should not crash on manifest load."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.analysis_dir.mkdir(parents=True, exist_ok=True)
+    paths.issues_dir.mkdir(parents=True, exist_ok=True)
+    manifest_payload = _watch_manifest(paths).to_payload()
+    manifest_payload.pop("resolved_config_path")
+    _write_json(paths.watch_manifest_path, manifest_payload)
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+    _write_json(
+        paths.terminal_record_run_root / "live_state.json",
+        {
+            "schema_version": 1,
+            "run_id": f"terminal-record-{run_root.name}",
+            "mode": "passive",
+            "status": "stopped",
+            "repo_root": str(tmp_path),
+            "run_root": str(paths.terminal_record_run_root),
+            "manifest_path": str(paths.terminal_record_run_root / "manifest.json"),
+            "controller_pid": None,
+            "target_session_name": "shared-tui-claude-demo",
+            "target_pane_id": "%1",
+            "stop_requested_at_utc": "2026-03-22T00:00:01+00:00",
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:02+00:00",
+        },
+    )
+
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
+        lambda *, run_root: {"status": "stopped", "run_root": str(run_root)},
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._wait_for_dashboard_stop",
+        lambda **_kwargs: None,
+    )
+    cleaned_sessions: list[str] = []
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._finalize_live_replay",
+        lambda **_kwargs: SimpleNamespace(mismatch_count=0),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_run_issues",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.write_issue_documents",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_summary_report",
+        lambda **_kwargs: "summary\n",
+    )
+    timestamps = iter(["2026-03-22T00:00:03+00:00", "2026-03-22T00:00:04+00:00"])
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.now_utc_iso",
+        lambda: next(timestamps),
+    )
+
+    payload = stop_live_watch(
+        repo_root=tmp_path,
+        demo_config=_demo_config(),
+        run_root=run_root,
+        stop_reason="operator_requested",
+    )
+
+    updated_manifest = json.loads(paths.watch_manifest_path.read_text(encoding="utf-8"))
+    updated_live_state = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
+
+    assert payload["run_root"] == str(run_root.resolve())
+    assert set(cleaned_sessions) == {"shared-tui-claude-demo", "shared-tui-dashboard-demo"}
+    assert updated_manifest["resolved_config_path"] == str(paths.resolved_config_path)
+    assert updated_manifest["stop_reason"] == "operator_requested"
+    assert updated_live_state["status"] == "stopped"
+
+
 def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path) -> None:
     """CLI overrides should win over profile defaults during config resolution."""
 
@@ -741,6 +839,34 @@ def test_driver_validate_corpus_uses_fixtures_root_from_selected_config(
         == 0
     )
     assert captured["fixtures_root"] == fixtures_root.resolve()
+
+
+def test_driver_configures_shared_tui_logging_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The demo driver should expose shared tracker debug logs through one env var."""
+
+    monkeypatch.setenv("HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL", "DEBUG")
+    logging.getLogger("houmao.shared_tui_tracking").setLevel(logging.NOTSET)
+    logging.getLogger("houmao.demo.shared_tui_tracking_demo_pack").setLevel(logging.NOTSET)
+
+    demo_driver._configure_logging_from_env()
+
+    assert logging.getLogger("houmao.shared_tui_tracking").isEnabledFor(logging.DEBUG)
+    assert logging.getLogger("houmao.demo.shared_tui_tracking_demo_pack").isEnabledFor(
+        logging.DEBUG
+    )
+
+
+def test_driver_rejects_invalid_shared_tui_log_level_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid debug-level env values should fail fast."""
+
+    monkeypatch.setenv("HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL", "LOUD")
+
+    with pytest.raises(ValueError, match=r"HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL"):
+        demo_driver._configure_logging_from_env()
 
 
 def test_inspect_live_watch_uses_selected_live_root_when_run_root_is_omitted(

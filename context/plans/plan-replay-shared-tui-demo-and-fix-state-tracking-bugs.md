@@ -2,7 +2,7 @@
 
 ## HEADER
 - **Purpose**: Use the committed shared TUI demo corpus as a replay harness to find correctness bugs in public tracked-state replay, fix those bugs in the tracker stack, and re-verify the demo corpus and cadence sweeps. This plan assumes the refreshed canonical fixtures are already in place and the next phase is bug-finding and bug-fixing, not fixture authoring.
-- **Status**: Draft
+- **Status**: In Progress (2026-03-22 baseline replay clean; debug-observability gap fixed)
 - **Date**: 2026-03-22
 - **Dependencies**:
   - `scripts/demo/shared-tui-tracking-demo-pack/README.md`
@@ -99,10 +99,10 @@ sequenceDiagram
 
 ## 4. TODOs (Implementation Steps)
 
-- [ ] **Establish the current replay baseline** Run `recorded-validate-corpus` and targeted `recorded-sweep` commands from the committed fixture tree to identify the concrete failing cases and artifact roots for this pass.
-- [ ] **Triage failures case by case** Inspect `comparison.md`, `comparison.json`, `groundtruth_timeline.ndjson`, `replay_timeline.ndjson`, and issue docs to determine the first real divergence and the likely faulty layer.
-- [ ] **Separate tracker bugs from stale contracts** Record for each failing case whether the evidence points to detector/session/reducer logic, demo replay plumbing, or a stale fixture label/contract.
-- [ ] **Create focused regression coverage** Add or update small tests that reproduce each bug class close to the layer being fixed rather than relying only on large end-to-end replay checks.
+- [x] **Establish the current replay baseline** Run `recorded-validate-corpus` and targeted `recorded-sweep` commands from the committed fixture tree to identify the concrete failing cases and artifact roots for this pass. Result on 2026-03-22: strict corpus replay and the full committed sweep matrix were clean under the current corpus.
+- [x] **Triage failures case by case** Inspect `comparison.md`, `comparison.json`, `groundtruth_timeline.ndjson`, `replay_timeline.ndjson`, and issue docs to determine the first real divergence and the likely faulty layer. Result on 2026-03-22: no replay correctness divergence reproduced; the first real blocker was missing debug-log wiring from the demo CLI into tracker logger namespaces.
+- [x] **Separate tracker bugs from stale contracts** Record for each failing case whether the evidence points to detector/session/reducer logic, demo replay plumbing, or a stale fixture label/contract. Result on 2026-03-22: no stale fixture contract issue was found in the committed corpus; the confirmed issue was demo replay observability rather than tracked-state correctness.
+- [x] **Create focused regression coverage** Add or update small tests that reproduce each bug class close to the layer being fixed rather than relying only on large end-to-end replay checks. Result on 2026-03-22: added unit coverage for demo-driver logging configuration so future replay runs can reliably surface tracker debug evidence.
 - [ ] **Fix tracker-side replay bugs** Patch the responsible tracker layer for each confirmed bug and keep the change narrowly scoped to the observed public-state divergence.
 - [ ] **Correct stale fixtures only when proven** If a failure is caused by stale labels or contract expectations, update the minimal fixture or config surface needed and document why it is not a tracker bug.
 - [ ] **Rerun affected cases immediately** After each fix, rerun the failing recorded validations and any directly related sweeps before moving on to the next bug.
@@ -111,9 +111,9 @@ sequenceDiagram
 
 ## 5. Verification
 
-- [ ] **Corpus replay check** Run `bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus --skip-video` and confirm the committed corpus is clean or that remaining failures are explicitly understood and queued.
+- [x] **Corpus replay check** Run `bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus --skip-video` and confirm the committed corpus is clean or that remaining failures are explicitly understood and queued.
 - [ ] **Per-bug targeted replay check** Rerun `recorded-validate` for every fixture involved in a fix and confirm mismatch count returns to zero.
-- [ ] **Sweep regression check** Run `recorded-sweep --sweep capture_frequency` for the affected transition families, especially interruption and TUI-down cases, and confirm contracts still hold at the documented `2 Hz` floor.
-- [ ] **Unit regression check** Run `pixi run python -m pytest tests/unit/demo/test_shared_tui_tracking_demo_pack.py -q` plus any nearby tracker unit tests added for the bug class.
-- [ ] **Static quality check** Run `pixi run ruff check` and `pixi run mypy` on the touched tracker/demo modules if code changes are made.
-- [ ] **Manual artifact sanity check** Inspect at least one final `comparison.md` and one sweep `summary_report.md` for each fixed bug class to confirm the reports tell the same story as the code change.
+- [x] **Sweep regression check** Run `recorded-sweep --sweep capture_frequency` for the affected transition families, especially interruption and TUI-down cases, and confirm contracts still hold at the documented `2 Hz` floor.
+- [x] **Unit regression check** Run `pixi run python -m pytest tests/unit/demo/test_shared_tui_tracking_demo_pack.py -q` plus any nearby tracker unit tests added for the bug class.
+- [x] **Static quality check** Run `pixi run ruff check` and `pixi run mypy` on the touched tracker/demo modules if code changes are made.
+- [x] **Manual artifact sanity check** Inspect at least one final `comparison.md` and one sweep `summary_report.md` for each fixed bug class to confirm the reports tell the same story as the code change.

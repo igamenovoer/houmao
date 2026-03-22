@@ -1,9 +1,11 @@
 ---
 name: terminal-recorder-workflow
-description: Use when Codex needs to capture, inspect, stop, analyze, or label an already-running tmux-backed agent session with the repo terminal recorder under `tools/terminal_record`, especially for parser/state-tracking investigation, replay-grade TUI artifact capture, or documenting observed terminal signals.
+description: Manual invocation only; use only when the user explicitly requests `terminal-recorder-workflow` by exact name or asks to use this specific skill. Use it to capture, inspect, stop, analyze, or label an already-running tmux-backed agent session with the repo terminal recorder under `tools/terminal_record`, especially for parser/state-tracking investigation, replay-grade TUI artifact capture, or documenting observed terminal signals.
 ---
 
 # Terminal Recorder Workflow
+
+Manual invocation only. Do not auto-apply this skill just because a task mentions tmux, recording, replay, or tracked-TUI investigation.
 
 Use the repo-managed CLI, not the service module directly:
 
