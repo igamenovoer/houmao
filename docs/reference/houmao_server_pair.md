@@ -65,36 +65,42 @@ The pair now exposes three public server surfaces:
   - `/cao/sessions/*`
   - `/cao/terminals/*`
   - `/cao/terminals/{terminal_id}/working-directory`
-- native managed-agent routes for Houmao-launched headless agents:
+- shared managed-agent routes for TUI-backed managed agents and Houmao-launched native headless agents:
   - `GET /houmao/agents`
   - `GET /houmao/agents/{agent_ref}`
   - `GET /houmao/agents/{agent_ref}/state`
   - `GET /houmao/agents/{agent_ref}/state/detail`
   - `GET /houmao/agents/{agent_ref}/history`
   - `POST /houmao/agents/{agent_ref}/requests`
-  - `POST /houmao/agents/headless/launches`
-  - `POST /houmao/agents/{agent_ref}/interrupt`
-  - `POST /houmao/agents/{agent_ref}/stop`
   - `GET /houmao/agents/{agent_ref}/gateway`
   - `POST /houmao/agents/{agent_ref}/gateway/attach`
   - `POST /houmao/agents/{agent_ref}/gateway/detach`
   - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
+- native headless lifecycle and durable turn routes:
+  - `POST /houmao/agents/headless/launches`
+  - `POST /houmao/agents/{agent_ref}/stop`
   - `POST /houmao/agents/{agent_ref}/turns`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
+  - `POST /houmao/agents/{agent_ref}/interrupt`
 
 Root `/sessions/*` and `/terminals/*` are intentionally not public in this boundary reset.
 
 For managed-agent lifecycle, the intent is now explicit:
 
 - `POST /houmao/agents/headless/launches` launches the managed headless agent and may carry mailbox overrides.
-- `POST /houmao/agents/{agent_ref}/requests` is the transport-neutral submit path for prompt and interrupt work.
+- `GET /houmao/agents/{agent_ref}/state` stays the coarse shared state surface and now includes redacted mailbox and gateway posture when those capabilities are known.
+- `GET /houmao/agents/{agent_ref}/state/detail` is the transport-specific inspection route, with curated TUI projection for terminal-backed agents and execution-centric detail for headless agents.
+- `POST /houmao/agents/{agent_ref}/requests` is the transport-neutral submit path for prompt and interrupt work across both transports.
 - gateway lifecycle is post-launch and runs through `/houmao/agents/{agent_ref}/gateway/*` rather than through launch-time gateway flags.
+- native headless `/turns/*` and `/interrupt` remain the durable headless-only turn and artifact surface rather than being collapsed into the shared `/history` route.
 - mailbox send, check, and reply stay on the live gateway `/v1/mail/*` surface and are not proxied through `houmao-server` in this change.
+
+For exact payloads, request semantics, and the split between shared managed-agent routes and headless-only turn routes, use [Managed-Agent API](managed_agent_api.md).
 
 The child listener address is derived mechanically as `public_port + 1` and stays loopback-only. There is no separate user-facing child-port override in this design.
 

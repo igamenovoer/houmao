@@ -40,6 +40,7 @@ The gateway is an optional control plane attached to one runtime-managed session
 ## Related References
 
 - [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that the gateway attaches to.
+- [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract for detail state, transport-neutral request submission, and managed-agent gateway lifecycle.
 - [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.
 - [Mailbox Reference](../mailbox/index.md): Separate async message transport and runtime mailbox docs.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-managed session roots, nested gateway artifacts, and Stalwart credential material outside the mailbox transport-owned storage model.

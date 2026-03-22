@@ -104,16 +104,28 @@ These commands expose Houmao-owned views such as:
 - derived operator-facing live state and stability metadata
 - bounded in-memory recent transitions
 
-For native headless agents, inspect the Houmao-owned HTTP routes rather than the terminal-keyed surface:
+For managed agents, inspect the Houmao-owned `/houmao/agents/*` routes rather than treating native headless sessions as fake terminals:
 
-- `GET /houmao/agents`
-- `GET /houmao/agents/{agent_ref}`
-- `GET /houmao/agents/{agent_ref}/state`
-- `GET /houmao/agents/{agent_ref}/history`
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
+- shared managed-agent routes:
+  - `GET /houmao/agents`
+  - `GET /houmao/agents/{agent_ref}`
+  - `GET /houmao/agents/{agent_ref}/state`
+  - `GET /houmao/agents/{agent_ref}/state/detail`
+  - `GET /houmao/agents/{agent_ref}/history`
+  - `POST /houmao/agents/{agent_ref}/requests`
+  - `GET /houmao/agents/{agent_ref}/gateway`
+  - `POST /houmao/agents/{agent_ref}/gateway/attach`
+  - `POST /houmao/agents/{agent_ref}/gateway/detach`
+  - `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
+- native headless-only lifecycle and durable turn routes:
+  - `POST /houmao/agents/headless/launches`
+  - `POST /houmao/agents/{agent_ref}/stop`
+  - `POST /houmao/agents/{agent_ref}/turns`
+  - `POST /houmao/agents/{agent_ref}/interrupt`
+  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
+  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
+  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
+  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
 
 ## 6. Understand What `launch` Does Differently Now
 
@@ -135,7 +147,7 @@ Native headless launch is now different:
 - it calls `POST /houmao/agents/headless/launches` on the selected `houmao-server`
 - `houmao-server` launches the headless runtime directly instead of creating a CAO session or terminal first
 - server-owned admission and restart-recovery state is persisted under `state/managed_agents/<tracked_agent_id>/`
-- later prompt submission, interrupt, status, event, and artifact inspection run through `/houmao/agents/{agent_ref}/turns/*`
+- later prompt submission, interrupt, state inspection, and gateway lifecycle run through `/houmao/agents/*`, with durable turn status, event, and artifact inspection remaining under `/houmao/agents/{agent_ref}/turns/*`
 
 The explicit compatibility variant stays distinct:
 
@@ -171,7 +183,7 @@ Recommended migration order:
 4. If needed, install agent profiles through `houmao-srv-ctrl install --port <public-port> ...`.
 5. Launch one new terminal-backed session through `houmao-srv-ctrl launch` or `houmao-srv-ctrl cao launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
 6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
-7. Move terminal-backed runtime tooling toward the persisted `houmao_server_rest` artifacts, and move native headless tooling toward `/houmao/agents/{agent_ref}/turns/*`.
+7. Move terminal-backed runtime tooling toward the persisted `houmao_server_rest` artifacts, and move managed-agent tooling toward `/houmao/agents/*`, using `/state/detail` for rich inspection, `/requests` for transport-neutral prompt or interrupt submission, `/gateway/*` for post-launch gateway lifecycle, and `/turns/*` for durable headless turn inspection.
 
 ## 9. Roll Back If Needed
 

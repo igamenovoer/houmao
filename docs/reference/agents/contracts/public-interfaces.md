@@ -59,7 +59,7 @@ The main runtime-managed commands are intentionally different:
 | `send-prompt` | Runs the normal prompt-turn path against the resumed backend session | Yes | Advances persisted backend state after the turn |
 | `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | CAO-only in the current implementation |
 | `mail check/send/reply` | Prepares a structured prompt and sends it through the normal prompt-turn path | Yes | Mailbox transport is `filesystem` only in v1 |
-| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Live attach is implemented first for `backend=cao_rest` |
+| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends with implemented adapters |
 | `gateway-status` | Reads live gateway status or seeded offline state | No | Falls back to `state.json` when no live gateway is attached |
 | `gateway-send-prompt` | Queues a prompt through the live gateway | No | Returns an accepted queue record instead of waiting for turn completion |
 | `gateway-interrupt` | Queues an interrupt through the live gateway | No | Requires a live attached gateway |
@@ -108,10 +108,10 @@ The runtime keeps these paths separate because they promise different things.
 These docs intentionally describe the implemented behavior, not the full design space.
 
 - Gateway capability publication exists for runtime-owned tmux-backed sessions.
-- Live gateway attach is implemented first for `backend=cao_rest`.
+- Live gateway attach supports runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
 - `send-keys` is implemented only for resumed `cao_rest` sessions.
 - Mailbox control currently supports the filesystem transport only.
-- Broader backend-extensible gateway intent exists in the models and specs, but the live adapter boundary in v1 is narrower than the attachability contract.
+- The public managed-agent server surface for TUI-backed and server-managed headless agents lives under `/houmao/agents/*`; use [Managed-Agent API](../../managed_agent_api.md) for the server-owned request, detail-state, and gateway-route contracts.
 
 ## Source References
 

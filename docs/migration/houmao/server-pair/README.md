@@ -28,8 +28,8 @@ Implemented server scope includes:
 - derived child listener address `public_port + 1`
 - Houmao-owned `GET /health` additive metadata
 - Houmao-owned current-instance metadata
-- shared managed-agent routes under `/houmao/agents/*` for transport-neutral discovery, coarse state, and bounded history
-- native headless lifecycle routes for launch, stop, turns, events, artifacts, and interrupt
+- shared managed-agent routes under `/houmao/agents/*` for transport-neutral discovery, summary state, detailed state, request submission, post-launch gateway lifecycle, notifier control, and bounded history
+- native headless lifecycle routes for launch, stop, turns, events, artifacts, and best-effort interrupt
 - one background worker per known tmux-backed tracked session
 - direct tmux pane capture and process-based TUI up/down detection
 - official live parsing through the shared parser stack

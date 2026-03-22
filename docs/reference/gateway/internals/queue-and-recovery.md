@@ -130,13 +130,14 @@ sequenceDiagram
     end
 ```
 
-## Current Live-Adapter Boundary
+## Current Execution-Adapter Boundary
 
-The current live gateway process uses a CAO adapter.
+The live gateway process now selects an execution adapter from strict `attach.json` metadata instead of assuming one CAO-only callback path.
 
-- It loads strict attach metadata from `attach.json`.
-- It uses `CaoRestClient` to inspect connectivity, submit prompts, and interrupt the terminal.
-- The attachability contract is already broader than the live adapter boundary, so the docs should keep that distinction explicit.
+- REST-backed adapters cover runtime-owned `cao_rest` and `houmao_server_rest` sessions and use the existing REST callback path for inspection, prompt submission, and interrupt delivery.
+- A local headless adapter covers runtime-owned native headless sessions and resumes that session through runtime-owned control.
+- A server-managed headless adapter covers native headless sessions whose attach metadata publishes `managed_api_base_url` plus `managed_agent_ref`, and routes prompt or interrupt work back through the managed-agent API rather than bypassing server-owned turn authority.
+- Queue durability, reconciliation checks, and gateway-local epoch handling stay the same across those adapters.
 
 ## Source References
 

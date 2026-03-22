@@ -23,6 +23,7 @@ For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior 
 - [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md)
 - [Agents And Brains](agents_brains.md)
 - [Houmao Server Pair](houmao_server_pair.md)
+- [Managed-Agent API](managed_agent_api.md)
 - [CAO Server Launcher](cao_server_launcher.md)
 - [CAO Claude Shadow Parsing](cao_claude_shadow_parsing.md)
 - [CAO Shadow Parser Troubleshooting](cao_shadow_parser_troubleshooting.md)
