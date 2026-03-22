@@ -45,12 +45,15 @@ class SweepVariantOutcome:
     transition_labels: tuple[SweepStateLabel, ...]
     required_labels: tuple[SweepStateLabel, ...]
     missing_labels: tuple[SweepStateLabel, ...]
+    required_sequence: tuple[SweepStateLabel, ...]
+    missing_sequence: tuple[SweepStateLabel, ...]
     order_matches: bool
+    sequence_matches: bool
     actual_terminal_result: TrackedLastTurnResult
     required_terminal_result: TrackedLastTurnResult | None
     forbidden_terminal_results: tuple[TrackedLastTurnResult, ...]
-    drift_exceeded_labels: tuple[SweepStateLabel, ...]
-    drift_by_label_seconds: dict[str, float]
+    drift_exceeded_requirements: tuple[str, ...]
+    drift_by_requirement_seconds: dict[str, float]
     skipped_reason: str | None
     passed: bool
 
@@ -151,6 +154,7 @@ def run_recorded_sweep(
     contract = sweep.contracts[case_id]
     baseline_variant_name = sweep.baseline_variant or sweep.variants[0].name
     baseline_first_occurrence: dict[SweepStateLabel, float] | None = None
+    baseline_transition_events: list[tuple[SweepStateLabel, float]] | None = None
 
     for variant in sweep.variants:
         target_interval = (
@@ -169,13 +173,16 @@ def run_recorded_sweep(
                 sample_count=0,
                 transition_labels=(),
                 required_labels=contract.required_labels,
+                required_sequence=contract.required_sequence,
                 missing_labels=contract.required_labels,
+                missing_sequence=contract.required_sequence,
                 order_matches=False,
+                sequence_matches=False,
                 actual_terminal_result="none",
                 required_terminal_result=contract.required_terminal_result,
                 forbidden_terminal_results=contract.forbidden_terminal_results,
-                drift_exceeded_labels=(),
-                drift_by_label_seconds={},
+                drift_exceeded_requirements=(),
+                drift_by_requirement_seconds={},
                 skipped_reason=skipped_reason,
                 passed=False,
             )
@@ -205,8 +212,9 @@ def run_recorded_sweep(
         variant_timelines[variant.name] = replay_timeline_rows
         if variant.name == baseline_variant_name and baseline_first_occurrence is None:
             baseline_first_occurrence = _first_occurrence_times(replay_timeline_rows)
+            baseline_transition_events = _transition_events(replay_timeline_rows)
 
-    if baseline_first_occurrence is None:
+    if baseline_first_occurrence is None or baseline_transition_events is None:
         raise RuntimeError(
             f"Baseline sweep variant `{baseline_variant_name}` did not produce a replay timeline"
         )
@@ -227,6 +235,7 @@ def run_recorded_sweep(
             timeline=replay_timeline_rows,
             contract=contract,
             baseline_first_occurrence=baseline_first_occurrence,
+            baseline_transition_events=baseline_transition_events,
         )
         save_json(existing_verdict, outcome.to_payload())
         variant_outcomes.append(outcome)
@@ -266,10 +275,12 @@ def _evaluate_variant(
     timeline: list[TrackedTimelineState],
     contract: SweepContractConfig,
     baseline_first_occurrence: dict[SweepStateLabel, float],
+    baseline_transition_events: list[tuple[SweepStateLabel, float]],
 ) -> SweepVariantOutcome:
     """Evaluate one replay timeline against one transition contract."""
 
     transition_labels = _transition_labels(timeline)
+    transition_events = _transition_events(timeline)
     first_occurrence = _first_occurrence_times(timeline)
     missing_labels = tuple(
         label for label in contract.required_labels if label not in first_occurrence
@@ -278,15 +289,32 @@ def _evaluate_variant(
         required_labels=contract.required_labels,
         first_occurrence=first_occurrence,
     )
-    drift_by_label_seconds: dict[str, float] = {}
-    drift_exceeded_labels: list[SweepStateLabel] = []
+    sequence_matches, missing_sequence, sequence_times = _match_required_sequence(
+        required_sequence=contract.required_sequence,
+        transition_events=transition_events,
+    )
+    _baseline_sequence_matches, _baseline_missing_sequence, baseline_sequence_times = (
+        _match_required_sequence(
+            required_sequence=contract.required_sequence,
+            transition_events=baseline_transition_events,
+        )
+    )
+    drift_by_requirement_seconds: dict[str, float] = {}
+    drift_exceeded_requirements: list[str] = []
     for label in contract.required_labels:
         if label not in first_occurrence or label not in baseline_first_occurrence:
             continue
         drift_seconds = abs(first_occurrence[label] - baseline_first_occurrence[label])
-        drift_by_label_seconds[label] = drift_seconds
+        drift_by_requirement_seconds[label] = drift_seconds
         if drift_seconds > contract.max_first_occurrence_drift_seconds:
-            drift_exceeded_labels.append(label)
+            drift_exceeded_requirements.append(label)
+    for requirement_key, observed_seconds in sequence_times.items():
+        if requirement_key not in baseline_sequence_times:
+            continue
+        drift_seconds = abs(observed_seconds - baseline_sequence_times[requirement_key])
+        drift_by_requirement_seconds[requirement_key] = drift_seconds
+        if drift_seconds > contract.max_first_occurrence_drift_seconds:
+            drift_exceeded_requirements.append(requirement_key)
     actual_terminal_result = timeline[-1].last_turn_result if timeline else "none"
     terminal_result_ok = (
         contract.required_terminal_result is None
@@ -296,7 +324,9 @@ def _evaluate_variant(
     passed = (
         not missing_labels
         and order_matches
-        and not drift_exceeded_labels
+        and sequence_matches
+        and not missing_sequence
+        and not drift_exceeded_requirements
         and terminal_result_ok
         and not forbidden_terminal_result_seen
     )
@@ -307,12 +337,15 @@ def _evaluate_variant(
         transition_labels=transition_labels,
         required_labels=contract.required_labels,
         missing_labels=missing_labels,
+        required_sequence=contract.required_sequence,
+        missing_sequence=missing_sequence,
         order_matches=order_matches,
+        sequence_matches=sequence_matches,
         actual_terminal_result=actual_terminal_result,
         required_terminal_result=contract.required_terminal_result,
         forbidden_terminal_results=contract.forbidden_terminal_results,
-        drift_exceeded_labels=tuple(drift_exceeded_labels),
-        drift_by_label_seconds=drift_by_label_seconds,
+        drift_exceeded_requirements=tuple(drift_exceeded_requirements),
+        drift_by_requirement_seconds=drift_by_requirement_seconds,
         skipped_reason=None,
         passed=passed,
     )
@@ -336,11 +369,13 @@ def _build_sweep_issues(
             f"Variant: `{outcome.variant_name}`",
             f"Sample interval seconds: `{outcome.sample_interval_seconds}`",
             f"Missing labels: `{', '.join(outcome.missing_labels) or 'none'}`",
+            f"Missing sequence: `{', '.join(outcome.missing_sequence) or 'none'}`",
             f"Transition order matches: `{outcome.order_matches}`",
+            f"Transition sequence matches: `{outcome.sequence_matches}`",
             f"Actual terminal result: `{outcome.actual_terminal_result}`",
             f"Required terminal result: `{outcome.required_terminal_result or 'none'}`",
             f"Forbidden terminal results: `{', '.join(outcome.forbidden_terminal_results) or 'none'}`",
-            f"Drift-exceeded labels: `{', '.join(outcome.drift_exceeded_labels) or 'none'}`",
+            f"Drift-exceeded requirements: `{', '.join(outcome.drift_exceeded_requirements) or 'none'}`",
             f"Skipped reason: `{outcome.skipped_reason or 'none'}`",
         ]
         issues.append(
@@ -410,7 +445,8 @@ def _build_sweep_summary_report(
                 f"interval=`{outcome.sample_interval_seconds}` "
                 f"passed=`{outcome.passed}` "
                 f"terminal=`{outcome.actual_terminal_result}` "
-                f"labels=`{', '.join(outcome.transition_labels) or 'none'}`",
+                f"labels=`{', '.join(outcome.transition_labels) or 'none'}` "
+                f"sequence_matches=`{outcome.sequence_matches}`",
             ]
         )
     lines.extend(
@@ -449,14 +485,20 @@ def _downsample_observations(
 def _transition_labels(timeline: list[TrackedTimelineState]) -> tuple[SweepStateLabel, ...]:
     """Return the ordered unique state-label sequence for one replay timeline."""
 
-    labels: list[SweepStateLabel] = []
+    return tuple(label for label, _seconds in _transition_events(timeline))
+
+
+def _transition_events(timeline: list[TrackedTimelineState]) -> list[tuple[SweepStateLabel, float]]:
+    """Return the ordered unique state-label sequence with first-entry timestamps."""
+
+    events: list[tuple[SweepStateLabel, float]] = []
     previous: SweepStateLabel | None = None
     for item in timeline:
         current = _state_label(item)
         if current != previous:
-            labels.append(current)
+            events.append((current, item.elapsed_seconds))
             previous = current
-    return tuple(labels)
+    return events
 
 
 def _first_occurrence_times(
@@ -509,6 +551,44 @@ def _state_label(item: TrackedTimelineState) -> SweepStateLabel:
     if item.turn_phase == "ready":
         return "ready"
     return "unknown"
+
+
+def _match_required_sequence(
+    *,
+    required_sequence: tuple[SweepStateLabel, ...],
+    transition_events: list[tuple[SweepStateLabel, float]],
+) -> tuple[bool, tuple[SweepStateLabel, ...], dict[str, float]]:
+    """Return ordered-subsequence matching details for one required sequence."""
+
+    if not required_sequence:
+        return True, (), {}
+    matched_times: dict[str, float] = {}
+    occurrence_by_label: dict[SweepStateLabel, int] = {}
+    next_event_index = 0
+    missing: list[SweepStateLabel] = []
+    for label in required_sequence:
+        found = False
+        while next_event_index < len(transition_events):
+            event_label, event_seconds = transition_events[next_event_index]
+            next_event_index += 1
+            if event_label != label:
+                continue
+            occurrence = occurrence_by_label.get(label, 0) + 1
+            occurrence_by_label[label] = occurrence
+            matched_times[_sequence_requirement_key(label=label, occurrence=occurrence)] = (
+                event_seconds
+            )
+            found = True
+            break
+        if not found:
+            missing.append(label)
+    return not missing, tuple(missing), matched_times
+
+
+def _sequence_requirement_key(*, label: SweepStateLabel, occurrence: int) -> str:
+    """Return one stable per-occurrence key for sequence drift reporting."""
+
+    return f"{label}#{occurrence}"
 
 
 def _resolve_sweep_run_root(

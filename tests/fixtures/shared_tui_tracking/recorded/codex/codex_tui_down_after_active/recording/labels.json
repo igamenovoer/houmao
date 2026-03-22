@@ -32,27 +32,13 @@
     {
       "label_id": "tui-down-runtime",
       "sample_id": "s000021",
-      "sample_end_id": "s000025",
+      "sample_end_id": "s000027",
       "expectations": {
         "diagnostics_availability": "tui_down",
         "surface_accepting_input": "yes",
         "surface_editing_input": "yes",
         "surface_ready_posture": "no",
         "turn_phase": "unknown",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
-      }
-    },
-    {
-      "label_id": "active-without-runtime",
-      "sample_id": "s000026",
-      "sample_end_id": "s000027",
-      "expectations": {
-        "diagnostics_availability": "available",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
-        "surface_ready_posture": "no",
-        "turn_phase": "active",
         "last_turn_result": "none",
         "last_turn_source": "none"
       }

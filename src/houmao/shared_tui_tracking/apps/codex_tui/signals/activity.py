@@ -6,6 +6,9 @@ import hashlib
 import re
 from dataclasses import dataclass
 
+from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
+    steer_interruption_text_visible,
+)
 from houmao.shared_tui_tracking.surface import SurfaceView
 
 
@@ -38,6 +41,7 @@ def detect_activity(
 ) -> CodexActivitySignals:
     """Return current Codex activity evidence from one surface."""
 
+    del steer_interruption_text
     active_reasons: list[str] = []
     active_status_line: str | None = None
     for line in reversed(surface.stripped_lines):
@@ -57,7 +61,7 @@ def detect_activity(
         active_reasons.append("tool_cell")
 
     steer_handoff = (
-        steer_interruption_text in "\n".join(latest_turn_lines)
+        steer_interruption_text_visible(lines=latest_turn_lines)
         and prompt_visible
         and active_status_line is not None
     )

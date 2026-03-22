@@ -350,20 +350,21 @@ class DemoSweepVariantConfigV1(_DemoConfigBoundaryModel):
 class DemoSweepContractConfigV1(_DemoConfigBoundaryModel):
     """One sweep contract in the full config."""
 
-    required_labels: list[DemoSweepStateLabel]
+    required_labels: list[DemoSweepStateLabel] = Field(default_factory=list)
+    required_sequence: list[DemoSweepStateLabel] = Field(default_factory=list)
     required_terminal_result: TrackedLastTurnResult | None = None
     forbidden_terminal_results: list[TrackedLastTurnResult] = Field(default_factory=list)
     max_first_occurrence_drift_seconds: float = 2.0
 
-    @field_validator("required_labels")
+    @field_validator("required_labels", "required_sequence")
     @classmethod
     def _require_labels_not_empty(
         cls, value: list[DemoSweepStateLabel]
     ) -> list[DemoSweepStateLabel]:
-        """Require at least one required label."""
+        """Require each configured label list to be non-empty when present."""
 
         if not value:
-            raise ValueError("must contain at least one label")
+            return value
         return value
 
     @field_validator("max_first_occurrence_drift_seconds")
@@ -372,6 +373,14 @@ class DemoSweepContractConfigV1(_DemoConfigBoundaryModel):
         """Require positive drift tolerance."""
 
         return _require_positive_float(value)
+
+    @model_validator(mode="after")
+    def _require_contract_expectations(self) -> "DemoSweepContractConfigV1":
+        """Require at least one transition expectation."""
+
+        if not self.required_labels and not self.required_sequence:
+            raise ValueError("must declare required_labels or required_sequence")
+        return self
 
 
 class DemoSweepDefinitionConfigV1(_DemoConfigBoundaryModel):

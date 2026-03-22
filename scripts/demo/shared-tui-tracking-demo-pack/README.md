@@ -145,17 +145,20 @@ Temporary authoring runs should go under `tmp/demo/shared-tui-tracking-demo-pack
 The first real authoring wave is intentionally narrow and uses concrete prompts or explicit operator actions:
 
 - Claude `claude_explicit_success`: send `Reply with the single word READY and stop.`
-- Claude `claude_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then send `Escape`
+- Claude `claude_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
+- Claude `claude_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
 - Claude `claude_slash_menu_recovery`: wait for ready, type `/` without submit, hold the overlay, then dismiss with `Escape`
 - Claude `claude_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
 - Codex `codex_explicit_success`: send `Reply with the single word READY and stop.`
-- Codex `codex_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then send `Escape`
+- Codex `codex_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
+- Codex `codex_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
 - Codex `codex_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
 
 Each case targets one critical transition family:
 
 - explicit success: ready -> active -> ready/success
 - interrupted after active: active -> interrupted -> ready
+- repeated intentional interruption with close: ready -> active -> interrupted -> active -> interrupted -> diagnostics down
 - slash-menu ambiguity: ready -> ambiguous overlay -> ready
 - diagnostics loss: active -> `tui_down`
 
@@ -163,7 +166,9 @@ Each case targets one critical transition family:
 
 - In active recorder-driven Codex captures, submit the prompt as two managed events, not one collapsed `text<[Enter]>` sequence. The real TUI can leave the text staged without submitting when the `Enter` lands too tightly behind the literal text.
 - Promote only `managed_send_keys` rows into committed `recording/input_events.ndjson`. Recorder handshake noise and other `asciinema_input` rows are useful during capture debugging but should not become replay authority in the canonical fixture tree.
-- On `codex-cli 0.116.0`, the refreshed `codex_interrupted_after_active` capture does not surface an interrupted-ready posture after `Escape`, even when the post-escape hold is extended. The observed public state stays in the active working posture, so label that active continuation honestly and record the scenario-intent drift in the run report.
+- The interruption scenarios now use semantic `interrupt_turn` plus an explicit wait for the interrupted-ready posture before the next prompt is sent. That keeps repeated-turn authoring honest for both Claude and Codex instead of advancing on a transient prompt redraw.
+- The capture driver waits and pattern checks inspect the visible pane surface rather than tmux scrollback. This avoids false positives from stale `esc to interrupt` rows or prior prompt text that are no longer on screen.
+- Codex interrupted banners can wrap across multiple terminal lines. The Codex detector normalizes wrapped whitespace before judging interrupted-ready posture so the canonical fixtures remain valid across pane widths.
 
 ### Authoring Workflow
 
@@ -192,6 +197,7 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
    - `turn_phase`
    - `last_turn_result`
    - `last_turn_source`
+   - For repeated intentional-interruption fixtures, distinguish at least `active-turn-1`, `interrupted-ready-1`, `active-turn-2`, `interrupted-ready-2`, and the final post-close diagnostics-loss span so the second-turn reset and the close posture are both reviewable.
 4. Run fast replay validation without video:
 
 ```bash

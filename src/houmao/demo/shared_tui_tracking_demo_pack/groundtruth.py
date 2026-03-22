@@ -56,13 +56,13 @@ def load_fixture_inputs(
     runtime_rows = _load_runtime_observations(runtime_observations_path)
     observations: list[RecordedObservation] = []
     runtime_index = 0
+    last_runtime: RuntimeObservation | None = None
     for snapshot in snapshots:
-        matched_runtime: RuntimeObservation | None = None
         while (
             runtime_index < len(runtime_rows)
             and runtime_rows[runtime_index].elapsed_seconds <= snapshot.elapsed_seconds
         ):
-            matched_runtime = runtime_rows[runtime_index]
+            last_runtime = runtime_rows[runtime_index]
             runtime_index += 1
         observations.append(
             RecordedObservation(
@@ -70,7 +70,7 @@ def load_fixture_inputs(
                 elapsed_seconds=snapshot.elapsed_seconds,
                 ts_utc=snapshot.ts_utc,
                 output_text=snapshot.output_text,
-                runtime=matched_runtime,
+                runtime=last_runtime,
             )
         )
     return FixtureInputs(snapshots=snapshots, observations=observations, runtime_rows=runtime_rows)

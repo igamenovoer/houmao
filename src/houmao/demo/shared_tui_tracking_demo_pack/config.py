@@ -158,6 +158,7 @@ class SweepContractConfig:
     """Transition-contract expectations for one case id."""
 
     required_labels: tuple[SweepStateLabel, ...]
+    required_sequence: tuple[SweepStateLabel, ...]
     required_terminal_result: TrackedLastTurnResult | None
     forbidden_terminal_results: tuple[TrackedLastTurnResult, ...]
     max_first_occurrence_drift_seconds: float
@@ -484,6 +485,10 @@ def _parse_sweep_contract(
         cast(SweepStateLabel, item)
         for item in _require_string_list(payload.get("required_labels", []))
     )
+    required_sequence = tuple(
+        cast(SweepStateLabel, item)
+        for item in _require_string_list(payload.get("required_sequence", []))
+    )
     forbidden_terminal_results = tuple(
         cast(TrackedLastTurnResult, item)
         for item in _require_string_list(payload.get("forbidden_terminal_results", []))
@@ -496,6 +501,7 @@ def _parse_sweep_contract(
     )
     return SweepContractConfig(
         required_labels=required_labels,
+        required_sequence=required_sequence,
         required_terminal_result=required_terminal_result,
         forbidden_terminal_results=forbidden_terminal_results,
         max_first_occurrence_drift_seconds=float(

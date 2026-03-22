@@ -50,6 +50,7 @@ class StreamStateReducer:
             trace_writer=trace_writer,
         )
         self.m_latest_observation: RecordedObservation | None = None
+        self.m_seen_supported_process: bool = False
         self.m_all_events: list[ReplayEvent] = []
         self.m_pending_events: list[ReplayEvent] = []
 
@@ -102,7 +103,12 @@ class StreamStateReducer:
 
         with self.m_lock:
             self.m_latest_observation = observation
-            availability = classify_runtime_availability(runtime=observation.runtime)
+            if observation.runtime is not None and observation.runtime.supported_process_alive:
+                self.m_seen_supported_process = True
+            availability = classify_runtime_availability(
+                runtime=observation.runtime,
+                supported_process_seen=self.m_seen_supported_process,
+            )
             if availability == "available":
                 self.m_session.on_snapshot(observation.output_text)
             self._sync_events_locked(default_sample_id=observation.sample_id)
@@ -187,7 +193,9 @@ def replay_timeline(
 
 
 def classify_runtime_availability(
-    *, runtime: RuntimeObservation | None
+    *,
+    runtime: RuntimeObservation | None,
+    supported_process_seen: bool = False,
 ) -> TrackedDiagnosticsAvailability:
     """Classify diagnostics availability from optional runtime evidence."""
 
@@ -198,6 +206,8 @@ def classify_runtime_availability(
     if runtime.pane_dead:
         return "tui_down"
     if runtime.supported_process_pid is not None and not runtime.supported_process_alive:
+        return "tui_down"
+    if supported_process_seen and not runtime.supported_process_alive:
         return "tui_down"
     if runtime.pane_pid is not None and not runtime.pane_pid_alive:
         return "tui_down"

@@ -48,7 +48,7 @@ from .review_video import encode_review_video, render_review_frames
 from .scenario import ScenarioDefinition
 from .tooling import (
     build_session_name,
-    capture_pane_text,
+    capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
     kill_supported_process_for_pane,
@@ -63,6 +63,17 @@ from .tooling import (
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _FIXTURE_MANIFEST_NAME = "fixture_manifest.json"
 _SUBMIT_KEY_DELAY_SECONDS = 0.2
+_INTERRUPT_SEQUENCE_BY_TOOL: dict[ToolName, tuple[str, ...]] = {
+    "claude": ("<[Escape]>",),
+    "codex": ("<[Escape]>",),
+}
+_CLOSE_SEQUENCE_BY_TOOL: dict[ToolName, tuple[str, ...]] = {
+    "claude": ("<[C-c]>",),
+    "codex": ("<[C-c]>",),
+}
+_GRACEFUL_CLOSE_TIMEOUT_SECONDS = 2.0
+_GRACEFUL_CLOSE_POLL_SECONDS = 0.2
+_INTERRUPTED_READY_STABLE_POLLS = 2
 
 
 @dataclass(frozen=True)
@@ -583,6 +594,12 @@ def _execute_scenario(
                 detector=detector,
                 timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
             )
+        elif step.action == "wait_for_interrupted_ready":
+            _wait_for_interrupted_ready(
+                pane_id=pane_id,
+                detector=detector,
+                timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
+            )
         elif step.action == "wait_seconds":
             time.sleep(step.seconds or 0.0)
         elif step.action == "wait_for_pattern":
@@ -604,6 +621,18 @@ def _execute_scenario(
                 session_name=tool_session_name,
                 pane_id=pane_id,
                 sequence=f"<[{key}]>",
+            )
+        elif step.action == "interrupt_turn":
+            _interrupt_turn(
+                tool=scenario.tool,
+                session_name=tool_session_name,
+                pane_id=pane_id,
+            )
+        elif step.action == "close_tool":
+            _close_tool(
+                tool=scenario.tool,
+                session_name=tool_session_name,
+                pane_id=pane_id,
             )
         elif step.action == "kill_session":
             kill_tmux_session_if_exists(session_name=tool_session_name)
@@ -658,17 +687,102 @@ def _send_text(*, session_name: str, pane_id: str, text: str, submit: bool) -> N
     )
 
 
+def _interrupt_turn(*, tool: ToolName, session_name: str, pane_id: str) -> None:
+    """Deliver one tool-owned interruption recipe to the target pane."""
+
+    for sequence in _INTERRUPT_SEQUENCE_BY_TOOL[tool]:
+        _send_sequence(
+            session_name=session_name,
+            pane_id=pane_id,
+            sequence=sequence,
+        )
+
+
+def _close_tool(*, tool: ToolName, session_name: str, pane_id: str) -> None:
+    """Request one best-effort graceful close before falling back to process kill."""
+
+    for sequence in _CLOSE_SEQUENCE_BY_TOOL[tool]:
+        _send_sequence(
+            session_name=session_name,
+            pane_id=pane_id,
+            sequence=sequence,
+        )
+        if _wait_for_supported_process_exit(
+            tool=tool,
+            session_name=session_name,
+            pane_id=pane_id,
+            timeout_seconds=_GRACEFUL_CLOSE_TIMEOUT_SECONDS,
+        ):
+            return
+    kill_supported_process_for_pane(
+        tool=tool,
+        session_name=session_name,
+        pane_id=pane_id,
+    )
+
+
+def _wait_for_supported_process_exit(
+    *,
+    tool: ToolName,
+    session_name: str,
+    pane_id: str,
+    timeout_seconds: float,
+) -> bool:
+    """Return whether the supported tool process exited within the timeout."""
+
+    deadline = time.monotonic() + timeout_seconds
+    started_at = datetime.now().astimezone()
+    while time.monotonic() < deadline:
+        observation = sample_runtime_observation(
+            tool=tool,
+            session_name=session_name,
+            pane_id=pane_id,
+            recorder_started_at=started_at,
+        )
+        if not observation.session_exists:
+            return True
+        if not observation.pane_exists or observation.pane_dead:
+            return True
+        if not observation.supported_process_alive:
+            return True
+        time.sleep(_GRACEFUL_CLOSE_POLL_SECONDS)
+    return False
+
+
 def _wait_for_ready(*, pane_id: str, detector: Any, timeout_seconds: float) -> None:
     """Wait until the detector reports a ready posture."""
 
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        output = capture_pane_text(pane_id=pane_id)
+        output = capture_visible_pane_text(pane_id=pane_id)
         signals = detector.detect(output_text=output)
         if signals.ready_posture == "yes":
             return
         time.sleep(0.2)
     raise TimeoutError(f"Timed out waiting for ready posture in {pane_id}")
+
+
+def _wait_for_interrupted_ready(*, pane_id: str, detector: Any, timeout_seconds: float) -> None:
+    """Wait until the detector reports a stable interrupted-ready posture."""
+
+    deadline = time.monotonic() + timeout_seconds
+    consecutive_matches = 0
+    while time.monotonic() < deadline:
+        output = capture_visible_pane_text(pane_id=pane_id)
+        signals = detector.detect(output_text=output)
+        interrupted_ready = (
+            signals.interrupted
+            and signals.ready_posture == "yes"
+            and not signals.active_evidence
+        )
+        if interrupted_ready:
+            consecutive_matches += 1
+            if consecutive_matches >= _INTERRUPTED_READY_STABLE_POLLS:
+                return
+        else:
+            consecutive_matches = 0
+        time.sleep(0.2)
+    raise TimeoutError(f"Timed out waiting for interrupted ready posture in {pane_id}")
 
 
 def _wait_for_pattern(*, pane_id: str, pattern: str, timeout_seconds: float) -> None:
@@ -677,7 +791,7 @@ def _wait_for_pattern(*, pane_id: str, pattern: str, timeout_seconds: float) -> 
     compiled = re.compile(pattern)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        output = _ANSI_RE.sub("", capture_pane_text(pane_id=pane_id))
+        output = _ANSI_RE.sub("", capture_visible_pane_text(pane_id=pane_id))
         if compiled.search(output):
             return
         time.sleep(0.2)

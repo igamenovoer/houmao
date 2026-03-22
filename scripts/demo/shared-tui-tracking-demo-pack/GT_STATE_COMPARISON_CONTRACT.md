@@ -195,6 +195,13 @@ This matters because the question is not merely "did these two runs eventually r
 
 "Given the recorded evidence available by this sample, what should the tracker publicly report at this point in time?"
 
+For repeated intentional-interruption fixtures, this sample-aligned model is what makes the important reset semantics testable. The labels should distinguish each interrupted cycle separately so the comparison can tell whether:
+
+- the first interrupted-ready posture was observed,
+- `last_turn_result` reset to `none` when the second turn became active,
+- the second interrupted-ready posture was observed, and
+- the final intentional close changed diagnostics posture without inventing success or known failure.
+
 ## When Strict GT Comparison Is The Right Tool
 
 Use strict GT comparison when:
@@ -240,6 +247,7 @@ flowchart LR
 The sweep contract is intentionally coarser:
 
 - required state labels such as `active` or `ready_success`
+- optional ordered required sequences such as `active -> ready_interrupted -> active -> ready_interrupted -> tui_down`
 - required or forbidden terminal results
 - bounded first-occurrence drift relative to the baseline variant
 

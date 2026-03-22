@@ -29,6 +29,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.models import (
     RecordedValidationPaths,
 )
 from houmao.demo.shared_tui_tracking_demo_pack.recorded import validate_recorded_fixture
+from houmao.demo.shared_tui_tracking_demo_pack.scenario import load_scenario
 from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
@@ -36,8 +37,12 @@ from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     render_review_frames,
 )
 from houmao.demo.shared_tui_tracking_demo_pack.schema_validation import load_schema
-from houmao.demo.shared_tui_tracking_demo_pack.sweep import run_recorded_sweep
+from houmao.demo.shared_tui_tracking_demo_pack.sweep import (
+    _match_required_sequence,
+    run_recorded_sweep,
+)
 from houmao.demo.shared_tui_tracking_demo_pack.tooling import default_tool_runtime_metadata
+from houmao.shared_tui_tracking.apps.codex_tui.profile import CodexTuiSignalDetector
 
 
 def _repo_root() -> Path:
@@ -162,6 +167,50 @@ def test_default_capture_frequency_sweep_respects_two_hz_floor() -> None:
     assert intervals
     assert 0.5 in intervals
     assert all(value <= 0.5 for value in intervals)
+
+
+def test_repeated_interrupt_scenario_uses_semantic_actions() -> None:
+    """The repeated lifecycle scenario should wait for true interrupted-ready posture."""
+
+    scenario = load_scenario(
+        _repo_root()
+        / "scripts"
+        / "demo"
+        / "shared-tui-tracking-demo-pack"
+        / "scenarios"
+        / "claude-double-interrupt-then-close.json"
+    )
+
+    actions = [step.action for step in scenario.steps]
+
+    assert "interrupt_turn" in actions
+    assert "wait_for_interrupted_ready" in actions
+    assert "close_tool" in actions
+    assert actions.count("interrupt_turn") == 2
+    assert actions.count("wait_for_interrupted_ready") == 2
+
+
+def test_codex_detector_recognizes_wrapped_interrupted_banner() -> None:
+    """Wrapped Codex interrupted banners should still count as interrupted-ready."""
+
+    detector = CodexTuiSignalDetector()
+    output_text = "\n".join(
+        [
+            "› Search this repository for files related to tmux and prepare a grouped summary.",
+            "",
+            "■ Conversation interrupted - tell the model what to do",
+            "differently. Something went wrong? Hit `/feedback` to",
+            "report the issue.",
+            "",
+            "› Write tests for @filename",
+        ]
+    )
+
+    signals = detector.detect(output_text=output_text)
+
+    assert signals.interrupted is True
+    assert signals.ready_posture == "yes"
+    assert signals.active_evidence is False
 
 
 def test_expand_labels_to_groundtruth_timeline_requires_full_coverage(tmp_path: Path) -> None:
@@ -622,6 +671,32 @@ def test_resolve_demo_config_rejects_invalid_sweep_variant(tmp_path: Path) -> No
         resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
 
 
+def test_resolve_demo_config_accepts_required_sequence_sweep_contract(tmp_path: Path) -> None:
+    """Sweep contracts may declare a repeated ordered required sequence."""
+
+    config_path = tmp_path / "sequence-sweep.toml"
+    _write(
+        config_path,
+        _default_demo_config_text()
+        + "\n".join(
+            [
+                "",
+                "[sweeps.capture_frequency.contracts.synthetic_sequence_case]",
+                'required_sequence = ["active", "ready_interrupted", "active"]',
+                'forbidden_terminal_results = ["success", "known_failure"]',
+                "max_first_occurrence_drift_seconds = 2.0",
+                "",
+            ]
+        ),
+    )
+
+    resolved = resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+    contract = resolved.sweeps["capture_frequency"].contracts["synthetic_sequence_case"]
+
+    assert contract.required_labels == ()
+    assert contract.required_sequence == ("active", "ready_interrupted", "active")
+
+
 def test_resolve_demo_config_rejects_invalid_cli_override() -> None:
     """Invalid CLI override fragments should fail before merge."""
 
@@ -789,6 +864,117 @@ def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) 
     assert result.summary_path.is_file()
     assert result.outcome_count == 3
     assert source_verdict["passed"] is True
+
+
+def test_match_required_sequence_supports_repeated_labels() -> None:
+    """Ordered sequence matching should support duplicate labels."""
+
+    matches, missing, matched_times = _match_required_sequence(
+        required_sequence=("active", "ready_interrupted", "active", "ready_interrupted"),
+        transition_events=[
+            ("ready", 0.0),
+            ("active", 1.0),
+            ("ready_interrupted", 2.0),
+            ("active", 3.0),
+            ("ready_interrupted", 4.0),
+            ("tui_down", 5.0),
+        ],
+    )
+
+    assert matches is True
+    assert missing == ()
+    assert matched_times == {
+        "active#1": 1.0,
+        "ready_interrupted#1": 2.0,
+        "active#2": 3.0,
+        "ready_interrupted#2": 4.0,
+    }
+
+
+def test_run_recorded_sweep_supports_required_sequence_contract(tmp_path: Path) -> None:
+    """Sweep evaluation should enforce ordered required-sequence contracts."""
+
+    config_path = tmp_path / "sequence-config.toml"
+    _write(
+        config_path,
+        "\n".join(
+            [
+                "schema_version = 1",
+                'demo_id = "shared-tui-tracking-demo-pack"',
+                "",
+                "[paths]",
+                'fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"',
+                'recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"',
+                'live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"',
+                'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
+                "",
+                "[tools.claude]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'launch_args_override = ["--dangerously-skip-permissions"]',
+                "",
+                "[tools.codex]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                "launch_args_override = []",
+                "",
+                "[evidence]",
+                "sample_interval_seconds = 0.2",
+                "runtime_observer_interval_seconds = 0.2",
+                "ready_timeout_seconds = 45.0",
+                "cleanup_session = true",
+                "",
+                "[semantics]",
+                "settle_seconds = 1.0",
+                "",
+                "[presentation.review_video]",
+                "match_capture_cadence = true",
+                "width = 1920",
+                "height = 1080",
+                'codec = "libx264"',
+                'pixel_format = "yuv420p"',
+                "keep_frames = true",
+                "",
+                "[sweeps.capture_frequency]",
+                'description = "Sequence-only sweep for repeated transitions."',
+                'baseline_variant = "source"',
+                "",
+                "[[sweeps.capture_frequency.variants]]",
+                'name = "source"',
+                "use_source_cadence = true",
+                "",
+                "[sweeps.capture_frequency.contracts.claude_tui_down_after_active]",
+                'required_sequence = ["active", "tui_down"]',
+                'forbidden_terminal_results = ["success"]',
+                "max_first_occurrence_drift_seconds = 2.0",
+            ]
+        )
+        + "\n",
+    )
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / "claude"
+        / "claude_tui_down_after_active"
+    )
+
+    result = run_recorded_sweep(
+        repo_root=_repo_root(),
+        demo_config=resolve_demo_config(repo_root=_repo_root(), config_path=config_path),
+        sweep_name="capture_frequency",
+        fixture_root=fixture_root,
+        output_root=tmp_path / "sweep-sequence-run",
+    )
+
+    verdict = json.loads(
+        (result.run_root / "variants" / "source" / "verdict.json").read_text(encoding="utf-8")
+    )
+
+    assert result.outcome_count == 1
+    assert verdict["required_sequence"] == ["active", "tui_down"]
+    assert verdict["sequence_matches"] is True
+    assert verdict["passed"] is True
 
 
 def test_run_recorded_sweep_persists_selected_source_config_path(tmp_path: Path) -> None:

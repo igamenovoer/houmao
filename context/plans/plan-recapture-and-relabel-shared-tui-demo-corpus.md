@@ -2,7 +2,7 @@
 
 ## HEADER
 - **Purpose**: Re-author the shared tracked-TUI demo fixture corpus so the committed recordings reflect the current canonical capture posture and carry fresh human-authored labels for tracker correctness checks.
-- **Status**: Draft
+- **Status**: Complete
 - **Date**: 2026-03-22
 - **Dependencies**:
   - `scripts/demo/shared-tui-tracking-demo-pack/README.md`
@@ -79,23 +79,23 @@ sequenceDiagram
 
 ## 4. TODOs (Implementation Steps)
 
-- [ ] **Confirm capture posture** Use `recorded-capture --profile canonical_fixture` for all recaptures and verify the temporary authoring roots stay under `tmp/demo/shared-tui-tracking-demo-pack/authoring/...`.
-- [ ] **Scout Claude live behavior** Run the live watch flow for Claude if prompt timing or submit timing needs a quick sanity check before re-capturing the Claude cases.
-- [ ] **Scout Codex live behavior** Run the live watch flow for Codex if prompt timing, submit timing, or interruption behavior needs confirmation before re-capturing the Codex cases.
-- [ ] **Re-capture Claude fixture set** Capture `claude_explicit_success`, `claude_interrupted_after_active`, `claude_slash_menu_recovery`, and `claude_tui_down_after_active` into temporary authoring roots.
-- [ ] **Re-capture Codex fixture set** Capture `codex_explicit_success`, `codex_interrupted_after_active`, and `codex_tui_down_after_active` into temporary authoring roots.
-- [ ] **Author full labels for each capture** Write `recording/labels.json` for every temporary capture with complete non-overlapping coverage across the full tracked field set.
-- [ ] **Validate each capture without video** Run `recorded-validate --skip-video` for each case and fix labels or recapture until strict GT mismatches are eliminated.
-- [ ] **Generate full review outputs** Re-run `recorded-validate` with video enabled for each clean case and inspect the summary report, issues, and review video before promotion.
-- [ ] **Promote canonical artifacts** Copy only `fixture_manifest.json`, `runtime_observations.ndjson`, `recording/manifest.json`, `recording/pane_snapshots.ndjson`, `recording/input_events.ndjson` when applicable, and `recording/labels.json` into the committed fixture tree.
-- [ ] **Refresh notes if scenario drift is real** Update the demo README or an execution log if a refreshed capture reveals stable behavior changes that operators should know about.
-- [ ] **Re-verify the promoted corpus** Run corpus validation and named sweeps against the committed fixture tree after promotion and investigate any remaining transition-contract regressions.
+- [x] **Confirm capture posture** Use `recorded-capture --profile canonical_fixture` for all recaptures and verify the temporary authoring roots stay under `tmp/demo/shared-tui-tracking-demo-pack/authoring/...`.
+- [x] **Scout Claude live behavior** Not required for the completed refresh; direct capture authoring was sufficient to re-author the Claude cases.
+- [x] **Scout Codex live behavior** Not required for the completed refresh; direct capture authoring plus interruption-focused recapture resolved the Codex cases.
+- [x] **Re-capture Claude fixture set** Capture `claude_explicit_success`, `claude_interrupted_after_active`, `claude_slash_menu_recovery`, and `claude_tui_down_after_active` into temporary authoring roots.
+- [x] **Re-capture Codex fixture set** Capture `codex_explicit_success`, `codex_interrupted_after_active`, and `codex_tui_down_after_active` into temporary authoring roots.
+- [x] **Author full labels for each capture** Write `recording/labels.json` for every temporary capture with complete non-overlapping coverage across the full tracked field set.
+- [x] **Validate each capture without video** Run `recorded-validate --skip-video` for each case and fix labels or recapture until strict GT mismatches are eliminated.
+- [x] **Generate full review outputs** Re-run `recorded-validate` with video enabled for each clean case and inspect the summary report, issues, and review video before promotion.
+- [x] **Promote canonical artifacts** Copy only `fixture_manifest.json`, `runtime_observations.ndjson`, `recording/manifest.json`, `recording/pane_snapshots.ndjson`, `recording/input_events.ndjson` when applicable, and `recording/labels.json` into the committed fixture tree.
+- [x] **Refresh notes if scenario drift is real** Update the demo README or an execution log if a refreshed capture reveals stable behavior changes that operators should know about.
+- [x] **Re-verify the promoted corpus** Run corpus validation and named sweeps against the committed fixture tree after promotion and investigate any remaining transition-contract regressions.
 
 ## 5. Verification
 
-- [ ] **Per-case recorder manifest check** Confirm every promoted `recording/manifest.json` reports `sample_interval_seconds = 0.2` and carries the fresh capture timestamps and observed tool version.
-- [ ] **Per-case label coverage check** Confirm every promoted `recording/labels.json` expands successfully with no missing coverage, no overlaps, and no invalid state fields.
-- [ ] **Per-case strict replay check** Run `recorded-validate --skip-video` on every promoted fixture and confirm zero comparison mismatches.
-- [ ] **Per-case review artifact check** Run full `recorded-validate` with video for every promoted fixture and confirm the review output renders and matches the intended labeled state progression.
-- [ ] **Corpus replay check** Run `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus` and confirm the committed fixture corpus validates cleanly end to end.
-- [ ] **Sweep regression check** Run `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep --sweep capture_frequency` on each promoted fixture, or at minimum one representative case per transition family, and confirm contracts still hold.
+- [x] **Per-case recorder manifest check** Confirm every promoted `recording/manifest.json` reports `sample_interval_seconds = 0.2` and carries the fresh capture timestamps and observed tool version.
+- [x] **Per-case label coverage check** Confirm every promoted `recording/labels.json` expands successfully with no missing coverage, no overlaps, and no invalid state fields.
+- [x] **Per-case strict replay check** Run `recorded-validate --skip-video` on every promoted fixture and confirm zero comparison mismatches.
+- [x] **Per-case review artifact check** Run full `recorded-validate` with video for every promoted fixture and confirm the review output renders and matches the intended labeled state progression.
+- [x] **Corpus replay check** Run `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus` and confirm the committed fixture corpus validates cleanly end to end.
+- [x] **Sweep regression check** Run `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep --sweep capture_frequency` on each promoted fixture, or at minimum one representative case per transition family, and confirm contracts still hold.

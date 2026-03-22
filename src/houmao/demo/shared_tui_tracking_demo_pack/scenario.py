@@ -12,10 +12,13 @@ from .models import ToolName
 
 ScenarioAction = Literal[
     "wait_for_ready",
+    "wait_for_interrupted_ready",
     "wait_seconds",
     "wait_for_pattern",
     "send_text",
     "send_key",
+    "interrupt_turn",
+    "close_tool",
     "kill_supported_process",
     "kill_session",
 ]

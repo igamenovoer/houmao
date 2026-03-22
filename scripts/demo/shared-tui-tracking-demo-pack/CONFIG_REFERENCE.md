@@ -155,9 +155,20 @@ Each variant defines one effective cadence. `use_source_cadence = true` means â€
 Each contract defines what must still hold for that fixture under the alternate cadence:
 
 - `required_labels`
+- `required_sequence`
 - `required_terminal_result`
 - `forbidden_terminal_results`
 - `max_first_occurrence_drift_seconds`
+
+`required_labels` keeps the older coarse contract shape: each label must appear, and its first appearance must stay in order with bounded drift against the baseline variant.
+
+`required_sequence` is the stronger sequence-oriented contract for repeated lifecycles. It is matched as an ordered subsequence over the replayed transition labels and supports duplicates such as:
+
+```toml
+required_sequence = ["active", "ready_interrupted", "active", "ready_interrupted", "tui_down"]
+```
+
+Use `required_sequence` when the sweep needs to prove repeated transition families rather than only one first occurrence.
 
 Sweep commands run one named sweep at a time:
 
@@ -170,6 +181,8 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep \
 The sweep command evaluates all variants inside that named sweep. It does not automatically run every sweep block in the config.
 
 The checked-in `capture_frequency` sweep expresses the demo's current robustness claim: tracked public state is expected to remain robust only at `2 Hz` or faster, meaning `sample_interval_seconds <= 0.5`. Slower cadences should live in an alternate config and be treated as exploratory probes rather than default pass/fail expectations.
+
+The checked-in sweep now uses `required_sequence` for repeated intentional-interruption cases so the default robustness claim can distinguish a single interrupted turn from two interrupted turns followed by close.
 
 ## Operator Examples
 

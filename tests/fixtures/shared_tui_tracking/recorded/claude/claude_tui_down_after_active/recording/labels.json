@@ -32,7 +32,7 @@
     {
       "label_id": "active-before-loss",
       "sample_id": "s000010",
-      "sample_end_id": "s000018",
+      "sample_end_id": "s000017",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -45,56 +45,14 @@
     },
     {
       "label_id": "tui-down-runtime",
-      "sample_id": "s000019",
-      "sample_end_id": "s000020",
-      "expectations": {
-        "diagnostics_availability": "tui_down",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "no",
-        "surface_ready_posture": "unknown",
-        "turn_phase": "unknown",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
-      }
-    },
-    {
-      "label_id": "active-without-runtime",
-      "sample_id": "s000021",
-      "sample_end_id": "s000021",
-      "expectations": {
-        "diagnostics_availability": "available",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "no",
-        "surface_ready_posture": "unknown",
-        "turn_phase": "active",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
-      }
-    },
-    {
-      "label_id": "tui-down-runtime-2",
-      "sample_id": "s000022",
-      "sample_end_id": "s000022",
-      "expectations": {
-        "diagnostics_availability": "tui_down",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "no",
-        "surface_ready_posture": "unknown",
-        "turn_phase": "unknown",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
-      }
-    },
-    {
-      "label_id": "active-without-runtime-2",
-      "sample_id": "s000023",
+      "sample_id": "s000018",
       "sample_end_id": "s000023",
       "expectations": {
-        "diagnostics_availability": "available",
+        "diagnostics_availability": "tui_down",
         "surface_accepting_input": "yes",
         "surface_editing_input": "no",
         "surface_ready_posture": "unknown",
-        "turn_phase": "active",
+        "turn_phase": "unknown",
         "last_turn_result": "none",
         "last_turn_source": "none"
       }

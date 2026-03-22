@@ -284,8 +284,8 @@ class TuiTrackerSession:
                     signals=effective_signals,
                     note="active_signal",
                     turn_phase="active",
-                    last_turn_result=self.m_state.last_turn_result,
-                    last_turn_source=self.m_state.last_turn_source,
+                    last_turn_result="none",
+                    last_turn_source="none",
                 )
                 return
 

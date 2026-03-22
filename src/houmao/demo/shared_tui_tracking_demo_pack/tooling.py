@@ -270,6 +270,16 @@ def capture_pane_text(*, pane_id: str) -> str:
     return capture_tmux_pane(target=pane_id)
 
 
+def capture_visible_pane_text(*, pane_id: str) -> str:
+    """Capture only the currently visible tmux pane surface."""
+
+    result = run_tmux(["capture-pane", "-p", "-e", "-t", pane_id])
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown tmux error"
+        raise TmuxCommandError(f"Failed to capture visible tmux pane `{pane_id}`: {detail}")
+    return result.stdout
+
+
 def now_utc_iso() -> str:
     """Return a UTC timestamp string."""
 

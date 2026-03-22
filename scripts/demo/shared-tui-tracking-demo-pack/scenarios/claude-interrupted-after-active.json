@@ -37,9 +37,12 @@
       "seconds": 1.5
     },
     {
-      "action": "send_key",
+      "action": "interrupt_turn",
       "name": "interrupt",
-      "key": "Escape"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready"
     },
     {
       "action": "wait_seconds",

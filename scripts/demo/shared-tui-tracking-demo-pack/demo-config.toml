@@ -75,6 +75,11 @@ required_terminal_result = "interrupted"
 forbidden_terminal_results = ["success", "known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
+[sweeps.capture_frequency.contracts.claude_double_interrupt_then_close]
+required_sequence = ["active", "ready_interrupted", "active", "ready_interrupted", "tui_down"]
+forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
 [sweeps.capture_frequency.contracts.claude_slash_menu_recovery]
 required_labels = ["unknown"]
 required_terminal_result = "none"
@@ -94,9 +99,14 @@ forbidden_terminal_results = ["known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_interrupted_after_active]
-required_labels = ["active"]
-required_terminal_result = "none"
-forbidden_terminal_results = ["success", "interrupted", "known_failure"]
+required_labels = ["active", "ready_interrupted"]
+required_terminal_result = "interrupted"
+forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_double_interrupt_then_close]
+required_sequence = ["active", "ready_interrupted", "active", "ready_interrupted", "tui_down"]
+forbidden_terminal_results = ["success", "known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_tui_down_after_active]

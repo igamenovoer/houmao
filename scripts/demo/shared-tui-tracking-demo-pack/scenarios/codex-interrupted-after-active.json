@@ -21,9 +21,12 @@
       "timeout_seconds": 30.0
     },
     {
-      "action": "send_key",
-      "name": "interrupt",
-      "key": "Escape"
+      "action": "interrupt_turn",
+      "name": "interrupt"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready"
     },
     {
       "action": "wait_seconds",

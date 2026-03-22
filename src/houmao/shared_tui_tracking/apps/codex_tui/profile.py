@@ -12,8 +12,8 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
 )
 from houmao.shared_tui_tracking.apps.codex_tui.signals.error_cells import latest_error_cell
 from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
-    CODEX_INTERRUPTED_TEXT,
     CODEX_STEER_INTERRUPTION_TEXT,
+    interrupted_text_visible,
     is_interrupted_surface,
 )
 from houmao.shared_tui_tracking.apps.codex_tui.signals.overlays import has_blocking_overlay
@@ -188,9 +188,7 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             blocking_overlay=blocking_overlay,
             active_evidence=activity.active_evidence,
         )
-        if error_line is not None and CODEX_INTERRUPTED_TEXT not in "\n".join(
-            surface.stripped_lines
-        ):
+        if error_line is not None and not interrupted_text_visible(surface=surface):
             if not activity.active_evidence:
                 ready_posture = "unknown"
         return _CodexTuiFrame(
@@ -198,7 +196,7 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             blocking_overlay=blocking_overlay,
             active_status_row_visible=activity.active_status_row_visible,
             current_error_present=error_line is not None,
-            interrupted=CODEX_INTERRUPTED_TEXT in "\n".join(surface.stripped_lines),
+            interrupted=interrupted_text_visible(surface=surface),
             ready_posture=ready_posture,
             latest_turn_region_signature=latest_turn_region_signature(
                 prompt_context.latest_turn_lines
