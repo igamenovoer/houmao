@@ -152,26 +152,27 @@ Alternative considered:
 - Use one local manifest-driven headless adapter everywhere.
   Rejected because it would split authority for server-managed headless agents and undermine durable turn control under `houmao-server`.
 
-### 6. Native headless launch will grow structured official mailbox and gateway options
+### 6. Native headless launch stays mailbox-focused; gateway lifecycle stays post-launch
 
-The native headless launch request will be extended with nested configuration for:
+The native headless launch request will remain focused on resolved launch inputs plus optional mailbox configuration. In this change, launch may accept:
 
 - mailbox overrides, using the same conceptual resolution space as runtime session startup,
-- gateway launch behavior, including optional launch-time auto-attach and listener overrides.
+
+Gateway lifecycle remains a separate post-launch concern. A gateway can be launched later against the same tmux-backed agent session by using the published attach metadata, the tmux session environment, and the persisted manifest pointer for that session. The official server-owned gateway attach or detach routes remain the managed-agent control surface for that lifecycle.
 
 Notifier enablement will remain a separate operational step rather than a launch-time identity field.
 
-Implementation should extract and reuse the existing runtime resolution points rather than fork mailbox and gateway policy. The relevant current seams are `resolve_effective_mailbox_config`, `bootstrap_resolved_mailbox`, `_resolve_gateway_listener`, and the runtime gateway capability publication path rooted in `ensure_gateway_capability`.
+Blueprint or manifest-backed gateway listener defaults may still inform a later attach action, but they are not caller-supplied headless launch inputs in this change. Attach-time resolution should continue to reuse the runtime gateway seams such as `_resolve_gateway_listener` and capability publication rooted in `ensure_gateway_capability`, while launch-time resolution should reuse the existing mailbox seams such as `resolve_effective_mailbox_config` and `bootstrap_resolved_mailbox`.
 
 Why:
 
-- the server API should be able to express official launch-time behavior directly;
-- mailbox and gateway configuration are part of the managed-agent operating contract, not just manifest-private implementation detail.
+- mailbox configuration is part of the official managed-agent launch contract and should not be forced back into manifest-private indirection;
+- gateway startup is independently recoverable from attach metadata, so coupling it to agent launch would blur two different lifecycle boundaries and failure domains.
 
 Alternative considered:
 
-- Keep the launch request minimal and require all mailbox or gateway behavior to be encoded indirectly in the built manifest.
-  Rejected because that keeps critical runtime behavior outside the official server contract.
+- Couple gateway startup and listener selection to the headless launch request.
+  Rejected because the gateway can be launched later for the same live session, including from the same tmux session, by using session env and manifest-backed attachability. Making launch own gateway lifecycle would duplicate attach authority and turn gateway startup failures into agent-launch failures unnecessarily.
 
 ### 7. Existing TUI detail routes remain canonical; managed-agent detail will project them
 
@@ -192,7 +193,8 @@ Alternative considered:
 - [Two overlapping state surfaces can confuse callers] → Keep `/houmao/agents/{agent_ref}/state` explicitly summary-only and document the detail route as the transport-specific inspection surface.
 - [Server and gateway status can drift if both try to own the same truth] → Keep durable gateway status and notifier truth in gateway-owned state, with server routes proxying or projecting that source rather than duplicating it.
 - [Headless local runtime attach and server-managed attach need different control adapters] → Make adapter type an explicit architectural seam instead of hiding it behind backend conditionals.
-- [Extending the launch contract can make it harder to reason about defaults] → Use nested request models and shared runtime-resolution helpers so server and runtime keep one mailbox and gateway resolution policy.
+- [Mailbox launch defaults and later gateway attach defaults can drift] → Keep mailbox resolution shared at launch time, and keep gateway listener resolution on the attach path where tmux session env and manifest-backed attach metadata are already authoritative.
+- [Coupling gateway startup to agent launch would merge unrelated failure domains] → Keep gateway lifecycle explicit and post-launch so agent startup does not depend on immediate sidecar availability.
 - [This work could accidentally become demo-shaped] → Keep conversation policy, round limits, and email content outside the server and treat the demo only as a downstream consumer of the contract.
 
 ## Migration Plan
@@ -203,7 +205,7 @@ Alternative considered:
 4. Add server-managed gateway lifecycle and notifier routes.
 5. Refactor gateway execution into explicit adapter kinds and add server-managed-agent plus local-headless adapters.
 6. Extend runtime live gateway attach support for tmux-backed headless sessions and rely on resume-time gateway-capability publication so existing runtime-owned sessions gain the new attach metadata when resumed rather than through a one-off migration path.
-7. Update `houmao-srv-ctrl` and demo helpers to consume the new official surfaces.
+7. Update clients, docs, and demo helpers to consume the new official surfaces while keeping gateway lifecycle as a post-launch attach operation rather than a headless launch flag.
 
 This change is additive. Existing coarse state routes, TUI terminal routes, and headless `/turns` routes remain valid during migration.
 

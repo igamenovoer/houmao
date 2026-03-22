@@ -2,7 +2,6 @@
 Define expected runtime behaviors for brain launch session orchestration,
 CLI session control, backend continuity, and CAO/tmux integrations.
 ## Requirements
-
 ### Requirement: Launch plan composition from `{brain, role}`
 The system SHALL compose a tool launch plan from a resolved brain manifest and a role package.
 
@@ -1304,25 +1303,37 @@ That attachability publication SHALL be additive and SHALL NOT make legacy non-g
 
 Blueprint `gateway.host` and `gateway.port` values SHALL act only as defaults after gateway attach is requested and SHALL NOT make a session gateway-capable or gateway-running by themselves.
 
-In v1, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL support live gateway attach for runtime-owned `backend=cao_rest` sessions first.
+In this change, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL re-publish attach metadata on resume whenever attachability can be reconstructed from persisted session state. It SHALL support live gateway attach for every runtime-owned tmux-backed backend whose gateway execution adapter is implemented, including the runtime-owned REST-backed sessions and runtime-owned native headless sessions.
 
-Supplying gateway listener overrides without either launch-time auto-attach or an explicit attach lifecycle action SHALL fail with an explicit error.
+Gateway attach MAY happen later against the already-running tmux-backed session by using the published attach metadata, tmux session environment, and persisted manifest pointer for that session rather than by requiring gateway lifecycle decisions to be baked into the original launch command.
+
+Supplying gateway listener overrides during session startup without a separate attach lifecycle action SHALL fail with an explicit error.
 
 If a caller requests live gateway attach for any backend whose gateway adapter is not yet implemented, the runtime SHALL fail with an explicit unsupported-backend error rather than silently falling back to implicit direct control.
 
 #### Scenario: Blueprint gateway defaults do not auto-attach the gateway by themselves
 - **WHEN** a developer starts a session from a blueprint that declares `gateway.host` or `gateway.port`
-- **AND WHEN** the developer does not request launch-time gateway attach
+- **AND WHEN** the developer does not invoke a separate gateway attach lifecycle action
 - **THEN** the runtime publishes attachability metadata for that session
 - **AND THEN** the blueprint listener defaults do not cause a live gateway instance to start by themselves
 
 #### Scenario: Gateway host or port overrides require an attach action
-- **WHEN** a developer supplies gateway host or port overrides without requesting launch-time attach or an explicit attach lifecycle action
+- **WHEN** a developer supplies gateway host or port overrides during session startup without an explicit attach lifecycle action
 - **THEN** the runtime fails with an explicit gateway-lifecycle error
 - **AND THEN** the session is not treated as having a live gateway instance implicitly
 
-#### Scenario: Unsupported backend rejects live gateway attach in v1
-- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed backend other than the currently supported adapter set
+#### Scenario: Later gateway attach reuses tmux session env and manifest-backed authority
+- **WHEN** a developer starts a runtime-owned tmux-backed session and later invokes gateway attach from the same tmux session or another attach-aware control path
+- **THEN** the runtime resolves that live session through the published attach metadata and tmux session environment for that session
+- **AND THEN** the developer does not need to have coupled gateway startup to the original launch command
+
+#### Scenario: Runtime-owned headless backend can attach a live gateway when its adapter exists
+- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed native headless session whose gateway execution adapter is implemented
+- **THEN** the runtime attaches a live gateway for that headless session
+- **AND THEN** the runtime does not reject that attach request merely because the session is not REST-backed
+
+#### Scenario: Unsupported backend still rejects live gateway attach explicitly
+- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed backend whose gateway execution adapter is not implemented
 - **THEN** the runtime fails that attach request with an explicit unsupported-backend error
 - **AND THEN** the runtime does not silently convert that attach request into legacy direct control
 
@@ -1868,3 +1879,19 @@ Stopping a `houmao-server`-backed session through the runtime SHALL stop the liv
 - **WHEN** a developer stops a `houmao-server`-backed session through the runtime
 - **THEN** the runtime routes that stop request through `houmao-server`
 - **AND THEN** it does not bypass the server by directly deleting or interrupting the underlying CAO terminal
+
+### Requirement: Runtime-owned headless sessions publish attach metadata sufficient for local headless gateway execution
+For runtime-owned native headless sessions, the published gateway attach contract SHALL include the headless backend metadata needed by the local headless gateway execution adapter.
+
+That published metadata SHALL remain secret-free and SHALL be sufficient for later runtime-owned gateway attach and resume flows affecting the same live headless session.
+
+#### Scenario: Runtime-owned Codex headless session publishes headless attach metadata
+- **WHEN** the runtime starts a gateway-capable runtime-owned Codex headless session
+- **THEN** the published attach contract includes headless backend metadata for that session
+- **AND THEN** a later runtime-owned gateway attach flow can use that contract to target the same live headless session
+
+#### Scenario: Resume preserves headless attach authority
+- **WHEN** the runtime resumes a gateway-capable runtime-owned native headless session
+- **THEN** the runtime re-publishes the stable attach metadata for that headless session
+- **AND THEN** later gateway-aware control paths do not need to rediscover the headless session from unrelated state
+

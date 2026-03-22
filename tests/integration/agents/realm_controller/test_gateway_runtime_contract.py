@@ -21,6 +21,10 @@ import pytest
 
 from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.backends.cao_rest import CaoSessionState
+from houmao.agents.realm_controller.backends.headless_base import (
+    HeadlessInteractiveSession,
+    HeadlessSessionState,
+)
 from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
@@ -77,6 +81,32 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
     )
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
     return manifest_path
+
+
+def _seed_gateway_defaults_blueprint(
+    agent_def_dir: Path,
+    *,
+    port: int,
+) -> Path:
+    """Create one blueprint that carries persisted gateway listener defaults."""
+
+    blueprint_path = agent_def_dir / "gpu-blueprint.yaml"
+    blueprint_path.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "name: gpu",
+                "role: r",
+                "brain_recipe: recipes/gpu.yaml",
+                "gateway:",
+                "  host: 127.0.0.1",
+                f"  port: {port}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return blueprint_path
 
 
 def _pick_unused_loopback_port() -> int:
@@ -366,6 +396,92 @@ class _FakeCaoRestSession:
         return
 
 
+class _FakeHeadlessSessionRegistry:
+    """Shared fake state across repeated headless start and resume calls."""
+
+    def __init__(self, *, session_name: str) -> None:
+        self.m_session_name = session_name
+        self.m_session_id = "headless-session-1"
+        self.m_prompts: list[str] = []
+        self.m_interrupt_count = 0
+        self.m_terminated = False
+
+
+class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
+    """Minimal fake headless session for runtime and CLI integration tests."""
+
+    m_registry: _FakeHeadlessSessionRegistry | None = None
+
+    def __init__(
+        self,
+        *,
+        launch_plan: Any,
+        role_name: str,
+        session_manifest_path: Path,
+        agent_def_dir: Path | None = None,
+        state: HeadlessSessionState | None = None,
+        tmux_session_name: str | None = None,
+        output_format: str = "stream-json",
+    ) -> None:
+        del role_name, session_manifest_path, agent_def_dir, output_format
+        registry = type(self).m_registry
+        if registry is None:
+            raise AssertionError("Fake headless registry is not configured.")
+        self.backend = "codex_headless"
+        self.m_registry = registry
+        self._plan = launch_plan
+        session_name = tmux_session_name or registry.m_session_name
+        self._state = state or HeadlessSessionState(
+            session_id=registry.m_session_id,
+            turn_index=0,
+            role_bootstrap_applied=True,
+            working_directory=str(launch_plan.working_directory),
+            tmux_session_name=session_name,
+        )
+        if self._state.session_id is None:
+            self._state.session_id = registry.m_session_id
+        if not self._state.working_directory:
+            self._state.working_directory = str(launch_plan.working_directory)
+        if not self._state.tmux_session_name:
+            self._state.tmux_session_name = session_name
+
+    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+        """Record a direct prompt submission for the fake headless backend."""
+
+        self.m_registry.m_prompts.append(prompt)
+        self._state.turn_index += 1
+        self._state.session_id = self.m_registry.m_session_id
+        return [
+            SessionEvent(
+                kind="assistant",
+                message=f"headless:{prompt}",
+                turn_index=self._state.turn_index,
+            )
+        ]
+
+    def interrupt(self) -> SessionControlResult:
+        """Record one fake interrupt."""
+
+        self.m_registry.m_interrupt_count += 1
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+    def terminate(self) -> SessionControlResult:
+        """Record fake session termination."""
+
+        self.m_registry.m_terminated = True
+        return SessionControlResult(status="ok", action="terminate", detail="stopped")
+
+    def close(self) -> None:
+        """Close the fake session."""
+
+        return None
+
+    def update_launch_plan(self, launch_plan: Any) -> None:
+        """Update the persisted fake launch plan."""
+
+        self._plan = launch_plan
+
+
 class _FakeCaoApiState:
     """Thread-safe state for the fake CAO HTTP server."""
 
@@ -548,18 +664,26 @@ class _FakeCaoServer:
 def _install_gateway_runtime_fakes(
     *,
     monkeypatch: pytest.MonkeyPatch,
-    registry: _FakeCaoSessionRegistry,
+    registry: _FakeCaoSessionRegistry | None,
     tmux_env: _FakeTmuxEnv,
     registry_root: Path,
+    headless_registry: _FakeHeadlessSessionRegistry | None = None,
 ) -> None:
     """Install fake CAO session and tmux environment hooks."""
 
-    _FakeCaoRestSession.m_registry = registry
     monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.CaoRestSession",
-        _FakeCaoRestSession,
-    )
+    if registry is not None:
+        _FakeCaoRestSession.m_registry = registry
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime.CaoRestSession",
+            _FakeCaoRestSession,
+        )
+    if headless_registry is not None:
+        _FakeCodexHeadlessSession.m_registry = headless_registry
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime.CodexHeadlessSession",
+            _FakeCodexHeadlessSession,
+        )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         tmux_env.set_env,
@@ -670,6 +794,152 @@ def test_start_session_reports_partial_gateway_auto_attach_failure_on_bind_confl
         assert direct_err == ""
         assert direct_events[-1]["message"] == "direct:still-running"
         assert registry.m_direct_prompts == ["still-running"]
+
+
+def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Later headless attach should resolve host and port from persisted defaults."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    blueprint_path = _seed_gateway_defaults_blueprint(agent_def_dir, port=43123)
+    headless_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-headless")
+    tmux_env = _FakeTmuxEnv()
+    _install_gateway_runtime_fakes(
+        monkeypatch=monkeypatch,
+        registry=None,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+        headless_registry=headless_registry,
+    )
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                }
+            )
+            or port
+        ),
+    )
+
+    start_exit, start_payload, start_err = _run_cli_json(
+        capsys,
+        [
+            "start-session",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--runtime-root",
+            str(runtime_root),
+            "--brain-manifest",
+            str(brain_manifest_path),
+            "--blueprint",
+            str(blueprint_path),
+            "--backend",
+            "codex_headless",
+            "--workdir",
+            str(tmp_path),
+            "--agent-identity",
+            headless_registry.m_session_name,
+        ],
+    )
+    assert start_exit == 0
+    assert start_err == ""
+
+    manifest_path = Path(str(start_payload["session_manifest"]))
+    attach_exit, attach_payload, attach_err = _run_cli_json(
+        capsys,
+        [
+            "attach-gateway",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+        ],
+    )
+
+    assert attach_exit == 0
+    assert attach_err == ""
+    assert attach_payload["status"] == "ok"
+    assert attach_payload["gateway_host"] == "127.0.0.1"
+    assert attach_payload["gateway_port"] == 43123
+    assert captured_attach["host"] == "127.0.0.1"
+    assert captured_attach["port"] == 43123
+
+
+def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Resume-time gateway status should re-publish stable attach metadata."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    headless_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-headless")
+    tmux_env = _FakeTmuxEnv()
+    _install_gateway_runtime_fakes(
+        monkeypatch=monkeypatch,
+        registry=None,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+        headless_registry=headless_registry,
+    )
+
+    start_exit, start_payload, start_err = _run_cli_json(
+        capsys,
+        [
+            "start-session",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--runtime-root",
+            str(runtime_root),
+            "--brain-manifest",
+            str(brain_manifest_path),
+            "--role",
+            "r",
+            "--backend",
+            "codex_headless",
+            "--workdir",
+            str(tmp_path),
+            "--agent-identity",
+            headless_registry.m_session_name,
+        ],
+    )
+    assert start_exit == 0
+    assert start_err == ""
+
+    manifest_path = Path(str(start_payload["session_manifest"]))
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    paths.attach_path.unlink()
+    assert not paths.attach_path.exists()
+
+    status_exit, status_payload, status_err = _run_cli_json(
+        capsys,
+        [
+            "gateway-status",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+        ],
+    )
+
+    assert status_exit == 0
+    assert status_err == ""
+    assert status_payload["gateway_health"] == "not_attached"
+    assert paths.attach_path.is_file()
 
 
 def test_gateway_cli_contract_covers_attach_control_detach_replacement_and_stop(

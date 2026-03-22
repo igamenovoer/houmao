@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from houmao.shared_tui_tracking.models import (
     RecordedInputEvent,
     RecordedObservation,
@@ -143,3 +145,65 @@ def test_shared_replay_maps_runtime_loss_to_tui_down() -> None:
     assert timeline[0].diagnostics_availability == "tui_down"
     assert timeline[0].turn_phase == "unknown"
     assert timeline[0].last_turn_result == "none"
+
+
+def test_shared_replay_debug_logs_snapshot_processing_without_raw_prompt_text(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="houmao.shared_tui_tracking")
+    observations = [
+        _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface())
+    ]
+
+    replay_timeline(
+        observations=observations,
+        tool="claude",
+        observed_version="2.1.80 (Claude Code)",
+        settle_seconds=1.0,
+    )
+
+    messages = "\n".join(
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("houmao.shared_tui_tracking")
+    )
+
+    assert '"event": "snapshot_processed"' in messages
+    assert '"prompt_text_length":' in messages
+    assert "explain the repository carefully" not in messages
+
+
+def test_shared_replay_debug_logs_runtime_availability_reason(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="houmao.shared_tui_tracking")
+    observations = [
+        _observation(
+            sample_id="s000001",
+            elapsed_seconds=0.0,
+            output_text=_active_surface(),
+            runtime=RuntimeObservation(
+                ts_utc="2026-03-20T00:00:00+00:00",
+                elapsed_seconds=0.0,
+                session_exists=True,
+                pane_exists=True,
+                pane_dead=True,
+                pane_pid=1234,
+                pane_pid_alive=False,
+                supported_process_pid=4321,
+                supported_process_alive=False,
+            ),
+        )
+    ]
+
+    replay_timeline(
+        observations=observations,
+        tool="claude",
+        observed_version="2.1.80 (Claude Code)",
+        settle_seconds=1.0,
+    )
+
+    messages = "\n".join(
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("houmao.shared_tui_tracking")
+    )
+
+    assert '"event": "observation_processed"' in messages
+    assert '"availability_reason": "pane_marked_dead"' in messages

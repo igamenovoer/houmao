@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -38,6 +40,7 @@ _TEMPORAL_WINDOW_SECONDS = 3.0
 _MAX_CONTIGUOUS_GAP_SECONDS = 2.0
 _MIN_GROWTH_CHARS = 48
 _MIN_ADDED_LINES = 2
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -242,12 +245,30 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             return TemporalHintSignals()
         if growth_chars < _MIN_GROWTH_CHARS and growth_lines < _MIN_ADDED_LINES:
             return TemporalHintSignals()
-        return TemporalHintSignals(
+        hints = TemporalHintSignals(
             active_evidence=True,
             active_reasons=("transcript_growth",),
             ready_posture="no",
             notes=("temporal_transcript_growth",),
         )
+        if LOGGER.isEnabledFor(logging.DEBUG):
+            LOGGER.debug(
+                "shared_tui_tracking.codex_profile %s",
+                json.dumps(
+                    {
+                        "event": "temporal_hint_emitted",
+                        "frame_count": len(contiguous_frames),
+                        "growth_chars": growth_chars,
+                        "growth_lines": growth_lines,
+                        "oldest_signature": oldest.latest_turn_region_signature[:12],
+                        "newest_signature": newest.latest_turn_region_signature[:12],
+                        "hints": hints.to_payload(),
+                    },
+                    sort_keys=True,
+                    default=str,
+                ),
+            )
+        return hints
 
 
 CodexTrackedTurnSignalDetector = CodexTuiSignalDetector

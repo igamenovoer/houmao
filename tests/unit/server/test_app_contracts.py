@@ -7,6 +7,11 @@ from pathlib import Path
 from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
 
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
+    GatewayStatusV1,
+)
 from houmao.server.app import create_app
 from houmao.server.models import (
     ChildCaoStatus,
@@ -21,11 +26,14 @@ from houmao.server.models import (
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHistoryEntry,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentRequestAcceptedResponse,
+    HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoParsedSurface,
@@ -111,12 +119,19 @@ class _AppServiceDouble:
         self.m_history_calls: list[tuple[str, int]] = []
         self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
         self.m_managed_agent_history_calls: list[tuple[str, int]] = []
+        self.m_managed_agent_request_calls: list[tuple[str, object]] = []
         self.m_stop_calls: list[str] = []
         self.m_turn_requests: list[tuple[str, HoumaoHeadlessTurnRequest]] = []
         self.m_turn_status_calls: list[tuple[str, str]] = []
         self.m_turn_events_calls: list[tuple[str, str]] = []
         self.m_turn_artifact_calls: list[tuple[str, str, str]] = []
         self.m_interrupt_calls: list[str] = []
+        self.m_gateway_status_calls: list[str] = []
+        self.m_gateway_attach_calls: list[str] = []
+        self.m_gateway_detach_calls: list[str] = []
+        self.m_gateway_notifier_get_calls: list[str] = []
+        self.m_gateway_notifier_put_calls: list[tuple[str, GatewayMailNotifierPutV1]] = []
+        self.m_gateway_notifier_delete_calls: list[str] = []
 
     def startup(self) -> None:
         return None
@@ -321,6 +336,35 @@ class _AppServiceDouble:
             diagnostics=[],
         )
 
+    def managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        summary_state = self.managed_agent_state(agent_ref)
+        return HoumaoManagedAgentDetailResponse(
+            tracked_agent_id=summary_state.tracked_agent_id,
+            identity=summary_state.identity,
+            summary_state=summary_state,
+            detail={
+                "transport": "headless",
+                "runtime_resumable": True,
+                "tmux_session_live": True,
+                "can_accept_prompt_now": True,
+                "interruptible": False,
+                "turn": summary_state.turn,
+                "last_turn": summary_state.last_turn,
+                "active_turn_started_at_utc": None,
+                "active_turn_interrupt_requested_at_utc": None,
+                "last_turn_status": None,
+                "last_turn_started_at_utc": None,
+                "last_turn_completed_at_utc": None,
+                "last_turn_completion_source": None,
+                "last_turn_returncode": None,
+                "last_turn_history_summary": None,
+                "last_turn_error": None,
+                "mailbox": None,
+                "gateway": None,
+                "diagnostics": [],
+            },
+        )
+
     def managed_agent_history(
         self,
         agent_ref: str,
@@ -340,6 +384,23 @@ class _AppServiceDouble:
                     turn_id=None,
                 )
             ],
+        )
+
+    def submit_managed_agent_request(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        self.m_managed_agent_request_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id="claude-headless-1",
+            request_id="mreq-123",
+            request_kind="submit_prompt",
+            disposition="accepted",
+            detail="accepted",
+            headless_turn_id="turn-123",
+            headless_turn_index=1,
         )
 
     def launch_headless_agent(
@@ -431,6 +492,79 @@ class _AppServiceDouble:
             tracked_agent_id="claude-headless-1",
             detail="interrupted",
             turn_id="turn-123",
+        )
+
+    def managed_agent_gateway_status(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_gateway_status_calls.append(agent_ref)
+        return GatewayStatusV1(
+            attach_identity="claude-headless-1",
+            backend="claude_headless",
+            tmux_session_name="AGENTSYS-gpu",
+            gateway_health="not_attached",
+            managed_agent_connectivity="connected",
+            managed_agent_recovery="idle",
+            request_admission="open",
+            terminal_surface_eligibility="ready",
+            active_execution="idle",
+            queue_depth=0,
+            gateway_host=None,
+            gateway_port=None,
+            managed_agent_instance_epoch=1,
+            managed_agent_instance_id="claude-headless-1",
+        )
+
+    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_gateway_attach_calls.append(agent_ref)
+        return self.managed_agent_gateway_status(agent_ref)
+
+    def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_gateway_detach_calls.append(agent_ref)
+        return self.managed_agent_gateway_status(agent_ref)
+
+    def get_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        self.m_gateway_notifier_get_calls.append(agent_ref)
+        return GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        )
+
+    def put_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+        request_model: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        self.m_gateway_notifier_put_calls.append((agent_ref, request_model))
+        return GatewayMailNotifierStatusV1(
+            enabled=True,
+            interval_seconds=request_model.interval_seconds,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        )
+
+    def delete_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        self.m_gateway_notifier_delete_calls.append(agent_ref)
+        return GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
         )
 
 
@@ -790,7 +924,9 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     list_route = _route("/houmao/agents", "GET", app=app)
     get_route = _route("/houmao/agents/{agent_ref}", "GET", app=app)
     state_route = _route("/houmao/agents/{agent_ref}/state", "GET", app=app)
+    detail_route = _route("/houmao/agents/{agent_ref}/state/detail", "GET", app=app)
     history_route = _route("/houmao/agents/{agent_ref}/history", "GET", app=app)
+    request_route = _route("/houmao/agents/{agent_ref}/requests", "POST", app=app)
     launch_route = _route("/houmao/agents/headless/launches", "POST", app=app)
     stop_route = _route("/houmao/agents/{agent_ref}/stop", "POST", app=app)
     turns_route = _route("/houmao/agents/{agent_ref}/turns", "POST", app=app)
@@ -811,11 +947,38 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         app=app,
     )
     interrupt_route = _route("/houmao/agents/{agent_ref}/interrupt", "POST", app=app)
+    gateway_status_route = _route("/houmao/agents/{agent_ref}/gateway", "GET", app=app)
+    gateway_attach_route = _route("/houmao/agents/{agent_ref}/gateway/attach", "POST", app=app)
+    gateway_detach_route = _route("/houmao/agents/{agent_ref}/gateway/detach", "POST", app=app)
+    gateway_notifier_get_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "GET",
+        app=app,
+    )
+    gateway_notifier_put_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "PUT",
+        app=app,
+    )
+    gateway_notifier_delete_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "DELETE",
+        app=app,
+    )
 
     assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
     assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
     assert state_route.endpoint(agent_ref="claude-headless-1").availability == "available"
-    assert history_route.endpoint(agent_ref="claude-headless-1", limit=5).entries[0].summary == "managed-limit=5"
+    assert detail_route.endpoint(agent_ref="claude-headless-1").detail.transport == "headless"
+    assert (
+        history_route.endpoint(agent_ref="claude-headless-1", limit=5).entries[0].summary
+        == "managed-limit=5"
+    )
+    request_response = request_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentSubmitPromptRequest(prompt="hello"),
+    )
+    assert request_response.request_id == "mreq-123"
 
     launch_response = launch_route.endpoint(
         request_model=HoumaoHeadlessLaunchRequest(
@@ -837,8 +1000,33 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         request_model=HoumaoHeadlessTurnRequest(prompt="hello"),
     )
     assert turn_response.turn_id == "turn-123"
-    assert turn_status_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").status == "completed"
-    assert turn_events_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").entries == []
-    assert stdout_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body == b"stdout:turn-123"
-    assert stderr_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body == b"stderr:turn-123"
+    assert (
+        turn_status_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").status
+        == "completed"
+    )
+    assert (
+        turn_events_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").entries == []
+    )
+    assert (
+        stdout_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body
+        == b"stdout:turn-123"
+    )
+    assert (
+        stderr_route.endpoint(agent_ref="claude-headless-1", turn_id="turn-123").body
+        == b"stderr:turn-123"
+    )
     assert interrupt_route.endpoint(agent_ref="claude-headless-1").detail == "interrupted"
+    assert (
+        gateway_status_route.endpoint(agent_ref="claude-headless-1").gateway_health
+        == "not_attached"
+    )
+    assert gateway_attach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    assert gateway_detach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    notifier_status = gateway_notifier_get_route.endpoint(agent_ref="claude-headless-1")
+    assert notifier_status.enabled is False
+    notifier_enabled = gateway_notifier_put_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=GatewayMailNotifierPutV1(interval_seconds=60),
+    )
+    assert notifier_enabled.enabled is True
+    assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False

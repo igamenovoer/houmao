@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from houmao.shared_tui_tracking.models import (
     DetectedTurnSignals,
     RecentProfileFrame,
     TemporalHintSignals,
+    TrackerEventSource,
     TrackerConfig,
     TrackedLastTurnResult,
     TrackedLastTurnSource,
@@ -32,6 +34,7 @@ from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, Resolve
 
 
 TraceWriter = Callable[[str, dict[str, Any]], None]
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -66,6 +69,8 @@ class TuiTrackerSession:
         """Initialize one tracker session."""
 
         self.m_scheduler: abc.SchedulerBase = scheduler or TimeoutScheduler.singleton()
+        self.m_app_id: str = app_id
+        self.m_observed_version: str | None = observed_version
         self.m_registry: DetectorProfileRegistry = registry or DetectorProfileRegistry.default()
         self.m_trace_writer: TraceWriter | None = trace_writer
         self.m_lock: threading.RLock = threading.RLock()
@@ -107,6 +112,17 @@ class TuiTrackerSession:
         self.m_stable_since_seconds: float = 0.0
         self.m_snapshot_subject.subscribe(self._handle_snapshot_event)
         self.m_input_subject.subscribe(self._handle_input_event)
+        self._log_debug(
+            "tracker_session_initialized",
+            app_id=self.m_app_id,
+            observed_version=self.m_observed_version,
+            config=self.m_config.to_payload(),
+            resolved_profile={
+                "app_id": self.m_resolved_profile.app_id,
+                "detector_name": self.m_state.detector_name,
+                "detector_version": self.m_state.detector_version,
+            },
+        )
 
     @classmethod
     def from_config(
@@ -192,8 +208,20 @@ class TuiTrackerSession:
         """Apply one explicit input event under lock."""
 
         with self.m_lock:
+            self._log_debug(
+                "input_event_received",
+                at_seconds=self._current_seconds_locked(),
+                armed_turn_source_before=self.m_armed_turn_source,
+                state=_summarize_mutable_tracker_state(self.m_state),
+            )
             self._cancel_success_timer_locked()
             self.m_armed_turn_source = "explicit_input"
+            self._log_debug(
+                "turn_authority_armed",
+                at_seconds=self._current_seconds_locked(),
+                reason="input_submitted",
+                armed_turn_source=self.m_armed_turn_source,
+            )
             self._emit_state_locked(
                 source="input",
                 note="input_submitted",
@@ -234,6 +262,18 @@ class TuiTrackerSession:
             effective_signals = _merge_temporal_hints(signals=signals, hints=temporal_hints)
             effective_signals = self._apply_success_authority_guard_locked(effective_signals)
             self.m_latest_effective_signals = effective_signals
+            self._log_debug(
+                "snapshot_processed",
+                at_seconds=at_seconds,
+                raw_text_length=len(raw_text),
+                recent_frame_count=len(self.m_recent_frames),
+                armed_turn_source=self.m_armed_turn_source,
+                pending_success_signature=_short_signature(self.m_pending_success_signature),
+                settled_success_signature=_short_signature(self.m_settled_success_signature),
+                signals=_summarize_detected_turn_signals(signals),
+                temporal_hints=_summarize_temporal_hint_signals(temporal_hints),
+                effective_signals=_summarize_detected_turn_signals(effective_signals),
+            )
             self._trace(
                 "detector_signals",
                 {
@@ -251,6 +291,12 @@ class TuiTrackerSession:
             )
 
             if effective_signals.interrupted:
+                self._log_debug(
+                    "snapshot_decision",
+                    at_seconds=at_seconds,
+                    decision="interrupted_signal",
+                    effective_signals=_summarize_detected_turn_signals(effective_signals),
+                )
                 self._cancel_success_timer_locked()
                 self.m_settled_success_signature = None
                 self._emit_state_from_signals_locked(
@@ -264,6 +310,12 @@ class TuiTrackerSession:
                 return
 
             if effective_signals.known_failure:
+                self._log_debug(
+                    "snapshot_decision",
+                    at_seconds=at_seconds,
+                    decision="known_failure_signal",
+                    effective_signals=_summarize_detected_turn_signals(effective_signals),
+                )
                 self._cancel_success_timer_locked()
                 self.m_settled_success_signature = None
                 self._emit_state_from_signals_locked(
@@ -280,6 +332,19 @@ class TuiTrackerSession:
                 self._cancel_success_timer_locked()
                 if self.m_armed_turn_source is None:
                     self.m_armed_turn_source = "surface_inference"
+                    self._log_debug(
+                        "turn_authority_armed",
+                        at_seconds=at_seconds,
+                        reason="active_surface",
+                        armed_turn_source=self.m_armed_turn_source,
+                        active_reasons=list(effective_signals.active_reasons),
+                    )
+                self._log_debug(
+                    "snapshot_decision",
+                    at_seconds=at_seconds,
+                    decision="active_signal",
+                    effective_signals=_summarize_detected_turn_signals(effective_signals),
+                )
                 self._emit_state_from_signals_locked(
                     signals=effective_signals,
                     note="active_signal",
@@ -290,6 +355,12 @@ class TuiTrackerSession:
                 return
 
             if effective_signals.success_candidate:
+                self._log_debug(
+                    "snapshot_decision",
+                    at_seconds=at_seconds,
+                    decision="success_candidate",
+                    effective_signals=_summarize_detected_turn_signals(effective_signals),
+                )
                 if (
                     self.m_state.last_turn_result == "success"
                     and self.m_settled_success_signature is not None
@@ -318,6 +389,13 @@ class TuiTrackerSession:
             self._cancel_success_timer_locked()
             default_phase: TurnPhase = (
                 "ready" if effective_signals.ready_posture == "yes" else "unknown"
+            )
+            self._log_debug(
+                "snapshot_decision",
+                at_seconds=at_seconds,
+                decision="default_snapshot",
+                default_phase=default_phase,
+                effective_signals=_summarize_detected_turn_signals(effective_signals),
             )
             self._emit_state_from_signals_locked(
                 signals=effective_signals,
@@ -358,6 +436,11 @@ class TuiTrackerSession:
         """Arm or retain the current success timer."""
 
         if self.m_pending_success_signature == surface_signature:
+            self._log_debug(
+                "success_timer_retained",
+                at_seconds=self._current_seconds_locked(),
+                surface_signature=_short_signature(surface_signature),
+            )
             return
         self._cancel_success_timer_locked()
         self.m_pending_success_signature = surface_signature
@@ -365,6 +448,12 @@ class TuiTrackerSession:
             timedelta(seconds=self.m_config.settle_seconds),
             scheduler=self.m_scheduler,
         ).subscribe(lambda _unused: self._handle_success_timer())
+        self._log_debug(
+            "success_timer_armed",
+            at_seconds=self._current_seconds_locked(),
+            surface_signature=_short_signature(surface_signature),
+            settle_seconds=self.m_config.settle_seconds,
+        )
         self._trace(
             "rx_events",
             {
@@ -380,13 +469,43 @@ class TuiTrackerSession:
         with self.m_lock:
             signals = self.m_latest_effective_signals
             if signals is None:
+                self._log_debug(
+                    "success_timer_skipped",
+                    at_seconds=self._current_seconds_locked(),
+                    reason="no_effective_signals",
+                )
                 return
             if not signals.success_candidate:
+                self._log_debug(
+                    "success_timer_skipped",
+                    at_seconds=self._current_seconds_locked(),
+                    reason="success_candidate_cleared",
+                    effective_signals=_summarize_detected_turn_signals(signals),
+                )
                 return
             if signals.current_error_present:
+                self._log_debug(
+                    "success_timer_skipped",
+                    at_seconds=self._current_seconds_locked(),
+                    reason="current_error_present",
+                    effective_signals=_summarize_detected_turn_signals(signals),
+                )
                 return
             if signals.surface_signature != self.m_pending_success_signature:
+                self._log_debug(
+                    "success_timer_skipped",
+                    at_seconds=self._current_seconds_locked(),
+                    reason="surface_signature_mismatch",
+                    pending_success_signature=_short_signature(self.m_pending_success_signature),
+                    current_surface_signature=_short_signature(signals.surface_signature),
+                )
                 return
+            self._log_debug(
+                "success_timer_fired",
+                at_seconds=self._current_seconds_locked(),
+                surface_signature=_short_signature(signals.surface_signature),
+                terminal_turn_source=self._terminal_turn_source_locked(),
+            )
             self._emit_state_locked(
                 source="timer",
                 note="success_settled",
@@ -428,6 +547,13 @@ class TuiTrackerSession:
         if self._has_armed_turn_authority_locked():
             return signals
         notes = tuple(dict.fromkeys((*signals.notes, "success_candidate_requires_authority")))
+        self._log_debug(
+            "success_candidate_blocked",
+            at_seconds=self._current_seconds_locked(),
+            reason="missing_turn_authority",
+            armed_turn_source=self.m_armed_turn_source,
+            effective_signals=_summarize_detected_turn_signals(signals),
+        )
         return DetectedTurnSignals(
             detector_name=signals.detector_name,
             detector_version=signals.detector_version,
@@ -471,6 +597,11 @@ class TuiTrackerSession:
         self.m_pending_success.dispose()
         self.m_pending_success = SerialDisposable()
         if self.m_pending_success_signature is not None:
+            self._log_debug(
+                "success_timer_canceled",
+                at_seconds=self._current_seconds_locked(),
+                surface_signature=_short_signature(self.m_pending_success_signature),
+            )
             self._trace(
                 "rx_events",
                 {
@@ -485,7 +616,7 @@ class TuiTrackerSession:
     def _emit_state_locked(
         self,
         *,
-        source: str,
+        source: TrackerEventSource,
         note: str,
         sample_id: str | None,
         surface_accepting_input: Tristate,
@@ -501,6 +632,7 @@ class TuiTrackerSession:
     ) -> None:
         """Apply one state change and emit a transition when it is visible."""
 
+        previous_state = self.m_state
         next_state = _MutableTrackerState(
             surface_accepting_input=surface_accepting_input,
             surface_editing_input=surface_editing_input,
@@ -514,6 +646,14 @@ class TuiTrackerSession:
             notes=notes,
         )
         if next_state == self.m_state:
+            self._log_debug(
+                "public_state_unchanged",
+                at_seconds=self._current_seconds_locked(),
+                source=source,
+                note=note,
+                sample_id=sample_id,
+                state=_summarize_mutable_tracker_state(self.m_state),
+            )
             return
 
         self.m_state = next_state
@@ -547,6 +687,18 @@ class TuiTrackerSession:
         )
         self.m_all_events.append(transition)
         self.m_pending_events.append(transition)
+        self._log_debug(
+            "public_state_emitted",
+            at_seconds=at_seconds,
+            source=source,
+            note=note,
+            sample_id=sample_id,
+            previous_state=_summarize_mutable_tracker_state(previous_state),
+            next_state=_summarize_mutable_tracker_state(self.m_state),
+            stability_signature=_short_signature(snapshot.stability_signature),
+            stable=snapshot.stable,
+            stable_for_seconds=snapshot.stable_for_seconds,
+        )
         self._trace(
             "rx_events",
             {
@@ -597,6 +749,16 @@ class TuiTrackerSession:
             return
         self.m_trace_writer(category, payload)
 
+    def _log_debug(self, event: str, **payload: Any) -> None:
+        """Emit one compact structured debug log when enabled."""
+
+        if not LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        LOGGER.debug(
+            "shared_tui_tracking.session %s",
+            json.dumps({"event": event, **payload}, sort_keys=True, default=str),
+        )
+
 
 def _absolute_seconds(value: datetime) -> float:
     """Convert one scheduler timestamp to floating-point seconds."""
@@ -624,6 +786,77 @@ def _state_signature(state: _MutableTrackerState) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _short_signature(value: str | None) -> str | None:
+    """Return a compact prefix for one hash-like signature."""
+
+    if value is None:
+        return None
+    return value[:12]
+
+
+def _summarize_mutable_tracker_state(state: _MutableTrackerState) -> dict[str, Any]:
+    """Return one compact debug payload for mutable tracker state."""
+
+    return {
+        "surface_accepting_input": state.surface_accepting_input,
+        "surface_editing_input": state.surface_editing_input,
+        "surface_ready_posture": state.surface_ready_posture,
+        "turn_phase": state.turn_phase,
+        "last_turn_result": state.last_turn_result,
+        "last_turn_source": state.last_turn_source,
+        "detector_name": state.detector_name,
+        "detector_version": state.detector_version,
+        "active_reasons": list(state.active_reasons),
+        "notes": list(state.notes),
+    }
+
+
+def _summarize_detected_turn_signals(signals: DetectedTurnSignals) -> dict[str, Any]:
+    """Return one compact debug payload for detector output."""
+
+    return {
+        "detector_name": signals.detector_name,
+        "detector_version": signals.detector_version,
+        "accepting_input": signals.accepting_input,
+        "editing_input": signals.editing_input,
+        "ready_posture": signals.ready_posture,
+        "prompt_visible": signals.prompt_visible,
+        "prompt_text_present": bool(signals.prompt_text),
+        "prompt_text_length": len(signals.prompt_text or ""),
+        "footer_interruptable": signals.footer_interruptable,
+        "active_evidence": signals.active_evidence,
+        "active_reasons": list(signals.active_reasons),
+        "interrupted": signals.interrupted,
+        "known_failure": signals.known_failure,
+        "current_error_present": signals.current_error_present,
+        "success_candidate": signals.success_candidate,
+        "completion_marker_visible": signals.completion_marker is not None,
+        "latest_status_line": signals.latest_status_line,
+        "ambiguous_interactive_surface": signals.ambiguous_interactive_surface,
+        "success_blocked": signals.success_blocked,
+        "surface_signature": _short_signature(signals.surface_signature),
+        "notes": list(signals.notes),
+    }
+
+
+def _summarize_temporal_hint_signals(hints: TemporalHintSignals) -> dict[str, Any]:
+    """Return one compact debug payload for temporal hints."""
+
+    return {
+        "accepting_input": hints.accepting_input,
+        "editing_input": hints.editing_input,
+        "ready_posture": hints.ready_posture,
+        "active_evidence": hints.active_evidence,
+        "active_reasons": list(hints.active_reasons),
+        "interrupted": hints.interrupted,
+        "known_failure": hints.known_failure,
+        "current_error_present": hints.current_error_present,
+        "success_candidate": hints.success_candidate,
+        "success_blocked": hints.success_blocked,
+        "notes": list(hints.notes),
+    }
 
 
 def _merge_temporal_hints(

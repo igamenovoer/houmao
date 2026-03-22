@@ -12,7 +12,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
+from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.gateway_mailbox import (
     GatewayMailboxAdapter,
     GatewayMailboxError,
@@ -30,6 +31,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
     GatewayAttachBackendMetadataCaoV1,
+    GatewayAttachBackendMetadataHeadlessV1,
     GatewayAttachContractV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayConnectivityState,
@@ -50,6 +52,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewaySurfaceEligibilityState,
     GatewayStoredRequestKind,
     GatewayStatusV1,
 )
@@ -75,7 +78,14 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.server.client import HoumaoServerClient
+from houmao.server.models import (
+    HoumaoManagedAgentInterruptRequest,
+    HoumaoManagedAgentSubmitPromptRequest,
+)
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
@@ -115,21 +125,47 @@ class _UnreadMailboxMessage:
     subject: str
 
 
-class CaoGatewayAdapter:
-    """Gateway adapter for runtime-owned REST-backed tmux sessions."""
+@dataclass(frozen=True)
+class _GatewayTargetState:
+    """Execution posture for the currently addressed gateway target."""
 
-    def __init__(self, *, attach_contract_path: Path) -> None:
+    instance_id: str
+    connectivity: GatewayConnectivityState
+    terminal_surface_eligibility: GatewaySurfaceEligibilityState
+    prompt_admission_open: bool
+
+
+class GatewayExecutionAdapter(Protocol):
+    """Execution adapter boundary for one gateway-managed target."""
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current target posture for status and reconciliation."""
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt to the addressed managed target."""
+
+    def interrupt(self) -> None:
+        """Interrupt the addressed managed target."""
+
+
+class _RestBackedGatewayAdapter:
+    """Execution adapter for runtime-owned REST-backed tmux sessions."""
+
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
         """Load CAO-specific gateway attach metadata.
 
         Parameters
         ----------
-        attach_contract_path:
-            Path to the strict gateway attach contract for the managed session.
+        attach_contract:
+            Strict gateway attach contract for the managed session.
         """
 
-        self.m_attach_contract_path = attach_contract_path.resolve()
-        self.m_attach_contract = load_attach_contract(self.m_attach_contract_path)
-        metadata = self.m_attach_contract.backend_metadata
+        self.m_attach_contract = attach_contract
+        metadata = attach_contract.backend_metadata
         if self.m_attach_contract.backend not in {"cao_rest", "houmao_server_rest"}:
             raise GatewayError(
                 "Gateway adapter only supports backend in "
@@ -152,7 +188,35 @@ class CaoGatewayAdapter:
 
         return self.m_attach_contract
 
-    def read_current_terminal_id(self) -> str:
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the REST-backed target."""
+
+        terminal_id = self._read_current_terminal_id()
+        connectivity = self._inspect_connectivity(terminal_id)
+        return _GatewayTargetState(
+            instance_id=terminal_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility="ready" if connectivity == "connected" else "unknown",
+            prompt_admission_open=connectivity == "connected",
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt to the current runtime-owned terminal."""
+
+        terminal_id = self._read_current_terminal_id()
+        result = self.m_client.send_terminal_input(terminal_id, prompt)
+        if not result.success:
+            raise GatewayError("CAO prompt submission returned success=false.")
+
+    def interrupt(self) -> None:
+        """Interrupt the current runtime-owned terminal."""
+
+        terminal_id = self._read_current_terminal_id()
+        result = self.m_client.exit_terminal(terminal_id)
+        if not result.success:
+            raise GatewayError("CAO interrupt returned success=false.")
+
+    def _read_current_terminal_id(self) -> str:
         """Return the latest runtime-owned CAO terminal id."""
 
         manifest_path = self.m_attach_contract.manifest_path
@@ -186,7 +250,7 @@ class CaoGatewayAdapter:
             )
         return payload.houmao_server.terminal_id
 
-    def inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
+    def _inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
         """Return whether the addressed CAO terminal is reachable."""
 
         try:
@@ -195,19 +259,178 @@ class CaoGatewayAdapter:
             return "unavailable"
         return "connected"
 
-    def submit_prompt(self, *, terminal_id: str, prompt: str) -> None:
-        """Submit one prompt to the CAO terminal."""
 
-        result = self.m_client.send_terminal_input(terminal_id, prompt)
-        if not result.success:
-            raise GatewayError("CAO prompt submission returned success=false.")
+class _LocalHeadlessGatewayAdapter:
+    """Execution adapter for runtime-owned local headless sessions."""
 
-    def interrupt(self, *, terminal_id: str) -> None:
-        """Interrupt the CAO terminal."""
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
+        """Resume local runtime authority from the strict attach contract."""
 
-        result = self.m_client.exit_terminal(terminal_id)
-        if not result.success:
-            raise GatewayError("CAO interrupt returned success=false.")
+        self.m_attach_contract = attach_contract
+        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+            raise GatewayError(
+                "Local headless gateway adapter only supports native headless backends, got "
+                f"{attach_contract.backend!r}."
+            )
+        manifest_path_value = attach_contract.manifest_path
+        agent_def_dir_value = attach_contract.agent_def_dir
+        if manifest_path_value is None or agent_def_dir_value is None:
+            raise GatewayError(
+                "Headless gateway attach requires manifest_path and agent_def_dir in the attach contract."
+            )
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=Path(agent_def_dir_value).expanduser().resolve(),
+                session_manifest_path=Path(manifest_path_value).expanduser().resolve(),
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+        self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+        return self.m_attach_contract
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the local headless target."""
+
+        connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
+        connectivity: GatewayConnectivityState = "connected" if connected else "unavailable"
+        return _GatewayTargetState(
+            instance_id=self.m_instance_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility="ready" if connected else "unknown",
+            prompt_admission_open=connected,
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt through resumed local headless runtime control."""
+
+        self._require_live_tmux_session()
+        try:
+            self.m_controller.send_prompt(prompt)
+        except RuntimeError as exc:
+            raise GatewayError(f"Local headless prompt submission failed: {exc}") from exc
+
+    def interrupt(self) -> None:
+        """Interrupt one resumed local headless runtime."""
+
+        self._require_live_tmux_session()
+        result = self.m_controller.interrupt()
+        if result.status != "ok":
+            raise GatewayError(result.detail)
+
+    def _require_live_tmux_session(self) -> None:
+        """Require the headless tmux session to still be live."""
+
+        if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
+            raise GatewayError(
+                f"Headless tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
+            )
+
+
+class _ServerManagedHeadlessGatewayAdapter:
+    """Execution adapter for server-managed native headless agents."""
+
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
+        """Initialize the server-managed headless execution adapter."""
+
+        self.m_attach_contract = attach_contract
+        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+            raise GatewayError(
+                "Server-managed headless gateway adapter only supports native headless backends, "
+                f"got {attach_contract.backend!r}."
+            )
+        metadata = cast(
+            GatewayAttachBackendMetadataHeadlessV1,
+            attach_contract.backend_metadata,
+        )
+        if metadata.managed_api_base_url is None or metadata.managed_agent_ref is None:
+            raise GatewayError(
+                "Server-managed headless gateway adapter requires managed_api_base_url and "
+                "managed_agent_ref metadata."
+            )
+        self.m_managed_agent_ref = metadata.managed_agent_ref
+        self.m_client = HoumaoServerClient(metadata.managed_api_base_url)
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+        return self.m_attach_contract
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the server-managed target."""
+
+        try:
+            response = self.m_client.get_managed_agent_state_detail(self.m_managed_agent_ref)
+        except CaoApiError:
+            return _GatewayTargetState(
+                instance_id=self.m_managed_agent_ref,
+                connectivity="unavailable",
+                terminal_surface_eligibility="unknown",
+                prompt_admission_open=False,
+            )
+        detail = response.detail
+        if detail.transport != "headless":
+            raise GatewayError(
+                "Server-managed headless gateway adapter resolved a non-headless managed agent."
+            )
+        connectivity: GatewayConnectivityState = (
+            "connected" if response.summary_state.availability == "available" else "unavailable"
+        )
+        can_accept_prompt_now = detail.can_accept_prompt_now
+        return _GatewayTargetState(
+            instance_id=response.tracked_agent_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility=(
+                "ready"
+                if can_accept_prompt_now
+                else ("not_ready" if connectivity == "connected" else "unknown")
+            ),
+            prompt_admission_open=can_accept_prompt_now,
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt through the managed-agent server API."""
+
+        response = self.m_client.submit_managed_agent_request(
+            self.m_managed_agent_ref,
+            HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
+        )
+        if response.disposition != "accepted":
+            raise GatewayError(f"Managed-agent prompt request did not execute: {response.detail}")
+
+    def interrupt(self) -> None:
+        """Interrupt the managed-agent target through the server API."""
+
+        self.m_client.submit_managed_agent_request(
+            self.m_managed_agent_ref,
+            HoumaoManagedAgentInterruptRequest(),
+        )
+
+
+def _build_gateway_execution_adapter(
+    *,
+    attach_contract: GatewayAttachContractV1,
+) -> GatewayExecutionAdapter:
+    """Build the execution adapter for one gateway attach contract."""
+
+    if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
+        return _RestBackedGatewayAdapter(attach_contract=attach_contract)
+    if attach_contract.backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        metadata = cast(
+            GatewayAttachBackendMetadataHeadlessV1,
+            attach_contract.backend_metadata,
+        )
+        if metadata.managed_api_base_url is not None and metadata.managed_agent_ref is not None:
+            return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
+        return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
+    raise GatewayError(
+        f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."
+    )
 
 
 class GatewayServiceRuntime:
@@ -234,7 +457,9 @@ class GatewayServiceRuntime:
         self.m_host: GatewayHost = host
         self.m_port: int = port
         self.m_attach_contract = load_attach_contract(self.m_paths.attach_path)
-        self.m_adapter = CaoGatewayAdapter(attach_contract_path=self.m_paths.attach_path)
+        self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
+            attach_contract=self.m_attach_contract
+        )
         self.m_lock = threading.Lock()
         self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
@@ -981,8 +1206,7 @@ class GatewayServiceRuntime:
                     result_json=None,
                 )
                 return
-            terminal_id = self.m_current_instance_id
-            if terminal_id is None:
+            if self.m_current_instance_id is None:
                 self._finish_request(
                     request_id=request_id,
                     state="failed",
@@ -995,10 +1219,10 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(terminal_id=terminal_id, prompt=payload.prompt)
+                self.m_adapter.submit_prompt(prompt=payload.prompt)
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
-                self.m_adapter.interrupt(terminal_id=terminal_id)
+                self.m_adapter.interrupt()
             else:
                 raise GatewayError(f"Unsupported gateway request kind: {request_kind!r}.")
         except (GatewayError, CaoApiError, ValidationError) as exc:
@@ -1093,7 +1317,8 @@ class GatewayServiceRuntime:
             previous_epoch = previous.managed_agent_instance_epoch
             previous_instance_id = previous.managed_agent_instance_id
 
-        current_instance_id = self.m_adapter.read_current_terminal_id()
+        target_state = self.m_adapter.inspect_target()
+        current_instance_id = target_state.instance_id
         if previous_instance_id is None or previous_instance_id == current_instance_id:
             self.m_current_epoch = max(previous_epoch, 1)
         else:
@@ -1118,16 +1343,19 @@ class GatewayServiceRuntime:
     ) -> GatewayStatusV1:
         """Refresh and persist the current gateway status snapshot."""
 
-        current_instance_id = self.m_adapter.read_current_terminal_id()
+        target_state = self.m_adapter.inspect_target()
+        current_instance_id = target_state.instance_id
         if self.m_current_instance_id is None:
             self.m_current_instance_id = current_instance_id
         elif current_instance_id != self.m_current_instance_id:
             self.m_current_epoch += 1
             self.m_current_instance_id = current_instance_id
 
-        connectivity = self.m_adapter.inspect_connectivity(current_instance_id)
+        connectivity = target_state.connectivity
         recovery: GatewayRecoveryState = "idle"
-        admission: GatewayAdmissionState = "open"
+        admission: GatewayAdmissionState = (
+            "open" if target_state.prompt_admission_open else "blocked_unavailable"
+        )
         if connectivity != "connected":
             recovery = "awaiting_rebind"
             admission = "blocked_unavailable"
@@ -1143,7 +1371,7 @@ class GatewayServiceRuntime:
             managed_agent_connectivity=connectivity,
             managed_agent_recovery=recovery,
             request_admission=admission,
-            terminal_surface_eligibility="ready" if connectivity == "connected" else "unknown",
+            terminal_surface_eligibility=target_state.terminal_surface_eligibility,
             active_execution=active_execution,
             queue_depth=queue_depth_from_sqlite(self.m_paths.queue_path),
             gateway_host=self.m_host,

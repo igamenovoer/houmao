@@ -12,6 +12,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from houmao.agents.mailbox_runtime_models import MailboxTransport
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAdmissionState,
+    GatewayConnectivityState,
+    GatewayExecutionState,
+    GatewayHealthState,
+    GatewayHost,
+    GatewayRecoveryState,
+)
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.shared_tui_tracking.models import (
     CompletionState,
@@ -31,6 +40,8 @@ ManagedAgentTransportKind = Literal["tui", "headless"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
+ManagedAgentRequestKind = Literal["submit_prompt", "interrupt"]
+ManagedAgentRequestDisposition = Literal["accepted", "no_op"]
 OperatorStatus = Literal[
     "ready",
     "processing",
@@ -476,6 +487,59 @@ class HoumaoManagedAgentLastTurnView(_HoumaoModel):
         return stripped
 
 
+class HoumaoManagedAgentMailboxSummaryView(_HoumaoModel):
+    """Redacted mailbox posture for one managed agent."""
+
+    transport: MailboxTransport
+    principal_id: str | None = None
+    address: str | None = None
+
+    @field_validator("principal_id", "address")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional mailbox strings to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentGatewaySummaryView(_HoumaoModel):
+    """Redacted gateway posture for one managed agent."""
+
+    gateway_health: GatewayHealthState
+    managed_agent_connectivity: GatewayConnectivityState
+    managed_agent_recovery: GatewayRecoveryState
+    request_admission: GatewayAdmissionState
+    active_execution: GatewayExecutionState
+    queue_depth: int
+    gateway_host: GatewayHost | None = None
+    gateway_port: int | None = None
+
+    @field_validator("queue_depth")
+    @classmethod
+    def _non_negative_queue_depth(cls, value: int) -> int:
+        """Require non-negative queue depth values."""
+
+        if value < 0:
+            raise ValueError("must be >= 0")
+        return value
+
+    @field_validator("gateway_port")
+    @classmethod
+    def _optional_gateway_port(cls, value: int | None) -> int | None:
+        """Require optional gateway ports to stay within the TCP range."""
+
+        if value is None:
+            return None
+        if value < 1 or value > 65535:
+            raise ValueError("must be between 1 and 65535")
+        return value
+
+
 class HoumaoManagedAgentStateResponse(_HoumaoModel):
     """Response for `GET /houmao/agents/{agent_ref}/state`."""
 
@@ -485,6 +549,8 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     turn: HoumaoManagedAgentTurnView
     last_turn: HoumaoManagedAgentLastTurnView
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
+    mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
+    gateway: HoumaoManagedAgentGatewaySummaryView | None = None
 
     @field_validator("tracked_agent_id")
     @classmethod
@@ -537,6 +603,194 @@ class HoumaoManagedAgentHistoryResponse(_HoumaoModel):
         return stripped
 
 
+class HoumaoManagedAgentTuiDetailView(_HoumaoModel):
+    """Curated TUI projection exposed under the managed-agent detail route."""
+
+    transport: Literal["tui"] = "tui"
+    terminal_id: str
+    canonical_terminal_state_route: str
+    canonical_terminal_history_route: str
+    diagnostics: HoumaoTrackedDiagnostics
+    probe_snapshot: HoumaoProbeSnapshot | None = None
+    parsed_surface: HoumaoParsedSurface | None = None
+    surface: HoumaoTrackedSurface
+    stability: HoumaoStabilityMetadata
+
+    @field_validator(
+        "terminal_id",
+        "canonical_terminal_state_route",
+        "canonical_terminal_history_route",
+    )
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty route and terminal identifiers."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentHeadlessDetailView(_HoumaoModel):
+    """Execution-centric detail for one managed headless agent."""
+
+    transport: Literal["headless"] = "headless"
+    runtime_resumable: bool
+    tmux_session_live: bool
+    can_accept_prompt_now: bool
+    interruptible: bool
+    turn: HoumaoManagedAgentTurnView
+    last_turn: HoumaoManagedAgentLastTurnView
+    active_turn_started_at_utc: str | None = None
+    active_turn_interrupt_requested_at_utc: str | None = None
+    last_turn_status: ManagedAgentTurnStatus | None = None
+    last_turn_started_at_utc: str | None = None
+    last_turn_completed_at_utc: str | None = None
+    last_turn_completion_source: str | None = None
+    last_turn_returncode: int | None = None
+    last_turn_history_summary: str | None = None
+    last_turn_error: str | None = None
+    mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
+    gateway: HoumaoManagedAgentGatewaySummaryView | None = None
+    diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
+
+    @field_validator(
+        "active_turn_started_at_utc",
+        "active_turn_interrupt_requested_at_utc",
+        "last_turn_started_at_utc",
+        "last_turn_completed_at_utc",
+        "last_turn_completion_source",
+        "last_turn_history_summary",
+        "last_turn_error",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional headless detail strings to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+ManagedAgentDetailPayload = Annotated[
+    HoumaoManagedAgentTuiDetailView | HoumaoManagedAgentHeadlessDetailView,
+    Field(discriminator="transport"),
+]
+
+
+class HoumaoManagedAgentDetailResponse(_HoumaoModel):
+    """Response for `GET /houmao/agents/{agent_ref}/state/detail`."""
+
+    tracked_agent_id: str
+    identity: HoumaoManagedAgentIdentity
+    summary_state: HoumaoManagedAgentStateResponse
+    detail: ManagedAgentDetailPayload
+
+    @field_validator("tracked_agent_id")
+    @classmethod
+    def _tracked_agent_id_not_blank(cls, value: str) -> str:
+        """Require a non-empty tracked-agent id."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentSubmitPromptRequest(_HoumaoModel):
+    """Typed prompt-submission payload for the managed-agent request route."""
+
+    request_kind: Literal["submit_prompt"] = "submit_prompt"
+    prompt: str
+
+    @field_validator("prompt")
+    @classmethod
+    def _prompt_not_blank(cls, value: str) -> str:
+        """Require a non-empty prompt string."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoManagedAgentInterruptRequest(_HoumaoModel):
+    """Typed interrupt payload for the managed-agent request route."""
+
+    request_kind: Literal["interrupt"] = "interrupt"
+
+
+HoumaoManagedAgentRequestEnvelope = Annotated[
+    HoumaoManagedAgentSubmitPromptRequest | HoumaoManagedAgentInterruptRequest,
+    Field(discriminator="request_kind"),
+]
+
+
+class HoumaoManagedAgentRequestAcceptedResponse(CaoSuccessResponse):
+    """Accepted response for `POST /houmao/agents/{agent_ref}/requests`."""
+
+    tracked_agent_id: str
+    request_id: str
+    request_kind: ManagedAgentRequestKind
+    disposition: ManagedAgentRequestDisposition = "accepted"
+    detail: str
+    headless_turn_id: str | None = None
+    headless_turn_index: int | None = None
+
+    @field_validator(
+        "tracked_agent_id",
+        "request_id",
+        "detail",
+        "headless_turn_id",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string fields to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):
+    """Optional mailbox overrides for native headless launch."""
+
+    transport: MailboxTransport | None = None
+    filesystem_root: str | None = None
+    principal_id: str | None = None
+    address: str | None = None
+    stalwart_base_url: str | None = None
+    stalwart_jmap_url: str | None = None
+    stalwart_management_url: str | None = None
+    stalwart_login_identity: str | None = None
+
+    @field_validator(
+        "filesystem_root",
+        "principal_id",
+        "address",
+        "stalwart_base_url",
+        "stalwart_jmap_url",
+        "stalwart_management_url",
+        "stalwart_login_identity",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require optional mailbox override strings to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
 class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     """Resolved native headless launch request."""
 
@@ -547,6 +801,7 @@ class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     role_name: str
     agent_name: str | None = None
     agent_id: str | None = None
+    mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
 
     @field_validator(
         "tool",

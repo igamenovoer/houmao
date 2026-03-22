@@ -129,23 +129,30 @@ If persisted and live gateway state disagree or require reconciliation before sa
 - **THEN** `houmao-server` operates on the same notifier state used by the gateway sidecar
 - **AND THEN** mailbox send, check, and reply remain on the gateway HTTP surface rather than being silently redefined under the server route family
 
-### Requirement: Native headless launch accepts official mailbox and gateway options
-`POST /houmao/agents/headless/launches` SHALL accept optional structured mailbox and gateway configuration in addition to the existing required resolved launch inputs.
+### Requirement: Native headless launch accepts official mailbox options while gateway lifecycle remains separate
+`POST /houmao/agents/headless/launches` SHALL accept optional structured mailbox configuration in addition to the existing required resolved launch inputs.
 
 Mailbox configuration MAY override or refine the effective mailbox transport and redacted mailbox identity resolved for that managed headless launch.
 
-Gateway configuration MAY request launch-time gateway attach and MAY include listener overrides supported by the managed gateway contract.
+Gateway lifecycle for the launched managed agent SHALL remain a separate post-launch action under the managed-agent gateway route family and SHALL NOT be coupled to the headless launch request in this change.
+
+Persisted blueprint or manifest-backed gateway defaults MAY still influence a later attach action, but those defaults are not caller-supplied launch inputs for `POST /houmao/agents/headless/launches`.
 
 Notifier configuration SHALL remain a separate operational control action rather than a launch-time identity field.
 
-Validation failures for invalid mailbox or gateway launch options SHALL return HTTP `422`.
+Validation failures for invalid mailbox launch options or unexpected launch-time gateway fields SHALL return HTTP `422`.
 
 #### Scenario: Native headless launch requests mailbox override
 - **WHEN** a caller submits `POST /houmao/agents/headless/launches` with valid required launch inputs and an optional mailbox override block
 - **THEN** `houmao-server` validates and applies that mailbox configuration through the official launch contract
 - **AND THEN** the launched managed headless agent exposes the resulting mailbox posture through the managed-agent state surfaces
 
-#### Scenario: Native headless launch requests gateway auto-attach
-- **WHEN** a caller submits `POST /houmao/agents/headless/launches` with valid required launch inputs and an optional gateway launch block requesting auto-attach
-- **THEN** `houmao-server` launches the managed headless agent and attempts the requested launch-time gateway attach through the official launch contract
-- **AND THEN** any gateway attach failure is reported explicitly without forcing callers back to manifest-private configuration
+#### Scenario: Native headless launch remains decoupled from gateway attach
+- **WHEN** a caller submits `POST /houmao/agents/headless/launches` with valid required launch inputs and later requests `POST /houmao/agents/{agent_ref}/gateway/attach`
+- **THEN** `houmao-server` treats the launch and attach steps as separate managed-agent lifecycle actions
+- **AND THEN** the managed agent does not need to be re-launched or reconfigured through manifest-private inputs solely to attach a gateway later
+
+#### Scenario: Launch-time gateway fields are rejected explicitly
+- **WHEN** a caller submits `POST /houmao/agents/headless/launches` with gateway-specific launch fields that are not part of the official launch contract
+- **THEN** `houmao-server` rejects that request with HTTP `422`
+- **AND THEN** callers are directed to the managed-agent gateway route family for later attach or detach behavior

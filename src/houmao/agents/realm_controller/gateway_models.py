@@ -87,8 +87,10 @@ class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
 
     session_id: str | None = None
     tool: str
+    managed_api_base_url: str | None = None
+    managed_agent_ref: str | None = None
 
-    @field_validator("session_id")
+    @field_validator("session_id", "managed_api_base_url", "managed_agent_ref")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
         """Validate the optional persisted headless session identifier."""
@@ -107,6 +109,18 @@ class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+    @model_validator(mode="after")
+    def _validate_server_managed_fields(self) -> "GatewayAttachBackendMetadataHeadlessV1":
+        """Require server-managed routing fields to appear as one complete group."""
+
+        managed_fields = (
+            self.managed_api_base_url is not None,
+            self.managed_agent_ref is not None,
+        )
+        if any(managed_fields) and not all(managed_fields):
+            raise ValueError("managed_api_base_url and managed_agent_ref must be set together")
+        return self
 
 
 class GatewayAttachBackendMetadataCaoV1(_StrictGatewayModel):

@@ -2093,11 +2093,18 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    if controller.launch_plan.backend not in {"cao_rest", "houmao_server_rest"}:
+    if controller.launch_plan.backend not in {
+        "cao_rest",
+        "houmao_server_rest",
+        "claude_headless",
+        "codex_headless",
+        "gemini_headless",
+    }:
         paths = _require_gateway_paths_for_controller(controller)
         detail = (
-            "Gateway attach is only implemented for runtime-owned backends "
-            "{'cao_rest', 'houmao_server_rest'} in v1, got "
+            "Gateway attach is only implemented for runtime-owned tmux-backed backends "
+            "{'cao_rest', 'houmao_server_rest', 'claude_headless', "
+            "'codex_headless', 'gemini_headless'} in v1, got "
             f"backend={controller.launch_plan.backend!r}."
         )
         return GatewayControlResult(

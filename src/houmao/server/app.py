@@ -9,6 +9,12 @@ from urllib import parse
 
 from fastapi import APIRouter, FastAPI, Query, Response
 
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
+    GatewayStatusV1,
+)
+
 from .config import HoumaoServerConfig
 from .models import (
     HoumaoCurrentInstance,
@@ -22,9 +28,12 @@ from .models import (
     HoumaoInstallAgentProfileRequest,
     HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentRequestAcceptedResponse,
+    HoumaoManagedAgentRequestEnvelope,
     HoumaoManagedAgentStateResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
@@ -290,12 +299,23 @@ def create_app(
     def managed_agent_state(agent_ref: str) -> HoumaoManagedAgentStateResponse:
         return resolved_service.managed_agent_state(agent_ref)
 
+    @app.get("/houmao/agents/{agent_ref}/state/detail")
+    def managed_agent_state_detail(agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        return resolved_service.managed_agent_state_detail(agent_ref)
+
     @app.get("/houmao/agents/{agent_ref}/history")
     def managed_agent_history(
         agent_ref: str,
         limit: int = Query(default=100, ge=1, le=500),
     ) -> HoumaoManagedAgentHistoryResponse:
         return resolved_service.managed_agent_history(agent_ref, limit=limit)
+
+    @app.post("/houmao/agents/{agent_ref}/requests")
+    def submit_managed_agent_request(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentRequestEnvelope,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        return resolved_service.submit_managed_agent_request(agent_ref, request_model)
 
     @app.post("/houmao/agents/headless/launches")
     def launch_headless_agent(
@@ -353,6 +373,38 @@ def create_app(
     @app.post("/houmao/agents/{agent_ref}/interrupt")
     def interrupt_managed_agent(agent_ref: str) -> HoumaoManagedAgentActionResponse:
         return resolved_service.interrupt_managed_agent(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway")
+    def managed_agent_gateway_status(agent_ref: str) -> GatewayStatusV1:
+        return resolved_service.managed_agent_gateway_status(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/attach")
+    def attach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
+        return resolved_service.attach_managed_agent_gateway(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/detach")
+    def detach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
+        return resolved_service.detach_managed_agent_gateway(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def get_managed_agent_gateway_mail_notifier(agent_ref: str) -> GatewayMailNotifierStatusV1:
+        return resolved_service.get_managed_agent_gateway_mail_notifier(agent_ref)
+
+    @app.put("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def put_managed_agent_gateway_mail_notifier(
+        agent_ref: str,
+        request_model: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        return resolved_service.put_managed_agent_gateway_mail_notifier(
+            agent_ref,
+            request_model,
+        )
+
+    @app.delete("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def delete_managed_agent_gateway_mail_notifier(
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        return resolved_service.delete_managed_agent_gateway_mail_notifier(agent_ref)
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:

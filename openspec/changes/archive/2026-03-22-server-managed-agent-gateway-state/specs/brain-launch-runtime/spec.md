@@ -11,20 +11,27 @@ Blueprint `gateway.host` and `gateway.port` values SHALL act only as defaults af
 
 In this change, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL re-publish attach metadata on resume whenever attachability can be reconstructed from persisted session state. It SHALL support live gateway attach for every runtime-owned tmux-backed backend whose gateway execution adapter is implemented, including the runtime-owned REST-backed sessions and runtime-owned native headless sessions.
 
-Supplying gateway listener overrides without either launch-time auto-attach or an explicit attach lifecycle action SHALL fail with an explicit error.
+Gateway attach MAY happen later against the already-running tmux-backed session by using the published attach metadata, tmux session environment, and persisted manifest pointer for that session rather than by requiring gateway lifecycle decisions to be baked into the original launch command.
+
+Supplying gateway listener overrides during session startup without a separate attach lifecycle action SHALL fail with an explicit error.
 
 If a caller requests live gateway attach for any backend whose gateway adapter is not yet implemented, the runtime SHALL fail with an explicit unsupported-backend error rather than silently falling back to implicit direct control.
 
 #### Scenario: Blueprint gateway defaults do not auto-attach the gateway by themselves
 - **WHEN** a developer starts a session from a blueprint that declares `gateway.host` or `gateway.port`
-- **AND WHEN** the developer does not request launch-time gateway attach
+- **AND WHEN** the developer does not invoke a separate gateway attach lifecycle action
 - **THEN** the runtime publishes attachability metadata for that session
 - **AND THEN** the blueprint listener defaults do not cause a live gateway instance to start by themselves
 
 #### Scenario: Gateway host or port overrides require an attach action
-- **WHEN** a developer supplies gateway host or port overrides without requesting launch-time attach or an explicit attach lifecycle action
+- **WHEN** a developer supplies gateway host or port overrides during session startup without an explicit attach lifecycle action
 - **THEN** the runtime fails with an explicit gateway-lifecycle error
 - **AND THEN** the session is not treated as having a live gateway instance implicitly
+
+#### Scenario: Later gateway attach reuses tmux session env and manifest-backed authority
+- **WHEN** a developer starts a runtime-owned tmux-backed session and later invokes gateway attach from the same tmux session or another attach-aware control path
+- **THEN** the runtime resolves that live session through the published attach metadata and tmux session environment for that session
+- **AND THEN** the developer does not need to have coupled gateway startup to the original launch command
 
 #### Scenario: Runtime-owned headless backend can attach a live gateway when its adapter exists
 - **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed native headless session whose gateway execution adapter is implemented

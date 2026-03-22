@@ -214,6 +214,10 @@ def ensure_gateway_capability(
         _write_text(paths.events_path, "")
 
     attach_contract = build_attach_contract(request=request)
+    attach_contract = _preserve_existing_headless_managed_metadata(
+        paths=paths,
+        attach_contract=attach_contract,
+    )
     write_attach_contract(paths.attach_path, attach_contract)
 
     desired_defaults = GatewayDesiredConfigV1(
@@ -240,6 +244,46 @@ def ensure_gateway_capability(
     if status is not None:
         write_gateway_status(paths.state_path, status)
     return paths
+
+
+def _preserve_existing_headless_managed_metadata(
+    *,
+    paths: GatewayPaths,
+    attach_contract: GatewayAttachContractV1,
+) -> GatewayAttachContractV1:
+    """Preserve server-managed headless routing metadata across capability refresh."""
+
+    if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        return attach_contract
+    if not paths.attach_path.is_file():
+        return attach_contract
+    try:
+        existing_contract = load_attach_contract(paths.attach_path)
+    except SessionManifestError:
+        return attach_contract
+    if existing_contract.backend != attach_contract.backend:
+        return attach_contract
+    existing_metadata = existing_contract.backend_metadata
+    next_metadata = attach_contract.backend_metadata
+    if not isinstance(existing_metadata, GatewayAttachBackendMetadataHeadlessV1):
+        return attach_contract
+    if not isinstance(next_metadata, GatewayAttachBackendMetadataHeadlessV1):
+        return attach_contract
+    if (
+        existing_metadata.managed_api_base_url is None
+        or existing_metadata.managed_agent_ref is None
+    ):
+        return attach_contract
+    return attach_contract.model_copy(
+        update={
+            "backend_metadata": next_metadata.model_copy(
+                update={
+                    "managed_api_base_url": existing_metadata.managed_api_base_url,
+                    "managed_agent_ref": existing_metadata.managed_agent_ref,
+                }
+            )
+        }
+    )
 
 
 def publish_stable_gateway_env(

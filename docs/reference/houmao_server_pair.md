@@ -69,17 +69,32 @@ The pair now exposes three public server surfaces:
   - `GET /houmao/agents`
   - `GET /houmao/agents/{agent_ref}`
   - `GET /houmao/agents/{agent_ref}/state`
+  - `GET /houmao/agents/{agent_ref}/state/detail`
   - `GET /houmao/agents/{agent_ref}/history`
+  - `POST /houmao/agents/{agent_ref}/requests`
   - `POST /houmao/agents/headless/launches`
+  - `POST /houmao/agents/{agent_ref}/interrupt`
+  - `POST /houmao/agents/{agent_ref}/stop`
+  - `GET /houmao/agents/{agent_ref}/gateway`
+  - `POST /houmao/agents/{agent_ref}/gateway/attach`
+  - `POST /houmao/agents/{agent_ref}/gateway/detach`
+  - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
+  - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
+  - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `POST /houmao/agents/{agent_ref}/turns`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
   - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
-  - `POST /houmao/agents/{agent_ref}/interrupt`
-  - `POST /houmao/agents/{agent_ref}/stop`
 
 Root `/sessions/*` and `/terminals/*` are intentionally not public in this boundary reset.
+
+For managed-agent lifecycle, the intent is now explicit:
+
+- `POST /houmao/agents/headless/launches` launches the managed headless agent and may carry mailbox overrides.
+- `POST /houmao/agents/{agent_ref}/requests` is the transport-neutral submit path for prompt and interrupt work.
+- gateway lifecycle is post-launch and runs through `/houmao/agents/{agent_ref}/gateway/*` rather than through launch-time gateway flags.
+- mailbox send, check, and reply stay on the live gateway `/v1/mail/*` surface and are not proxied through `houmao-server` in this change.
 
 The child listener address is derived mechanically as `public_port + 1` and stays loopback-only. There is no separate user-facing child-port override in this design.
 
@@ -159,6 +174,8 @@ houmao-srv-ctrl install <agent-source> --provider <provider> --port <public-port
 ```
 
 The install request is routed through `houmao-server`, which performs the child-CAO mutation inside the managed support subtree without promoting that subtree into a caller-facing contract.
+
+The pair CLI stays narrow on purpose. `houmao-srv-ctrl launch --headless` launches the agent, but it does not grow gateway attach flags in this change. Gateway attach remains a later lifecycle action because the sidecar can be started against the same tmux-backed session from published session env and manifest-backed attach metadata.
 
 ## Transitional Registry Bridge
 

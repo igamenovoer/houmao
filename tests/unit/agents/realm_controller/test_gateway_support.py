@@ -65,6 +65,15 @@ from houmao.mailbox.stalwart import (
     runtime_stalwart_credential_path,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.server.models import (
+    HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentRequestAcceptedResponse,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTurnView,
+)
 
 
 def _write(path: Path, text: str) -> None:
@@ -349,7 +358,7 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
     assert result.action == "terminate"
 
 
-def test_attach_gateway_returns_explicit_unsupported_backend_error(
+def test_attach_gateway_supports_runtime_owned_headless_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -370,15 +379,117 @@ def test_attach_gateway_returns_explicit_unsupported_backend_error(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                }
+            )
+            or 43123
+        ),
+    )
 
     controller.ensure_gateway_capability()
     result = controller.attach_gateway()
 
-    assert result.status == "error"
+    assert result.status == "ok"
     assert result.action == "gateway_attach"
-    assert "backend='claude_headless'" in result.detail
-    assert "cao_rest" in result.detail
-    assert "houmao_server_rest" in result.detail
+    assert result.gateway_host == "127.0.0.1"
+    assert result.gateway_port == 43123
+    assert captured_attach["controller"] is controller
+    assert captured_attach["host"] == "127.0.0.1"
+    assert captured_attach["port"] == 0
+
+
+def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_headless_gateway_root(
+        tmp_path,
+        managed_api_base_url="http://127.0.0.1:9889",
+        managed_agent_ref="claude-headless-1",
+    )
+    fake_client = _FakeManagedHeadlessServerClient(can_accept_prompt_now=True)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HoumaoServerClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+        assert status.managed_agent_connectivity == "connected"
+        assert status.request_admission == "open"
+
+        accepted = runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+            )
+        )
+        assert accepted.request_kind == "submit_prompt"
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not fake_client.m_request_calls:
+            time.sleep(0.05)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.m_request_calls
+    assert fake_client.m_request_calls[0][0] == "claude-headless-1"
+    assert getattr(fake_client.m_request_calls[0][1], "request_kind", None) == "submit_prompt"
+
+
+def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_headless_gateway_root(
+        tmp_path,
+        managed_api_base_url="http://127.0.0.1:9889",
+        managed_agent_ref="claude-headless-1",
+    )
+    fake_client = _FakeManagedHeadlessServerClient(can_accept_prompt_now=False)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HoumaoServerClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+        assert status.managed_agent_connectivity == "connected"
+        assert status.terminal_surface_eligibility == "not_ready"
+        assert status.request_admission == "blocked_unavailable"
+
+        with pytest.raises(HTTPException, match="unavailable"):
+            runtime.create_request(
+                GatewayRequestCreateV1(
+                    kind="submit_prompt",
+                    payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+                )
+            )
+    finally:
+        runtime.shutdown()
 
 
 def test_ensure_gateway_capability_supports_houmao_server_backend(tmp_path: Path) -> None:
@@ -575,6 +686,117 @@ def _seed_cao_gateway_root(
         )
     )
     return paths.gateway_root
+
+
+def _seed_headless_gateway_root(
+    tmp_path: Path,
+    *,
+    managed_api_base_url: str | None = None,
+    managed_agent_ref: str | None = None,
+) -> Path:
+    manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
+    _write(manifest_path, "{}\n")
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="claude_headless",
+            tool="claude",
+            session_id="claude-headless-1",
+            tmux_session_name="AGENTSYS-headless",
+            working_directory=tmp_path,
+            backend_state={"session_id": "claude-session-1"},
+            agent_def_dir=tmp_path / "agents",
+        )
+    )
+    if managed_api_base_url is not None and managed_agent_ref is not None:
+        attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
+        attach_payload["backend_metadata"]["managed_api_base_url"] = managed_api_base_url
+        attach_payload["backend_metadata"]["managed_agent_ref"] = managed_agent_ref
+        paths.attach_path.write_text(
+            json.dumps(attach_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return paths.gateway_root
+
+
+class _FakeManagedHeadlessServerClient:
+    def __init__(self, *, can_accept_prompt_now: bool = True) -> None:
+        self.m_can_accept_prompt_now = can_accept_prompt_now
+        self.m_request_calls: list[tuple[str, object]] = []
+
+    def get_managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        identity = HoumaoManagedAgentIdentity(
+            tracked_agent_id=agent_ref,
+            transport="headless",
+            tool="claude",
+            runtime_session_id=agent_ref,
+            tmux_session_name="AGENTSYS-headless",
+            manifest_path="/tmp/manifest.json",
+            session_root="/tmp/session-root",
+            agent_name="AGENTSYS-headless",
+            agent_id="agent-1234",
+        )
+        summary_state = HoumaoManagedAgentStateResponse(
+            tracked_agent_id=agent_ref,
+            identity=identity,
+            availability="available",
+            turn=HoumaoManagedAgentTurnView(
+                phase="ready" if self.m_can_accept_prompt_now else "active",
+                active_turn_id=None if self.m_can_accept_prompt_now else "turn-live",
+            ),
+            last_turn=HoumaoManagedAgentLastTurnView(
+                result="none",
+                turn_id=None,
+                turn_index=None,
+                updated_at_utc=None,
+            ),
+            diagnostics=[],
+            mailbox=None,
+            gateway=None,
+        )
+        detail = HoumaoManagedAgentHeadlessDetailView(
+            runtime_resumable=True,
+            tmux_session_live=True,
+            can_accept_prompt_now=self.m_can_accept_prompt_now,
+            interruptible=not self.m_can_accept_prompt_now,
+            turn=summary_state.turn,
+            last_turn=summary_state.last_turn,
+            active_turn_started_at_utc=None,
+            active_turn_interrupt_requested_at_utc=None,
+            last_turn_status=None,
+            last_turn_started_at_utc=None,
+            last_turn_completed_at_utc=None,
+            last_turn_completion_source=None,
+            last_turn_returncode=None,
+            last_turn_history_summary=None,
+            last_turn_error=None,
+            mailbox=None,
+            gateway=None,
+            diagnostics=[],
+        )
+        return HoumaoManagedAgentDetailResponse(
+            tracked_agent_id=agent_ref,
+            identity=identity,
+            summary_state=summary_state,
+            detail=detail,
+        )
+
+    def submit_managed_agent_request(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        self.m_request_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id=agent_ref,
+            request_id="mreq-123",
+            request_kind=getattr(request_model, "request_kind", "submit_prompt"),
+            disposition="accepted",
+            detail="accepted",
+            headless_turn_id="turn-123",
+            headless_turn_index=1,
+        )
 
 
 def _seed_cao_gateway_root_with_stalwart_mailbox(

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
@@ -1009,9 +1010,10 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
         lambda _path: {"inputs": {"tool": "claude"}},
     )
     monkeypatch.setattr("houmao.server.service.load_role_package", lambda *_args, **_kwargs: None)
+    recorded_start_kwargs: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.server.service.start_runtime_session",
-        lambda **_kwargs: fake_controller,
+        lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
     )
     monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
 
@@ -1053,6 +1055,24 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert shared_state.turn.phase == "ready"
     assert shared_state.identity.runtime_session_id == response.tracked_agent_id
     assert [agent.tracked_agent_id for agent in shared_agents] == [response.tracked_agent_id]
+    assert "blueprint_gateway_defaults" not in recorded_start_kwargs
+    assert "gateway_auto_attach" not in recorded_start_kwargs
+    assert "gateway_host" not in recorded_start_kwargs
+    assert "gateway_port" not in recorded_start_kwargs
+
+
+def test_headless_launch_request_rejects_gateway_fields() -> None:
+    with pytest.raises(ValidationError, match="gateway"):
+        HoumaoHeadlessLaunchRequest.model_validate(
+            {
+                "tool": "claude",
+                "working_directory": "/tmp/work",
+                "agent_def_dir": "/tmp/agents",
+                "brain_manifest_path": "/tmp/brain.yaml",
+                "role_name": "gpu-kernel-coder",
+                "gateway": {"auto_attach": True},
+            }
+        )
 
 
 def test_startup_rebuilds_unresumable_headless_authority_as_unavailable(tmp_path: Path) -> None:
