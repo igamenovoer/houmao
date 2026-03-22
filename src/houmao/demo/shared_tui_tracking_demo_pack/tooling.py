@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
@@ -24,6 +24,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 from houmao.shared_tui_tracking.models import RuntimeObservation
 
 from .models import ToolName
+
+if TYPE_CHECKING:
+    from .config import ResolvedDemoConfig
 
 
 _COMMANDS_BY_TOOL: dict[ToolName, tuple[list[str], ...]] = {
@@ -51,23 +54,35 @@ class ToolRuntimeMetadata:
     launch_args_override: list[str] | None
 
 
-def default_tool_runtime_metadata(*, repo_root: Path, tool: ToolName) -> ToolRuntimeMetadata:
+def default_tool_runtime_metadata(
+    *,
+    repo_root: Path,
+    tool: ToolName,
+    demo_config: "ResolvedDemoConfig | None" = None,
+) -> ToolRuntimeMetadata:
     """Return the default runtime metadata for one supported tool."""
 
-    recipe_path = (
-        repo_root
-        / "tests"
-        / "fixtures"
-        / "agents"
-        / "brains"
-        / "brain-recipes"
-        / tool
-        / "interactive-watch-default.yaml"
-    ).resolve()
-    if tool == "claude":
-        launch_args_override = ["--dangerously-skip-permissions"]
+    if demo_config is not None:
+        tool_config = demo_config.tool_config(tool=tool)
+        recipe_path = demo_config.resolve_repo_path(tool_config.recipe_path)
+        launch_args_override = (
+            list(tool_config.launch_args_override) if tool_config.launch_args_override else None
+        )
     else:
-        launch_args_override = None
+        recipe_path = (
+            repo_root
+            / "tests"
+            / "fixtures"
+            / "agents"
+            / "brains"
+            / "brain-recipes"
+            / tool
+            / "interactive-watch-default.yaml"
+        ).resolve()
+        if tool == "claude":
+            launch_args_override = ["--dangerously-skip-permissions"]
+        else:
+            launch_args_override = None
     return ToolRuntimeMetadata(
         tool=tool,
         interactive_watch_recipe_path=recipe_path,

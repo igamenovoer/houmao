@@ -1,0 +1,36 @@
+{
+    "general": {
+        "name": "Houmao Repo Browser",
+        "port": 8334,
+        "secret_key": "HoumaoFileView01",
+        "display_hidden": true,
+        "upload_button": false
+    },
+    "features": {
+        "share": {
+            "enable": false
+        }
+    },
+    "log": {
+        "level": "INFO"
+    },
+    "auth": {
+        "admin": ""
+    },
+    "middleware": {
+        "identity_provider": {
+            "type": "passthrough",
+            "params": "{\"strategy\":\"password_only\"}"
+        },
+        "attribute_mapping": {
+            "related_backend": "Repo",
+            "params": "{\"Repo\":{\"type\":\"local\",\"password\":\"{{ .password }}\",\"path\":\"/repo\"}}"
+        }
+    },
+    "connections": [
+        {
+            "type": "local",
+            "label": "Repo"
+        }
+    ]
+}

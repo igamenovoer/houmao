@@ -59,9 +59,10 @@ class ScenarioStep:
 class ScenarioLaunchSpec:
     """Launch settings for one capture scenario."""
 
-    settle_seconds: float = 1.0
-    sample_interval_seconds: float = 0.25
-    ready_timeout_seconds: float = 45.0
+    settle_seconds: float | None = None
+    sample_interval_seconds: float | None = None
+    runtime_observer_interval_seconds: float | None = None
+    ready_timeout_seconds: float | None = None
     recipe_path: str | None = None
 
     @classmethod
@@ -71,9 +72,12 @@ class ScenarioLaunchSpec:
         if payload is None:
             return cls()
         return cls(
-            settle_seconds=float(payload.get("settle_seconds", 1.0)),
-            sample_interval_seconds=float(payload.get("sample_interval_seconds", 0.25)),
-            ready_timeout_seconds=float(payload.get("ready_timeout_seconds", 45.0)),
+            settle_seconds=_optional_float(payload.get("settle_seconds")),
+            sample_interval_seconds=_optional_float(payload.get("sample_interval_seconds")),
+            runtime_observer_interval_seconds=_optional_float(
+                payload.get("runtime_observer_interval_seconds")
+            ),
+            ready_timeout_seconds=_optional_float(payload.get("ready_timeout_seconds")),
             recipe_path=_optional_string(payload.get("recipe_path")),
         )
 

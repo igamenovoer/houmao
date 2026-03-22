@@ -20,6 +20,7 @@ InteractiveWatchStatus = Literal["starting", "running", "stopping", "stopped", "
 DEFAULT_DEMO_ROOT_PARENT = Path("tmp/demo/shared-tui-tracking-demo-pack")
 DEFAULT_RECORDED_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "recorded"
 DEFAULT_LIVE_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "live"
+DEFAULT_SWEEP_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "sweeps"
 DEFAULT_REVIEW_VIDEO_FPS = 8
 DEMO_PACK_SCHEMA_VERSION = 1
 
@@ -36,6 +37,7 @@ class RecordedValidationPaths:
     review_dir: Path
     frames_dir: Path
     manifest_path: Path
+    resolved_config_path: Path
     runtime_observations_path: Path
     groundtruth_timeline_path: Path
     replay_timeline_path: Path
@@ -62,6 +64,7 @@ class RecordedValidationPaths:
             review_dir=review_dir,
             frames_dir=review_dir / "frames",
             manifest_path=artifacts_dir / "recorded_validation_manifest.json",
+            resolved_config_path=artifacts_dir / "resolved_demo_config.json",
             runtime_observations_path=artifacts_dir / "runtime_observations.ndjson",
             groundtruth_timeline_path=analysis_dir / "groundtruth_timeline.ndjson",
             replay_timeline_path=analysis_dir / "replay_timeline.ndjson",
@@ -87,6 +90,7 @@ class LiveWatchPaths:
     traces_dir: Path
     terminal_record_run_root: Path
     watch_manifest_path: Path
+    resolved_config_path: Path
     live_state_path: Path
     runtime_observations_path: Path
     latest_state_path: Path
@@ -117,6 +121,7 @@ class LiveWatchPaths:
             traces_dir=resolved / "traces",
             terminal_record_run_root=resolved / f"terminal-record-{resolved.name}",
             watch_manifest_path=artifacts_dir / "interactive_watch_manifest.json",
+            resolved_config_path=artifacts_dir / "resolved_demo_config.json",
             live_state_path=artifacts_dir / "interactive_watch_live_state.json",
             runtime_observations_path=artifacts_dir / "runtime_observations.ndjson",
             latest_state_path=artifacts_dir / "latest_state.json",
@@ -174,9 +179,11 @@ class RecordedValidationManifest:
     fixture_root: str
     recording_root: str
     labels_path: str
+    resolved_config_path: str
     observed_version: str | None
     settle_seconds: float
-    review_video_fps: int
+    review_video_fps: float
+    capture_sample_interval_seconds: float
     started_at_utc: str
 
     def to_payload(self) -> dict[str, Any]:
@@ -206,7 +213,9 @@ class LiveWatchManifest:
     dashboard_attach_command: str
     dashboard_command: str
     terminal_record_run_root: str
+    resolved_config_path: str
     sample_interval_seconds: float
+    runtime_observer_interval_seconds: float
     settle_seconds: float
     observed_version: str | None
     trace_enabled: bool
@@ -241,7 +250,14 @@ class LiveWatchManifest:
             dashboard_attach_command=str(payload["dashboard_attach_command"]),
             dashboard_command=str(payload["dashboard_command"]),
             terminal_record_run_root=str(payload["terminal_record_run_root"]),
+            resolved_config_path=str(payload["resolved_config_path"]),
             sample_interval_seconds=float(payload["sample_interval_seconds"]),
+            runtime_observer_interval_seconds=float(
+                payload.get(
+                    "runtime_observer_interval_seconds",
+                    payload["sample_interval_seconds"],
+                )
+            ),
             settle_seconds=float(payload["settle_seconds"]),
             observed_version=_optional_string(payload.get("observed_version")),
             trace_enabled=bool(payload.get("trace_enabled", False)),
@@ -291,6 +307,40 @@ class LiveWatchStartResult:
 
     run_root: Path
     manifest: LiveWatchManifest
+
+
+@dataclass(frozen=True)
+class RecordedSweepPaths:
+    """Filesystem layout for one recorded-sweep run."""
+
+    run_root: Path
+    artifacts_dir: Path
+    analysis_dir: Path
+    issues_dir: Path
+    variants_dir: Path
+    manifest_path: Path
+    resolved_config_path: Path
+    report_path: Path
+    summary_json_path: Path
+
+    @classmethod
+    def from_run_root(cls, *, run_root: Path) -> "RecordedSweepPaths":
+        """Return canonical paths for one recorded-sweep run."""
+
+        resolved = run_root.resolve()
+        artifacts_dir = resolved / "artifacts"
+        analysis_dir = resolved / "analysis"
+        return cls(
+            run_root=resolved,
+            artifacts_dir=artifacts_dir,
+            analysis_dir=analysis_dir,
+            issues_dir=resolved / "issues",
+            variants_dir=resolved / "variants",
+            manifest_path=artifacts_dir / "recorded_sweep_manifest.json",
+            resolved_config_path=artifacts_dir / "resolved_demo_config.json",
+            report_path=analysis_dir / "summary_report.md",
+            summary_json_path=analysis_dir / "summary.json",
+        )
 
 
 def append_ndjson(path: Path, payload: dict[str, Any]) -> None:
@@ -363,7 +413,9 @@ def load_timeline(path: Path) -> list[TrackedTimelineState]:
     return [TrackedTimelineState.from_payload(item) for item in load_ndjson(path)]
 
 
-def ensure_directory_layout(paths: RecordedValidationPaths | LiveWatchPaths) -> None:
+def ensure_directory_layout(
+    paths: RecordedValidationPaths | LiveWatchPaths | RecordedSweepPaths,
+) -> None:
     """Create the canonical directory tree for one run."""
 
     for field_name, value in paths.__dict__.items():

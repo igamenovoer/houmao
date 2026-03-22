@@ -67,6 +67,8 @@ site/
 # Houmao jobs dir
 .houmao/
 /dockers/email-system/.data/
+/dockers/dev-helpers/filestash/.data/
+!/dockers/dev-helpers/filestash/.env
 
 .agent-automation/hacktest/
 

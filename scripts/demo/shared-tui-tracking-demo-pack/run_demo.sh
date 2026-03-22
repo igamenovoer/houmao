@@ -13,7 +13,7 @@ COMMAND="${1:-help}"
 shift || true
 
 case "$COMMAND" in
-  recorded-capture|recorded-validate|recorded-validate-corpus|start|inspect|stop|dashboard)
+  recorded-capture|recorded-validate|recorded-validate-corpus|recorded-sweep|start|inspect|stop|dashboard)
     exec pixi run python "$DRIVER_SCRIPT" "$COMMAND" "$@"
     ;;
   -h|--help|help)
@@ -21,8 +21,7 @@ case "$COMMAND" in
     ;;
   *)
     echo "unknown command: $COMMAND" >&2
-    echo "usage: scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh [recorded-capture|recorded-validate|recorded-validate-corpus|start|inspect|stop|dashboard] [args...]" >&2
+    echo "usage: scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh [recorded-capture|recorded-validate|recorded-validate-corpus|recorded-sweep|start|inspect|stop|dashboard] [args...]" >&2
     exit 1
     ;;
 esac
-

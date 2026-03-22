@@ -4,13 +4,18 @@ This demo pack validates the standalone tracked-TUI module directly from tmux an
 
 The package lives in [src/houmao/demo/shared_tui_tracking_demo_pack](/data1/huangzhe/code/houmao/src/houmao/demo/shared_tui_tracking_demo_pack) and the operator entrypoint is [run_demo.sh](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh).
 
+For the developer-facing contract on how human ground truth is compared against tracker output, read [GT_STATE_COMPARISON_CONTRACT.md](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/GT_STATE_COMPARISON_CONTRACT.md).
+
+The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml). By default it aligns tmux capture cadence with the Houmao server baseline of `0.2s`, and review-video cadence matches the underlying capture cadence unless you explicitly override it.
+
 ## Recorded Validation
 
 Capture a real session with the recorder in active mode:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
-  --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-explicit-success.json
+  --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-explicit-success.json \
+  --profile canonical_fixture
 ```
 
 Validate one captured fixture or committed fixture:
@@ -34,11 +39,31 @@ Each run produces:
 - `analysis/groundtruth_timeline.ndjson`
 - `analysis/replay_timeline.ndjson`
 - `analysis/comparison.json`
+- `artifacts/resolved_demo_config.json`
 - `issues/*.md` when problems are detected
 - `review/frames/frame-*.png`
-- `review/review.mp4` encoded with `ffmpeg`, `libx264`, `yuv420p`, and default `8 fps`
+- `review/review.mp4` encoded with `ffmpeg`, `libx264`, `yuv420p`, and the same cadence as capture by default
 
 Ground truth comes from `labels.json`. The harness expands labels into a complete per-sample timeline and fails if sample coverage is incomplete or overlapping.
+
+To inspect or override the demo-owned defaults explicitly:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
+  --demo-config scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml \
+  --profile fast_local \
+  --fixture-root tests/fixtures/shared_tui_tracking/recorded/claude/claude_explicit_success
+```
+
+To test tracker robustness against sparser effective tmux capture cadences on one recorded fixture:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep \
+  --fixture-root tests/fixtures/shared_tui_tracking/recorded/claude/claude_explicit_success \
+  --sweep capture_frequency
+```
+
+The sweep command writes under `tmp/demo/shared-tui-tracking-demo-pack/sweeps/...` unless `--output-root` overrides it. Sweep variants are evaluated against transition contracts from `demo-config.toml`, not against the canonical per-sample GT timeline.
 
 ## Live Watch
 
@@ -74,6 +99,8 @@ The normal launch posture is intentionally permissive:
 - Codex uses the repo-managed runtime-home config with `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`
 
 This avoids routine stalls on approval prompts during capture or observation.
+
+Each live run also persists `artifacts/resolved_demo_config.json` so later inspection can see which launch, evidence, semantic, and presentation defaults were active.
 
 ## Real Fixture Authoring Plan
 
@@ -143,7 +170,7 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
 ```
 
 5. Fix labels or recapture until replay mismatches are zero.
-6. After recording and state labeling are done, generate the MP4 visualization from the labeled pane snapshots:
+6. After recording and state labeling are done, generate the MP4 visualization from the labeled pane snapshots. Unless overridden, the MP4 uses the same cadence as the underlying capture:
 
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \

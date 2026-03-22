@@ -8,10 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .config import resolve_demo_config
 from .live_watch import inspect_live_watch, run_dashboard, start_live_watch, stop_live_watch
-from .models import DEFAULT_REVIEW_VIDEO_FPS
 from .recorded import run_recorded_capture, validate_fixture_corpus, validate_recorded_fixture
 from .scenario import load_scenario
+from .sweep import run_recorded_sweep
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -22,11 +23,26 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "recorded-capture":
             scenario = load_scenario(_resolve_path(args.scenario))
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+                scenario_id=scenario.scenario_id,
+                cli_overrides=_demo_config_cli_overrides(
+                    tool=scenario.tool,
+                    recipe_path=args.recipe,
+                    sample_interval_seconds=args.sample_interval_seconds,
+                    runtime_observer_interval_seconds=args.runtime_observer_interval_seconds,
+                    settle_seconds=args.settle_seconds,
+                    ready_timeout_seconds=args.ready_timeout_seconds,
+                ),
+            )
             capture_result = run_recorded_capture(
                 repo_root=_repo_root(),
                 scenario=scenario,
+                demo_config=demo_config,
                 output_root=_optional_path(args.output_root),
-                cleanup_session=not args.keep_session,
+                cleanup_session=demo_config.evidence.cleanup_session and not args.keep_session,
             )
             _emit_payload(
                 {
@@ -40,8 +56,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "recorded-validate":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+                cli_overrides=_demo_config_cli_overrides(
+                    review_video_fps=args.review_video_fps,
+                    settle_seconds=args.settle_seconds,
+                ),
+            )
             validation_result = validate_recorded_fixture(
                 repo_root=_repo_root(),
+                demo_config=demo_config,
                 fixture_root=_resolve_path(args.fixture_root),
                 output_root=_optional_path(args.output_root),
                 tool=args.tool,
@@ -49,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                 settle_seconds=args.settle_seconds,
                 labels_path=_optional_path(args.labels_path),
                 render_review_video=not args.skip_video,
-                review_video_fps=int(args.review_video_fps),
+                review_video_fps=args.review_video_fps,
             )
             _emit_payload(
                 {
@@ -61,12 +87,23 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "recorded-validate-corpus":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+                cli_overrides=_demo_config_cli_overrides(review_video_fps=args.review_video_fps),
+            )
             validation_results = validate_fixture_corpus(
                 repo_root=_repo_root(),
-                fixtures_root=_resolve_path(args.fixtures_root),
+                demo_config=demo_config,
+                fixtures_root=(
+                    _resolve_path(args.fixtures_root)
+                    if args.fixtures_root is not None
+                    else demo_config.fixtures_root_path()
+                ),
                 output_root=_optional_path(args.output_root),
                 render_review_video=not args.skip_video,
-                review_video_fps=int(args.review_video_fps),
+                review_video_fps=args.review_video_fps,
             )
             _emit_payload(
                 {
@@ -76,14 +113,50 @@ def main(argv: list[str] | None = None) -> int:
                 json_output=bool(args.json),
             )
             return 0
+        if args.command == "recorded-sweep":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+            )
+            sweep_result = run_recorded_sweep(
+                repo_root=_repo_root(),
+                demo_config=demo_config,
+                sweep_name=str(args.sweep),
+                fixture_root=_resolve_path(args.fixture_root),
+                output_root=_optional_path(args.output_root),
+            )
+            _emit_payload(
+                {
+                    "run_root": str(sweep_result.run_root),
+                    "summary_path": str(sweep_result.summary_path),
+                    "outcome_count": sweep_result.outcome_count,
+                },
+                json_output=bool(args.json),
+            )
+            return 0
         if args.command == "start":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+                cli_overrides=_demo_config_cli_overrides(
+                    tool=args.tool,
+                    recipe_path=args.recipe,
+                    sample_interval_seconds=args.sample_interval_seconds,
+                    runtime_observer_interval_seconds=args.runtime_observer_interval_seconds,
+                    settle_seconds=args.settle_seconds,
+                ),
+            )
             live_result = start_live_watch(
                 repo_root=_repo_root(),
+                demo_config=demo_config,
                 tool=args.tool,
                 output_root=_optional_path(args.output_root),
                 recipe_path=_optional_path(args.recipe),
-                sample_interval_seconds=float(args.sample_interval_seconds),
-                settle_seconds=float(args.settle_seconds),
+                sample_interval_seconds=demo_config.evidence.sample_interval_seconds,
+                runtime_observer_interval_seconds=demo_config.evidence.runtime_observer_interval_seconds,
+                settle_seconds=demo_config.semantics.settle_seconds,
                 trace_enabled=bool(args.trace),
             )
             _emit_payload(
@@ -99,15 +172,27 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "inspect":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+            )
             inspect_payload = inspect_live_watch(
                 repo_root=_repo_root(),
+                demo_config=demo_config,
                 run_root=_optional_path(args.run_root),
             )
             _emit_payload(inspect_payload, json_output=bool(args.json))
             return 0
         if args.command == "stop":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+            )
             stop_payload = stop_live_watch(
                 repo_root=_repo_root(),
+                demo_config=demo_config,
                 run_root=_optional_path(args.run_root),
                 stop_reason=str(args.reason),
             )
@@ -130,7 +215,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     capture = subparsers.add_parser("recorded-capture", help="Capture one real recorded session")
     capture.add_argument("--scenario", required=True)
+    capture.add_argument("--demo-config")
+    capture.add_argument("--profile")
     capture.add_argument("--output-root")
+    capture.add_argument("--recipe")
+    capture.add_argument("--sample-interval-seconds", type=float, default=None)
+    capture.add_argument("--runtime-observer-interval-seconds", type=float, default=None)
+    capture.add_argument("--settle-seconds", type=float, default=None)
+    capture.add_argument("--ready-timeout-seconds", type=float, default=None)
     capture.add_argument("--keep-session", action="store_true")
     capture.add_argument("--json", action="store_true")
 
@@ -139,12 +231,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Replay one recorded fixture and compare against labels",
     )
     validate.add_argument("--fixture-root", required=True)
+    validate.add_argument("--demo-config")
+    validate.add_argument("--profile")
     validate.add_argument("--output-root")
     validate.add_argument("--tool", choices=["claude", "codex"], default=None)
     validate.add_argument("--observed-version", default=None)
     validate.add_argument("--settle-seconds", type=float, default=None)
     validate.add_argument("--labels-path", default=None)
-    validate.add_argument("--review-video-fps", type=int, default=DEFAULT_REVIEW_VIDEO_FPS)
+    validate.add_argument("--review-video-fps", type=float, default=None)
     validate.add_argument("--skip-video", action="store_true")
     validate.add_argument("--json", action="store_true")
 
@@ -152,29 +246,46 @@ def _build_parser() -> argparse.ArgumentParser:
         "recorded-validate-corpus",
         help="Validate every committed fixture in one corpus root",
     )
-    validate_corpus.add_argument(
-        "--fixtures-root",
-        default="tests/fixtures/shared_tui_tracking/recorded",
-    )
+    validate_corpus.add_argument("--demo-config")
+    validate_corpus.add_argument("--profile")
+    validate_corpus.add_argument("--fixtures-root")
     validate_corpus.add_argument("--output-root")
-    validate_corpus.add_argument("--review-video-fps", type=int, default=DEFAULT_REVIEW_VIDEO_FPS)
+    validate_corpus.add_argument("--review-video-fps", type=float, default=None)
     validate_corpus.add_argument("--skip-video", action="store_true")
     validate_corpus.add_argument("--json", action="store_true")
 
+    sweep = subparsers.add_parser(
+        "recorded-sweep",
+        help="Run one config-defined capture-frequency sweep on a recorded fixture",
+    )
+    sweep.add_argument("--fixture-root", required=True)
+    sweep.add_argument("--sweep", required=True)
+    sweep.add_argument("--demo-config")
+    sweep.add_argument("--profile")
+    sweep.add_argument("--output-root")
+    sweep.add_argument("--json", action="store_true")
+
     start = subparsers.add_parser("start", help="Start one live watch run")
     start.add_argument("--tool", choices=["claude", "codex"], required=True)
+    start.add_argument("--demo-config")
+    start.add_argument("--profile")
     start.add_argument("--output-root")
     start.add_argument("--recipe")
-    start.add_argument("--sample-interval-seconds", type=float, default=0.25)
-    start.add_argument("--settle-seconds", type=float, default=1.0)
+    start.add_argument("--sample-interval-seconds", type=float, default=None)
+    start.add_argument("--runtime-observer-interval-seconds", type=float, default=None)
+    start.add_argument("--settle-seconds", type=float, default=None)
     start.add_argument("--trace", action="store_true")
     start.add_argument("--json", action="store_true")
 
     inspect = subparsers.add_parser("inspect", help="Inspect one live watch run")
+    inspect.add_argument("--demo-config")
+    inspect.add_argument("--profile")
     inspect.add_argument("--run-root")
     inspect.add_argument("--json", action="store_true")
 
     stop = subparsers.add_parser("stop", help="Stop one live watch run")
+    stop.add_argument("--demo-config")
+    stop.add_argument("--profile")
     stop.add_argument("--run-root")
     stop.add_argument("--reason", default="operator_requested")
     stop.add_argument("--json", action="store_true")
@@ -215,3 +326,38 @@ def _emit_payload(payload: dict[str, Any], *, json_output: bool) -> None:
         print(run_root)
         return
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _demo_config_cli_overrides(
+    *,
+    tool: str | None = None,
+    recipe_path: str | None = None,
+    sample_interval_seconds: float | None = None,
+    runtime_observer_interval_seconds: float | None = None,
+    settle_seconds: float | None = None,
+    ready_timeout_seconds: float | None = None,
+    review_video_fps: float | None = None,
+) -> dict[str, Any]:
+    """Build a raw config-override mapping from CLI arguments."""
+
+    overrides: dict[str, Any] = {}
+    if tool is not None and recipe_path is not None:
+        overrides.setdefault("tools", {}).setdefault(tool, {})["recipe_path"] = recipe_path
+    if sample_interval_seconds is not None:
+        overrides.setdefault("evidence", {})["sample_interval_seconds"] = sample_interval_seconds
+    if runtime_observer_interval_seconds is not None:
+        overrides.setdefault("evidence", {})[
+            "runtime_observer_interval_seconds"
+        ] = runtime_observer_interval_seconds
+    if settle_seconds is not None:
+        overrides.setdefault("semantics", {})["settle_seconds"] = settle_seconds
+    if ready_timeout_seconds is not None:
+        overrides.setdefault("evidence", {})["ready_timeout_seconds"] = ready_timeout_seconds
+    if review_video_fps is not None:
+        overrides.setdefault("presentation", {}).setdefault("review_video", {})[
+            "match_capture_cadence"
+        ] = False
+        overrides.setdefault("presentation", {}).setdefault("review_video", {})[
+            "fps"
+        ] = review_video_fps
+    return overrides

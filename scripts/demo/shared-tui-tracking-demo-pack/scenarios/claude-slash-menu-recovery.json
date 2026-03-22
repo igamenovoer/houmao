@@ -2,11 +2,7 @@
   "id": "claude_slash_menu_recovery",
   "tool": "claude",
   "description": "Open Claude slash help, leave the ambiguous overlay, and return to ready.",
-  "launch": {
-    "settle_seconds": 1.0,
-    "sample_interval_seconds": 0.25,
-    "ready_timeout_seconds": 45.0
-  },
+  "launch": {},
   "steps": [
     {
       "action": "wait_for_pattern",

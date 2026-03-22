@@ -1,0 +1,12 @@
+name: ${STACK_PROJECT_NAME}
+
+services:
+  filestash:
+    image: machines/filestash:latest
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FILESTASH_HTTP_PORT}:8334"
+    volumes:
+      - ./.data:/app/data/state
+      - ../../..:${FILESTASH_REPO_MOUNT_PATH}:ro

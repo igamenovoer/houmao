@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -24,11 +25,10 @@ from houmao.terminal_record.runtime_bridge import append_managed_control_input_f
 from houmao.terminal_record.service import start_terminal_record, stop_terminal_record
 
 from .comparison import TimelineComparison, compare_timelines
+from .config import ResolvedDemoConfig
 from .groundtruth import expand_labels_to_groundtruth_timeline, load_fixture_inputs
 from .models import (
     DEMO_PACK_SCHEMA_VERSION,
-    DEFAULT_RECORDED_RUN_ROOT_PARENT,
-    DEFAULT_REVIEW_VIDEO_FPS,
     RecordedFixtureManifest,
     RecordedValidationManifest,
     RecordedValidationPaths,
@@ -83,6 +83,17 @@ class RecordedValidationResult:
     run_root: Path
     manifest: RecordedValidationManifest
     comparison: TimelineComparison
+
+
+@dataclass(frozen=True)
+class _ResolvedScenarioLaunch:
+    """Concrete launch settings after config and scenario overrides are merged."""
+
+    settle_seconds: float
+    sample_interval_seconds: float
+    runtime_observer_interval_seconds: float
+    ready_timeout_seconds: float
+    recipe_path: Path
 
 
 class RuntimeObserver:
@@ -146,6 +157,7 @@ def run_recorded_capture(
     *,
     repo_root: Path,
     scenario: ScenarioDefinition,
+    demo_config: ResolvedDemoConfig,
     output_root: Path | None,
     cleanup_session: bool,
 ) -> RecordedCaptureResult:
@@ -154,6 +166,7 @@ def run_recorded_capture(
     ensure_tmux_available()
     run_root = _resolve_recorded_run_root(
         repo_root=repo_root,
+        demo_config=demo_config,
         tool=scenario.tool,
         case_id=scenario.scenario_id,
         output_root=output_root,
@@ -168,13 +181,18 @@ def run_recorded_capture(
     runtime_root.mkdir(parents=True, exist_ok=True)
     workdir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
+    save_json(run_root / "resolved_demo_config.json", demo_config.to_payload())
 
-    tool_metadata = default_tool_runtime_metadata(repo_root=repo_root, tool=scenario.tool)
-    selected_recipe_path = (
-        Path(scenario.launch.recipe_path).expanduser().resolve()
-        if scenario.launch.recipe_path is not None
-        else tool_metadata.interactive_watch_recipe_path
+    launch = _resolve_scenario_launch(
+        scenario=scenario,
+        demo_config=demo_config,
     )
+    tool_metadata = default_tool_runtime_metadata(
+        repo_root=repo_root,
+        tool=scenario.tool,
+        demo_config=demo_config,
+    )
+    selected_recipe_path = launch.recipe_path
     recipe = load_brain_recipe(selected_recipe_path)
     if recipe.tool != scenario.tool:
         raise RuntimeError(
@@ -210,7 +228,7 @@ def run_recorded_capture(
         target_pane=pane_id,
         tool=scenario.tool,
         run_root=recording_root,
-        sample_interval_seconds=scenario.launch.sample_interval_seconds,
+        sample_interval_seconds=launch.sample_interval_seconds,
     )
     recorder_manifest = load_manifest(recording_root / "manifest.json")
     observer = RuntimeObserver(
@@ -219,12 +237,13 @@ def run_recorded_capture(
         pane_id=pane_id,
         output_path=run_root / "runtime_observations.ndjson",
         recorder_started_at=datetime.fromisoformat(recorder_manifest.started_at_utc),
-        poll_interval_seconds=scenario.launch.sample_interval_seconds,
+        poll_interval_seconds=launch.runtime_observer_interval_seconds,
     )
     observer.start()
     try:
         _execute_scenario(
             scenario=scenario,
+            launch=launch,
             tool_session_name=tool_session_name,
             pane_id=pane_id,
             observed_version=observed_version,
@@ -241,7 +260,7 @@ def run_recorded_capture(
         case_id=scenario.scenario_id,
         tool=scenario.tool,
         observed_version=observed_version,
-        settle_seconds=scenario.launch.settle_seconds,
+        settle_seconds=launch.settle_seconds,
         description=scenario.description,
     )
     save_json(run_root / _FIXTURE_MANIFEST_NAME, fixture_manifest.to_payload())
@@ -256,6 +275,13 @@ def run_recorded_capture(
             "recipe_path": str(selected_recipe_path),
             "brain_home_path": str(build_result.home_path),
             "brain_manifest_path": str(build_result.manifest_path),
+            "resolved_demo_config_path": str(run_root / "resolved_demo_config.json"),
+            "effective_launch": {
+                "sample_interval_seconds": launch.sample_interval_seconds,
+                "runtime_observer_interval_seconds": launch.runtime_observer_interval_seconds,
+                "ready_timeout_seconds": launch.ready_timeout_seconds,
+                "settle_seconds": launch.settle_seconds,
+            },
         },
     )
     return RecordedCaptureResult(
@@ -270,6 +296,7 @@ def run_recorded_capture(
 def validate_recorded_fixture(
     *,
     repo_root: Path,
+    demo_config: ResolvedDemoConfig,
     fixture_root: Path,
     output_root: Path | None,
     tool: ToolName | None = None,
@@ -277,7 +304,7 @@ def validate_recorded_fixture(
     settle_seconds: float | None = None,
     labels_path: Path | None = None,
     render_review_video: bool = True,
-    review_video_fps: int = DEFAULT_REVIEW_VIDEO_FPS,
+    review_video_fps: float | None = None,
 ) -> RecordedValidationResult:
     """Validate one recorded fixture against human-authored ground truth."""
 
@@ -304,6 +331,7 @@ def validate_recorded_fixture(
     )
     run_root = _resolve_recorded_validation_output_root(
         repo_root=repo_root,
+        demo_config=demo_config,
         tool=effective_tool,
         case_id=case_id,
         output_root=output_root,
@@ -312,8 +340,22 @@ def validate_recorded_fixture(
         raise RuntimeError(f"Run root already exists: {run_root}")
     paths = RecordedValidationPaths.from_run_root(run_root=run_root)
     ensure_directory_layout(paths)
+    save_json(paths.resolved_config_path, demo_config.to_payload())
 
     recording_root = _resolve_recording_root(effective_fixture_root)
+    recorder_manifest = _load_recorder_manifest(recording_root)
+    capture_sample_interval_seconds = (
+        recorder_manifest.sample_interval_seconds
+        if recorder_manifest is not None
+        else demo_config.evidence.sample_interval_seconds
+    )
+    effective_review_video_fps = (
+        float(review_video_fps)
+        if review_video_fps is not None
+        else demo_config.presentation.review_video.effective_fps(
+            capture_sample_interval_seconds=capture_sample_interval_seconds
+        )
+    )
     effective_labels_path = (
         labels_path.expanduser().resolve()
         if labels_path is not None
@@ -329,9 +371,11 @@ def validate_recorded_fixture(
         fixture_root=str(effective_fixture_root),
         recording_root=str(recording_root),
         labels_path=str(effective_labels_path),
+        resolved_config_path=str(paths.resolved_config_path),
         observed_version=effective_observed_version,
         settle_seconds=effective_settle_seconds,
-        review_video_fps=review_video_fps,
+        review_video_fps=effective_review_video_fps,
+        capture_sample_interval_seconds=capture_sample_interval_seconds,
         started_at_utc=now_utc_iso(),
     )
     save_json(paths.manifest_path, manifest.to_payload())
@@ -382,15 +426,20 @@ def validate_recorded_fixture(
             snapshots=fixture_inputs.snapshots,
             groundtruth_timeline=groundtruth_timeline,
             output_dir=paths.frames_dir,
-            fps=review_video_fps,
+            fps=effective_review_video_fps,
+            width=demo_config.presentation.review_video.width,
+            height=demo_config.presentation.review_video.height,
         )
         encode_review_video(
             frames_dir=paths.frames_dir,
             output_path=paths.review_video_path,
-            fps=review_video_fps,
+            fps=effective_review_video_fps,
+            codec=demo_config.presentation.review_video.codec,
+            pixel_format=demo_config.presentation.review_video.pixel_format,
         )
+        if not demo_config.presentation.review_video.keep_frames:
+            _cleanup_review_frames(paths.frames_dir)
 
-    recorder_manifest = _load_recorder_manifest(recording_root)
     issues = build_recorded_run_issues(
         comparison=comparison,
         recorder_manifest=recorder_manifest,
@@ -402,6 +451,7 @@ def validate_recorded_fixture(
         recorder_manifest=recorder_manifest,
         issue_paths=issue_paths,
         artifact_paths={
+            "resolved demo config": paths.resolved_config_path,
             "ground truth timeline": paths.groundtruth_timeline_path,
             "replay timeline": paths.replay_timeline_path,
             "comparison JSON": paths.comparison_json_path,
@@ -416,10 +466,11 @@ def validate_recorded_fixture(
 def validate_fixture_corpus(
     *,
     repo_root: Path,
+    demo_config: ResolvedDemoConfig,
     fixtures_root: Path,
     output_root: Path | None,
     render_review_video: bool,
-    review_video_fps: int,
+    review_video_fps: float | None,
 ) -> list[RecordedValidationResult]:
     """Validate every fixture manifest found under one corpus root."""
 
@@ -430,6 +481,7 @@ def validate_fixture_corpus(
         results.append(
             validate_recorded_fixture(
                 repo_root=repo_root,
+                demo_config=demo_config,
                 fixture_root=fixture_root,
                 output_root=case_output_root,
                 render_review_video=render_review_video,
@@ -442,6 +494,7 @@ def validate_fixture_corpus(
 def _resolve_recorded_run_root(
     *,
     repo_root: Path,
+    demo_config: ResolvedDemoConfig,
     tool: ToolName,
     case_id: str,
     output_root: Path | None,
@@ -451,12 +504,13 @@ def _resolve_recorded_run_root(
     if output_root is not None:
         return output_root.expanduser().resolve()
     stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
-    return (repo_root / DEFAULT_RECORDED_RUN_ROOT_PARENT / tool / f"{case_id}-{stamp}").resolve()
+    return (demo_config.recorded_root_path() / tool / f"{case_id}-{stamp}").resolve()
 
 
 def _resolve_recorded_validation_output_root(
     *,
     repo_root: Path,
+    demo_config: ResolvedDemoConfig,
     tool: ToolName,
     case_id: str,
     output_root: Path | None,
@@ -466,9 +520,8 @@ def _resolve_recorded_validation_output_root(
     if output_root is not None:
         return output_root.expanduser().resolve()
     stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
-    return (
-        repo_root / DEFAULT_RECORDED_RUN_ROOT_PARENT / tool / case_id / f"validation-{stamp}"
-    ).resolve()
+    del repo_root
+    return (demo_config.recorded_root_path() / tool / case_id / f"validation-{stamp}").resolve()
 
 
 def _resolve_recording_root(fixture_root: Path) -> Path:
@@ -498,6 +551,7 @@ def _load_fixture_manifest(fixture_root: Path) -> RecordedFixtureManifest | None
 def _execute_scenario(
     *,
     scenario: ScenarioDefinition,
+    launch: _ResolvedScenarioLaunch,
     tool_session_name: str,
     pane_id: str,
     observed_version: str | None,
@@ -527,7 +581,7 @@ def _execute_scenario(
             _wait_for_ready(
                 pane_id=pane_id,
                 detector=detector,
-                timeout_seconds=step.timeout_seconds or scenario.launch.ready_timeout_seconds,
+                timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
             )
         elif step.action == "wait_seconds":
             time.sleep(step.seconds or 0.0)
@@ -649,3 +703,48 @@ def _load_ndjson_payloads(path: Path) -> list[dict[str, Any]]:
             continue
         payloads.append(json.loads(stripped))
     return payloads
+
+
+def _resolve_scenario_launch(
+    *,
+    scenario: ScenarioDefinition,
+    demo_config: ResolvedDemoConfig,
+) -> _ResolvedScenarioLaunch:
+    """Resolve effective launch settings for one capture scenario."""
+
+    tool_config = demo_config.tool_config(tool=scenario.tool)
+    recipe_path = (
+        Path(scenario.launch.recipe_path).expanduser().resolve()
+        if scenario.launch.recipe_path is not None
+        else demo_config.resolve_repo_path(tool_config.recipe_path)
+    )
+    return _ResolvedScenarioLaunch(
+        settle_seconds=(
+            scenario.launch.settle_seconds
+            if scenario.launch.settle_seconds is not None
+            else demo_config.semantics.settle_seconds
+        ),
+        sample_interval_seconds=(
+            scenario.launch.sample_interval_seconds
+            if scenario.launch.sample_interval_seconds is not None
+            else demo_config.evidence.sample_interval_seconds
+        ),
+        runtime_observer_interval_seconds=(
+            scenario.launch.runtime_observer_interval_seconds
+            if scenario.launch.runtime_observer_interval_seconds is not None
+            else demo_config.evidence.runtime_observer_interval_seconds
+        ),
+        ready_timeout_seconds=(
+            scenario.launch.ready_timeout_seconds
+            if scenario.launch.ready_timeout_seconds is not None
+            else demo_config.evidence.ready_timeout_seconds
+        ),
+        recipe_path=recipe_path,
+    )
+
+
+def _cleanup_review_frames(frames_dir: Path) -> None:
+    """Remove staged review frames after encoding when configured."""
+
+    if frames_dir.is_dir():
+        shutil.rmtree(frames_dir)

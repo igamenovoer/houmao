@@ -9,6 +9,10 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+from houmao.demo.shared_tui_tracking_demo_pack.config import (
+    ResolvedDemoConfig,
+    resolve_demo_config,
+)
 from houmao.demo.shared_tui_tracking_demo_pack.groundtruth import (
     expand_labels_to_groundtruth_timeline,
 )
@@ -26,6 +30,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     build_ffmpeg_command,
     render_review_frames,
 )
+from houmao.demo.shared_tui_tracking_demo_pack.sweep import run_recorded_sweep
 from houmao.demo.shared_tui_tracking_demo_pack.tooling import default_tool_runtime_metadata
 
 
@@ -46,6 +51,12 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     """Write one JSON file."""
 
     _write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _demo_config() -> ResolvedDemoConfig:
+    """Return the checked-in resolved demo config."""
+
+    return resolve_demo_config(repo_root=_repo_root())
 
 
 def _watch_manifest(paths: LiveWatchPaths) -> LiveWatchManifest:
@@ -69,7 +80,9 @@ def _watch_manifest(paths: LiveWatchPaths) -> LiveWatchManifest:
         dashboard_attach_command="tmux attach-session -t shared-tui-dashboard-demo",
         dashboard_command="pixi run python scripts/demo/shared-tui-tracking-demo-pack/scripts/demo_driver.py dashboard --run-root /tmp/run",
         terminal_record_run_root=str(paths.terminal_record_run_root),
-        sample_interval_seconds=0.25,
+        resolved_config_path=str(paths.resolved_config_path),
+        sample_interval_seconds=0.2,
+        runtime_observer_interval_seconds=0.2,
         settle_seconds=1.0,
         observed_version="2.1.80 (Claude Code)",
         trace_enabled=False,
@@ -187,6 +200,7 @@ def test_render_review_frames_creates_1080p_pngs(tmp_path: Path) -> None:
     )
     result = validate_recorded_fixture(
         repo_root=_repo_root(),
+        demo_config=_demo_config(),
         fixture_root=fixture_root,
         output_root=tmp_path / "recorded-run",
         render_review_video=False,
@@ -204,7 +218,7 @@ def test_render_review_frames_creates_1080p_pngs(tmp_path: Path) -> None:
             recording_root=fixture_root / "recording"
         ),
         output_dir=frames_dir,
-        fps=8,
+        fps=5.0,
     )
 
     assert result.comparison.mismatch_count == 0
@@ -219,10 +233,10 @@ def test_build_ffmpeg_command_uses_libx264_and_yuv420p(tmp_path: Path) -> None:
     command = build_ffmpeg_command(
         frames_dir=tmp_path / "frames",
         output_path=tmp_path / "review.mp4",
-        fps=8,
+        fps=5.0,
     )
 
-    assert command[:5] == ["ffmpeg", "-y", "-framerate", "8", "-i"]
+    assert command[:5] == ["ffmpeg", "-y", "-framerate", "5", "-i"]
     assert "libx264" in command
     assert "yuv420p" in command
 
@@ -334,10 +348,12 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     with pytest.raises(RuntimeError, match="dashboard failed"):
         start_live_watch(
             repo_root=tmp_path,
+            demo_config=_demo_config(),
             tool="claude",
             output_root=run_root,
             recipe_path=recipe_path,
             sample_interval_seconds=0.25,
+            runtime_observer_interval_seconds=0.2,
             settle_seconds=1.0,
             trace_enabled=False,
         )
@@ -351,3 +367,110 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     }
     assert live_state_payload["status"] == "failed"
     assert live_state_payload["last_error"] == "dashboard failed"
+
+
+def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path) -> None:
+    """CLI overrides should win over profile defaults during config resolution."""
+
+    config_path = tmp_path / "demo-config.toml"
+    _write(
+        config_path,
+        "\n".join(
+            [
+                'schema_version = 1',
+                'demo_id = "shared-tui-tracking-demo-pack"',
+                "",
+                "[paths]",
+                'fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"',
+                'recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"',
+                'live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"',
+                'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
+                "",
+                "[tools.claude]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'launch_args_override = ["--dangerously-skip-permissions"]',
+                "",
+                "[tools.codex]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                "launch_args_override = []",
+                "",
+                "[evidence]",
+                "sample_interval_seconds = 0.2",
+                "runtime_observer_interval_seconds = 0.2",
+                "ready_timeout_seconds = 45.0",
+                "cleanup_session = true",
+                "",
+                "[semantics]",
+                "settle_seconds = 1.0",
+                "",
+                "[presentation.review_video]",
+                "match_capture_cadence = true",
+                "width = 1920",
+                "height = 1080",
+                'codec = "libx264"',
+                'pixel_format = "yuv420p"',
+                "keep_frames = true",
+                "",
+                "[profiles.fast_local.evidence]",
+                "sample_interval_seconds = 0.4",
+                "runtime_observer_interval_seconds = 0.4",
+                "",
+                "[scenario_overrides.demo_case.evidence]",
+                "ready_timeout_seconds = 21.0",
+            ]
+        )
+        + "\n",
+    )
+
+    resolved = resolve_demo_config(
+        repo_root=_repo_root(),
+        config_path=config_path,
+        profile_name="fast_local",
+        scenario_id="demo_case",
+        cli_overrides={
+            "evidence": {
+                "sample_interval_seconds": 0.6,
+            },
+            "presentation": {
+                "review_video": {
+                    "match_capture_cadence": False,
+                    "fps": 4.0,
+                }
+            },
+        },
+    )
+
+    assert resolved.evidence.sample_interval_seconds == 0.6
+    assert resolved.evidence.runtime_observer_interval_seconds == 0.4
+    assert resolved.evidence.ready_timeout_seconds == 21.0
+    assert resolved.presentation.review_video.fps == 4.0
+
+
+def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) -> None:
+    """A recorded sweep should write its report and per-variant verdict artifacts."""
+
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / "claude"
+        / "claude_explicit_success"
+    )
+
+    result = run_recorded_sweep(
+        repo_root=_repo_root(),
+        demo_config=_demo_config(),
+        sweep_name="capture_frequency",
+        fixture_root=fixture_root,
+        output_root=tmp_path / "sweep-run",
+    )
+
+    source_verdict = json.loads(
+        (result.run_root / "variants" / "source" / "verdict.json").read_text(encoding="utf-8")
+    )
+
+    assert result.summary_path.is_file()
+    assert result.outcome_count == 3
+    assert source_verdict["passed"] is True

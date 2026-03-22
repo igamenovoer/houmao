@@ -1,0 +1,106 @@
+schema_version = 1
+demo_id = "shared-tui-tracking-demo-pack"
+
+[paths]
+fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"
+recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"
+live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"
+sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
+
+[tools.claude]
+recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
+launch_args_override = ["--dangerously-skip-permissions"]
+
+[tools.codex]
+recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"
+launch_args_override = []
+
+[evidence]
+sample_interval_seconds = 0.2
+runtime_observer_interval_seconds = 0.2
+ready_timeout_seconds = 45.0
+cleanup_session = true
+
+[semantics]
+settle_seconds = 1.0
+
+[presentation.review_video]
+width = 1920
+height = 1080
+match_capture_cadence = true
+codec = "libx264"
+pixel_format = "yuv420p"
+keep_frames = true
+
+[profiles.fast_local.evidence]
+sample_interval_seconds = 0.4
+runtime_observer_interval_seconds = 0.4
+
+[profiles.fast_local.presentation.review_video]
+match_capture_cadence = false
+fps = 3.0
+
+[profiles.canonical_fixture.evidence]
+sample_interval_seconds = 0.2
+runtime_observer_interval_seconds = 0.2
+
+[profiles.canonical_fixture.semantics]
+settle_seconds = 1.0
+
+[sweeps.capture_frequency]
+description = "Replay one recorded fixture at progressively sparser effective capture cadences."
+baseline_variant = "source"
+
+[[sweeps.capture_frequency.variants]]
+name = "source"
+use_source_cadence = true
+
+[[sweeps.capture_frequency.variants]]
+name = "half-rate"
+sample_interval_seconds = 0.4
+
+[[sweeps.capture_frequency.variants]]
+name = "slow-rate"
+sample_interval_seconds = 0.8
+
+[sweeps.capture_frequency.contracts.claude_explicit_success]
+required_labels = ["active", "ready_success"]
+required_terminal_result = "success"
+forbidden_terminal_results = ["known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.claude_interrupted_after_active]
+required_labels = ["active", "ready_interrupted"]
+required_terminal_result = "interrupted"
+forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.claude_slash_menu_recovery]
+required_labels = ["unknown"]
+required_terminal_result = "none"
+forbidden_terminal_results = ["success", "interrupted", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.claude_tui_down_after_active]
+required_labels = ["active", "tui_down"]
+required_terminal_result = "none"
+forbidden_terminal_results = ["success"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_explicit_success]
+required_labels = ["active", "ready_success"]
+required_terminal_result = "success"
+forbidden_terminal_results = ["known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_interrupted_after_active]
+required_labels = ["active", "ready_interrupted"]
+required_terminal_result = "interrupted"
+forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_tui_down_after_active]
+required_labels = ["active", "tui_down"]
+required_terminal_result = "none"
+forbidden_terminal_results = ["success"]
+max_first_occurrence_drift_seconds = 2.0

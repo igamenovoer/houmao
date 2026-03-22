@@ -2,11 +2,7 @@
   "id": "claude_interrupted_after_active",
   "tool": "claude",
   "description": "Interrupt an active Claude turn and keep the final interrupted posture visible.",
-  "launch": {
-    "settle_seconds": 1.0,
-    "sample_interval_seconds": 0.25,
-    "ready_timeout_seconds": 45.0
-  },
+  "launch": {},
   "steps": [
     {
       "action": "wait_for_pattern",

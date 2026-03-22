@@ -83,36 +83,76 @@ When the run detects failures, mismatches, or other actionable issues, it SHALL 
 - **AND THEN** the run output directory also contains one or more separate Markdown issue documents for the detected problems
 - **AND THEN** each issue document points back to the relevant run artifacts or sample identifiers
 
+### Requirement: Recorded validation SHALL require successful authoring evidence before a fixture is promoted into the canonical corpus
+The recorded validation workflow SHALL be used as a promotion gate for any real tmux-backed fixture that is copied into `tests/fixtures/shared_tui_tracking/recorded/`.
+
+At minimum, the authoring run being promoted SHALL have:
+
+- zero replay mismatches,
+- complete label coverage,
+- a generated Markdown summary report, and
+- a generated review video rendered from the same pane snapshots that feed replay.
+
+#### Scenario: Canonical fixture promotion is blocked until authoring evidence is complete
+- **WHEN** a maintainer prepares to promote one temporary real capture into the committed fixture corpus
+- **THEN** the recorded-validation workflow has already produced zero-mismatch replay output, a summary report, and a review video for that authoring run
+- **AND THEN** the fixture is not considered canonical until those promotion checks pass
+
+### Requirement: Recorded validation SHALL resolve workflow defaults from the demo-owned config
+The recorded validation workflow under `scripts/demo/shared-tui-tracking-demo-pack/` SHALL load demo-owned defaults from `demo-config.toml` for launch posture, output layout, evidence cadence, tracker-semantic timing, and review-video presentation unless a later override source is applied.
+
+The default recorded-capture evidence cadence SHALL use `sample_interval_seconds = 0.2`.
+
+#### Scenario: Recorded validation uses demo-owned capture defaults
+- **WHEN** a maintainer runs recorded validation without overriding capture cadence
+- **THEN** the workflow resolves its defaults from the demo-owned config
+- **AND THEN** the capture path uses `sample_interval_seconds = 0.2` by default
+
+### Requirement: Recorded validation SHALL support config-defined capture-frequency robustness sweeps
+The recorded validation workflow SHALL support named sweep definitions from the demo-owned configuration that vary evidence cadence for the same scenario or fixture workflow.
+
+Sweep verdicts SHALL be based on transition-contract expectations rather than on blindly reusing a canonical sample-aligned ground-truth timeline across all cadences.
+
+#### Scenario: Recorded validation executes a frequency sweep from config
+- **WHEN** a developer runs a config-defined capture-frequency sweep
+- **THEN** the workflow executes each configured cadence variant
+- **AND THEN** the resulting verdicts explain whether required tracker transitions and terminal outcomes remained observable at each cadence
+
 ### Requirement: Recorded validation SHALL generate a staged-frame review video from pane snapshots
 For each published recorded fixture, the workflow SHALL be able to render a human-review video from the same pane snapshots that feed the standalone tracker.
 
 The workflow SHALL first save rendered review frames to disk, then encode the final video from those frames. The encoded review video SHALL:
 
 - be rendered at `1920x1080`,
-- default to `8 fps`,
+- default its effective video cadence from the capture cadence used for the underlying snapshots,
 - be encoded to `.mp4` with `ffmpeg`,
 - use `libx264`, and
 - visually mark the saved ground-truth state and each ground-truth state transition.
 
-The review video SHALL be derived from pane snapshots rather than from the terminal cast.
+Unless an operator explicitly overrides the presentation cadence, the review video SHALL reflect the capture cadence rather than a separate fixed default FPS. The review video SHALL be derived from pane snapshots rather than from the terminal cast.
 
-#### Scenario: Review video is encoded from staged 1080p frames
-- **WHEN** a maintainer generates review media for one recorded fixture
+#### Scenario: Review video reflects the underlying capture cadence
+- **WHEN** a maintainer generates review media for one recorded fixture without overriding presentation cadence
 - **THEN** the workflow first writes a staged sequence of rendered `1920x1080` frames to disk
-- **AND THEN** it encodes `review.mp4` from those frames at the default `8 fps` with `ffmpeg` and `libx264`
-- **AND THEN** the resulting video visibly marks the ground-truth state changes for human verification
+- **AND THEN** it encodes `review.mp4` from those frames with `ffmpeg` and `libx264`
+- **AND THEN** the resulting video cadence matches the capture cadence used for that fixture and visibly marks the ground-truth state changes for human verification
 
 ### Requirement: Recorded validation SHALL ship an initial multi-tool fixture corpus for critical state transitions
-The repository SHALL include an initial recorded fixture corpus for the standalone shared TUI tracker.
+The repository SHALL include an initial recorded fixture corpus for the standalone shared TUI tracker, and the canonical committed version of that corpus SHALL be sourced from real tmux-backed captures authored with the recorded-validation workflow rather than from synthetic hand-authored recorder payloads.
 
-At minimum, that corpus SHALL contain at least four fixtures spanning Claude and Codex, and the set as a whole SHALL cover:
+At minimum, the first-wave canonical corpus SHALL contain:
 
-- a successful ready-to-active-to-settled-success path,
-- an interrupted-after-active path, and
-- a diagnostics-loss path such as `tui_down` or `unavailable`.
+- Claude `explicit_success`
+- Claude `interrupted_after_active`
+- Claude `slash_menu_recovery`
+- Claude `tui_down_after_active`
+- Codex `explicit_success`
+- Codex `interrupted_after_active`
+- Codex `tui_down_after_active`
 
-#### Scenario: Initial corpus covers critical shared-tracker boundaries across tools
+Each published canonical fixture SHALL preserve the replay-grade canonical artifact set for that case, including the fixture manifest, pane snapshots, runtime observations, labels, and authoritative input events when present.
+
+#### Scenario: Maintained recorded-validation suite runs against the real first-wave corpus
 - **WHEN** a developer runs the maintained recorded-validation test suite
-- **THEN** the suite includes at least four committed recorded fixtures spanning Claude and Codex
-- **AND THEN** the fixture set exercises critical standalone-tracker transitions for success, interruption, and diagnostics-loss behavior
-
+- **THEN** the suite includes a canonical first-wave fixture set spanning both Claude and Codex from real tmux-backed captures
+- **AND THEN** that corpus exercises success, interruption, ambiguity, and diagnostics-loss boundaries for the standalone tracker

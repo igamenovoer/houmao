@@ -28,6 +28,16 @@ For Codex, the generated runtime home SHALL use the repo-supported permissive bo
 - **THEN** the workflow uses the tool’s permissive supported posture by default
 - **AND THEN** the resulting live session is not expected to stop on an unexpected approval or sandbox prompt during ordinary use
 
+### Requirement: Live watch SHALL resolve launch and observation defaults from the demo-owned config
+The live watch workflow under `scripts/demo/shared-tui-tracking-demo-pack/` SHALL load demo-owned defaults from `demo-config.toml` for tool launch posture, output layout, tmux observation cadence, tracker-semantic timing, and dashboard-related presentation settings unless a later override source is applied.
+
+The default live observation cadence SHALL use the same `sample_interval_seconds = 0.2` baseline as the recorded-validation workflow unless explicitly overridden.
+
+#### Scenario: Live watch starts with demo-owned defaults
+- **WHEN** a developer starts a live watch run without overriding observation cadence
+- **THEN** the workflow resolves its defaults from the demo-owned config
+- **AND THEN** the live observation path uses the demo-owned `0.2s` sampling baseline by default
+
 ### Requirement: Live dashboard SHALL derive state from recorder and runtime evidence through the standalone tracker
 The live dashboard SHALL consume recorder pane snapshots and runtime liveness observations for the watched run and SHALL derive displayed state through the standalone shared TUI tracker rather than through a second ad hoc parsing contract.
 
@@ -65,6 +75,16 @@ When the run stops, the workflow SHALL be able to finalize offline replay and co
 - **THEN** the run root still contains recorder artifacts together with machine-readable live state and transition artifacts
 - **AND THEN** the workflow can finalize replay and comparison outputs from that retained evidence without reconnecting to a live tmux session
 
+### Requirement: Live watch SHALL persist the resolved demo config with the run
+Each live watch run SHALL persist the resolved demo configuration that governed the run after defaults and overrides are merged.
+
+The retained config artifact SHALL allow developers to inspect which tool-launch, evidence, semantic, and presentation knobs were active for that run when reviewing the live dashboard output or the finalized offline analysis.
+
+#### Scenario: Completed live watch run records its governing config
+- **WHEN** a developer stops a live watch run
+- **THEN** the run output contains the resolved demo configuration for that run
+- **AND THEN** the persisted config can be used to reason about how the observed state behavior relates to the run’s launch and capture settings
+
 ### Requirement: Live watch SHALL finalize with a Markdown summary report and separate issue docs
 Stopping a live watch run SHALL produce a human-readable Markdown report inside the run output directory that explains what worked and what did not during that run.
 
@@ -87,4 +107,3 @@ The workflow MAY reuse shared Python/library code for runtime-home construction,
 - **WHEN** a developer starts, inspects, or stops a shared-tracker live watch run
 - **THEN** the workflow uses shared library code plus direct tmux and recorder orchestration for its normal lifecycle
 - **AND THEN** it does not require `houmao-server` routes or Houmao session-management CLI subprocesses to perform that workflow
-

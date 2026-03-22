@@ -29,10 +29,10 @@ from houmao.terminal_record.service import (
 )
 
 from .comparison import TimelineComparison, compare_timelines
+from .config import ResolvedDemoConfig
 from .groundtruth import expand_labels_to_groundtruth_timeline, load_fixture_inputs
 from .models import (
     DEMO_PACK_SCHEMA_VERSION,
-    DEFAULT_LIVE_RUN_ROOT_PARENT,
     LiveWatchLiveState,
     LiveWatchManifest,
     LiveWatchPaths,
@@ -79,23 +79,34 @@ class _StartupResources:
 def start_live_watch(
     *,
     repo_root: Path,
+    demo_config: ResolvedDemoConfig,
     tool: ToolName,
     output_root: Path | None,
     recipe_path: Path | None,
     sample_interval_seconds: float,
+    runtime_observer_interval_seconds: float,
     settle_seconds: float,
     trace_enabled: bool,
 ) -> LiveWatchStartResult:
     """Start one live watch run for Claude or Codex."""
 
     ensure_tmux_available()
-    run_root = _resolve_live_run_root(repo_root=repo_root, tool=tool, output_root=output_root)
+    run_root = _resolve_live_run_root(
+        repo_root=repo_root,
+        demo_config=demo_config,
+        tool=tool,
+        output_root=output_root,
+    )
     if run_root.exists():
         raise RuntimeError(f"Run root already exists: {run_root}")
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     ensure_directory_layout(paths)
 
-    tool_metadata = default_tool_runtime_metadata(repo_root=repo_root, tool=tool)
+    tool_metadata = default_tool_runtime_metadata(
+        repo_root=repo_root,
+        tool=tool,
+        demo_config=demo_config,
+    )
     selected_recipe_path = (
         recipe_path.expanduser().resolve()
         if recipe_path is not None
@@ -124,6 +135,7 @@ def start_live_watch(
     dashboard_session_name = build_session_name(prefix="shared-tui-dashboard", run_id=run_root.name)
     resources = _StartupResources()
     try:
+        save_json(paths.resolved_config_path, demo_config.to_payload())
         launch_tmux_session(
             session_name=tool_session_name,
             workdir=paths.workdir,
@@ -167,7 +179,9 @@ def start_live_watch(
             dashboard_attach_command=f"tmux attach-session -t {dashboard_session_name}",
             dashboard_command=dashboard_command,
             terminal_record_run_root=str(paths.terminal_record_run_root),
+            resolved_config_path=str(paths.resolved_config_path),
             sample_interval_seconds=sample_interval_seconds,
+            runtime_observer_interval_seconds=runtime_observer_interval_seconds,
             settle_seconds=settle_seconds,
             observed_version=observed_version,
             trace_enabled=trace_enabled,
@@ -205,10 +219,19 @@ def start_live_watch(
         raise
 
 
-def inspect_live_watch(*, repo_root: Path, run_root: Path | None) -> dict[str, Any]:
+def inspect_live_watch(
+    *,
+    repo_root: Path,
+    demo_config: ResolvedDemoConfig,
+    run_root: Path | None,
+) -> dict[str, Any]:
     """Return a stable machine-readable payload for one live watch run."""
 
-    selected_run_root = _resolve_existing_run_root(repo_root=repo_root, run_root=run_root)
+    selected_run_root = _resolve_existing_run_root(
+        repo_root=repo_root,
+        demo_config=demo_config,
+        run_root=run_root,
+    )
     paths = LiveWatchPaths.from_run_root(run_root=selected_run_root)
     manifest = _load_manifest(paths.watch_manifest_path)
     live_state = _load_live_state(paths.live_state_path)
@@ -233,15 +256,26 @@ def inspect_live_watch(*, repo_root: Path, run_root: Path | None) -> dict[str, A
             "state_samples": str(paths.state_samples_path),
             "transitions": str(paths.transitions_path),
             "runtime_observations": str(paths.runtime_observations_path),
+            "resolved_demo_config": str(paths.resolved_config_path),
             "report": str(paths.report_path),
         },
     }
 
 
-def stop_live_watch(*, repo_root: Path, run_root: Path | None, stop_reason: str) -> dict[str, Any]:
+def stop_live_watch(
+    *,
+    repo_root: Path,
+    demo_config: ResolvedDemoConfig,
+    run_root: Path | None,
+    stop_reason: str,
+) -> dict[str, Any]:
     """Stop one live watch run and finalize replay/comparison/report artifacts."""
 
-    selected_run_root = _resolve_existing_run_root(repo_root=repo_root, run_root=run_root)
+    selected_run_root = _resolve_existing_run_root(
+        repo_root=repo_root,
+        demo_config=demo_config,
+        run_root=run_root,
+    )
     paths = LiveWatchPaths.from_run_root(run_root=selected_run_root)
     manifest = _load_manifest(paths.watch_manifest_path)
     live_state = _load_live_state(paths.live_state_path)
@@ -278,6 +312,7 @@ def stop_live_watch(*, repo_root: Path, run_root: Path | None, stop_reason: str)
             "state samples": paths.state_samples_path,
             "transitions": paths.transitions_path,
             "runtime observations": paths.runtime_observations_path,
+            "resolved demo config": paths.resolved_config_path,
             "replay timeline": paths.replay_timeline_path,
             "comparison JSON": paths.comparison_json_path,
         },
@@ -305,7 +340,9 @@ def stop_live_watch(*, repo_root: Path, run_root: Path | None, stop_reason: str)
             dashboard_attach_command=manifest.dashboard_attach_command,
             dashboard_command=manifest.dashboard_command,
             terminal_record_run_root=manifest.terminal_record_run_root,
+            resolved_config_path=manifest.resolved_config_path,
             sample_interval_seconds=manifest.sample_interval_seconds,
+            runtime_observer_interval_seconds=manifest.runtime_observer_interval_seconds,
             settle_seconds=manifest.settle_seconds,
             observed_version=manifest.observed_version,
             trace_enabled=manifest.trace_enabled,
@@ -436,7 +473,7 @@ def run_dashboard(*, run_root: Path) -> int:
                     and recorder_status["status"] != "running"
                 ):
                     break
-                time.sleep(manifest.sample_interval_seconds)
+                time.sleep(manifest.runtime_observer_interval_seconds)
     except Exception as exc:
         save_json(
             paths.live_state_path,
@@ -470,21 +507,34 @@ def run_dashboard(*, run_root: Path) -> int:
     return 0
 
 
-def _resolve_live_run_root(*, repo_root: Path, tool: ToolName, output_root: Path | None) -> Path:
+def _resolve_live_run_root(
+    *,
+    repo_root: Path,
+    demo_config: ResolvedDemoConfig,
+    tool: ToolName,
+    output_root: Path | None,
+) -> Path:
     """Return the run root for one live watch run."""
 
     if output_root is not None:
         return output_root.expanduser().resolve()
     stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
-    return (repo_root / DEFAULT_LIVE_RUN_ROOT_PARENT / tool / stamp).resolve()
+    del repo_root
+    return (demo_config.live_root_path() / tool / stamp).resolve()
 
 
-def _resolve_existing_run_root(*, repo_root: Path, run_root: Path | None) -> Path:
+def _resolve_existing_run_root(
+    *,
+    repo_root: Path,
+    demo_config: ResolvedDemoConfig,
+    run_root: Path | None,
+) -> Path:
     """Resolve an existing live-watch run root."""
 
     if run_root is not None:
         return run_root.expanduser().resolve()
-    parent = (repo_root / DEFAULT_LIVE_RUN_ROOT_PARENT).resolve()
+    del repo_root
+    parent = demo_config.live_root_path()
     candidates = [
         path for path in parent.rglob("*") if path.is_dir() and (path / "artifacts").is_dir()
     ]
