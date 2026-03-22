@@ -8,6 +8,7 @@ The standalone shared TUI tracker now has focused unit coverage, but it still la
 - Add an initial recorded fixture corpus with at least four critical state-transition cases across Claude and Codex, using permissive launch posture so normal fixture capture does not stall on unexpected approval or sandbox prompts.
 - Add review-video generation that renders the exact recorded pane snapshots into staged 1080p frames and encodes a `libx264` `.mp4` with visible ground-truth state changes for human verification.
 - Add a tool-agnostic live interactive watch workflow in the same demo pack for Claude and Codex that launches fresh runtime homes from `tests/fixtures/agents/`, records the live session, and renders a `rich` dashboard in a separate tmux session.
+- Add final human-readable Markdown reporting for each run, including one summary report that states what worked and what did not, plus separate issue Markdown documents written into the run output directory when problems are found.
 - Persist stable machine-readable artifacts for replay, comparison, transition logs, and live watch state under repo-owned `tmp/` subtrees so automated tests and manual investigation consume the same evidence.
 
 ## Capabilities

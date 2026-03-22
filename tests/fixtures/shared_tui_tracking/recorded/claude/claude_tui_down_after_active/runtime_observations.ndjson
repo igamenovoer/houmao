@@ -1,0 +1,3 @@
+{"elapsed_seconds":0.0,"pane_dead":false,"pane_exists":true,"pane_pid":1234,"pane_pid_alive":true,"session_exists":true,"supported_process_alive":true,"supported_process_pid":2234,"ts_utc":"2026-03-20T00:02:00+00:00"}
+{"elapsed_seconds":0.8,"pane_dead":true,"pane_exists":true,"pane_pid":1234,"pane_pid_alive":false,"session_exists":true,"supported_process_alive":false,"supported_process_pid":2234,"ts_utc":"2026-03-20T00:02:01+00:00"}
+

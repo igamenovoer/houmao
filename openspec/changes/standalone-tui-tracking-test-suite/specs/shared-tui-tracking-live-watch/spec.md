@@ -60,6 +60,19 @@ When the run stops, the workflow SHALL be able to finalize offline replay and co
 - **THEN** the run root still contains recorder artifacts together with machine-readable live state and transition artifacts
 - **AND THEN** the workflow can finalize replay and comparison outputs from that retained evidence without reconnecting to a live tmux session
 
+### Requirement: Live watch SHALL finalize with a Markdown summary report and separate issue docs
+Stopping a live watch run SHALL produce a human-readable Markdown report inside the run output directory that explains what worked and what did not during that run.
+
+That report SHALL summarize the observed live state behavior, the final replay/comparison verdict, and the important artifact locations for the run.
+
+When the finalized run detects mismatches, failures, or other actionable issues, the workflow SHALL also write one separate Markdown issue document per issue inside an issue-specific subdirectory under the same output directory.
+
+#### Scenario: Stopped live watch run writes summary and issue docs
+- **WHEN** a developer stops a live watch run that exposed one or more tracker or comparison problems
+- **THEN** the run output directory contains a Markdown summary report describing what worked and what did not
+- **AND THEN** the run output directory also contains one or more separate Markdown issue documents for the detected problems
+- **AND THEN** those issue documents reference the relevant snapshots, transitions, or comparison artifacts for the run
+
 ### Requirement: Live watch SHALL remain independent from Houmao server lifecycle routes
 The live watch workflow SHALL remain independent from `houmao-server` routes and Houmao session-management CLI subprocesses for its normal start, inspect, dashboard, and stop flow.
 

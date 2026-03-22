@@ -60,6 +60,24 @@ At minimum, the replay output and comparison SHALL preserve sample identity toge
 - **AND THEN** it writes replay timeline and comparison artifacts keyed to the same sample ids as the recorded snapshots
 - **AND THEN** mismatches against ground truth are explicit and machine-readable
 
+### Requirement: Recorded validation SHALL finalize with a Markdown summary report and separate issue docs
+Each recorded validation run SHALL finalize with a human-readable Markdown report inside the run output directory.
+
+That report SHALL summarize:
+
+- the scenarios or checks that passed,
+- the scenarios or checks that failed,
+- the key comparison or replay verdict, and
+- links or paths to the important raw and derived artifacts for that run.
+
+When the run detects failures, mismatches, or other actionable issues, it SHALL also write one separate Markdown issue document per issue inside an issue-specific subdirectory under the same output directory.
+
+#### Scenario: Failed recorded validation run writes both summary and issue docs
+- **WHEN** a recorded validation run finishes with one or more mismatches or failures
+- **THEN** the run output directory contains a Markdown summary report describing what worked and what did not
+- **AND THEN** the run output directory also contains one or more separate Markdown issue documents for the detected problems
+- **AND THEN** each issue document points back to the relevant run artifacts or sample identifiers
+
 ### Requirement: Recorded validation SHALL generate a staged-frame review video from pane snapshots
 For each published recorded fixture, the workflow SHALL be able to render a human-review video from the same pane snapshots that feed the standalone tracker.
 

@@ -1,0 +1,10 @@
+schema_version: 1
+name: interactive-watch-default
+tool: codex
+default_agent_name: interactive-watch-codex
+skills:
+  - openspec-explore
+  - openspec-apply-change
+config_profile: default
+credential_profile: personal-a-default
+

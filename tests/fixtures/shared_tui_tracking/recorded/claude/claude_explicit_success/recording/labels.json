@@ -1,0 +1,54 @@
+{
+  "labels": [
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active"
+      },
+      "label_id": "active-turn",
+      "note": "Claude is actively working.",
+      "sample_end_id": null,
+      "sample_id": "s000001",
+      "scenario_id": "claude-explicit-success"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "success-candidate",
+      "note": "Ready surface is visible but settle delay has not elapsed yet.",
+      "sample_end_id": null,
+      "sample_id": "s000002",
+      "scenario_id": "claude-explicit-success"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "settled-success",
+      "note": "Success is settled after the delay window.",
+      "sample_end_id": null,
+      "sample_id": "s000003",
+      "scenario_id": "claude-explicit-success"
+    }
+  ],
+  "schema_version": 1
+}
+

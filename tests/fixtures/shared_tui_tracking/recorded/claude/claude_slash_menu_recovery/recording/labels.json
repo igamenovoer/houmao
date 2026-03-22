@@ -1,0 +1,54 @@
+{
+  "labels": [
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active"
+      },
+      "label_id": "active-slash-menu",
+      "note": "Slash overlay is visible while Claude is still active.",
+      "sample_end_id": null,
+      "sample_id": "s000001",
+      "scenario_id": "claude-slash-menu-recovery"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown"
+      },
+      "label_id": "ambiguous-slash-menu",
+      "note": "Slash overlay remains without active evidence, so the turn is ambiguous.",
+      "sample_end_id": null,
+      "sample_id": "s000002",
+      "scenario_id": "claude-slash-menu-recovery"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-return",
+      "note": "Claude returns to a clean ready surface.",
+      "sample_end_id": null,
+      "sample_id": "s000003",
+      "scenario_id": "claude-slash-menu-recovery"
+    }
+  ],
+  "schema_version": 1
+}
+

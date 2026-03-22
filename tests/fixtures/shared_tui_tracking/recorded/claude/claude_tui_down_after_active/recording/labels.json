@@ -1,0 +1,38 @@
+{
+  "labels": [
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active"
+      },
+      "label_id": "active-before-loss",
+      "note": "Claude is active before diagnostics drop.",
+      "sample_end_id": null,
+      "sample_id": "s000001",
+      "scenario_id": "claude-tui-down-after-active"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "tui_down",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown"
+      },
+      "label_id": "diagnostics-loss",
+      "note": "The pane is down, so the tracker should degrade diagnostics availability.",
+      "sample_end_id": null,
+      "sample_id": "s000002",
+      "scenario_id": "claude-tui-down-after-active"
+    }
+  ],
+  "schema_version": 1
+}
+

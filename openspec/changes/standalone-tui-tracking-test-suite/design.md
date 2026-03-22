@@ -24,6 +24,7 @@ Two constraints materially shape the design:
 - Reuse `terminal_record` artifacts as the evidence boundary, with `pane_snapshots.ndjson` remaining the replay source of truth.
 - Make ground truth human-owned and inspectable through structured labels over official tracked-state fields instead of relying on the reducer under test.
 - Preserve enough artifacts for both automated assertions and human review, including comparison outputs, transition logs, staged frames, and final review video.
+- Produce a final developer-readable Markdown report for each run together with separate Markdown issue notes inside the run output directory.
 - Launch live watch sessions from `tests/fixtures/agents/` so the workflow uses the repository’s actual runtime-home and credential projection model.
 
 **Non-Goals:**
@@ -145,7 +146,9 @@ Each live run will keep:
 - latest state,
 - state samples,
 - transitions,
-- and final offline replay/comparison outputs when the run stops.
+- final offline replay/comparison outputs when the run stops,
+- one Markdown summary report, and
+- zero or more issue Markdown documents under an issue-specific output subdirectory.
 
 Why this approach:
 - Developers can inspect one stable run root instead of reconstructing state from multiple unrelated directories.
@@ -155,6 +158,22 @@ Alternatives considered:
 - Reuse the old Claude-only `tmp/explore/claude-code-state-tracking/...` layout.
   Rejected because the new workflow is generic and should not inherit Claude-specific paths.
 
+### Decision: Finalize each run with one summary Markdown report plus separate issue Markdown files
+
+Every recorded-validation or live-watch run will end with a human-readable Markdown report in the run output directory. That report will summarize the run, list which checks or scenarios worked, list which did not, and point to the key raw and derived artifacts.
+
+When the run detects one or more failures, mismatches, or other actionable issues, the workflow will also write one Markdown file per issue under a stable issue directory inside the same run root.
+
+Why this approach:
+- Developers need a compact summary artifact in addition to machine-readable NDJSON and JSON files.
+- Separate issue documents make it easier to hand off individual failures without forcing developers to mine a single long report.
+
+Alternatives considered:
+- Emit only machine-readable comparison outputs.
+  Rejected because that leaves too much interpretation work to developers.
+- Put every issue inline in one large report.
+  Rejected because per-issue Markdown files are easier to inspect, diff, and link individually.
+
 ## Risks / Trade-offs
 
 - [Ground-truth authoring is time-consuming] → Mitigation: keep labels sparse at authoring time but require deterministic expansion and coverage validation before fixtures are accepted.
@@ -163,6 +182,7 @@ Alternatives considered:
 - [Tool-specific launch behavior may drift independently of the tracker] → Mitigation: keep permissive launch posture in recipe/config fixtures, not scattered shell strings, and add unit coverage around launch metadata.
 - [Genericizing the old Claude-only watch flow may tempt partial duplication] → Mitigation: extract shared runtime/watch utilities first and keep tool-specific behavior limited to detector selection, recipe choice, and supported-process probing.
 - [Server-adjacent helpers may creep back in through convenience imports] → Mitigation: keep demo-pack dependencies limited to tmux helpers, recorder lifecycle, brain-home construction, and standalone tracker APIs, and reject `houmao-server` route/state dependencies in review.
+- [Report generation could drift from the underlying machine evidence] → Mitigation: generate Markdown reports directly from the persisted comparison, transition, and artifact metadata instead of from separate ad hoc logic.
 
 ## Migration Plan
 

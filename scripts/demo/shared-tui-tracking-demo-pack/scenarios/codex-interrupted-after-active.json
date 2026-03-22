@@ -1,0 +1,38 @@
+{
+  "id": "codex-interrupted-after-active",
+  "tool": "codex",
+  "description": "Interrupt an active Codex turn and keep the final interrupted posture visible.",
+  "launch": {
+    "settle_seconds": 1.0,
+    "sample_interval_seconds": 0.25,
+    "ready_timeout_seconds": 45.0
+  },
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt",
+      "text": "Work for a while before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_seconds",
+      "name": "let-active-surface-appear",
+      "seconds": 1.0
+    },
+    {
+      "action": "send_key",
+      "name": "interrupt",
+      "key": "Escape"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-interrupted-surface",
+      "seconds": 1.0
+    }
+  ]
+}
+

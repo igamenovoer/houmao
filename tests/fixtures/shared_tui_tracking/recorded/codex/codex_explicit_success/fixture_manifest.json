@@ -1,0 +1,9 @@
+{
+  "case_id": "codex_explicit_success",
+  "description": "Codex explicit-input success with a settled success transition.",
+  "observed_version": null,
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "tool": "codex"
+}
+

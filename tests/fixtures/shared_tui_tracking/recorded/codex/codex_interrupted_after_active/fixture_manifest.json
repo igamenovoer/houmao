@@ -1,0 +1,9 @@
+{
+  "case_id": "codex_interrupted_after_active",
+  "description": "Codex is interrupted during an active turn and reports the interrupted result.",
+  "observed_version": null,
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "tool": "codex"
+}
+

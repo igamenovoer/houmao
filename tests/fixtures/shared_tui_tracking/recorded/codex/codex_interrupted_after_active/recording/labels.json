@@ -1,0 +1,37 @@
+{
+  "labels": [
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-turn",
+      "note": "Codex is working before interruption.",
+      "sample_end_id": null,
+      "sample_id": "s000001",
+      "scenario_id": "codex-interrupted-after-active"
+    },
+    {
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "surface_inference",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "interrupted",
+      "note": "The interrupted surface should win over a normal ready return.",
+      "sample_end_id": null,
+      "sample_id": "s000002",
+      "scenario_id": "codex-interrupted-after-active"
+    }
+  ],
+  "schema_version": 1
+}
