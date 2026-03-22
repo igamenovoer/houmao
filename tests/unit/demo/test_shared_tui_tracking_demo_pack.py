@@ -18,6 +18,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.models import (
     LiveWatchPaths,
     RecordedValidationPaths,
 )
+from houmao.demo.shared_tui_tracking_demo_pack import recorded as recorded_module
 from houmao.demo.shared_tui_tracking_demo_pack.recorded import validate_recorded_fixture
 from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     FRAME_HEIGHT,
@@ -224,6 +225,35 @@ def test_build_ffmpeg_command_uses_libx264_and_yuv420p(tmp_path: Path) -> None:
     assert command[:5] == ["ffmpeg", "-y", "-framerate", "8", "-i"]
     assert "libx264" in command
     assert "yuv420p" in command
+
+
+def test_send_text_submits_as_separate_managed_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Managed text submission should emit a delayed Enter as a separate event."""
+
+    captured_sequences: list[str] = []
+    sleep_calls: list[float] = []
+
+    def _fake_send_sequence(*, session_name: str, pane_id: str, sequence: str) -> None:
+        del session_name, pane_id
+        captured_sequences.append(sequence)
+
+    monkeypatch.setattr(recorded_module, "_send_sequence", _fake_send_sequence)
+    monkeypatch.setattr(recorded_module.time, "sleep", sleep_calls.append)
+
+    recorded_module._send_text(
+        session_name="shared-tui-codex-demo",
+        pane_id="%1",
+        text="Reply with the single word READY and stop.",
+        submit=True,
+    )
+
+    assert captured_sequences == [
+        "Reply with the single word READY and stop.",
+        "<[Enter]>",
+    ]
+    assert sleep_calls == [recorded_module._SUBMIT_KEY_DELAY_SECONDS]
 
 
 def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(

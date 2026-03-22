@@ -1,54 +1,101 @@
 {
+  "schema_version": 1,
   "labels": [
     {
+      "label_id": "startup-unknown",
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000001",
+      "sample_end_id": "s000005",
       "expectations": {
         "diagnostics_availability": "available",
+        "surface_accepting_input": "unknown",
+        "surface_editing_input": "unknown",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
         "last_turn_result": "none",
-        "last_turn_source": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Recorder startup samples before the Claude surface is readable."
+    },
+    {
+      "label_id": "workspace-trust-prompt",
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000006",
+      "sample_end_id": "s000006",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Workspace trust confirmation is visible before the normal Claude prompt."
+    },
+    {
+      "label_id": "stable-ready",
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000007",
+      "sample_end_id": "s000007",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Claude is back at a clean prompt before the explicit test turn starts."
+    },
+    {
+      "label_id": "active-turn",
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000008",
+      "sample_end_id": "s000034",
+      "expectations": {
+        "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
         "surface_editing_input": "no",
         "surface_ready_posture": "unknown",
-        "turn_phase": "active"
-      },
-      "label_id": "active-turn",
-      "note": "Claude is actively working.",
-      "sample_end_id": null,
-      "sample_id": "s000001",
-      "scenario_id": "claude-explicit-success"
-    },
-    {
-      "expectations": {
-        "diagnostics_availability": "available",
+        "turn_phase": "active",
         "last_turn_result": "none",
-        "last_turn_source": "none",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "no",
-        "surface_ready_posture": "yes",
-        "turn_phase": "ready"
+        "last_turn_source": "none"
       },
-      "label_id": "success-candidate",
-      "note": "Ready surface is visible but settle delay has not elapsed yet.",
-      "sample_end_id": null,
-      "sample_id": "s000002",
-      "scenario_id": "claude-explicit-success"
+      "note": "Claude is visibly working on the explicit READY reply."
     },
     {
+      "label_id": "success-candidate",
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000035",
+      "sample_end_id": "s000038",
       "expectations": {
         "diagnostics_availability": "available",
-        "last_turn_result": "success",
-        "last_turn_source": "explicit_input",
         "surface_accepting_input": "yes",
         "surface_editing_input": "no",
         "surface_ready_posture": "yes",
-        "turn_phase": "ready"
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
       },
+      "note": "READY is visible but the settle window for terminal success has not elapsed yet."
+    },
+    {
       "label_id": "settled-success",
-      "note": "Success is settled after the delay window.",
-      "sample_end_id": null,
-      "sample_id": "s000003",
-      "scenario_id": "claude-explicit-success"
+      "scenario_id": "claude_explicit_success",
+      "sample_id": "s000039",
+      "sample_end_id": "s000044",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input"
+      },
+      "note": "The explicit READY reply has settled into a completed success turn."
     }
-  ],
-  "schema_version": 1
+  ]
 }
-

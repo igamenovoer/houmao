@@ -1,0 +1,8 @@
+{
+  "case_id": "codex_tui_down_after_active",
+  "description": "Force a diagnostics-loss boundary by killing the tracked tmux session mid-turn.",
+  "observed_version": "codex-cli 0.116.0",
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "tool": "codex"
+}

@@ -1,0 +1,24 @@
+{
+  "attach_command": "env -u TMUX tmux attach-session -t HMREC-codex-tui-down-after-active",
+  "input_capture_level": "authoritative_managed",
+  "mode": "active",
+  "recorder_session_name": "HMREC-codex-tui-down-after-active",
+  "repo_root": "/repo",
+  "run_id": "codex-tui-down-after-active-recording",
+  "run_root": "/repo/tests/fixtures/shared_tui_tracking/recorded/codex/codex_tui_down_after_active/recording",
+  "run_tainted": false,
+  "sample_interval_seconds": 0.25,
+  "schema_version": 1,
+  "started_at_utc": "2026-03-22T02:49:18+00:00",
+  "stop_reason": "stop_requested",
+  "stopped_at_utc": "2026-03-22T02:49:24+00:00",
+  "taint_reasons": [],
+  "target": {
+    "pane_id": "%1",
+    "session_name": "shared-tui-codex-codex-tui-down-after-active",
+    "window_id": "@1",
+    "window_name": "codex"
+  },
+  "tool": "codex",
+  "visual_recording_kind": "interactive_client"
+}

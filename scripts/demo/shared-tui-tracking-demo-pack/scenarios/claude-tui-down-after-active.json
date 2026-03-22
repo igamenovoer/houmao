@@ -1,5 +1,5 @@
 {
-  "id": "claude-tui-down-after-active",
+  "id": "claude_tui_down_after_active",
   "tool": "claude",
   "description": "Force a diagnostics-loss boundary by killing the tracked tmux session mid-turn.",
   "launch": {
@@ -9,24 +9,45 @@
   },
   "steps": [
     {
+      "action": "wait_for_pattern",
+      "name": "wait-for-workspace-trust-prompt",
+      "pattern": "Enter to confirm",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_key",
+      "name": "confirm-workspace-trust",
+      "key": "Enter"
+    },
+    {
       "action": "wait_for_ready",
       "name": "wait-for-ready"
     },
     {
+      "action": "wait_for_pattern",
+      "name": "wait-for-stable-input-surface",
+      "pattern": "bypass permissions on",
+      "timeout_seconds": 30.0
+    },
+    {
       "action": "send_text",
       "name": "send-long-prompt",
-      "text": "Think for a while and do not stop immediately.",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
       "submit": true
     },
     {
       "action": "wait_seconds",
-      "name": "let-active-surface-appear",
-      "seconds": 1.0
+      "name": "wait-for-active-surface",
+      "seconds": 1.5
     },
     {
-      "action": "kill_session",
-      "name": "kill-tracked-session"
+      "action": "kill_supported_process",
+      "name": "kill-tracked-supported-process"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "allow-runtime-loss-sample",
+      "seconds": 1.0
     }
   ]
 }
-

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "labels": [
+    {
+      "label_id": "startup-unknown",
+      "scenario_id": "codex_tui_down_after_active",
+      "sample_id": "s000001",
+      "sample_end_id": "s000010",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "unknown",
+        "surface_editing_input": "unknown",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Recorder startup before the Codex surface is fully readable."
+    },
+    {
+      "label_id": "active-before-loss",
+      "scenario_id": "codex_tui_down_after_active",
+      "sample_id": "s000011",
+      "sample_end_id": "s000018",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Codex is still in its active post-submit surface before the supported process disappears."
+    },
+    {
+      "label_id": "tui-down-runtime",
+      "scenario_id": "codex_tui_down_after_active",
+      "sample_id": "s000019",
+      "sample_end_id": "s000023",
+      "expectations": {
+        "diagnostics_availability": "tui_down",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "The pane remains visible, but runtime diagnostics show the Codex process is down."
+    },
+    {
+      "label_id": "active-without-runtime",
+      "scenario_id": "codex_tui_down_after_active",
+      "sample_id": "s000024",
+      "sample_end_id": "s000025",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      },
+      "note": "The final pane snapshots still show the stale active surface after runtime evidence stops advancing."
+    }
+  ]
+}

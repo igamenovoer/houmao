@@ -1,0 +1,4 @@
+{"elapsed_seconds": 1.813716, "escape_special_keys": false, "event_id": "i000001", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:32:58+00:00"}
+{"elapsed_seconds": 2.241379, "escape_special_keys": false, "event_id": "i000002", "sequence": "/", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:32:59+00:00"}
+{"elapsed_seconds": 3.249757, "escape_special_keys": false, "event_id": "i000003", "sequence": "<[Escape]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:33:00+00:00"}
+{"elapsed_seconds": 3.25773, "escape_special_keys": false, "event_id": "i000004", "sequence": "<[BSpace]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:33:00+00:00"}

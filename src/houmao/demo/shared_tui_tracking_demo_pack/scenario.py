@@ -16,6 +16,7 @@ ScenarioAction = Literal[
     "wait_for_pattern",
     "send_text",
     "send_key",
+    "kill_supported_process",
     "kill_session",
 ]
 

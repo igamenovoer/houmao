@@ -9,17 +9,16 @@
   "run_tainted": false,
   "sample_interval_seconds": 0.25,
   "schema_version": 1,
-  "started_at_utc": "2026-03-20T00:03:00+00:00",
+  "started_at_utc": "2026-03-22T02:48:36+00:00",
   "stop_reason": "stop_requested",
-  "stopped_at_utc": "2026-03-20T00:03:03+00:00",
+  "stopped_at_utc": "2026-03-22T02:48:47+00:00",
   "taint_reasons": [],
   "target": {
     "pane_id": "%1",
-    "session_name": "shared-tui-codex-explicit-success",
+    "session_name": "shared-tui-codex-codex-explicit-success",
     "window_id": "@1",
     "window_name": "codex"
   },
   "tool": "codex",
   "visual_recording_kind": "interactive_client"
 }
-

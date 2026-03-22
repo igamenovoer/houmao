@@ -1,37 +1,53 @@
 {
+  "schema_version": 1,
   "labels": [
     {
+      "label_id": "startup-unknown",
+      "scenario_id": "codex_interrupted_after_active",
+      "sample_id": "s000001",
+      "sample_end_id": "s000009",
       "expectations": {
         "diagnostics_availability": "available",
+        "surface_accepting_input": "unknown",
+        "surface_editing_input": "unknown",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
         "last_turn_result": "none",
-        "last_turn_source": "none",
+        "last_turn_source": "none"
+      },
+      "note": "Recorder startup before the Codex surface is fully readable."
+    },
+    {
+      "label_id": "active-turn",
+      "scenario_id": "codex_interrupted_after_active",
+      "sample_id": "s000010",
+      "sample_end_id": "s000016",
+      "expectations": {
+        "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
         "surface_editing_input": "yes",
         "surface_ready_posture": "no",
-        "turn_phase": "active"
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
       },
-      "label_id": "active-turn",
-      "note": "Codex is working before interruption.",
-      "sample_end_id": null,
-      "sample_id": "s000001",
-      "scenario_id": "codex-interrupted-after-active"
+      "note": "Codex is actively processing the repository-search prompt before the operator sends Escape."
     },
     {
+      "label_id": "post-escape-ambiguous",
+      "scenario_id": "codex_interrupted_after_active",
+      "sample_id": "s000017",
+      "sample_end_id": "s000023",
       "expectations": {
         "diagnostics_availability": "available",
-        "last_turn_result": "interrupted",
-        "last_turn_source": "surface_inference",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "no",
-        "surface_ready_posture": "yes",
-        "turn_phase": "ready"
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
       },
-      "label_id": "interrupted",
-      "note": "The interrupted surface should win over a normal ready return.",
-      "sample_end_id": null,
-      "sample_id": "s000002",
-      "scenario_id": "codex-interrupted-after-active"
+      "note": "After Escape, Codex shows a feedback-oriented error surface instead of a clean interrupted-ready return."
     }
-  ],
-  "schema_version": 1
+  ]
 }

@@ -1,0 +1,3 @@
+{"elapsed_seconds": 3.163146, "escape_special_keys": false, "event_id": "i000001", "sequence": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:49:10+00:00"}
+{"elapsed_seconds": 3.371497, "escape_special_keys": false, "event_id": "i000002", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:49:10+00:00"}
+{"elapsed_seconds": 4.824057, "escape_special_keys": false, "event_id": "i000003", "sequence": "<[Escape]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:49:11+00:00"}

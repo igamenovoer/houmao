@@ -75,11 +75,93 @@ The normal launch posture is intentionally permissive:
 
 This avoids routine stalls on approval prompts during capture or observation.
 
-## Fixture Maintenance
+## Real Fixture Authoring Plan
 
 The committed fixture corpus is under [tests/fixtures/shared_tui_tracking/recorded](/data1/huangzhe/code/houmao/tests/fixtures/shared_tui_tracking/recorded).
 
-Each case keeps:
+Temporary authoring runs should go under `tmp/demo/shared-tui-tracking-demo-pack/authoring/<tool>/<case>/...` by passing `--output-root` to `recorded-capture` and `recorded-validate`. Do not capture directly into the committed fixture tree.
+
+### First-Wave Case Matrix
+
+The first real authoring wave is intentionally narrow and uses concrete prompts or explicit operator actions:
+
+- Claude `claude_explicit_success`: send `Reply with the single word READY and stop.`
+- Claude `claude_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then send `Escape`
+- Claude `claude_slash_menu_recovery`: wait for ready, type `/` without submit, hold the overlay, then dismiss with `Escape`
+- Claude `claude_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
+- Codex `codex_explicit_success`: send `Reply with the single word READY and stop.`
+- Codex `codex_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then send `Escape`
+- Codex `codex_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
+
+Each case targets one critical transition family:
+
+- explicit success: ready -> active -> ready/success
+- interrupted after active: active -> interrupted -> ready
+- slash-menu ambiguity: ready -> ambiguous overlay -> ready
+- diagnostics loss: active -> `tui_down`
+
+### Notes From Real Authoring
+
+- In active recorder-driven Codex captures, submit the prompt as two managed events, not one collapsed `text<[Enter]>` sequence. The real TUI can leave the text staged without submitting when the `Enter` lands too tightly behind the literal text.
+- Promote only `managed_send_keys` rows into committed `recording/input_events.ndjson`. Recorder handshake noise and other `asciinema_input` rows are useful during capture debugging but should not become replay authority in the canonical fixture tree.
+- On `codex-cli 0.116.0`, the current `codex_interrupted_after_active` recording does not return to a clean interrupted-ready surface after `Escape`. It falls into an ambiguous feedback-oriented surface, so label the actual observed state span and record the scenario-intent drift in the run report.
+
+### Authoring Workflow
+
+When authoring or replacing a canonical fixture:
+
+1. Scout the live surface first when prompt timing is uncertain:
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
+```
+
+2. Capture the real session into a temporary authoring root:
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-interrupted-after-active.json \
+  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture
+```
+
+3. Read `recording/pane_snapshots.ndjson` directly and author `recording/labels.json` over the full tracked field set:
+   - `diagnostics_availability`
+   - `surface_accepting_input`
+   - `surface_editing_input`
+   - `surface_ready_posture`
+   - `turn_phase`
+   - `last_turn_result`
+   - `last_turn_source`
+4. Run fast replay validation without video:
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
+  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture \
+  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/validation-skip-video \
+  --skip-video
+```
+
+5. Fix labels or recapture until replay mismatches are zero.
+6. After recording and state labeling are done, generate the MP4 visualization from the labeled pane snapshots:
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
+  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture \
+  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/validation
+```
+
+7. Inspect `analysis/summary_report.md`, any `issues/*.md`, and `review/review.mp4`.
+8. Promote only the canonical replay artifacts into `tests/fixtures/shared_tui_tracking/recorded/<tool>/<case>/`.
+9. After a promotion batch, rerun corpus validation:
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus
+```
+
+### Canonical Fixture Contents
+
+Each committed case keeps only the canonical replay-grade artifacts:
 
 - `fixture_manifest.json`
 - `runtime_observations.ndjson`
@@ -88,11 +170,12 @@ Each case keeps:
 - `recording/input_events.ndjson` when explicit-input authority matters
 - `recording/labels.json`
 
-When authoring a new fixture:
+Temporary authoring outputs stay under `tmp/` unless a later change decides to publish them:
 
-1. Capture with `recorded-capture` against a real tmux session.
-2. Read `recording/pane_snapshots.ndjson` directly and classify the official tracked fields in `recording/labels.json`.
-3. Run `recorded-validate` to generate replay/comparison artifacts.
-4. Check `analysis/summary_report.md` and any `issues/*.md` files.
-5. Review `review/review.mp4` to confirm the labeled transitions visually match the session.
-
+- `analysis/summary_report.md`
+- `analysis/groundtruth_timeline.ndjson`
+- `analysis/replay_timeline.ndjson`
+- `analysis/comparison.json`
+- `issues/*.md`
+- `review/frames/frame-*.png`
+- `review/review.mp4`

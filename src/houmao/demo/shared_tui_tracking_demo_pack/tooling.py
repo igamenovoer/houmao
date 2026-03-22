@@ -6,7 +6,9 @@ import os
 import re
 import shutil
 import shlex
+import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -293,3 +295,25 @@ def kill_tmux_session_if_exists(*, session_name: str) -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown tmux error"
         raise TmuxCommandError(f"Failed to kill tmux session `{session_name}`: {detail}")
+
+
+def kill_supported_process_for_pane(*, tool: ToolName, session_name: str, pane_id: str) -> None:
+    """Terminate the supported tool process under one tmux pane while leaving the pane alive."""
+
+    if not tmux_session_exists(session_name=session_name):
+        raise RuntimeError(f"tmux session does not exist: {session_name}")
+    pane_state = query_pane_state(session_name=session_name, pane_id=pane_id)
+    if pane_state is None:
+        raise RuntimeError(f"Failed to resolve pane state for {pane_id}")
+    pane_pid = pane_state["pane_pid"]
+    if pane_pid is None:
+        raise RuntimeError(f"Pane `{pane_id}` has no pid")
+    supported_process_pid = find_supported_process_pid(root_pid=pane_pid, tool=tool)
+    if supported_process_pid is None:
+        raise RuntimeError(
+            f"Failed to resolve supported process under pane `{pane_id}` for tool `{tool}`"
+        )
+    os.kill(supported_process_pid, signal.SIGTERM)
+    time.sleep(0.2)
+    if process_is_alive(supported_process_pid):
+        os.kill(supported_process_pid, signal.SIGKILL)

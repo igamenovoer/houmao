@@ -1,5 +1,5 @@
 {
-  "id": "claude-explicit-success",
+  "id": "claude_explicit_success",
   "tool": "claude",
   "description": "Drive Claude through one simple explicit-input success turn.",
   "launch": {
@@ -9,8 +9,25 @@
   },
   "steps": [
     {
+      "action": "wait_for_pattern",
+      "name": "wait-for-workspace-trust-prompt",
+      "pattern": "Enter to confirm",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_key",
+      "name": "confirm-workspace-trust",
+      "key": "Enter"
+    },
+    {
       "action": "wait_for_ready",
       "name": "wait-for-ready"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-stable-input-surface",
+      "pattern": "bypass permissions on",
+      "timeout_seconds": 30.0
     },
     {
       "action": "send_text",
@@ -21,7 +38,8 @@
     {
       "action": "wait_for_pattern",
       "name": "wait-for-ready-token",
-      "pattern": "READY"
+      "pattern": "(?m)^\\s*(?:[●•]\\s*)?READY\\s*$",
+      "timeout_seconds": 45.0
     },
     {
       "action": "wait_seconds",
@@ -30,4 +48,3 @@
     }
   ]
 }
-

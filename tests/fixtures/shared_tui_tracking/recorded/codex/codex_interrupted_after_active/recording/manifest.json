@@ -1,7 +1,7 @@
 {
-  "attach_command": null,
-  "input_capture_level": "output_only",
-  "mode": "passive",
+  "attach_command": "env -u TMUX tmux attach-session -t HMREC-codex-interrupted-after-active",
+  "input_capture_level": "authoritative_managed",
+  "mode": "active",
   "recorder_session_name": "HMREC-codex-interrupted-after-active",
   "repo_root": "/repo",
   "run_id": "codex-interrupted-after-active-recording",
@@ -9,17 +9,16 @@
   "run_tainted": false,
   "sample_interval_seconds": 0.25,
   "schema_version": 1,
-  "started_at_utc": "2026-03-20T00:04:00+00:00",
+  "started_at_utc": "2026-03-22T02:49:07+00:00",
   "stop_reason": "stop_requested",
-  "stopped_at_utc": "2026-03-20T00:04:02+00:00",
+  "stopped_at_utc": "2026-03-22T02:49:13+00:00",
   "taint_reasons": [],
   "target": {
     "pane_id": "%1",
-    "session_name": "shared-tui-codex-interrupted-after-active",
+    "session_name": "shared-tui-codex-codex-interrupted-after-active",
     "window_id": "@1",
     "window_name": "codex"
   },
   "tool": "codex",
-  "visual_recording_kind": "readonly_observer"
+  "visual_recording_kind": "interactive_client"
 }
-

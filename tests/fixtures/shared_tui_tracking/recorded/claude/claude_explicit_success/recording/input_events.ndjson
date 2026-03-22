@@ -1,2 +1,2 @@
-{"elapsed_seconds":0.1,"event_id":"i000001","source":"managed_send_keys","ts_utc":"2026-03-20T00:00:00+00:00"}
-
+{"elapsed_seconds": 1.7843, "escape_special_keys": false, "event_id": "i000001", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:27:41+00:00"}
+{"elapsed_seconds": 2.212246, "escape_special_keys": false, "event_id": "i000002", "sequence": "Reply with the single word READY and stop.<[Enter]>", "source": "managed_send_keys", "tmux_target": "%1", "ts_utc": "2026-03-22T02:27:42+00:00"}

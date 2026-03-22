@@ -51,6 +51,7 @@ from .tooling import (
     capture_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
+    kill_supported_process_for_pane,
     kill_tmux_session_if_exists,
     launch_tmux_session,
     now_utc_iso,
@@ -61,6 +62,7 @@ from .tooling import (
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _FIXTURE_MANIFEST_NAME = "fixture_manifest.json"
+_SUBMIT_KEY_DELAY_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -536,13 +538,11 @@ def _execute_scenario(
                 timeout_seconds=step.timeout_seconds or 30.0,
             )
         elif step.action == "send_text":
-            sequence = step.text or ""
-            if step.submit:
-                sequence += "<[Enter]>"
-            _send_sequence(
+            _send_text(
                 session_name=tool_session_name,
                 pane_id=pane_id,
-                sequence=sequence,
+                text=step.text or "",
+                submit=step.submit,
             )
         elif step.action == "send_key":
             key = step.key or "Enter"
@@ -553,6 +553,12 @@ def _execute_scenario(
             )
         elif step.action == "kill_session":
             kill_tmux_session_if_exists(session_name=tool_session_name)
+        elif step.action == "kill_supported_process":
+            kill_supported_process_for_pane(
+                tool=scenario.tool,
+                session_name=tool_session_name,
+                pane_id=pane_id,
+            )
         else:  # pragma: no cover - parser guards valid actions
             raise ValueError(f"Unsupported scenario action: {step.action}")
         append_ndjson(
@@ -576,6 +582,25 @@ def _send_sequence(*, session_name: str, pane_id: str, sequence: str) -> None:
         sequence=sequence,
         escape_special_keys=False,
         tmux_target=pane_id,
+    )
+
+
+def _send_text(*, session_name: str, pane_id: str, text: str, submit: bool) -> None:
+    """Deliver typed text, optionally followed by a slightly delayed submit key."""
+
+    if text:
+        _send_sequence(
+            session_name=session_name,
+            pane_id=pane_id,
+            sequence=text,
+        )
+    if not submit:
+        return
+    time.sleep(_SUBMIT_KEY_DELAY_SECONDS)
+    _send_sequence(
+        session_name=session_name,
+        pane_id=pane_id,
+        sequence="<[Enter]>",
     )
 
 
