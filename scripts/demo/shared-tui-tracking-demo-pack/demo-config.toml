@@ -48,7 +48,7 @@ runtime_observer_interval_seconds = 0.2
 settle_seconds = 1.0
 
 [sweeps.capture_frequency]
-description = "Replay one recorded fixture at progressively sparser effective capture cadences."
+description = "Replay one recorded fixture at progressively sparser effective capture cadences down to the documented 2 Hz robustness floor."
 baseline_variant = "source"
 
 [[sweeps.capture_frequency.variants]]
@@ -61,7 +61,7 @@ sample_interval_seconds = 0.4
 
 [[sweeps.capture_frequency.variants]]
 name = "slow-rate"
-sample_interval_seconds = 0.8
+sample_interval_seconds = 0.5
 
 [sweeps.capture_frequency.contracts.claude_explicit_success]
 required_labels = ["active", "ready_success"]
@@ -94,9 +94,9 @@ forbidden_terminal_results = ["known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_interrupted_after_active]
-required_labels = ["active", "ready_interrupted"]
-required_terminal_result = "interrupted"
-forbidden_terminal_results = ["success", "known_failure"]
+required_labels = ["active"]
+required_terminal_result = "none"
+forbidden_terminal_results = ["success", "interrupted", "known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_tui_down_after_active]

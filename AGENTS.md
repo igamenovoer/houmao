@@ -8,6 +8,7 @@ Core runtime code lives in `src/houmao/` (CLI entrypoints, launch/runtime logic,
 
 Supporting material is organized as: `docs/` (reference and migration docs), `scripts/` (automation and helper CLIs), `openspec/` (spec-driven change artifacts), and `config/` (project configuration assets).
 External code lives under `extern/`: use `extern/tracked/` for tracked dependencies and `extern/orphan/` for local reference-only checkouts. The RxPY source reference cloned for this workspace is at `extern/orphan/RxPY/`.
+When a task involves a library, tool, or integration that has a source reference under `extern/orphan/`, inspect that local source checkout first and use it as the primary reference for behavior, APIs, config, and implementation details. Only fall back to online documentation or web search after checking the in-repo source, or when you need newer upstream context that is not present in the local checkout. Current examples under `extern/orphan/` include `RxPY`, `filestash`, `codex`, `asciinema`, `cypht`, and `stalwart`.
 
 ## Build, Test, and Development Commands
 Use Pixi as the default workflow:

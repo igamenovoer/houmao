@@ -12,6 +12,7 @@ from houmao.shared_tui_tracking.models import TrackedLastTurnResult
 from houmao.terminal_record.models import DEFAULT_SAMPLE_INTERVAL_SECONDS
 
 from .models import ToolName
+from .schema_validation import validate_demo_config_document, validate_demo_config_override
 
 
 SweepStateLabel = Literal[
@@ -289,39 +290,46 @@ def resolve_demo_config(
     """Load and resolve the demo-owned config with overrides."""
 
     effective_path = (
-        config_path.expanduser().resolve() if config_path is not None else default_demo_config_path(repo_root=repo_root)
+        config_path.expanduser().resolve()
+        if config_path is not None
+        else default_demo_config_path(repo_root=repo_root)
     )
     raw = _load_toml_mapping(effective_path)
+    validated_raw = validate_demo_config_document(payload=raw, config_path=effective_path)
     merged = copy.deepcopy(raw)
     if profile_name is not None:
-        profiles = _require_mapping(raw.get("profiles", {}), context="profiles")
-        if profile_name not in profiles:
+        if profile_name not in validated_raw.profiles:
             raise ValueError(f"Unknown demo config profile: {profile_name}")
-        profile_payload = _require_mapping(
-            profiles.get(profile_name),
-            context=f"profiles.{profile_name}",
+        profile_payload = validated_raw.profiles[profile_name].model_dump(
+            mode="python",
+            exclude_none=True,
         )
         merged = _deep_merge(merged, copy.deepcopy(profile_payload))
     if scenario_id is not None:
-        scenario_overrides = _require_mapping(
-            raw.get("scenario_overrides", {}),
-            context="scenario_overrides",
-        )
-        if scenario_id in scenario_overrides:
+        if scenario_id in validated_raw.scenario_overrides:
             merged = _deep_merge(
                 merged,
                 copy.deepcopy(
-                    _require_mapping(
-                        scenario_overrides.get(scenario_id),
-                        context=f"scenario_overrides.{scenario_id}",
+                    validated_raw.scenario_overrides[scenario_id].model_dump(
+                        mode="python",
+                        exclude_none=True,
                     )
                 ),
             )
     if cli_overrides:
-        merged = _deep_merge(merged, copy.deepcopy(cli_overrides))
+        validated_cli_overrides = validate_demo_config_override(
+            payload=cli_overrides,
+            context="cli_overrides",
+        )
+        merged = _deep_merge(
+            merged,
+            copy.deepcopy(validated_cli_overrides.model_dump(mode="python", exclude_none=True)),
+        )
+    validated_merged = validate_demo_config_document(payload=merged, config_path=effective_path)
+    merged = validated_merged.model_dump(mode="python", exclude_none=True)
     return ResolvedDemoConfig(
-        schema_version=int(merged.get("schema_version", 1)),
-        demo_id=str(merged.get("demo_id", _DEFAULT_DEMO_ID)),
+        schema_version=int(validated_merged.schema_version),
+        demo_id=str(validated_merged.demo_id),
         repo_root=str(repo_root.resolve()),
         source_config_path=str(effective_path),
         selected_profile=profile_name,
@@ -329,9 +337,7 @@ def resolve_demo_config(
         tools=_parse_tools(_require_mapping(merged.get("tools"), context="tools")),
         paths=_parse_paths(_require_mapping(merged.get("paths"), context="paths")),
         evidence=_parse_evidence(_require_mapping(merged.get("evidence"), context="evidence")),
-        semantics=_parse_semantics(
-            _require_mapping(merged.get("semantics"), context="semantics")
-        ),
+        semantics=_parse_semantics(_require_mapping(merged.get("semantics"), context="semantics")),
         presentation=_parse_presentation(
             _require_mapping(merged.get("presentation"), context="presentation")
         ),
@@ -347,7 +353,9 @@ def _parse_tools(payload: dict[str, Any]) -> dict[ToolName, DemoToolConfig]:
         tool_payload = _require_mapping(payload.get(tool_name), context=f"tools.{tool_name}")
         tools[tool_name] = DemoToolConfig(
             recipe_path=_require_string(tool_payload.get("recipe_path"), context="recipe_path"),
-            launch_args_override=tuple(_require_string_list(tool_payload.get("launch_args_override", []))),
+            launch_args_override=tuple(
+                _require_string_list(tool_payload.get("launch_args_override", []))
+            ),
         )
     return tools
 
@@ -389,7 +397,9 @@ def _parse_semantics(payload: dict[str, Any]) -> DemoSemanticsConfig:
 def _parse_presentation(payload: dict[str, Any]) -> DemoPresentationConfig:
     """Parse presentation defaults from raw config."""
 
-    review_payload = _require_mapping(payload.get("review_video"), context="presentation.review_video")
+    review_payload = _require_mapping(
+        payload.get("review_video"), context="presentation.review_video"
+    )
     fps_value = review_payload.get("fps")
     return DemoPresentationConfig(
         review_video=DemoReviewVideoConfig(
@@ -414,10 +424,20 @@ def _parse_sweeps(payload: dict[str, Any]) -> dict[str, SweepDefinitionConfig]:
         variants_raw = raw_value.get("variants", [])
         if not isinstance(variants_raw, list):
             raise ValueError(f"sweeps.{sweep_name}.variants must be an array of tables")
-        variants = tuple(_parse_sweep_variant(sweep_name=sweep_name, payload=item) for item in variants_raw)
-        contracts_raw = _require_mapping(raw_value.get("contracts", {}), context=f"sweeps.{sweep_name}.contracts")
+        variants = tuple(
+            _parse_sweep_variant(sweep_name=sweep_name, payload=item) for item in variants_raw
+        )
+        contracts_raw = _require_mapping(
+            raw_value.get("contracts", {}), context=f"sweeps.{sweep_name}.contracts"
+        )
         contracts = {
-            case_id: _parse_sweep_contract(sweep_name=sweep_name, case_id=case_id, payload=_require_mapping(raw_contract, context=f"sweeps.{sweep_name}.contracts.{case_id}"))
+            case_id: _parse_sweep_contract(
+                sweep_name=sweep_name,
+                case_id=case_id,
+                payload=_require_mapping(
+                    raw_contract, context=f"sweeps.{sweep_name}.contracts.{case_id}"
+                ),
+            )
             for case_id, raw_contract in contracts_raw.items()
         }
         sweeps[sweep_name] = SweepDefinitionConfig(

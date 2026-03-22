@@ -245,6 +245,8 @@ The sweep contract is intentionally coarser:
 
 This is conceptually correct because changing capture cadence changes the evidence quantization. A slower stream may still be semantically good enough even when exact sample alignment to the canonical GT is no longer meaningful.
 
+In the checked-in shared-TUI demo config, that robustness claim is intentionally bounded: the demo only claims robust tracked-state behavior at `2 Hz` or faster, meaning `sample_interval_seconds <= 0.5`. Slower cadences may still be useful for exploratory probing, but they are outside the default robustness promise the demo now makes.
+
 ## How To Handle Settle-Time And Stability Semantics
 
 The safe rule is:

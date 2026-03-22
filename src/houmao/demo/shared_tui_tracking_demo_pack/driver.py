@@ -346,9 +346,9 @@ def _demo_config_cli_overrides(
     if sample_interval_seconds is not None:
         overrides.setdefault("evidence", {})["sample_interval_seconds"] = sample_interval_seconds
     if runtime_observer_interval_seconds is not None:
-        overrides.setdefault("evidence", {})[
-            "runtime_observer_interval_seconds"
-        ] = runtime_observer_interval_seconds
+        overrides.setdefault("evidence", {})["runtime_observer_interval_seconds"] = (
+            runtime_observer_interval_seconds
+        )
     if settle_seconds is not None:
         overrides.setdefault("semantics", {})["settle_seconds"] = settle_seconds
     if ready_timeout_seconds is not None:
@@ -357,7 +357,7 @@ def _demo_config_cli_overrides(
         overrides.setdefault("presentation", {}).setdefault("review_video", {})[
             "match_capture_cadence"
         ] = False
-        overrides.setdefault("presentation", {}).setdefault("review_video", {})[
-            "fps"
-        ] = review_video_fps
+        overrides.setdefault("presentation", {}).setdefault("review_video", {})["fps"] = (
+            review_video_fps
+        )
     return overrides

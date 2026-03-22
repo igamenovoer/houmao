@@ -9,6 +9,9 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+from houmao.demo.shared_tui_tracking_demo_pack import driver as demo_driver
+from houmao.demo.shared_tui_tracking_demo_pack import recorded as recorded_module
+from houmao.demo.shared_tui_tracking_demo_pack.boundary_models import DemoConfigDocumentV1
 from houmao.demo.shared_tui_tracking_demo_pack.config import (
     ResolvedDemoConfig,
     resolve_demo_config,
@@ -16,13 +19,15 @@ from houmao.demo.shared_tui_tracking_demo_pack.config import (
 from houmao.demo.shared_tui_tracking_demo_pack.groundtruth import (
     expand_labels_to_groundtruth_timeline,
 )
-from houmao.demo.shared_tui_tracking_demo_pack.live_watch import start_live_watch
+from houmao.demo.shared_tui_tracking_demo_pack.live_watch import (
+    inspect_live_watch,
+    start_live_watch,
+)
 from houmao.demo.shared_tui_tracking_demo_pack.models import (
     LiveWatchManifest,
     LiveWatchPaths,
     RecordedValidationPaths,
 )
-from houmao.demo.shared_tui_tracking_demo_pack import recorded as recorded_module
 from houmao.demo.shared_tui_tracking_demo_pack.recorded import validate_recorded_fixture
 from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     FRAME_HEIGHT,
@@ -30,6 +35,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
     build_ffmpeg_command,
     render_review_frames,
 )
+from houmao.demo.shared_tui_tracking_demo_pack.schema_validation import load_schema
 from houmao.demo.shared_tui_tracking_demo_pack.sweep import run_recorded_sweep
 from houmao.demo.shared_tui_tracking_demo_pack.tooling import default_tool_runtime_metadata
 
@@ -57,6 +63,22 @@ def _demo_config() -> ResolvedDemoConfig:
     """Return the checked-in resolved demo config."""
 
     return resolve_demo_config(repo_root=_repo_root())
+
+
+def _default_demo_config_text() -> str:
+    """Return the checked-in demo config text."""
+
+    path = _repo_root() / "scripts" / "demo" / "shared-tui-tracking-demo-pack" / "demo-config.toml"
+    return path.read_text(encoding="utf-8")
+
+
+def _write_demo_config_copy(path: Path, *, replacements: dict[str, str] | None = None) -> None:
+    """Write a copy of the checked-in demo config with optional replacements."""
+
+    content = _default_demo_config_text()
+    for source, target in (replacements or {}).items():
+        content = content.replace(source, target)
+    _write(path, content)
 
 
 def _watch_manifest(paths: LiveWatchPaths) -> LiveWatchManifest:
@@ -125,6 +147,21 @@ def test_default_tool_runtime_metadata_uses_permissive_launch_posture() -> None:
     assert codex_metadata.launch_args_override is None
     assert claude_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
     assert codex_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
+
+
+def test_default_capture_frequency_sweep_respects_two_hz_floor() -> None:
+    """The checked-in robustness sweep should not claim sub-2 Hz support."""
+
+    sweep = _demo_config().sweeps["capture_frequency"]
+    intervals = [
+        variant.sample_interval_seconds
+        for variant in sweep.variants
+        if variant.sample_interval_seconds is not None
+    ]
+
+    assert intervals
+    assert 0.5 in intervals
+    assert all(value <= 0.5 for value in intervals)
 
 
 def test_expand_labels_to_groundtruth_timeline_requires_full_coverage(tmp_path: Path) -> None:
@@ -377,7 +414,7 @@ def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path
         config_path,
         "\n".join(
             [
-                'schema_version = 1',
+                "schema_version = 1",
                 'demo_id = "shared-tui-tracking-demo-pack"',
                 "",
                 "[paths]",
@@ -446,6 +483,284 @@ def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path
     assert resolved.presentation.review_video.fps == 4.0
 
 
+def test_demo_config_resolution_preserves_runtime_interval_fallback_after_profile_merge(
+    tmp_path: Path,
+) -> None:
+    """Runtime cadence should still fall back to the merged sample cadence when omitted."""
+
+    config_path = tmp_path / "demo-config.toml"
+    _write(
+        config_path,
+        "\n".join(
+            [
+                "[paths]",
+                'fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"',
+                'recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"',
+                'live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"',
+                'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
+                "",
+                "[tools.claude]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                "",
+                "[tools.codex]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                "",
+                "[evidence]",
+                "sample_interval_seconds = 0.2",
+                "",
+                "[semantics]",
+                "settle_seconds = 1.0",
+                "",
+                "[presentation.review_video]",
+                "match_capture_cadence = true",
+                "",
+                "[profiles.fast_local.evidence]",
+                "sample_interval_seconds = 0.4",
+            ]
+        )
+        + "\n",
+    )
+
+    resolved = resolve_demo_config(
+        repo_root=_repo_root(),
+        config_path=config_path,
+        profile_name="fast_local",
+    )
+
+    assert resolved.evidence.sample_interval_seconds == 0.4
+    assert resolved.evidence.runtime_observer_interval_seconds == 0.4
+
+
+def test_packaged_demo_config_schema_matches_boundary_model() -> None:
+    """The packaged demo-config schema should match the boundary model exactly."""
+
+    assert load_schema() == DemoConfigDocumentV1.model_json_schema()
+
+
+def test_resolve_demo_config_reports_parse_error_with_selected_path(tmp_path: Path) -> None:
+    """Malformed TOML should fail with the selected config path in the error."""
+
+    config_path = tmp_path / "broken.toml"
+    _write(config_path, "[paths\n")
+
+    with pytest.raises(ValueError, match=str(config_path)):
+        resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+
+
+def test_resolve_demo_config_rejects_unknown_top_level_field(tmp_path: Path) -> None:
+    """Unknown top-level fields should fail validation."""
+
+    config_path = tmp_path / "unknown-top-level.toml"
+    _write(config_path, "unsupported_flag = true\n\n" + _default_demo_config_text())
+
+    with pytest.raises(ValueError, match=r"\$\.unsupported_flag"):
+        resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+
+
+def test_resolve_demo_config_rejects_missing_required_section(tmp_path: Path) -> None:
+    """Missing required top-level sections should fail validation."""
+
+    config_path = tmp_path / "missing-presentation.toml"
+    _write(
+        config_path,
+        "\n".join(
+            [
+                "schema_version = 1",
+                'demo_id = "shared-tui-tracking-demo-pack"',
+                "",
+                "[paths]",
+                'fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"',
+                'recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"',
+                'live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"',
+                'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
+                "",
+                "[tools.claude]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'launch_args_override = ["--dangerously-skip-permissions"]',
+                "",
+                "[tools.codex]",
+                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                "launch_args_override = []",
+                "",
+                "[evidence]",
+                "sample_interval_seconds = 0.2",
+                "",
+                "[semantics]",
+                "settle_seconds = 1.0",
+            ]
+        )
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match=r"\$\.presentation"):
+        resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+
+
+def test_resolve_demo_config_rejects_invalid_profile_structure(tmp_path: Path) -> None:
+    """Unknown fields inside profile overrides should fail validation."""
+
+    config_path = tmp_path / "invalid-profile.toml"
+    _write(
+        config_path,
+        _default_demo_config_text() + "\n[profiles.fast_local.unexpected]\nvalue = 1\n",
+    )
+
+    with pytest.raises(ValueError, match=r"\$\.profiles\.fast_local\.unexpected"):
+        resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+
+
+def test_resolve_demo_config_rejects_invalid_sweep_variant(tmp_path: Path) -> None:
+    """Sweep variants must declare source cadence or an explicit interval."""
+
+    config_path = tmp_path / "invalid-sweep.toml"
+    _write_demo_config_copy(
+        config_path,
+        replacements={"use_source_cadence = true": "use_source_cadence = false"},
+    )
+
+    with pytest.raises(ValueError, match=r"\$\.sweeps\.capture_frequency\.variants\[0\]"):
+        resolve_demo_config(repo_root=_repo_root(), config_path=config_path)
+
+
+def test_resolve_demo_config_rejects_invalid_cli_override() -> None:
+    """Invalid CLI override fragments should fail before merge."""
+
+    with pytest.raises(ValueError, match=r"cli_overrides"):
+        resolve_demo_config(
+            repo_root=_repo_root(),
+            cli_overrides={"tools": {"claude": {"unexpected": "value"}}},
+        )
+
+
+def test_driver_validate_corpus_uses_fixtures_root_from_selected_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The driver should use config-derived fixture roots when no CLI root is provided."""
+
+    fixtures_root = tmp_path / "alt-fixtures-root"
+    config_path = tmp_path / "alternate.toml"
+    _write_demo_config_copy(
+        config_path,
+        replacements={
+            'fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"': f'fixtures_root = "{fixtures_root}"',
+        },
+    )
+    captured: dict[str, Path] = {}
+
+    def _fake_validate_fixture_corpus(**kwargs):
+        captured["fixtures_root"] = kwargs["fixtures_root"]
+        return []
+
+    monkeypatch.setattr(demo_driver, "validate_fixture_corpus", _fake_validate_fixture_corpus)
+
+    assert (
+        demo_driver.main(
+            [
+                "recorded-validate-corpus",
+                "--demo-config",
+                str(config_path),
+                "--skip-video",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert captured["fixtures_root"] == fixtures_root.resolve()
+
+
+def test_inspect_live_watch_uses_selected_live_root_when_run_root_is_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live inspection should resolve runs from the selected config-derived live root."""
+
+    live_root = tmp_path / "alt-live-root"
+    run_root = live_root / "claude" / "20260322T000000"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(paths.watch_manifest_path, _watch_manifest(paths).to_payload())
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+    _write_json(
+        paths.latest_state_path,
+        {
+            "sample_id": "s000001",
+            "elapsed_seconds": 0.0,
+            "diagnostics_availability": "available",
+            "turn_phase": "ready",
+            "last_turn_result": "none",
+            "last_turn_source": "none",
+            "surface_accepting_input": "yes",
+            "surface_editing_input": "no",
+            "surface_ready_posture": "yes",
+        },
+    )
+    config_path = tmp_path / "alternate.toml"
+    _write_demo_config_copy(
+        config_path,
+        replacements={
+            'live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"': f'live_root = "{live_root}"',
+        },
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.tmux_session_exists",
+        lambda *, session_name: session_name == "shared-tui-claude-demo",
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.status_terminal_record",
+        lambda *, run_root: {"status": "running", "run_root": str(run_root)},
+    )
+
+    payload = inspect_live_watch(
+        repo_root=_repo_root(),
+        demo_config=resolve_demo_config(repo_root=_repo_root(), config_path=config_path),
+        run_root=None,
+    )
+
+    assert payload["run_root"] == str(run_root.resolve())
+
+
+def test_validate_recorded_fixture_persists_selected_source_config_path(tmp_path: Path) -> None:
+    """Recorded validation should persist the selected config path in resolved config artifacts."""
+
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / "claude"
+        / "claude_explicit_success"
+    )
+    config_path = tmp_path / "alternate.toml"
+    _write_demo_config_copy(config_path)
+
+    validate_recorded_fixture(
+        repo_root=_repo_root(),
+        demo_config=resolve_demo_config(repo_root=_repo_root(), config_path=config_path),
+        fixture_root=fixture_root,
+        output_root=tmp_path / "recorded-validation",
+        render_review_video=False,
+    )
+
+    payload = json.loads(
+        (tmp_path / "recorded-validation" / "artifacts" / "resolved_demo_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["source_config_path"] == str(config_path.resolve())
+
+
 def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) -> None:
     """A recorded sweep should write its report and per-variant verdict artifacts."""
 
@@ -474,3 +789,34 @@ def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) 
     assert result.summary_path.is_file()
     assert result.outcome_count == 3
     assert source_verdict["passed"] is True
+
+
+def test_run_recorded_sweep_persists_selected_source_config_path(tmp_path: Path) -> None:
+    """Recorded sweep should persist the selected config path in resolved config artifacts."""
+
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / "claude"
+        / "claude_explicit_success"
+    )
+    config_path = tmp_path / "alternate.toml"
+    _write_demo_config_copy(config_path)
+
+    run_recorded_sweep(
+        repo_root=_repo_root(),
+        demo_config=resolve_demo_config(repo_root=_repo_root(), config_path=config_path),
+        sweep_name="capture_frequency",
+        fixture_root=fixture_root,
+        output_root=tmp_path / "sweep-run",
+    )
+
+    payload = json.loads(
+        (tmp_path / "sweep-run" / "artifacts" / "resolved_demo_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["source_config_path"] == str(config_path.resolve())

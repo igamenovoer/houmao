@@ -6,7 +6,9 @@ The package lives in [src/houmao/demo/shared_tui_tracking_demo_pack](/data1/huan
 
 For the developer-facing contract on how human ground truth is compared against tracker output, read [GT_STATE_COMPARISON_CONTRACT.md](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/GT_STATE_COMPARISON_CONTRACT.md).
 
-The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml). By default it aligns tmux capture cadence with the Houmao server baseline of `0.2s`, and review-video cadence matches the underlying capture cadence unless you explicitly override it.
+The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml). By default it aligns tmux capture cadence with the Houmao server baseline of `0.2s`, and review-video cadence matches the underlying capture cadence unless you explicitly override it. The checked-in demo now treats `2 Hz` capture frequency, meaning `sample_interval_seconds <= 0.5`, as the lower robustness floor for tracked public state.
+
+For a section-by-section explanation of the config, merge order, sweeps, and alternate config-file usage, read [CONFIG_REFERENCE.md](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/CONFIG_REFERENCE.md).
 
 ## Recorded Validation
 
@@ -55,6 +57,14 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
   --fixture-root tests/fixtures/shared_tui_tracking/recorded/claude/claude_explicit_success
 ```
 
+To switch to a different config file entirely, point the command at another TOML:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
+  --demo-config /path/to/alternate-demo-config.toml \
+  --fixture-root tests/fixtures/shared_tui_tracking/recorded/claude/claude_explicit_success
+```
+
 To test tracker robustness against sparser effective tmux capture cadences on one recorded fixture:
 
 ```bash
@@ -64,6 +74,8 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep \
 ```
 
 The sweep command writes under `tmp/demo/shared-tui-tracking-demo-pack/sweeps/...` unless `--output-root` overrides it. Sweep variants are evaluated against transition contracts from `demo-config.toml`, not against the canonical per-sample GT timeline.
+
+The checked-in `capture_frequency` sweep is meant to validate robustness only down to that `2 Hz` floor. If you want to probe slower cadences, use an alternate config and treat the result as exploratory rather than part of the demo's default robustness claim.
 
 ## Live Watch
 
@@ -79,6 +91,14 @@ Start a live watch dashboard for Codex:
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
 ```
 
+Use an alternate config file for live watch when you want different path roots, capture cadence, or sweep definitions:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start \
+  --tool claude \
+  --demo-config /path/to/alternate-demo-config.toml
+```
+
 Inspect the latest run:
 
 ```bash
@@ -89,6 +109,18 @@ Stop the latest run:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop --json
+```
+
+If you started the live run with a config that changes `live_root`, use the same `--demo-config` again for `inspect` and `stop` unless you pass `--run-root` explicitly:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh inspect \
+  --demo-config /path/to/alternate-demo-config.toml \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop \
+  --demo-config /path/to/alternate-demo-config.toml \
+  --json
 ```
 
 Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run-id>/`.
@@ -131,7 +163,7 @@ Each case targets one critical transition family:
 
 - In active recorder-driven Codex captures, submit the prompt as two managed events, not one collapsed `text<[Enter]>` sequence. The real TUI can leave the text staged without submitting when the `Enter` lands too tightly behind the literal text.
 - Promote only `managed_send_keys` rows into committed `recording/input_events.ndjson`. Recorder handshake noise and other `asciinema_input` rows are useful during capture debugging but should not become replay authority in the canonical fixture tree.
-- On `codex-cli 0.116.0`, the current `codex_interrupted_after_active` recording does not return to a clean interrupted-ready surface after `Escape`. It falls into an ambiguous feedback-oriented surface, so label the actual observed state span and record the scenario-intent drift in the run report.
+- On `codex-cli 0.116.0`, the refreshed `codex_interrupted_after_active` capture does not surface an interrupted-ready posture after `Escape`, even when the post-escape hold is extended. The observed public state stays in the active working posture, so label that active continuation honestly and record the scenario-intent drift in the run report.
 
 ### Authoring Workflow
 

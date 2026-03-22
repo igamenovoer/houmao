@@ -3,9 +3,8 @@
   "labels": [
     {
       "label_id": "startup-unknown",
-      "scenario_id": "claude_tui_down_after_active",
       "sample_id": "s000001",
-      "sample_end_id": "s000004",
+      "sample_end_id": "s000005",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "unknown",
@@ -14,14 +13,12 @@
         "turn_phase": "unknown",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Recorder startup before the Claude surface is legible."
+      }
     },
     {
       "label_id": "workspace-trust-prompt",
-      "scenario_id": "claude_tui_down_after_active",
-      "sample_id": "s000005",
-      "sample_end_id": "s000006",
+      "sample_id": "s000006",
+      "sample_end_id": "s000009",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -30,14 +27,12 @@
         "turn_phase": "ready",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Workspace trust confirmation before the diagnostics-loss turn begins."
+      }
     },
     {
       "label_id": "active-before-loss",
-      "scenario_id": "claude_tui_down_after_active",
-      "sample_id": "s000007",
-      "sample_end_id": "s000014",
+      "sample_id": "s000010",
+      "sample_end_id": "s000018",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -46,14 +41,12 @@
         "turn_phase": "active",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Claude is actively working before the supported process is killed."
+      }
     },
     {
       "label_id": "tui-down-runtime",
-      "scenario_id": "claude_tui_down_after_active",
-      "sample_id": "s000015",
-      "sample_end_id": "s000017",
+      "sample_id": "s000019",
+      "sample_end_id": "s000020",
       "expectations": {
         "diagnostics_availability": "tui_down",
         "surface_accepting_input": "yes",
@@ -62,14 +55,12 @@
         "turn_phase": "unknown",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "The pane survives but runtime diagnostics show the Claude process is down."
+      }
     },
     {
       "label_id": "active-without-runtime",
-      "scenario_id": "claude_tui_down_after_active",
-      "sample_id": "s000018",
-      "sample_end_id": "s000019",
+      "sample_id": "s000021",
+      "sample_end_id": "s000021",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -78,8 +69,35 @@
         "turn_phase": "active",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "The final pane snapshots still show the stale active surface after runtime evidence stops advancing."
+      }
+    },
+    {
+      "label_id": "tui-down-runtime-2",
+      "sample_id": "s000022",
+      "sample_end_id": "s000022",
+      "expectations": {
+        "diagnostics_availability": "tui_down",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "active-without-runtime-2",
+      "sample_id": "s000023",
+      "sample_end_id": "s000023",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
     }
   ]
 }

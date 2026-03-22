@@ -84,12 +84,16 @@ def run_recorded_sweep(
     sweep = demo_config.sweeps[sweep_name]
     effective_fixture_root = fixture_root.expanduser().resolve()
     fixture_manifest = _load_fixture_manifest(effective_fixture_root)
-    case_id = fixture_manifest.case_id if fixture_manifest is not None else effective_fixture_root.name
+    case_id = (
+        fixture_manifest.case_id if fixture_manifest is not None else effective_fixture_root.name
+    )
     if case_id not in sweep.contracts:
-        raise ValueError(
-            f"Sweep `{sweep_name}` does not define a contract for case `{case_id}`"
-        )
-    tool = fixture_manifest.tool if fixture_manifest is not None else _infer_tool_from_path(effective_fixture_root)
+        raise ValueError(f"Sweep `{sweep_name}` does not define a contract for case `{case_id}`")
+    tool = (
+        fixture_manifest.tool
+        if fixture_manifest is not None
+        else _infer_tool_from_path(effective_fixture_root)
+    )
     settle_seconds = (
         fixture_manifest.settle_seconds
         if fixture_manifest is not None
@@ -158,9 +162,7 @@ def run_recorded_sweep(
         variant_dir.mkdir(parents=True, exist_ok=True)
         skipped_reason: str | None = None
         if target_interval + 1e-9 < source_sample_interval_seconds:
-            skipped_reason = (
-                "target cadence is faster than the source recording cadence and cannot be synthesized"
-            )
+            skipped_reason = "target cadence is faster than the source recording cadence and cannot be synthesized"
             outcome = SweepVariantOutcome(
                 variant_name=variant.name,
                 sample_interval_seconds=target_interval,
@@ -205,7 +207,9 @@ def run_recorded_sweep(
             baseline_first_occurrence = _first_occurrence_times(replay_timeline_rows)
 
     if baseline_first_occurrence is None:
-        raise RuntimeError(f"Baseline sweep variant `{baseline_variant_name}` did not produce a replay timeline")
+        raise RuntimeError(
+            f"Baseline sweep variant `{baseline_variant_name}` did not produce a replay timeline"
+        )
 
     for variant in sweep.variants:
         variant_dir = paths.variants_dir / variant.name

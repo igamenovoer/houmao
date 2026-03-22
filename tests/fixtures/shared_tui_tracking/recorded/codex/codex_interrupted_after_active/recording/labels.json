@@ -3,9 +3,8 @@
   "labels": [
     {
       "label_id": "startup-unknown",
-      "scenario_id": "codex_interrupted_after_active",
       "sample_id": "s000001",
-      "sample_end_id": "s000009",
+      "sample_end_id": "s000012",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "unknown",
@@ -14,14 +13,12 @@
         "turn_phase": "unknown",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Recorder startup before the Codex surface is fully readable."
+      }
     },
     {
       "label_id": "active-turn",
-      "scenario_id": "codex_interrupted_after_active",
-      "sample_id": "s000010",
-      "sample_end_id": "s000016",
+      "sample_id": "s000013",
+      "sample_end_id": "s000025",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -30,24 +27,7 @@
         "turn_phase": "active",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Codex is actively processing the repository-search prompt before the operator sends Escape."
-    },
-    {
-      "label_id": "post-escape-ambiguous",
-      "scenario_id": "codex_interrupted_after_active",
-      "sample_id": "s000017",
-      "sample_end_id": "s000023",
-      "expectations": {
-        "diagnostics_availability": "available",
-        "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
-        "surface_ready_posture": "unknown",
-        "turn_phase": "unknown",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
-      },
-      "note": "After Escape, Codex shows a feedback-oriented error surface instead of a clean interrupted-ready return."
+      }
     }
   ]
 }

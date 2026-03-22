@@ -3,9 +3,8 @@
   "labels": [
     {
       "label_id": "startup-unknown",
-      "scenario_id": "claude_interrupted_after_active",
       "sample_id": "s000001",
-      "sample_end_id": "s000004",
+      "sample_end_id": "s000005",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "unknown",
@@ -14,14 +13,12 @@
         "turn_phase": "unknown",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Recorder startup before the Claude surface is legible."
+      }
     },
     {
       "label_id": "workspace-trust-prompt",
-      "scenario_id": "claude_interrupted_after_active",
-      "sample_id": "s000005",
-      "sample_end_id": "s000006",
+      "sample_id": "s000006",
+      "sample_end_id": "s000009",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -30,14 +27,12 @@
         "turn_phase": "ready",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Workspace trust confirmation before the tracked turn begins."
+      }
     },
     {
       "label_id": "active-turn",
-      "scenario_id": "claude_interrupted_after_active",
-      "sample_id": "s000007",
-      "sample_end_id": "s000012",
+      "sample_id": "s000010",
+      "sample_end_id": "s000016",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -46,14 +41,12 @@
         "turn_phase": "active",
         "last_turn_result": "none",
         "last_turn_source": "none"
-      },
-      "note": "Claude is actively working on the repository-search prompt before operator interruption."
+      }
     },
     {
       "label_id": "interrupted-ready",
-      "scenario_id": "claude_interrupted_after_active",
-      "sample_id": "s000013",
-      "sample_end_id": "s000018",
+      "sample_id": "s000017",
+      "sample_end_id": "s000022",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -62,8 +55,7 @@
         "turn_phase": "ready",
         "last_turn_result": "interrupted",
         "last_turn_source": "explicit_input"
-      },
-      "note": "The escape key has interrupted the turn and Claude is waiting for the next instruction."
+      }
     }
   ]
 }
