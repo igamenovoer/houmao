@@ -54,9 +54,6 @@ from houmao.server.models import (
 )
 from houmao.server.tracking_debug import TrackingDebugSink
 
-_SURFACE_INFERENCE_MIN_GROWTH_CHARS = 48
-_SURFACE_INFERENCE_MIN_ADDED_LINES = 2
-
 
 def utc_now_iso() -> str:
     """Return one current UTC timestamp string."""
@@ -108,13 +105,14 @@ class LiveSessionTracker:
         self.m_lock = threading.RLock()
         self.m_scheduler = HistoricalScheduler()
         self.m_tracker_app_id = app_id_from_tool(tool=identity.tool)
+        self.m_tracker_observed_tool_version = identity.observed_tool_version
         self.m_tracker_config = TrackerConfig(
             settle_seconds=completion_stability_seconds,
             stability_threshold_seconds=stability_threshold_seconds,
         )
         self.m_tracker_session = TuiTrackerSession.from_config(
             app_id=self.m_tracker_app_id,
-            observed_version=None,
+            observed_version=self.m_tracker_observed_tool_version,
             config=self.m_tracker_config,
             scheduler=self.m_scheduler,
         )
@@ -167,28 +165,57 @@ class LiveSessionTracker:
 
         with self.m_lock:
             self.m_identity = identity
-            self._ensure_tracker_session_locked(tool=identity.tool)
-            self.m_last_state = self.m_last_state.model_copy(
-                update={
-                    "terminal_id": _terminal_alias(identity),
-                    "tracked_session": identity,
-                }
+            tracker_rebuilt = self._ensure_tracker_session_locked(
+                tool=identity.tool,
+                observed_tool_version=identity.observed_tool_version,
             )
+            update: dict[str, object] = {
+                "terminal_id": _terminal_alias(identity),
+                "tracked_session": identity,
+            }
+            if tracker_rebuilt:
+                tracker_state = self.m_tracker_session.current_state()
+                update.update(
+                    {
+                        "surface": HoumaoTrackedSurface(
+                            accepting_input=tracker_state.surface_accepting_input,
+                            editing_input=tracker_state.surface_editing_input,
+                            ready_posture=tracker_state.surface_ready_posture,
+                        ),
+                        "turn": HoumaoTrackedTurn(phase=tracker_state.turn_phase),
+                        "last_turn": HoumaoTrackedLastTurn(
+                            result=tracker_state.last_turn_result,
+                            source=tracker_state.last_turn_source,
+                            updated_at_utc=None,
+                        ),
+                    }
+                )
+            self.m_last_state = self.m_last_state.model_copy(update=update)
 
-    def _ensure_tracker_session_locked(self, *, tool: str) -> None:
-        """Rebuild the standalone tracker when the observed tool changes."""
+    def _ensure_tracker_session_locked(
+        self,
+        *,
+        tool: str,
+        observed_tool_version: str | None,
+    ) -> bool:
+        """Rebuild the standalone tracker when the tracked detector identity changes."""
 
         tracker_app_id = app_id_from_tool(tool=tool)
-        if tracker_app_id == self.m_tracker_app_id:
-            return
+        if (
+            tracker_app_id == self.m_tracker_app_id
+            and observed_tool_version == self.m_tracker_observed_tool_version
+        ):
+            return False
         self.m_tracker_session.close()
         self.m_tracker_app_id = tracker_app_id
+        self.m_tracker_observed_tool_version = observed_tool_version
         self.m_tracker_session = TuiTrackerSession.from_config(
             app_id=self.m_tracker_app_id,
-            observed_version=None,
+            observed_version=self.m_tracker_observed_tool_version,
             config=self.m_tracker_config,
             scheduler=self.m_scheduler,
         )
+        return True
 
     def current_state(self) -> HoumaoTerminalStateResponse:
         """Return the latest in-memory live state."""
@@ -238,7 +265,7 @@ class LiveSessionTracker:
     def _arm_turn_anchor(
         self,
         *,
-        source: Literal["terminal_input", "surface_inference"],
+        source: Literal["terminal_input"],
         baseline_projection_text: str,
         observed_at_utc: str,
         monotonic_ts: float,
@@ -287,43 +314,6 @@ class LiveSessionTracker:
         )
         return anchor
 
-    def _should_infer_prompt_submission(
-        self,
-        *,
-        parsed_surface: HoumaoParsedSurface,
-    ) -> tuple[bool, dict[str, object]]:
-        """Return whether the current surface implies an inferred prompt submission."""
-
-        previous_surface = self.m_last_state.parsed_surface
-        if self.m_active_turn_anchor is not None or previous_surface is None:
-            return False, {}
-        previous_normalized = normalize_projection_text(previous_surface.normalized_projection_text)
-        current_normalized = normalize_projection_text(parsed_surface.normalized_projection_text)
-        growth_chars = len(current_normalized) - len(previous_normalized)
-        added_lines = current_normalized.count("\n") - previous_normalized.count("\n")
-        debug_data = {
-            "previous_submit_ready": _is_submit_ready(previous_surface),
-            "previous_stability_stable": self.m_last_state.stability.stable,
-            "previous_operator_status": self.m_last_state.operator_state.status,
-            "previous_projection_sha1": _sha1_text(previous_normalized),
-            "current_projection_sha1": _sha1_text(current_normalized),
-            "baseline_invalidated": parsed_surface.baseline_invalidated,
-            "growth_chars": growth_chars,
-            "added_lines": added_lines,
-        }
-        if not _is_submit_ready(previous_surface):
-            return False, debug_data
-        if not self.m_last_state.stability.stable:
-            return False, debug_data
-        if previous_normalized == current_normalized:
-            return False, debug_data
-        if (
-            growth_chars < _SURFACE_INFERENCE_MIN_GROWTH_CHARS
-            and added_lines < _SURFACE_INFERENCE_MIN_ADDED_LINES
-        ):
-            return False, debug_data
-        return True, debug_data
-
     def note_prompt_submission(
         self,
         *,
@@ -334,7 +324,10 @@ class LiveSessionTracker:
         """Arm one server-owned turn anchor after a successful input submission."""
 
         with self.m_lock:
-            self._ensure_tracker_session_locked(tool=self.m_identity.tool)
+            self._ensure_tracker_session_locked(
+                tool=self.m_identity.tool,
+                observed_tool_version=self.m_identity.observed_tool_version,
+            )
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
             self.m_tracker_session.on_input_submitted()
@@ -425,19 +418,16 @@ class LiveSessionTracker:
 
         with self.m_lock:
             self.m_identity = identity
-            self._ensure_tracker_session_locked(tool=identity.tool)
+            self._ensure_tracker_session_locked(
+                tool=identity.tool,
+                observed_tool_version=identity.observed_tool_version,
+            )
             self.m_cycle_seq += 1
             cycle_seq = self.m_cycle_seq
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
-            tracker_snapshot_text = _tracker_snapshot_text_from_host(
-                tool=identity.tool,
-                output_text=output_text,
-                parsed_surface=parsed_surface,
-                active_turn_anchor_present=self.m_active_turn_anchor is not None,
-            )
-            if tracker_snapshot_text is not None:
-                self.m_tracker_session.on_snapshot(tracker_snapshot_text)
+            if output_text is not None:
+                self.m_tracker_session.on_snapshot(output_text)
             self._emit_debug(
                 stream="tracker-cycle",
                 event_type="record_cycle_start",
@@ -464,35 +454,6 @@ class LiveSessionTracker:
 
             reduction = _default_surface_reduction()
             if parsed_surface is not None:
-                inferred_prompt_submission, inference_debug = self._should_infer_prompt_submission(
-                    parsed_surface=parsed_surface
-                )
-                if inferred_prompt_submission:
-                    previous_surface = self.m_last_state.parsed_surface
-                    assert previous_surface is not None
-                    self._arm_turn_anchor(
-                        source="surface_inference",
-                        baseline_projection_text=normalize_projection_text(
-                            previous_surface.normalized_projection_text
-                        ),
-                        observed_at_utc=observed_at_utc,
-                        monotonic_ts=monotonic_ts,
-                        message_excerpt=None,
-                        cycle_seq=cycle_seq,
-                        reason="submit_ready_projection_changed",
-                    )
-                    self._emit_debug(
-                        stream="tracker-anchor",
-                        event_type="inferred_prompt_submission",
-                        monotonic_ts=monotonic_ts,
-                        cycle_seq=cycle_seq,
-                        anchor_id=(
-                            self.m_active_turn_anchor.anchor_id
-                            if self.m_active_turn_anchor is not None
-                            else None
-                        ),
-                        data=inference_debug,
-                    )
                 self._emit_debug(
                     stream="tracker-cycle",
                     event_type="lifecycle_observation_emitted",
@@ -1258,127 +1219,6 @@ def _build_tracker_last_turn(
         source=tracker_state.last_turn_source,
         updated_at_utc=updated_at_utc,
     )
-
-
-def _tracker_snapshot_text_from_host(
-    *,
-    tool: str,
-    output_text: str | None,
-    parsed_surface: HoumaoParsedSurface | None,
-    active_turn_anchor_present: bool,
-) -> str | None:
-    """Return tracker input text from raw host data with a compatibility fallback."""
-
-    if output_text is not None and _raw_text_looks_tracker_informative(
-        tool=tool, output_text=output_text
-    ):
-        return output_text
-    if parsed_surface is None:
-        return output_text
-    if tool == "codex":
-        return _synthetic_codex_snapshot(
-            parsed_surface=parsed_surface,
-            active_turn_anchor_present=active_turn_anchor_present,
-        )
-    if tool == "claude":
-        return _synthetic_claude_snapshot(
-            parsed_surface=parsed_surface,
-            active_turn_anchor_present=active_turn_anchor_present,
-        )
-    return parsed_surface.normalized_projection_text
-
-
-def _raw_text_looks_tracker_informative(*, tool: str, output_text: str) -> bool:
-    """Return whether one raw host string already looks like a real TUI snapshot."""
-
-    if tool == "codex":
-        return any(
-            marker in output_text
-            for marker in (
-                "›",
-                "Working (",
-                "Would you like to",
-                "─ Worked for ",
-            )
-        )
-    if tool == "claude":
-        return any(
-            marker in output_text
-            for marker in (
-                "❯",
-                "Worked for ",
-                "esc to interrupt",
-                "Interrupted · What should Claude do instead?",
-            )
-        )
-    return bool(output_text.strip())
-
-
-def _synthetic_codex_snapshot(
-    *,
-    parsed_surface: HoumaoParsedSurface,
-    active_turn_anchor_present: bool,
-) -> str:
-    """Return a minimal Codex-like raw surface for compatibility-only server tests."""
-
-    if parsed_surface.business_state == "working":
-        return "• Working (1s • esc to interrupt)\n› \n"
-    if parsed_surface.input_mode == "modal" or parsed_surface.business_state == "awaiting_operator":
-        return "Would you like to run the following command?\n› \n"
-    if (
-        parsed_surface.business_state == "idle"
-        and parsed_surface.input_mode == "freeform"
-        and parsed_surface.ui_context == "normal_prompt"
-    ):
-        if active_turn_anchor_present:
-            return "─ Worked for 1s ─\n› \n"
-        return "› \n"
-    return parsed_surface.normalized_projection_text
-
-
-def _synthetic_claude_snapshot(
-    *,
-    parsed_surface: HoumaoParsedSurface,
-    active_turn_anchor_present: bool,
-) -> str:
-    """Return a minimal Claude-like raw surface for compatibility-only server tests."""
-
-    if parsed_surface.business_state == "working":
-        return (
-            "❯\n\n"
-            "✢ Unfurling…\n\n"
-            "────────────────────────────────────────────────────────────────────────────────\n"
-            "❯\n"
-            "────────────────────────────────────────────────────────────────────────────────\n"
-            "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt\n"
-        )
-    if parsed_surface.input_mode == "modal" or parsed_surface.business_state == "awaiting_operator":
-        return (
-            "❯ /\n"
-            "────────────────────────────────────────────────────────────────────────────────\n"
-            "  /help\n"
-        )
-    if (
-        parsed_surface.business_state == "idle"
-        and parsed_surface.input_mode == "freeform"
-        and parsed_surface.ui_context == "normal_prompt"
-    ):
-        if active_turn_anchor_present:
-            return (
-                "● READY\n\n"
-                "✻ Worked for 1s\n\n"
-                "────────────────────────────────────────────────────────────────────────────────\n"
-                "❯\n"
-                "────────────────────────────────────────────────────────────────────────────────\n"
-                "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
-            )
-        return (
-            "────────────────────────────────────────────────────────────────────────────────\n"
-            "❯\n"
-            "────────────────────────────────────────────────────────────────────────────────\n"
-            "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
-        )
-    return parsed_surface.normalized_projection_text
 
 
 def _terminal_alias(identity: HoumaoTrackedSessionIdentity) -> str:

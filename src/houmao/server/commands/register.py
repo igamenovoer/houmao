@@ -14,6 +14,7 @@ from .common import client_for_base_url, echo_json
 @click.option("--session-name", required=True)
 @click.option("--tool", required=True)
 @click.option("--terminal-id", default=None)
+@click.option("--observed-tool-version", default=None)
 @click.option("--manifest-path", default=None)
 @click.option("--session-root", default=None)
 @click.option("--agent-name", default=None)
@@ -25,6 +26,7 @@ def register_launch_command(
     session_name: str,
     tool: str,
     terminal_id: str | None,
+    observed_tool_version: str | None,
     manifest_path: str | None,
     session_root: str | None,
     agent_name: str | None,
@@ -40,6 +42,7 @@ def register_launch_command(
             session_name=session_name,
             terminal_id=terminal_id,
             tool=tool,
+            observed_tool_version=observed_tool_version,
             manifest_path=manifest_path,
             session_root=session_root,
             agent_name=agent_name,

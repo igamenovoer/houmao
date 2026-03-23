@@ -34,6 +34,7 @@ class KnownSessionRecord:
     session_root: Path | None
     agent_name: str | None
     agent_id: str | None
+    observed_tool_version: str | None = None
 
     def to_identity(self) -> HoumaoTrackedSessionIdentity:
         """Return the public tracked-session identity model."""
@@ -42,6 +43,7 @@ class KnownSessionRecord:
             tracked_session_id=self.tracked_session_id,
             session_name=self.session_name,
             tool=self.tool,
+            observed_tool_version=self.observed_tool_version,
             tmux_session_name=self.tmux_session_name,
             tmux_window_name=self.tmux_window_name,
             terminal_aliases=[self.terminal_id],
@@ -125,6 +127,7 @@ def known_session_record_from_registration(
     agent_name = registration.agent_name
     agent_id = registration.agent_id
     terminal_id = registration.terminal_id
+    observed_tool_version = registration.observed_tool_version
     tmux_session_name = registration.tmux_session_name or registration.session_name
     tmux_window_name = registration.tmux_window_name
     tool = registration.tool
@@ -149,6 +152,7 @@ def known_session_record_from_registration(
     if manifest_path is not None and manifest_path.is_file():
         manifest_metadata = _load_manifest_metadata(manifest_path=manifest_path)
         terminal_id = terminal_id or manifest_metadata.terminal_id
+        observed_tool_version = manifest_metadata.observed_tool_version or observed_tool_version
         tmux_window_name = tmux_window_name or manifest_metadata.tmux_window_name
         tmux_session_name = manifest_metadata.tmux_session_name or tmux_session_name
         tool = manifest_metadata.tool or tool
@@ -165,6 +169,7 @@ def known_session_record_from_registration(
         session_name=registration.session_name,
         tool=tool,
         terminal_id=terminal_id,
+        observed_tool_version=observed_tool_version,
         tmux_session_name=tmux_session_name,
         tmux_window_name=tmux_window_name,
         manifest_path=manifest_path,
@@ -180,6 +185,7 @@ class _ManifestMetadata:
 
     tool: str | None
     terminal_id: str | None
+    observed_tool_version: str | None
     tmux_session_name: str | None
     tmux_window_name: str | None
     session_root: Path | None
@@ -194,6 +200,7 @@ def _load_manifest_metadata(*, manifest_path: Path) -> _ManifestMetadata:
         return _ManifestMetadata(
             tool=None,
             terminal_id=None,
+            observed_tool_version=None,
             tmux_session_name=None,
             tmux_window_name=None,
             session_root=None,
@@ -201,6 +208,7 @@ def _load_manifest_metadata(*, manifest_path: Path) -> _ManifestMetadata:
 
     payload = handle.payload
     tool = _optional_string(payload.get("tool"))
+    observed_tool_version = _observed_tool_version_from_manifest_payload(payload)
     backend_state = payload.get("backend_state")
     tmux_session_name: str | None = None
     if isinstance(backend_state, dict):
@@ -219,10 +227,29 @@ def _load_manifest_metadata(*, manifest_path: Path) -> _ManifestMetadata:
     return _ManifestMetadata(
         tool=tool,
         terminal_id=terminal_id,
+        observed_tool_version=observed_tool_version,
         tmux_session_name=tmux_session_name,
         tmux_window_name=tmux_window_name,
         session_root=runtime_owned_session_root_from_manifest_path(manifest_path),
     )
+
+
+def _observed_tool_version_from_manifest_payload(payload: dict[str, object]) -> str | None:
+    """Return manifest-backed observed tool-version metadata when present."""
+
+    top_level = payload.get("launch_policy_provenance")
+    if isinstance(top_level, dict):
+        detected_tool_version = _optional_string(top_level.get("detected_tool_version"))
+        if detected_tool_version is not None:
+            return detected_tool_version
+
+    launch_plan = payload.get("launch_plan")
+    if isinstance(launch_plan, dict):
+        launch_policy_provenance = launch_plan.get("launch_policy_provenance")
+        if isinstance(launch_policy_provenance, dict):
+            return _optional_string(launch_policy_provenance.get("detected_tool_version"))
+
+    return None
 
 
 def _optional_path(value: str | None) -> Path | None:
