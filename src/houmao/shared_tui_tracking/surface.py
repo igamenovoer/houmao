@@ -73,6 +73,21 @@ class SurfaceView:
             return None
         return line[1:].strip()
 
+    def bounded_region_lines(
+        self,
+        *,
+        center_index: int,
+        radius: int,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return raw and stripped lines around one visible line index."""
+
+        start_index = max(center_index - radius, 0)
+        end_index = min(center_index + radius + 1, len(self.raw_lines))
+        return (
+            self.raw_lines[start_index:end_index],
+            self.stripped_lines[start_index:end_index],
+        )
+
     def footer_lines(self, count: int = 4) -> tuple[str, ...]:
         """Return the last few non-empty stripped lines for footer inspection."""
 
