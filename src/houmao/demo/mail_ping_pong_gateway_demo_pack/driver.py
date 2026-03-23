@@ -520,7 +520,7 @@ def _require_demo_state(paths) -> DemoState:
 def _generate_thread_key() -> str:
     """Return one run-specific human-readable thread key."""
 
-    stamp = utc_now_iso().replace(":", "").replace("-", "").replace("+00:00", "Z")
+    stamp = utc_now_iso().replace("+00:00", "Z").replace(":", "").replace("-", "")
     return f"mail-ping-pong-{stamp}-{uuid.uuid4().hex[:6]}"
 
 
