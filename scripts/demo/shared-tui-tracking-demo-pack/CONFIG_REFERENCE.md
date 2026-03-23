@@ -187,6 +187,14 @@ The sweep command evaluates all variants inside that named sweep. It does not au
 The checked-in `capture_frequency` sweep expresses the demo's current robustness claim: tracked public state is expected to remain robust only at `2 Hz` or faster, meaning `sample_interval_seconds <= 0.5`. Slower cadences should live in an alternate config and be treated as exploratory probes rather than default pass/fail expectations.
 
 The checked-in sweep now uses `required_sequence` for repeated intentional-interruption cases so the default robustness claim can distinguish a single interrupted turn from two interrupted turns followed by close.
+The same mechanism now also gates the maintained success-interrupt-success complex fixtures with a repeated ready-success / active / interrupted sequence such as:
+
+```toml
+required_sequence = ["ready_success", "active", "ready_interrupted", "active", "ready_interrupted", "ready_success"]
+required_terminal_result = "success"
+```
+
+That contract stays intentionally coarse. Draft-specific judgments such as `last_turn=none` during `ready-draft` or `surface_editing_input=yes` during `active-draft` still belong in the strict replay-versus-ground-truth labels, not in the sweep-only vocabulary.
 
 ## Operator Examples
 

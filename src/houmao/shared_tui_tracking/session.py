@@ -306,6 +306,33 @@ class TuiTrackerSession:
                     armed_turn_source=self.m_armed_turn_source,
                 )
 
+            if draft_authority_visible and self.m_state.turn_phase != "active":
+                if effective_signals.interrupted or effective_signals.known_failure:
+                    self._cancel_success_timer_locked()
+                    last_turn_result, last_turn_source = (
+                        self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
+                            reason="visible_draft",
+                        )
+                    )
+                    default_phase: TurnPhase = (
+                        "ready" if effective_signals.ready_posture == "yes" else "unknown"
+                    )
+                    self._log_debug(
+                        "snapshot_decision",
+                        at_seconds=at_seconds,
+                        decision="visible_draft_overrides_terminal_signal",
+                        default_phase=default_phase,
+                        effective_signals=_summarize_detected_turn_signals(effective_signals),
+                    )
+                    self._emit_state_from_signals_locked(
+                        signals=effective_signals,
+                        note="visible_draft_overrides_terminal_signal",
+                        turn_phase=default_phase,
+                        last_turn_result=last_turn_result,
+                        last_turn_source=last_turn_source,
+                    )
+                    return
+
             if effective_signals.interrupted:
                 self._log_debug(
                     "snapshot_decision",

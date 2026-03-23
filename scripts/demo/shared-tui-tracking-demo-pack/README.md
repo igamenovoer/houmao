@@ -183,11 +183,13 @@ The first real authoring wave is intentionally narrow and uses concrete prompts 
 - Claude `claude_explicit_success`: send `Reply with the single word READY and stop.`
 - Claude `claude_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
 - Claude `claude_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
+- Claude `claude_success_interrupt_success_complex`: send `Return exactly READY and nothing else. Do not use tools.`, hold the first settled success, keep one visible ready-draft hold before each long submit, keep one visible active-draft hold during each long-running turn, interrupt twice, then finish with `Return exactly RECOVERED and nothing else. Do not use tools.`
 - Claude `claude_slash_menu_recovery`: wait for ready, type `/` without submit, hold the overlay, then dismiss with `Escape`
 - Claude `claude_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
 - Codex `codex_explicit_success`: send `Reply with the single word READY and stop.`
 - Codex `codex_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
 - Codex `codex_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
+- Codex `codex_success_interrupt_success_complex`: mirror the Claude complex lifecycle with one initial short success, two long interrupted turns with visible ready-draft and active-draft holds, then one final short recovered success
 - Codex `codex_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
 
 Each case targets one critical transition family:
@@ -195,6 +197,7 @@ Each case targets one critical transition family:
 - explicit success: ready -> active -> ready/success
 - interrupted after active: active -> interrupted -> ready
 - repeated intentional interruption with close: ready -> active -> interrupted -> active -> interrupted -> diagnostics down
+- success-interrupt-success complex: ready/success -> active -> interrupted -> active -> interrupted -> ready/success, while preserving ready-draft and active-draft spans in the strict ground-truth labels
 - slash-menu ambiguity: ready -> ambiguous overlay -> ready
 - diagnostics loss: active -> `tui_down`
 
@@ -205,6 +208,9 @@ Each case targets one critical transition family:
 - The interruption scenarios now use semantic `interrupt_turn` plus an explicit wait for the interrupted-ready posture before the next prompt is sent. That keeps repeated-turn authoring honest for both Claude and Codex instead of advancing on a transient prompt redraw.
 - The capture driver waits and pattern checks inspect the visible pane surface rather than tmux scrollback. This avoids false positives from stale `esc to interrupt` rows or prior prompt text that are no longer on screen.
 - Codex interrupted banners can wrap across multiple terminal lines. The Codex detector normalizes wrapped whitespace before judging interrupted-ready posture so the canonical fixtures remain valid across pane widths.
+- For Claude complex authoring, `wait_for_active` must key off the latest-turn spinner line rather than the footer summary. Real active samples rotate symbols such as `✢`, `✻`, `✽`, `✶`, `·`, and `*`, while the footer can stay visually similar across ready and active spans.
+- For the maintained complex fixtures, keep the prompt region visible during both active-draft holds. The checked-in scenarios use `1.2s` holds for ready-draft and active-draft spans, `1.0s` for the final ready-draft hold, and `1.4s` for the settled-success holds so the `0.2s` capture cadence and the default sweep cadence can sample each span cleanly.
+- Claude interrupted-ready authoring should watch for the explicit line `⎿ Interrupted · What should Claude do instead?` and treat the first visible occurrence as sufficient authority before continuing to the next prompt.
 
 ### Authoring Workflow
 
@@ -235,6 +241,7 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
    - `last_turn_source`
    - For Claude fixtures, do not treat visibly styled startup suggestions or trust-screen selections as `surface_editing_input=yes` by default; depending on the presentation, replay may classify those spans as `unknown` or `no`, so confirm them against `recorded-validate` output before committing labels.
    - For repeated intentional-interruption fixtures, distinguish at least `active-turn-1`, `interrupted-ready-1`, `active-turn-2`, `interrupted-ready-2`, and the final post-close diagnostics-loss span so the second-turn reset and the close posture are both reviewable.
+   - For the complex success-interrupt-success fixtures, also distinguish the first settled-success span, both `ready-draft` spans with `last_turn=none`, both `active-draft` spans with `surface_editing_input=yes`, and the final settled-success span.
 4. Run fast replay validation without video:
 
 ```bash

@@ -36,6 +36,25 @@ _CODEX_INTERRUPTED_SURFACE = (
     "Something went wrong? Hit `/feedback` to report the issue.\n\n"
     "› \n"
 )
+_CODEX_INTERRUPTED_READY_WITH_DRAFT_SURFACE = (
+    "› Search this repository for files related to tmux and prepare a grouped summary. "
+    "Think carefully before answering.\n\n"
+    "■ Conversation interrupted - tell the model what to do differently. "
+    "Something went wrong? Hit `/feedback` to report the issue.\n\n"
+    "› Now search this repository for files related to terminal recording and prepare a "
+    "grouped summary. Think carefully before answering.\n\n"
+    "  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\n"
+)
+_CODEX_STALE_INTERRUPTED_SCROLLBACK_WITH_SUCCESS_SURFACE = (
+    "› Search this repository for files related to terminal recording and prepare a grouped "
+    "summary. Think carefully before answering.\n\n"
+    "■ Conversation interrupted - tell the model what to do differently. "
+    "Something went wrong? Hit `/feedback` to report the issue.\n\n"
+    "› Reply with the single word RECOVERED and stop.\n\n"
+    "• RECOVERED\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mFind and fix a bug in @filename\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
+)
 _CODEX_STEER_HANDOFF_SURFACE = (
     "• Model interrupted to submit steer instructions.\n\n"
     "› Run `sleep 30` in the shell, then respond with AFTERSLEEP only.\n\n"
@@ -192,6 +211,29 @@ def test_codex_tui_visible_draft_clears_stale_success() -> None:
     assert state.last_turn_source == "none"
 
 
+def test_codex_tui_visible_draft_does_not_rearm_success_after_settle_window() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.3)
+    session.on_snapshot(_CODEX_READY_SURFACE)
+    scheduler.advance_to(2.6)
+
+    assert session.current_state().last_turn_result == "success"
+
+    scheduler.advance_to(2.8)
+    session.on_snapshot(_CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE)
+    scheduler.advance_to(4.2)
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_editing_input == "yes"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+
 def test_codex_tui_visible_draft_clears_stale_interrupted_result() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
@@ -213,6 +255,36 @@ def test_codex_tui_visible_draft_clears_stale_interrupted_result() -> None:
     assert state.last_turn_source == "none"
 
 
+def test_codex_tui_visible_draft_overrides_stale_interrupted_signal_after_first_sample() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_INTERRUPTED_SURFACE)
+
+    assert session.current_state().last_turn_result == "interrupted"
+
+    scheduler.advance_to(1.8)
+    session.on_snapshot(_CODEX_INTERRUPTED_READY_WITH_DRAFT_SURFACE)
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_editing_input == "yes"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+    scheduler.advance_to(2.0)
+    session.on_snapshot(_CODEX_INTERRUPTED_READY_WITH_DRAFT_SURFACE)
+    repeated = session.current_state()
+
+    assert repeated.turn_phase == "ready"
+    assert repeated.surface_editing_input == "yes"
+    assert repeated.last_turn_result == "none"
+    assert repeated.last_turn_source == "none"
+
+
 def test_codex_tui_second_active_turn_clears_stale_interrupted_result() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
@@ -231,6 +303,60 @@ def test_codex_tui_second_active_turn_clears_stale_interrupted_result() -> None:
     assert state.turn_phase == "active"
     assert state.last_turn_result == "none"
     assert state.last_turn_source == "none"
+
+
+def test_codex_detector_ignores_stale_interrupted_scrollback_above_current_success() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_STALE_INTERRUPTED_SCROLLBACK_WITH_SUCCESS_SURFACE)
+
+    assert signals.interrupted is False
+    assert signals.ready_posture == "yes"
+    assert signals.active_evidence is False
+    assert signals.success_candidate is True
+
+
+def test_codex_detector_visible_draft_does_not_count_as_success_candidate() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE)
+
+    assert signals.editing_input == "yes"
+    assert signals.success_candidate is False
+
+
+def test_codex_tui_stale_interrupted_scrollback_does_not_block_final_success() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_INTERRUPTED_SURFACE)
+
+    assert session.current_state().last_turn_result == "interrupted"
+
+    scheduler.advance_to(1.8)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+
+    active = session.current_state()
+    assert active.turn_phase == "active"
+    assert active.last_turn_result == "none"
+    assert active.last_turn_source == "none"
+
+    scheduler.advance_to(5.4)
+    session.on_snapshot(_CODEX_STALE_INTERRUPTED_SCROLLBACK_WITH_SUCCESS_SURFACE)
+
+    candidate = session.current_state()
+    assert candidate.turn_phase == "ready"
+    assert candidate.last_turn_result == "none"
+    assert candidate.last_turn_source == "none"
+
+    scheduler.advance_to(6.6)
+    settled = session.current_state()
+
+    assert settled.last_turn_result == "success"
+    assert settled.last_turn_source == "surface_inference"
 
 
 def test_codex_tui_dim_placeholder_does_not_count_as_editing() -> None:

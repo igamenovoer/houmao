@@ -185,7 +185,6 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
         ambiguous_interactive_surface = slash_menu_visible and not active_evidence
         success_blocked = bool(
             footer_interruptable
-            or footer_has_ready_advisory
             or current_error_present
             or ambiguous_interactive_surface
         )
@@ -311,14 +310,13 @@ def _editing_input_state(
 
 
 def _latest_turn_prompt_anchor_index(surface: SurfaceView) -> int | None:
-    """Return the latest visible non-empty Claude prompt index."""
+    """Return the latest visible Claude prompt index, including the empty input row."""
 
     for index in range(len(surface.stripped_lines) - 1, -1, -1):
         stripped_line = surface.stripped_lines[index].strip()
         if not stripped_line.startswith("❯"):
             continue
-        if stripped_line[1:].strip():
-            return index
+        return index
     return None
 
 
@@ -331,18 +329,25 @@ def _latest_turn_status_line(
 
     if prompt_anchor_index is None:
         return None, None
-    active_prompt_anchor_index: int | None = None
     latest_status_index: int | None = None
     latest_status_line: str | None = None
+    region_start_index = 0
+    for index in range(prompt_anchor_index - 1, -1, -1):
+        stripped_line = surface.stripped_lines[index].strip()
+        if not stripped_line.startswith("❯"):
+            continue
+        if not stripped_line[1:].strip():
+            continue
+        region_start_index = index + 1
+        break
     for index, _, stripped_line in surface.iter_lines_with_indices():
+        if index < region_start_index or index >= prompt_anchor_index:
+            continue
         normalized_line = stripped_line.strip()
-        if normalized_line.startswith("❯"):
-            if normalized_line[1:].strip():
-                active_prompt_anchor_index = index
-            continue
         if not normalized_line.startswith("⎿"):
-            continue
-        if active_prompt_anchor_index != prompt_anchor_index:
+            if latest_status_index is not None and normalized_line.startswith("● "):
+                latest_status_index = None
+                latest_status_line = None
             continue
         latest_status_index = index
         latest_status_line = normalized_line

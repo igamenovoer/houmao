@@ -276,6 +276,16 @@ def test_success_candidate_ignores_footer_bullet_lines() -> None:
     assert timeline[-1].last_turn_result == "success"
 
 
+def test_detector_allows_response_block_success_with_installer_notice() -> None:
+    detector = select_claude_detector(observed_version="2.1.81 (Claude Code)")
+
+    signals = detector.detect(output_text=_short_success_surface_with_installer_notice())
+
+    assert signals.success_candidate is True
+    assert signals.success_blocked is False
+    assert "ready_footer_advisory" in signals.notes
+
+
 def test_detector_treats_truncated_interrupt_footer_as_active() -> None:
     detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
 
@@ -386,7 +396,7 @@ def test_replay_invalidates_early_settled_success_when_surface_keeps_growing() -
     assert any(item.note == "success_invalidated" for item in events)
 
 
-def test_replay_delays_success_until_ready_footer_advisory_clears() -> None:
+def test_replay_allows_success_to_settle_with_ready_footer_advisory() -> None:
     observations = [
         _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=_active_surface()),
         _observation(
@@ -399,16 +409,6 @@ def test_replay_delays_success_until_ready_footer_advisory_clears() -> None:
             elapsed_seconds=2.2,
             output_text=_short_success_surface_with_installer_notice(),
         ),
-        _observation(
-            sample_id="s000004",
-            elapsed_seconds=2.6,
-            output_text=_short_success_surface(),
-        ),
-        _observation(
-            sample_id="s000005",
-            elapsed_seconds=3.8,
-            output_text=_short_success_surface(),
-        ),
     ]
 
     timeline, _events = replay_timeline(
@@ -418,9 +418,7 @@ def test_replay_delays_success_until_ready_footer_advisory_clears() -> None:
     )
 
     assert timeline[1].last_turn_result == "none"
-    assert timeline[2].last_turn_result == "none"
-    assert timeline[3].last_turn_result == "none"
-    assert timeline[4].last_turn_result == "success"
+    assert timeline[2].last_turn_result == "success"
 
 
 def test_groundtruth_uses_final_stable_success_surface_when_output_keeps_growing() -> None:

@@ -1,0 +1,8 @@
+{
+  "case_id": "codex_success_interrupt_success_complex",
+  "description": "Drive Codex through success, ready-draft, active-draft, repeated interrupts, and final recovered success in one maintained session.",
+  "observed_version": "codex-cli 0.116.0",
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "tool": "codex"
+}

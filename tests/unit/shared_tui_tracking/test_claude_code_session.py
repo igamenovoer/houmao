@@ -42,6 +42,14 @@ _CLAUDE_INTERRUPTED_READY_SURFACE = (
     "────────────────────────────────────────────────────────────────\n"
     "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
 )
+_CLAUDE_INTERRUPTED_READY_WITH_DRAFT_SURFACE = (
+    "❯ Explain reducer semantics carefully\n"
+    "  ⎿ Interrupted · What should Claude do instead?\n\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "\x1b[39m❯ Review staged change\x1b[7ms\x1b[0m\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+)
 _CLAUDE_STALE_INTERRUPTED_SCROLLBACK_WITH_DRAFT_SURFACE = (
     "❯ Explain reducer semantics carefully\n"
     "  ⎿ Interrupted · What should Claude do instead?\n\n"
@@ -151,6 +159,16 @@ def test_claude_detector_ignores_stale_interrupted_scrollback_above_current_draf
     signals = detector.detect(output_text=_CLAUDE_STALE_INTERRUPTED_SCROLLBACK_WITH_DRAFT_SURFACE)
 
     assert signals.interrupted is False
+    assert signals.editing_input == "yes"
+    assert signals.prompt_text == "Review staged changes"
+
+
+def test_claude_detector_matches_interrupted_signal_above_current_draft() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_CLAUDE_INTERRUPTED_READY_WITH_DRAFT_SURFACE)
+
+    assert signals.interrupted is True
     assert signals.editing_input == "yes"
     assert signals.prompt_text == "Review staged changes"
 

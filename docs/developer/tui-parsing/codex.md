@@ -2,6 +2,8 @@
 
 Codex-specific parsing lives in `backends/codex_shadow.py`. The parser is responsible for one-snapshot interpretation of CAO `mode=full` output and returns `CodexSurfaceAssessment` plus `CodexDialogProjection`.
 
+For the concrete on-screen cues currently used by the maintained tracked-TUI workflow, see [Codex Signals](codex-signals.md).
+
 ## Codex-Specific Surface Vocabulary
 
 Codex extends the shared `ui_context` vocabulary with these provider-specific values:
