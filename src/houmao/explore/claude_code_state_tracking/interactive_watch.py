@@ -118,7 +118,7 @@ def start_interactive_watch(
             runtime_root=paths.runtime_root,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
-            launch_args_override=list(CLAUDE_INTERACTIVE_LAUNCH_ARGS),
+            operator_prompt_mode="unattended",
         )
     )
     observed_version = detect_claude_version()

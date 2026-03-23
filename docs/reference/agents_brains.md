@@ -86,6 +86,8 @@ Outputs:
 The manifest is **secret-free** (it records env var names and local paths, but
 not secret values).
 
+Both recipe-driven and explicit builds can also declare the operator-prompt posture. Use `launch_policy.operator_prompt_mode` in the recipe or pass `--operator-prompt-mode unattended` to `build-brain` when you want Houmao to resolve a versioned unattended launch strategy at runtime. The default remains `interactive`.
+
 ## Credential Profiles (Local-Only)
 
 Credential profiles live under:
@@ -116,11 +118,11 @@ Tool notes (current adapters):
     Placeholder `{}` files do not satisfy that requirement on their own.
 - `claude`
   - Home selector: `CLAUDE_CONFIG_DIR=<runtime-home>`
-  - Local-only template input: `files/claude_state.template.json` projected to
-    `<runtime-home>/claude_state.template.json` for launch-time materialization
-    of `<runtime-home>/.claude.json`.
-  - Config profile should include `settings.json` with
-    `skipDangerousModePermissionPrompt: true`.
+  - Optional seed state: `files/claude_state.template.json` may be projected to
+    `<runtime-home>/claude_state.template.json` when you want to preserve or extend existing Claude state, but unattended launches no longer require the template up front.
+  - For supported unattended versions, Houmao can synthesize or patch
+    `settings.json` and `.claude.json` from runtime-owned launch policy instead
+    of requiring user-prepared prompt-suppression files.
   - Credentials: use env vars (`ANTHROPIC_API_KEY`, etc) in `env/vars.env`, or
     use `claude auth login` outside this system if you prefer first-party auth.
   - Model selection: set `ANTHROPIC_MODEL` (plus optional vars like
@@ -156,10 +158,19 @@ The helper:
 
 - exports the tool home selector env var (from the tool adapter), and
 - applies only allowlisted credential env vars (from the tool adapter + `vars.env`).
-- for Codex homes, runs shared Codex bootstrap validation/trust setup before
-  executing `codex`.
-- for Claude homes, runs shared Claude bootstrap validation/materialization
-  before executing `claude`.
+- if the manifest sets `launch_policy.operator_prompt_mode: unattended`, invokes
+  `python -m houmao.agents.launch_policy.cli` to resolve a versioned strategy
+  for the detected CLI version before the final tool exec.
+- if the manifest leaves operator prompt mode unset or `interactive`, execs the
+  tool directly without unattended-policy synthesis.
+
+Important launch-policy notes:
+
+- unknown or unsupported CLI versions fail closed for unattended mode instead
+  of guessing,
+- `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` exists for transient debugging only,
+- current supported unattended strategy details live in
+  [Realm Controller](realm_controller.md#versioned-unattended-launch-policy).
 
 Once you want repo-owned lifecycle control instead of raw helper execution, the next references are:
 

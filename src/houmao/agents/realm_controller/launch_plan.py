@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
+from houmao.agents.launch_policy import apply_launch_policy
+from houmao.agents.launch_policy.models import (
+    LaunchPolicyError,
+    LaunchPolicyRequest,
+    OperatorPromptMode,
+)
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from .errors import LaunchPlanError
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
@@ -142,6 +148,30 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     elif request.backend == "claude_headless":
         metadata["headless_output_format"] = "stream-json"
 
+    requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
+    try:
+        launch_policy_result = apply_launch_policy(
+            LaunchPolicyRequest(
+                tool=tool,
+                backend=request.backend,
+                executable=executable,
+                base_args=tuple(args),
+                requested_operator_prompt_mode=requested_operator_prompt_mode,
+                working_directory=request.working_directory.resolve(),
+                home_path=home_path,
+                env=env_values,
+            )
+        )
+    except LaunchPolicyError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+    args = list(launch_policy_result.args)
+    if launch_policy_result.strategy is not None:
+        metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
+    metadata["launch_policy_request"] = {
+        "operator_prompt_mode": requested_operator_prompt_mode or "interactive",
+    }
+
     return LaunchPlan(
         backend=request.backend,
         tool=tool,
@@ -155,6 +185,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         role_injection=role_injection,
         metadata=metadata,
         mailbox=request.mailbox,
+        launch_policy_provenance=launch_policy_result.provenance,
     )
 
 
@@ -239,6 +270,25 @@ def backend_for_tool(tool: str, prefer_cao: bool = False) -> BackendKind:
     if tool == "gemini":
         return "gemini_headless"
     raise LaunchPlanError(f"No default backend for tool {tool!r}")
+
+
+def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptMode | None:
+    """Return the requested operator prompt mode from one brain manifest."""
+
+    launch_policy = manifest.get("launch_policy")
+    if launch_policy is None:
+        return None
+    if not isinstance(launch_policy, dict):
+        raise LaunchPlanError("Manifest `launch_policy` must be a mapping when set.")
+    value = launch_policy.get("operator_prompt_mode")
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in {"interactive", "unattended"}:
+        raise LaunchPlanError(
+            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` "
+            "or `unattended`."
+        )
+    return cast(OperatorPromptMode, value)
 
 
 def configured_cao_parsing_mode(launch_plan: LaunchPlan) -> str | None:

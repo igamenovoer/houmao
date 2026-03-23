@@ -563,6 +563,7 @@ def _start_agent_session(
             credential_profile=recipe.credential_profile,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
+            operator_prompt_mode=recipe.operator_prompt_mode,
         )
     )
     requested_agent_identity = recipe.default_agent_name or f"projection-demo-{slot}"

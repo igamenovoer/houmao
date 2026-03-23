@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.shared_tui_tracking.models import TrackedLastTurnResult
 from houmao.terminal_record.models import DEFAULT_SAMPLE_INTERVAL_SECONDS
 
@@ -43,6 +44,7 @@ class DemoToolConfig:
 
     recipe_path: str
     launch_args_override: tuple[str, ...]
+    operator_prompt_mode: OperatorPromptMode | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -356,6 +358,10 @@ def _parse_tools(payload: dict[str, Any]) -> dict[ToolName, DemoToolConfig]:
             recipe_path=_require_string(tool_payload.get("recipe_path"), context="recipe_path"),
             launch_args_override=tuple(
                 _require_string_list(tool_payload.get("launch_args_override", []))
+            ),
+            operator_prompt_mode=cast(
+                OperatorPromptMode | None,
+                tool_payload.get("operator_prompt_mode"),
             ),
         )
     return tools

@@ -658,6 +658,22 @@
           ],
           "default": null,
           "title": "Launch Args Override"
+        },
+        "operator_prompt_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "interactive",
+                "unattended"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator Prompt Mode"
         }
       },
       "title": "DemoToolConfigOverrideV1",
@@ -677,6 +693,22 @@
           },
           "title": "Launch Args Override",
           "type": "array"
+        },
+        "operator_prompt_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "interactive",
+                "unattended"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator Prompt Mode"
         }
       },
       "required": [

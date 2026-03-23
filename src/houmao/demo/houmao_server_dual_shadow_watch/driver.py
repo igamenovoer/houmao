@@ -28,8 +28,6 @@ from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_agent_identity_name,
 )
-from houmao.agents.realm_controller.backends.claude_bootstrap import ensure_claude_home_bootstrap
-from houmao.agents.realm_controller.backends.codex_bootstrap import ensure_codex_home_bootstrap
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     has_tmux_session,
     kill_tmux_session,
@@ -920,19 +918,10 @@ def _prepare_lane(
             agent_name=recipe.default_agent_name,
             home_id=f"projection-demo-{slot}",
             reuse_home=False,
+            operator_prompt_mode=recipe.operator_prompt_mode,
         )
     )
     del repo_root
-    env = dict(lane_preflight.selected_allowlisted_env)
-    env[lane_preflight.home_selector_env_var] = str(build_result.home_path)
-    if lane_preflight.tool == "codex":
-        ensure_codex_home_bootstrap(
-            home_path=build_result.home_path,
-            env=env,
-            working_directory=workdir,
-        )
-    elif lane_preflight.tool == "claude":
-        ensure_claude_home_bootstrap(home_path=build_result.home_path, env=env)
     return PreparedLane(
         slot=slot,
         tool=lane_preflight.tool,

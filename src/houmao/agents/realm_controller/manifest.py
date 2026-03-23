@@ -124,6 +124,11 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
         "registry_generation_id": request.registry_generation_id,
         "launch_plan": launch_payload,
+        "launch_policy_provenance": (
+            request.launch_plan.launch_policy_provenance.to_payload()
+            if request.launch_plan.launch_policy_provenance is not None
+            else None
+        ),
         "backend_state": dict(request.backend_state),
     }
 

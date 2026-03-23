@@ -13,8 +13,8 @@ from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
 from ..errors import BackendExecutionError
 from ..models import BackendKind, LaunchPlan, SessionControlResult, SessionEvent
-from .claude_bootstrap import ensure_claude_home_bootstrap
-from .codex_bootstrap import ensure_codex_home_bootstrap
+from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
+from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
 from .headless_runner import HeadlessCliRunner
 from .tmux_runtime import (
     TmuxCommandError,
@@ -26,6 +26,11 @@ from .tmux_runtime import (
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
 )
+
+# Legacy module aliases kept for tests and external monkeypatch hooks. Runtime launch
+# policy is resolved before backend execution and no longer invokes these directly.
+ensure_claude_home_bootstrap = _ensure_claude_home_bootstrap_legacy
+ensure_codex_home_bootstrap = _ensure_codex_home_bootstrap_legacy
 
 
 @dataclass
@@ -108,14 +113,6 @@ class HeadlessInteractiveSession:
         env.update(self._plan.env)
         env[self._plan.home_env_var] = str(self._plan.home_path)
         inject_loopback_no_proxy_env(env)
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=env)
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=env,
-                working_directory=self._plan.working_directory,
-            )
 
         run_kwargs: dict[str, Any] = {
             "command": command,
@@ -319,15 +316,6 @@ class HeadlessInteractiveSession:
         launch_env["AGENTSYS_TOOL"] = self._plan.tool
         if self._state.session_id:
             launch_env["AGENTSYS_RESUME_ID"] = self._state.session_id
-
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=launch_env)
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-                working_directory=self._plan.working_directory,
-            )
 
         try:
             set_tmux_session_environment_shared(

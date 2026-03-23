@@ -178,6 +178,67 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
 
 
+def test_build_launch_plan_resolves_launch_policy_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "codex-cli 0.116.0", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    manifest = {
+        "inputs": {"tool": "codex"},
+        "launch_policy": {"operator_prompt_mode": "unattended"},
+        "runtime": {
+            "launch_executable": "codex",
+            "launch_args": [],
+            "launch_home_selector": {
+                "env_var": "CODEX_HOME",
+                "value": str(tmp_path / "home"),
+            },
+        },
+        "credentials": {
+            "env_contract": {
+                "source_file": str(env_file),
+                "allowlisted_env_vars": ["OPENAI_API_KEY"],
+            }
+        },
+    }
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="codex_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
+
+
 def test_parse_allowlisted_env_selects_claude_model_selection_vars(
     tmp_path: Path,
 ) -> None:

@@ -411,6 +411,17 @@
           ],
           "default": null,
           "title": "Mailbox"
+        },
+        "launch_policy_provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LaunchPolicyProvenanceV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -451,6 +462,56 @@
         "role_name"
       ],
       "title": "LaunchPlanRoleInjectionV1",
+      "type": "object"
+    },
+    "LaunchPolicyProvenanceV1": {
+      "additionalProperties": false,
+      "description": "Typed launch-policy provenance persisted in launch/session payloads.",
+      "properties": {
+        "requested_operator_prompt_mode": {
+          "enum": [
+            "interactive",
+            "unattended"
+          ],
+          "title": "Requested Operator Prompt Mode",
+          "type": "string"
+        },
+        "detected_tool_version": {
+          "title": "Detected Tool Version",
+          "type": "string"
+        },
+        "selected_strategy_id": {
+          "title": "Selected Strategy Id",
+          "type": "string"
+        },
+        "selection_source": {
+          "enum": [
+            "registry",
+            "env_override"
+          ],
+          "title": "Selection Source",
+          "type": "string"
+        },
+        "override_env_var_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Env Var Name"
+        }
+      },
+      "required": [
+        "requested_operator_prompt_mode",
+        "detected_tool_version",
+        "selected_strategy_id",
+        "selection_source"
+      ],
+      "title": "LaunchPolicyProvenanceV1",
       "type": "object"
     }
   },
@@ -555,6 +616,17 @@
     },
     "launch_plan": {
       "$ref": "#/$defs/LaunchPlanPayloadV1"
+    },
+    "launch_policy_provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LaunchPolicyProvenanceV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "backend_state": {
       "additionalProperties": {

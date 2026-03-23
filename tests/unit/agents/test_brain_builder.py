@@ -99,6 +99,7 @@ credential_projection:
     - source: claude_state.template.json
       destination: claude_state.template.json
       mode: copy
+      required: false
   env:
     source: env/vars.env
     allowlist:
@@ -163,12 +164,13 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / ".env").is_symlink()
     assert (home / "launch.sh").is_file()
     launch_script = (home / "launch.sh").read_text(encoding="utf-8")
-    assert "ensure_codex_home_bootstrap" in launch_script
+    assert 'exec codex "$@"' in launch_script
 
     manifest_text = result.manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text)
 
     assert manifest["inputs"]["skills"] == ["skill-a"]
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
     assert manifest["runtime"]["home_path"] == str(home)
     assert manifest["credentials"]["env_contract"]["selected_env_vars"] == [
         "OPENAI_API_KEY",
@@ -199,6 +201,29 @@ credential_profile: personal-a
 
     assert recipe.default_agent_name == "cao-codex-demo"
     assert recipe.skills == ["skill-a"]
+
+
+def test_load_brain_recipe_accepts_launch_policy(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+launch_policy:
+  operator_prompt_mode: unattended
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.operator_prompt_mode == "unattended"
 
 
 def test_load_brain_recipe_accepts_mailbox_config(tmp_path: Path) -> None:
@@ -398,10 +423,41 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     assert payload["skipDangerousModePermissionPrompt"] is True
     assert (result.home_path / "claude_state.template.json").is_file()
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    assert "ensure_claude_home_bootstrap" in launch_script
+    assert 'exec claude -p "$@"' in launch_script
     assert "export ANTHROPIC_API_KEY=sk-test" in launch_script
     assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
     assert "ENV_FILE=" not in launch_script
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
+
+
+def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_cli(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-unattended",
+            operator_prompt_mode="unattended",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "unattended"
+    assert "houmao.agents.launch_policy.cli" in launch_script
+    assert "--requested-operator-prompt-mode unattended" in launch_script
+    assert "--backend raw_launch" in launch_script
 
 
 def test_build_brain_home_supports_launch_args_override(tmp_path: Path) -> None:

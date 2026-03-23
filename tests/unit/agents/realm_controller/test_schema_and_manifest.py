@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from houmao.agents.launch_policy import LaunchPolicyProvenance
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
@@ -45,6 +46,12 @@ def _sample_plan(tmp_path: Path) -> LaunchPlan:
             bootstrap_message="bootstrap",
         ),
         metadata={"headless_output_format": "stream-json"},
+        launch_policy_provenance=LaunchPolicyProvenance(
+            requested_operator_prompt_mode="unattended",
+            detected_tool_version="2.1.81",
+            selected_strategy_id="claude-unattended-2.1.81",
+            selection_source="registry",
+        ),
     )
 
 
@@ -118,6 +125,12 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["tmux_session_name"] == "AGENTSYS-claude"
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "AGENTSYS-claude"
+    assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (
+        "claude-unattended-2.1.81"
+    )
+    assert loaded.payload["launch_plan"]["launch_policy_provenance"]["detected_tool_version"] == (
+        "2.1.81"
+    )
     assert "secret" not in path.read_text(encoding="utf-8")
 
 

@@ -14,6 +14,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "LaunchPlan": ("houmao.agents.realm_controller", "LaunchPlan"),
     "LaunchPlanError": ("houmao.agents.realm_controller", "LaunchPlanError"),
     "LaunchPlanRequest": ("houmao.agents.realm_controller", "LaunchPlanRequest"),
+    "LaunchPolicyProvenance": (
+        "houmao.agents.launch_policy",
+        "LaunchPolicyProvenance",
+    ),
     "RoleInjectionPlan": ("houmao.agents.realm_controller", "RoleInjectionPlan"),
     "RolePackage": ("houmao.agents.realm_controller", "RolePackage"),
     "RuntimeSessionController": (

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     capture_tmux_pane,
@@ -52,6 +53,7 @@ class ToolRuntimeMetadata:
     tool: ToolName
     interactive_watch_recipe_path: Path
     launch_args_override: list[str] | None
+    operator_prompt_mode: OperatorPromptMode | None
 
 
 def default_tool_runtime_metadata(
@@ -68,6 +70,7 @@ def default_tool_runtime_metadata(
         launch_args_override = (
             list(tool_config.launch_args_override) if tool_config.launch_args_override else None
         )
+        operator_prompt_mode = tool_config.operator_prompt_mode
     else:
         recipe_path = (
             repo_root
@@ -80,13 +83,16 @@ def default_tool_runtime_metadata(
             / "interactive-watch-default.yaml"
         ).resolve()
         if tool == "claude":
-            launch_args_override = ["--dangerously-skip-permissions"]
+            launch_args_override = None
+            operator_prompt_mode = "unattended"
         else:
             launch_args_override = None
+            operator_prompt_mode = None
     return ToolRuntimeMetadata(
         tool=tool,
         interactive_watch_recipe_path=recipe_path,
         launch_args_override=launch_args_override,
+        operator_prompt_mode=operator_prompt_mode,
     )
 
 

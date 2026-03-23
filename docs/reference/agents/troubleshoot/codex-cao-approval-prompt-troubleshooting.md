@@ -4,9 +4,9 @@ This page covers one specific failure mode for CAO-backed Codex sessions: the li
 
 ## Observed Version
 
-This failure was reproduced in this workspace with locally installed `codex-cli 0.115.0`.
+This failure was reproduced in this workspace with locally installed `codex-cli 0.116.0` on 2026-03-23.
 
-Treat that as the confirmed observed version for this guide, not as proof that the issue is limited to `0.115.0` only.
+Treat that as the confirmed observed version for this guide, not as proof that the issue is limited to `0.116.0` only.
 
 Typical blocked surface:
 
@@ -52,41 +52,45 @@ Two tempting fixes are usually wrong for this case:
 Why they are wrong here:
 
 - For `cao_rest`, the actual interactive command is assembled by CAO's provider layer, not by Houmao's adapter args.
-- Houmao already has a documented Codex bootstrap contract for approval and sandbox posture.
+- Houmao already has a documented unattended launch-policy contract for Codex approval and sandbox posture.
 - This is normally a configuration-policy problem, not a CAO vendor bug.
 
 ## The Right Fix
 
-Route the policy through the selected Codex config profile.
+Route the posture through Houmao's first-class unattended launch policy instead of ad hoc adapter args or per-profile bootstrap assumptions.
 
 The supported path is:
 
-1. add the desired Codex policy keys to the selected config profile under `tests/fixtures/agents/brains/cli-configs/codex/<profile>/config.toml`,
-2. restart the session so Houmao rebuilds the runtime Codex home,
-3. let `ensure_codex_home_bootstrap()` project those keys into the runtime-owned `CODEX_HOME/config.toml`.
+1. set `launch_policy.operator_prompt_mode: unattended` in the selected brain recipe, or pass `--operator-prompt-mode unattended` when building the brain,
+2. restart the session so Houmao rebuilds the runtime home and re-resolves the launch plan,
+3. let the shared launch-policy registry select the versioned Codex strategy for the detected installed CLI.
 
-For the "do not ask, no sandbox" posture, the relevant config is:
+For the currently validated installed version `codex-cli 0.116.0`, Houmao resolves strategy `codex-unattended-0.116.x`. That strategy seeds the runtime-owned `CODEX_HOME/config.toml` with:
 
 ```toml
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
+
+[notice]
+hide_full_access_warning = true
+
+[notice.model_migrations]
+"gpt-5.3-codex" = "gpt-5.4"
 ```
 
-This matches the runtime contract already used by Houmao for Codex launches:
-
-- always seed trust for the launch workspace,
-- always seed required notice state,
-- only re-assert `approval_policy` and `sandbox_mode` when those keys are explicitly present in the selected Codex config profile.
+It also seeds trust under `[projects."<resolved-workdir>"].trust_level = "trusted"`.
 
 ## Why This Works
 
-Houmao applies the same Codex bootstrap contract for:
+Houmao applies the same versioned unattended strategy selection for:
 
 - `codex_headless`,
 - `codex_app_server`,
-- Codex `cao_rest`.
+- Codex `cao_rest`,
+- Codex `houmao_server_rest`,
+- raw `launch.sh` execution for brains built with unattended mode.
 
-That bootstrap edits the generated runtime `CODEX_HOME/config.toml` before launch. For CAO-backed Codex, this lets the live interactive process inherit the intended approval and sandbox posture without requiring Houmao to own CAO's command-construction internals.
+The strategy edits the generated runtime `CODEX_HOME/config.toml` before launch-plan execution. For CAO-backed Codex, this lets the live interactive process inherit the intended approval and sandbox posture without requiring Houmao to own CAO's command-construction internals.
 
 ## Recommended Verification
 
@@ -94,26 +98,28 @@ After changing the profile, do a fresh stop/start of the affected session and ch
 
 Verify these points:
 
-1. The selected Codex config profile contains the intended keys.
-2. The rebuilt runtime home contains those same keys in `CODEX_HOME/config.toml`.
-3. The prompt turn no longer surfaces an operator approval menu.
-4. The expected side effect or output completes successfully.
+1. The built manifest records `launch_policy.operator_prompt_mode: unattended`.
+2. The session manifest or `start-session --json` output records `launch_policy_provenance.selected_strategy_id = "codex-unattended-0.116.x"` for the current installed version.
+3. The rebuilt runtime home contains the expected runtime-owned keys in `CODEX_HOME/config.toml`.
+4. The prompt turn no longer surfaces an operator approval menu.
+5. The expected side effect or output completes successfully.
 
-For CAO-backed sessions, it is normal for the session manifest to show `launch_plan.args: []` after this fix. The approval posture is coming from runtime-home config, not extra CLI flags.
+For CAO-backed sessions, it is normal for the session manifest to show no Codex-specific approval CLI flags. The approval posture is coming from runtime-owned config plus typed launch-policy provenance, not extra CAO command-line arguments.
 
 ## Practical Debugging Checklist
 
 If the prompt still blocks, check these in order:
 
-1. Confirm you restarted the session after editing the config profile. Old live sessions keep their previously generated runtime home.
-2. Confirm you edited the profile that the selected brain recipe actually uses.
-3. Open the generated runtime `config.toml` and verify the keys were projected there.
-4. Inspect the live tmux pane to distinguish a true approval prompt from some other blocked surface.
-5. Only investigate CAO source behavior after you have ruled out profile selection, runtime-home regeneration, and trust/bootstrap projection.
+1. Confirm you restarted the session after enabling unattended mode. Old live sessions keep their previously generated runtime home and launch plan.
+2. Confirm the selected recipe or build command actually requested `operator_prompt_mode = unattended`.
+3. Open the generated runtime `config.toml` and verify the runtime-owned keys were projected there.
+4. Inspect `launch_policy_provenance` to verify the detected version and selected strategy.
+5. Inspect the live tmux pane to distinguish a true approval prompt from some other blocked surface.
+6. Only investigate CAO source behavior after you have ruled out launch-policy mode, runtime-home regeneration, strategy selection, and trust/config synthesis.
 
 ## Source References
 
-- [`src/houmao/agents/realm_controller/backends/codex_bootstrap.py`](../../../../src/houmao/agents/realm_controller/backends/codex_bootstrap.py)
+- [`src/houmao/agents/launch_policy/`](../../../../src/houmao/agents/launch_policy/)
 - [`docs/reference/realm_controller.md`](../../realm_controller.md)
 - [`docs/reference/agents/operations/session-and-message-flows.md`](../operations/session-and-message-flows.md)
-- [`tests/fixtures/agents/brains/cli-configs/codex/default/config.toml`](../../../../tests/fixtures/agents/brains/cli-configs/codex/default/config.toml)
+- [`openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md`](../../../../openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md)

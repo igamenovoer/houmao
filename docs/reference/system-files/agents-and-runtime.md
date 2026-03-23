@@ -49,11 +49,17 @@ Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime 
 
 | Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
 | --- | --- | --- | --- | --- | --- |
-| `<runtime-root>/homes/<home-id>/` | `build-brain` / `build_brain_home()` | Houmao builder and projected tool/bootstrap helpers | Fresh generated runtime home for one built brain | Stable path family, partially tool-specific contents | Safe to delete and rebuild when no live session depends on it |
-| `<runtime-root>/homes/<home-id>/launch.sh` | Houmao builder | normally read-only after build | Launch helper that selects the home and bootstraps the tool | Stable operator-facing artifact | Recreated with the home |
+| `<runtime-root>/homes/<home-id>/` | `build-brain` / `build_brain_home()` | Houmao builder and projected tool/launch-policy helpers | Fresh generated runtime home for one built brain | Stable path family, partially tool-specific contents | Safe to delete and rebuild when no live session depends on it |
+| `<runtime-root>/homes/<home-id>/launch.sh` | Houmao builder | normally read-only after build | Launch helper that selects the home and either execs the tool directly or routes unattended mode through the shared launch-policy CLI | Stable operator-facing artifact | Recreated with the home |
 | `<runtime-root>/manifests/<home-id>.yaml` | `build-brain` / `build_brain_home()` | normally read-only after build | Secret-free build manifest describing the generated home | Stable operator-facing artifact | Safe to regenerate with the same build inputs |
 
 Important boundary: Houmao owns the generated-home path family and the build manifest contract, but some generated-home contents are projections of tool configs, projected skills, or projected credential wrappers rather than a stable file-by-file contract.
+
+Current manifest-level launch-policy artifacts:
+
+- the build manifest carries secret-free `launch_policy.operator_prompt_mode`,
+- unattended `launch.sh` helpers call `houmao.agents.launch_policy.cli` before the final tool exec,
+- runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source.
 
 ## Runtime-Owned Mailbox Credential Artifacts
 
@@ -119,6 +125,7 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 
 - `manifest.json` is the durable runtime record for resume and control.
 - `manifest.json` stays secret-free for Stalwart-backed sessions and persists `credential_ref` instead of inline mailbox secrets.
+- `manifest.json` may persist `launch_policy_provenance` when the session was built for unattended mode, and the nested redacted `launch_plan` may carry the same typed provenance for diagnostics.
 - Runtime-owned Stalwart credential material lives under the runtime root, while one session-local materialized copy lives under the session root when needed.
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
 - The workspace-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
@@ -133,6 +140,7 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 ## Source References
 
 - [`src/houmao/agents/brain_builder.py`](../../../src/houmao/agents/brain_builder.py)
+- [`src/houmao/agents/launch_policy/`](../../../src/houmao/agents/launch_policy/)
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../src/houmao/agents/realm_controller/manifest.py)
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)

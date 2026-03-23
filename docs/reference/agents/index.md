@@ -29,7 +29,7 @@ For the canonical filesystem map behind these terms, use [System Files Reference
 ### Start here
 
 - [Session And Message Flows](operations/session-and-message-flows.md): Start, resume, stop, and choose between prompt turns, control input, mailbox, and gateway paths.
-- [Troubleshooting Codex CAO Approval Prompts](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a CAO-backed Codex prompt turn stops on an approval menu and use the supported profile-driven fix.
+- [Troubleshooting Codex CAO Approval Prompts](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a CAO-backed Codex prompt turn stops on an approval menu and verify the selected unattended launch-policy strategy.
 
 ### Contracts
 

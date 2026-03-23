@@ -24,7 +24,8 @@ Schema (`schema_version: 1`):
 
 Claude headless note:
 
-- `launch.args` defines the base Claude CLI flags (for example `-p` and/or `--dangerously-skip-permissions`).
+- `launch.args` defines only the base Claude CLI flags (for example `-p`).
+- Startup no-prompt posture should come from `launch_policy.operator_prompt_mode = unattended`, not from baking `--dangerously-skip-permissions` into the adapter.
 - Backend-reserved args are injected by runtime code and must not appear in `launch.args`:
   - `--resume`
   - `--output-format`

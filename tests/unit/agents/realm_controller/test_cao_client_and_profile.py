@@ -605,7 +605,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
 ) -> None:
     captured_tmux: dict[str, object] = {}
     captured_create_terminal: dict[str, object] = {}
-    captured_codex_bootstrap: dict[str, object] = {}
     selected_window_ids: list[str] = []
     killed_window_ids: list[str] = []
     list_window_calls = {"count": 0}
@@ -745,11 +744,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
         "houmao.agents.realm_controller.backends.cao_rest._kill_tmux_window",
         _fake_kill_tmux_window,
     )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
-        lambda **kwargs: captured_codex_bootstrap.update(kwargs),
-    )
-
     plan = _sample_launch_plan(tmp_path, tool="codex")
     session = CaoRestSession(
         launch_plan=plan,
@@ -773,9 +767,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert env_vars["INHERITED_CALLER_ENV"] == "caller-value"
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str(tmp_path / "session.json")
     assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(tmp_path.resolve())
-    assert captured_codex_bootstrap["home_path"] == tmp_path / "home"
-    assert captured_codex_bootstrap["env"]["OPENAI_API_KEY"] == "secret"
-    assert captured_codex_bootstrap["working_directory"] == tmp_path
     assert captured_create_terminal["session_name"] == captured_tmux["session_name"]
     assert captured_create_terminal["provider"] == "codex"
     assert captured_create_terminal["working_directory"] == str(tmp_path)

@@ -14,7 +14,11 @@ from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 
 from ..errors import BackendExecutionError
 from ..models import LaunchPlan, SessionControlResult, SessionEvent
-from .codex_bootstrap import ensure_codex_home_bootstrap
+from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
+
+# Legacy module alias kept for tests and external monkeypatch hooks. Runtime
+# launch policy is resolved before backend execution and no longer invokes this directly.
+ensure_codex_home_bootstrap = _ensure_codex_home_bootstrap_legacy
 
 
 @dataclass
@@ -166,11 +170,6 @@ class CodexAppServerSession:
         env.update(self._plan.env)
         env[self._plan.home_env_var] = str(self._plan.home_path)
         inject_loopback_no_proxy_env(env)
-        ensure_codex_home_bootstrap(
-            home_path=self._plan.home_path,
-            env=env,
-            working_directory=self._plan.working_directory,
-        )
 
         command = [self._plan.executable, *self._plan.args]
         self._process = subprocess.Popen(

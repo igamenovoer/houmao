@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from houmao.shared_tui_tracking.models import TrackedLastTurnResult
@@ -40,6 +41,7 @@ class DemoToolConfigV1(_DemoConfigBoundaryModel):
 
     recipe_path: str
     launch_args_override: list[str] = Field(default_factory=list)
+    operator_prompt_mode: OperatorPromptMode | None = None
 
     @field_validator("recipe_path")
     @classmethod
@@ -61,6 +63,7 @@ class DemoToolConfigOverrideV1(_DemoConfigBoundaryModel):
 
     recipe_path: str | None = None
     launch_args_override: list[str] | None = None
+    operator_prompt_mode: OperatorPromptMode | None = None
 
     @field_validator("recipe_path")
     @classmethod

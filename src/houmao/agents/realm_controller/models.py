@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 
 BackendKind = Literal[
@@ -96,6 +97,7 @@ class LaunchPlan:
     role_injection: RoleInjectionPlan
     metadata: dict[str, Any] = field(default_factory=dict)
     mailbox: MailboxResolvedConfig | None = None
+    launch_policy_provenance: LaunchPolicyProvenance | None = None
 
     def redacted_payload(self) -> dict[str, Any]:
         """Return a secret-free payload suitable for persistence.
@@ -123,6 +125,11 @@ class LaunchPlan:
             },
             "metadata": _redact_metadata(self.metadata),
             "mailbox": self.mailbox.redacted_payload() if self.mailbox is not None else None,
+            "launch_policy_provenance": (
+                self.launch_policy_provenance.to_payload()
+                if self.launch_policy_provenance is not None
+                else None
+            ),
         }
 
 

@@ -134,7 +134,7 @@ Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run
 
 The normal launch posture is intentionally permissive:
 
-- Claude always uses `--dangerously-skip-permissions`
+- Claude explicitly requests `operator_prompt_mode = "unattended"` so the runtime applies the versioned no-prompt launch policy
 - Codex uses the repo-managed runtime-home config with `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`
 
 This avoids routine stalls on approval prompts during capture or observation.

@@ -506,7 +506,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     for warning in controller.startup_warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
-    payload = {
+    payload: dict[str, object] = {
         "session_manifest": str(controller.manifest_path),
         "backend": controller.launch_plan.backend,
         "tool": controller.launch_plan.tool,
@@ -545,6 +545,13 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     mailbox = getattr(controller.launch_plan, "mailbox", None)
     if mailbox is not None:
         payload["mailbox"] = mailbox.redacted_payload()
+    if controller.launch_plan.launch_policy_provenance is not None:
+        payload["launch_policy_provenance"] = (
+            controller.launch_plan.launch_policy_provenance.to_payload()
+        )
+    launch_policy_metadata = controller.launch_plan.metadata.get("launch_policy")
+    if isinstance(launch_policy_metadata, dict):
+        payload["launch_policy"] = launch_policy_metadata
 
     print(json.dumps(payload, indent=2))
     return 2 if gateway_auto_attach_error is not None else 0

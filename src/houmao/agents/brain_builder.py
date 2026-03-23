@@ -10,8 +10,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
@@ -64,6 +65,7 @@ class BrainRecipe:
     skills: list[str]
     config_profile: str
     credential_profile: str
+    operator_prompt_mode: OperatorPromptMode | None = None
     default_agent_name: str | None = None
     mailbox: MailboxDeclarativeConfig | None = None
 
@@ -82,6 +84,7 @@ class BuildRequest:
     home_id: str | None = None
     reuse_home: bool = False
     launch_args_override: list[str] | None = None
+    operator_prompt_mode: OperatorPromptMode | None = None
 
 
 @dataclass(frozen=True)
@@ -222,6 +225,26 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
     return adapter
 
 
+def _parse_operator_prompt_mode(
+    raw_value: object,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Parse one optional operator prompt mode value."""
+
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise BuildError(f"{source}: operator_prompt_mode must be a non-empty string when set")
+    value = raw_value.strip()
+    if value not in {"interactive", "unattended"}:
+        raise BuildError(
+            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, "
+            f"got {value!r}"
+        )
+    return cast(OperatorPromptMode, value)
+
+
 def load_brain_recipe(path: Path) -> BrainRecipe:
     payload = _load_mapping_file(path)
     schema_version = payload.get("schema_version")
@@ -240,12 +263,19 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
         )
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
+    launch_policy = payload.get("launch_policy")
+    if launch_policy is not None and not isinstance(launch_policy, dict):
+        raise BuildError(f"{path}: launch_policy must be a mapping when set")
     recipe = BrainRecipe(
         name=_require_str(payload, "name", where=str(path)),
         tool=_require_str(payload, "tool", where=str(path)),
         skills=skills,
         config_profile=_require_str(payload, "config_profile", where=str(path)),
         credential_profile=_require_str(payload, "credential_profile", where=str(path)),
+        operator_prompt_mode=_parse_operator_prompt_mode(
+            launch_policy.get("operator_prompt_mode") if isinstance(launch_policy, dict) else None,
+            source=str(path),
+        ),
         default_agent_name=default_agent_name.strip()
         if isinstance(default_agent_name, str)
         else None,
@@ -337,6 +367,7 @@ def _build_launch_helper(
     adapter: ToolAdapter,
     launch_args: list[str],
     env_exports: dict[str, str],
+    operator_prompt_mode: OperatorPromptMode | None,
 ) -> str:
     """Build one runtime launch helper script.
 
@@ -377,7 +408,7 @@ def _build_launch_helper(
             continue
         script_lines.append(f"export {key}={shlex.quote(value)}")
 
-    if adapter.tool in {"claude", "codex"}:
+    if operator_prompt_mode == "unattended":
         script_lines.extend(
             [
                 "BOOTSTRAP_PYTHON=()",
@@ -394,46 +425,30 @@ def _build_launch_helper(
                 "fi",
             ]
         )
-
-    if adapter.tool == "claude":
-        script_lines.extend(
-            [
-                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
-                "from pathlib import Path",
-                "import os",
-                "",
-                "from houmao.agents.realm_controller.backends.claude_bootstrap import (",
-                "    ensure_claude_home_bootstrap,",
-                ")",
-                "",
-                "ensure_claude_home_bootstrap(",
-                "    home_path=Path(os.environ['CLAUDE_CONFIG_DIR']),",
-                "    env=dict(os.environ),",
-                ")",
-                "PY",
-            ]
-        )
-    if adapter.tool == "codex":
-        script_lines.extend(
-            [
-                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
-                "from pathlib import Path",
-                "import os",
-                "",
-                "from houmao.agents.realm_controller.backends.codex_bootstrap import (",
-                "    ensure_codex_home_bootstrap,",
-                ")",
-                "",
-                "ensure_codex_home_bootstrap(",
-                "    home_path=Path(os.environ['CODEX_HOME']),",
-                "    env=dict(os.environ),",
-                "    working_directory=Path.cwd(),",
-                ")",
-                "PY",
-            ]
-        )
-
-    script_lines.append(f'exec {executable}{command_suffix} "$@"')
+        script_lines.append('EXTRA_ARGS=("$@")')
+        launch_policy_args = [
+            "\"${BOOTSTRAP_PYTHON[@]}\"",
+            "-m",
+            "houmao.agents.launch_policy.cli",
+            "--tool",
+            shlex.quote(adapter.tool),
+            "--backend",
+            "raw_launch",
+            "--executable",
+            executable,
+            "--working-directory",
+            '"$PWD"',
+            "--home-path",
+            shlex.quote(str(home_path)),
+            "--requested-operator-prompt-mode",
+            operator_prompt_mode,
+        ]
+        for arg in launch_args:
+            launch_policy_args.extend(["--launch-arg", shlex.quote(arg)])
+        launch_policy_args.extend(["--", '"${EXTRA_ARGS[@]}"'])
+        script_lines.append(f"exec {' '.join(launch_policy_args)}")
+    else:
+        script_lines.append(f'exec {executable}{command_suffix} "$@"')
 
     helper_path.parent.mkdir(parents=True, exist_ok=True)
     helper_path.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
@@ -547,6 +562,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         _validate_relative_path(env_file_in_home, field="launch.env_injection.env_file_in_home")
         _project_path(credential_env_file, home_path / env_file_in_home, mode="symlink")
 
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifests_dir / f"{home_id}.yaml"
     launch_helper_path = home_path / "launch.sh"
     launch_preview = _build_launch_helper(
         home_path=home_path,
@@ -554,6 +571,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         adapter=adapter,
         launch_args=launch_args,
         env_exports={key: env_values[key] for key in selected_env_names},
+        operator_prompt_mode=request.operator_prompt_mode,
     )
 
     manifest: dict[str, Any] = {
@@ -565,6 +583,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "config_profile": request.config_profile,
             "credential_profile": request.credential_profile,
             "adapter_path": str(adapter_path),
+        },
+        "launch_policy": {
+            "operator_prompt_mode": request.operator_prompt_mode or "interactive",
         },
         "runtime": {
             "runtime_root": str(runtime_root),
@@ -589,6 +610,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             },
         },
     }
+    if request.launch_args_override is not None:
+        manifest["inputs"]["launch_args_override"] = list(request.launch_args_override)
     if request.mailbox is not None:
         manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
     if request.agent_name is not None or request.agent_id is not None:
@@ -607,7 +630,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             ),
         }
 
-    manifest_path = manifests_dir / f"{home_id}.yaml"
     _write_mapping_file(manifest_path, manifest)
 
     return BuildResult(
@@ -650,6 +672,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--cred-profile", help="Credential profile name")
     parser.add_argument("--home-id", help="Optional fixed home id")
     parser.add_argument(
+        "--operator-prompt-mode",
+        choices=["interactive", "unattended"],
+        help="Requested startup operator prompt policy for the built brain",
+    )
+    parser.add_argument(
         "--reuse-home",
         action="store_true",
         help="Allow building into an existing home id (fresh-by-default is off)",
@@ -683,6 +710,9 @@ def main(argv: list[str] | None = None) -> int:
     credential_profile_raw = namespace.cred_profile or (
         recipe.credential_profile if recipe else None
     )
+    operator_prompt_mode = namespace.operator_prompt_mode or (
+        recipe.operator_prompt_mode if recipe else None
+    )
 
     missing: list[str] = []
     if not tool_raw:
@@ -712,6 +742,7 @@ def main(argv: list[str] | None = None) -> int:
         agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
+        operator_prompt_mode=operator_prompt_mode,
     )
 
     result = build_brain_home(request)

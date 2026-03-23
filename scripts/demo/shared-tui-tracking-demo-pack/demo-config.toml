@@ -9,7 +9,7 @@ sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
 
 [tools.claude]
 recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
-launch_args_override = ["--dangerously-skip-permissions"]
+operator_prompt_mode = "unattended"
 
 [tools.codex]
 recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"

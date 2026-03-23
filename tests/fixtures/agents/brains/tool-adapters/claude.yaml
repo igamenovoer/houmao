@@ -19,10 +19,12 @@ credential_projection:
     - source: claude_state.template.json
       destination: claude_state.template.json
       mode: copy
+      required: false
   env:
     source: env/vars.env
     allowlist:
       - ANTHROPIC_API_KEY
+      - ANTHROPIC_AUTH_TOKEN
       - ANTHROPIC_BASE_URL
       - ANTHROPIC_MODEL
       - ANTHROPIC_SMALL_FAST_MODEL

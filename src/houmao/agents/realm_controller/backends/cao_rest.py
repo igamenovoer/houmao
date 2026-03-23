@@ -49,8 +49,8 @@ from .cao_rx_monitor import (
     build_completion_pipeline,
     build_readiness_pipeline,
 )
-from .claude_bootstrap import ensure_claude_home_bootstrap
-from .codex_bootstrap import ensure_codex_home_bootstrap
+from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
+from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
 from .shadow_parser_core import (
     DialogProjection,
     ParsedShadowSnapshot,
@@ -79,6 +79,11 @@ from .tmux_runtime import (
     TmuxControlInputError,
     tmux_error_detail as tmux_error_detail_shared,
 )
+
+# Legacy module aliases kept for tests and external monkeypatch hooks. Runtime
+# launch policy is resolved before backend execution and no longer invokes these directly.
+ensure_claude_home_bootstrap = _ensure_claude_home_bootstrap_legacy
+ensure_codex_home_bootstrap = _ensure_codex_home_bootstrap_legacy
 
 _CAO_PROVIDER_BY_TOOL: Final[dict[str, str]] = {
     "codex": "codex",
@@ -560,18 +565,6 @@ class CaoRestSession:
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
         if self._agent_def_dir is not None:
             launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)
-
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-            )
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-                working_directory=self._plan.working_directory,
-            )
         return launch_env
 
     def _publish_tmux_session_environment(self) -> None:

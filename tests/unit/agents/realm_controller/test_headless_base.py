@@ -108,19 +108,10 @@ def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
         session.send_prompt("hello")
 
 
-def test_claude_headless_runs_shared_bootstrap(
+def test_claude_headless_uses_launch_plan_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     captured: dict[str, object] = {}
-
-    def _fake_bootstrap(*, home_path: Path, env: dict[str, str]) -> None:
-        captured["home_path"] = home_path
-        captured["env"] = env
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.ensure_claude_home_bootstrap",
-        _fake_bootstrap,
-    )
 
     session = ClaudeHeadlessSession(
         launch_plan=_sample_claude_launch_plan(tmp_path),
@@ -144,6 +135,7 @@ def test_claude_headless_runs_shared_bootstrap(
             tmux_session_name,
             turn_artifacts_root,
         ) -> HeadlessRunResult:
+            captured["env"] = dict(env)
             return HeadlessRunResult(
                 events=[],
                 stderr="",
@@ -154,9 +146,9 @@ def test_claude_headless_runs_shared_bootstrap(
     session._runner = _FakeRunner()  # type: ignore[attr-defined]
 
     session.send_prompt("hello")
-    assert captured["home_path"] == tmp_path / "home"
     assert isinstance(captured["env"], dict)
     assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "home")
+    assert captured["env"]["ANTHROPIC_API_KEY"] == "sk-secret"
 
 
 def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(

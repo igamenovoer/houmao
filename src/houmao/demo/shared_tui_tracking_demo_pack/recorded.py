@@ -221,6 +221,7 @@ def run_recorded_capture(
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
             launch_args_override=tool_metadata.launch_args_override,
+            operator_prompt_mode=tool_metadata.operator_prompt_mode or recipe.operator_prompt_mode,
         )
     )
     observed_version = detect_tool_version(tool=scenario.tool)

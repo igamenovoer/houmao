@@ -212,21 +212,38 @@ Sunset criteria for removal in follow-up change:
 - Unit/integration/manual test parity with prior non-CAO Codex behavior.
 - Docs parity for start/resume/stop/identity workflows.
 
-## Codex Bootstrap Contract
+## Versioned Unattended Launch Policy
 
-For Codex launches (`codex_headless`, `codex_app_server`, and Codex `cao_rest`),
-runtime startup enforces a shared non-interactive bootstrap contract on
-`CODEX_HOME/config.toml`:
+Unattended startup is now a first-class runtime policy, not an implicit provider-specific bootstrap side effect.
 
-- always set `[notice].hide_full_access_warning = true`,
-- always seed trust for launch context under
-  `[projects."<resolved-path>"].trust_level = "trusted"`,
-- resolve trust target to agent-definition root when `.git` is discoverable from launch
-  workdir, otherwise use the explicit launch workdir,
-- only re-assert `approval_policy` / `sandbox_mode` when those keys are
-  explicitly present in the selected Codex config profile.
+Request unattended mode by setting `launch_policy.operator_prompt_mode: unattended` in the brain recipe or by passing `--operator-prompt-mode unattended` to `build-brain`. The resulting build manifest stays secret-free and records only the requested mode. The actual strategy is resolved later, at launch-plan time, against the real installed CLI version from `<tool> --version`.
 
-Bootstrap is idempotent and preserves unrelated config settings.
+Shared behavior across `raw_launch`, `headless`, `cao_rest`, and `houmao_server_rest`:
+
+- runtime resolves the strategy against the actual executable and fails closed on unsupported versions,
+- `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` exists for transient debugging when you need to force one known strategy id,
+- resolved metadata is persisted as typed `launch_policy_provenance` and mirrored in launch diagnostics,
+- runtime-managed backends no longer run separate per-backend bootstrap logic after launch-plan construction.
+
+As of 2026-03-23 in this workspace, the validated installed versions are:
+
+- Codex: `codex-cli 0.116.0` -> strategy `codex-unattended-0.116.x`
+- Claude Code: `2.1.81` -> strategy `claude-unattended-2.1.81`
+
+Codex unattended details for the current validated version:
+
+- supported backends: `raw_launch`, `codex_headless`, `codex_app_server`, `cao_rest`, `houmao_server_rest`,
+- minimal input contract: non-empty `auth.json`, `OPENAI_API_KEY`, or a config-backed env-only provider with `requires_openai_auth = false` and `wire_api = "responses"`,
+- runtime-owned `config.toml` synthesis seeds `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `notice.hide_full_access_warning = true`, `projects."<resolved-workdir>".trust_level = "trusted"`, and the `gpt-5.3-codex -> gpt-5.4` migration state.
+
+Claude unattended details for the current validated version:
+
+- supported backends: `raw_launch`, `claude_headless`, `cao_rest`, `houmao_server_rest`,
+- minimal input contract: environment-backed Claude credentials such as `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`; user-prepared prompt-suppression state is not required,
+- runtime-owned state can create or patch `settings.json` and `.claude.json`, seed `skipDangerousModePermissionPrompt`, onboarding markers, custom API-key approval memory, and per-workspace trust under the resolved workdir,
+- optional `claude_state.template.json` input is preserved when present, but it is no longer required for unattended startup.
+
+For the detailed validation record tied to the installed CLIs, see `openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md`.
 
 ## Claude Headless Resume (tmux-backed `claude -p --resume`)
 
@@ -258,21 +275,6 @@ Backend code reserves and injects only:
 - `--append-system-prompt <text>` (when native role injection is used)
 
 If adapter `launch.args` contains any reserved arg, launch-plan construction fails fast with a configuration error.
-
-## Claude Bootstrap Contract
-
-For Claude launches (`claude_headless` and `cao_rest`), runtime startup enforces a shared non-interactive bootstrap contract on `CLAUDE_CONFIG_DIR`:
-
-- `settings.json` must exist and set `skipDangerousModePermissionPrompt: true`.
-- `claude_state.template.json` must exist (projected from credential profile input).
-- runtime `.claude.json` is materialized only when missing (create-only), by applying launcher-enforced keys onto the template:
-  - `hasCompletedOnboarding: true`
-  - `numStartups: 1`
-  - `customApiKeyResponses` based on `ANTHROPIC_API_KEY` suffix when set
-
-Rationale: Claude Code first-run behavior may show interactive onboarding/approval prompts and may contact `api.anthropic.com` for feature flags even when `ANTHROPIC_BASE_URL` is configured. This bootstrap keeps orchestrated launches non-interactive in isolated homes.
-
-Verified against Claude Code `v2.1.62` on `2026-02-27`.
 
 ## Model selection (Claude Code)
 
@@ -331,6 +333,8 @@ pixi run python -m houmao.agents.realm_controller send-prompt \
 ```
 
 Gemini resume requires the same working directory/project context captured in the session manifest.
+
+Gemini does not currently have a registered unattended launch-policy strategy. If a build requests `launch_policy.operator_prompt_mode: unattended` for Gemini, launch-plan construction fails closed until a versioned Gemini strategy is added.
 
 ## Headless Stop/Cleanup Semantics
 

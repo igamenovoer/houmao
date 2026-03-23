@@ -18,6 +18,9 @@ from .agent_identity import normalize_agent_identity_name
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
+OperatorPromptModeV1: TypeAlias = Literal["interactive", "unattended"]
+LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
+
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -117,6 +120,29 @@ LaunchPlanMailboxV1: TypeAlias = Annotated[
 ]
 
 
+class LaunchPolicyProvenanceV1(_StrictBoundaryModel):
+    """Typed launch-policy provenance persisted in launch/session payloads."""
+
+    requested_operator_prompt_mode: OperatorPromptModeV1
+    detected_tool_version: str
+    selected_strategy_id: str
+    selection_source: LaunchPolicySelectionSourceV1
+    override_env_var_name: str | None = None
+
+    @field_validator(
+        "detected_tool_version",
+        "selected_strategy_id",
+        "override_env_var_name",
+    )
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class LaunchPlanPayloadV1(_StrictBoundaryModel):
     """Persisted `launch_plan.v1` payload."""
 
@@ -130,6 +156,7 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     role_injection: LaunchPlanRoleInjectionV1
     metadata: JsonObject
     mailbox: LaunchPlanMailboxV1 | None = None
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
 
     @field_validator("tool", "executable", "working_directory")
     @classmethod
@@ -229,6 +256,7 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
     brain_manifest_path: str
     registry_generation_id: str | None = None
     launch_plan: LaunchPlanPayloadV1
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     backend_state: JsonObject
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None
@@ -319,6 +347,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
     job_dir: str | None = None
     registry_generation_id: str | None = None
     launch_plan: LaunchPlanPayloadV1
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     backend_state: JsonObject
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None
