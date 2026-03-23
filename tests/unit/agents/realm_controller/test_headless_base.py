@@ -258,12 +258,17 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     agent_def_dir = tmp_path / "agents"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
     captured_tmux_env: dict[str, object] = {}
+    prepared_sessions: list[str] = []
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: captured_tmux_env.update(
             {"session_name": session_name, "env_vars": dict(env_vars)}
         ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",
+        lambda *, session_name: prepared_sessions.append(session_name),
     )
 
     GeminiHeadlessSession(
@@ -278,6 +283,7 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     )
 
     assert captured_tmux_env["session_name"] == "AGENTSYS-gemini"
+    assert prepared_sessions == ["AGENTSYS-gemini"]
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -422,4 +428,8 @@ def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",
+        lambda *, session_name: None,
     )

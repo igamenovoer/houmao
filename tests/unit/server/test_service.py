@@ -11,7 +11,10 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
+    TmuxPaneRecord,
+)
 from houmao.server.managed_agents import (
     ManagedHeadlessActiveTurnRecord,
     ManagedHeadlessAuthorityRecord,
@@ -1125,9 +1128,12 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert authority.manifest_path == str(manifest_path)
     assert authority.agent_def_dir == str(agent_def_dir)
     assert response.identity.transport == "headless"
+    assert response.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert shared_state.availability == "available"
     assert shared_state.turn.phase == "ready"
     assert shared_state.identity.runtime_session_id == response.tracked_agent_id
+    assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
+    assert shared_agents[0].tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert [agent.tracked_agent_id for agent in shared_agents] == [response.tracked_agent_id]
     assert "blueprint_gateway_defaults" not in recorded_start_kwargs
     assert "gateway_auto_attach" not in recorded_start_kwargs
@@ -1244,7 +1250,7 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             started_at_utc="2026-03-20T09:01:00+00:00",
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
             tmux_session_name="AGENTSYS-live",
-            tmux_window_name="turn-2",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(
                 manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
             ),
@@ -1259,7 +1265,7 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
             started_at_utc="2026-03-20T09:01:00+00:00",
             tmux_session_name="AGENTSYS-live",
-            tmux_window_name="turn-2",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(
                 manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
             ),
@@ -1318,7 +1324,7 @@ def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_pa
             started_at_utc="2026-03-23T12:00:00+00:00",
             turn_artifact_dir=str(turn_dir),
             tmux_session_name="AGENTSYS-thread",
-            tmux_window_name="turn-1",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             history_summary="Turn turn-live accepted.",
         )
@@ -1331,7 +1337,7 @@ def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_pa
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
             tmux_session_name="AGENTSYS-thread",
-            tmux_window_name="turn-1",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
         )
     )
@@ -1397,7 +1403,7 @@ def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
             started_at_utc="2026-03-23T12:00:00+00:00",
             turn_artifact_dir=str(turn_dir),
             tmux_session_name="AGENTSYS-dead",
-            tmux_window_name="turn-1",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             history_summary="Turn turn-dead accepted.",
         )
@@ -1410,7 +1416,7 @@ def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
             tmux_session_name="AGENTSYS-dead",
-            tmux_window_name="turn-1",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
         )
     )
@@ -1519,7 +1525,7 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
                 started_at_utc="2026-03-23T12:00:00+00:00",
                 turn_artifact_dir=str(turn_dir),
                 tmux_session_name="AGENTSYS-interrupt",
-                tmux_window_name="turn-1",
+                tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
                 process_path=str(process_path),
                 child_pid=sleeper.pid,
                 process_started_at_utc="2026-03-23T12:00:00Z",
@@ -1533,7 +1539,7 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
             tmux_session_name="AGENTSYS-interrupt",
-            tmux_window_name="turn-1",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             child_pid=sleeper.pid,
             process_started_at_utc="2026-03-23T12:00:00Z",
@@ -1559,6 +1565,42 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
     assert turn_record is not None
     assert turn_record.status == "interrupted"
     assert turn_record.interrupt_requested_at_utc is not None
+
+
+def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    active_turn = ManagedHeadlessActiveTurnRecord(
+        tracked_agent_id="claude-headless-fallback",
+        turn_id="turn-live",
+        turn_index=1,
+        turn_artifact_dir=str(tmp_path / "turn-artifacts" / "turn-live"),
+        started_at_utc="2026-03-23T12:00:00+00:00",
+        tmux_session_name="AGENTSYS-fallback",
+        tmux_window_name="diagnostics",
+    )
+    tmux_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "houmao.server.service.run_tmux",
+        lambda args: tmux_calls.append(list(args))
+        or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr=""),
+    )
+
+    service._interrupt_headless_tmux_target(active_turn=active_turn)
+
+    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-fallback:0.0", "C-c"]]
 
 
 def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
@@ -1610,7 +1652,7 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
             completed_at_utc="2026-03-20T09:02:00+00:00",
             turn_artifact_dir=str(turn_dir),
             tmux_session_name="AGENTSYS-history",
-            tmux_window_name="turn-001",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             stdout_path=str(stdout_path),
             stderr_path=str(stderr_path),
             status_path=str(status_path),
@@ -1642,3 +1684,4 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
     assert history.entries[0].turn_id == "turn-001"
     assert history.entries[0].summary == "Turn turn-001 completed successfully."
     assert shared_state.last_turn.result == "success"
+    assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME

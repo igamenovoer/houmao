@@ -35,20 +35,15 @@ if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exit 1
 fi
 
-PANE_TARGET="$(
-    tmux list-panes -t "$SESSION_NAME" -F '#{session_name}:#{window_index}.#{pane_index} #{window_active} #{pane_active}' \
-        | awk '$2 == "1" && $3 == "1" { print $1; exit }'
-)"
+WINDOW_TARGET="$SESSION_NAME:0"
+PANE_TARGET="$(tmux list-panes -t "$WINDOW_TARGET" -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null | head -n1)"
 if [[ -z "$PANE_TARGET" ]]; then
-    PANE_TARGET="$(tmux list-panes -t "$SESSION_NAME" -F '#{session_name}:#{window_index}.#{pane_index}' | head -n1)"
-fi
-if [[ -z "$PANE_TARGET" ]]; then
-    echo "no panes found for tmux session: $SESSION_NAME" >&2
+    echo "stable agent window not found: $WINDOW_TARGET" >&2
     exit 1
 fi
 
-echo "=== $ROLE_NAME tmux snapshot ($SESSION_NAME) ==="
+echo "=== $ROLE_NAME tmux snapshot ($WINDOW_TARGET agent) ==="
 tmux capture-pane -p -t "$PANE_TARGET" -S "-$LINES"
 echo
 echo "Attach from another terminal if you want a live view:"
-echo "  tmux attach-session -t $SESSION_NAME"
+echo "  tmux attach-session -t $SESSION_NAME \\; select-window -t $WINDOW_TARGET"

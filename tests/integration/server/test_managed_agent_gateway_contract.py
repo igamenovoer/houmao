@@ -349,7 +349,7 @@ def _managed_agent_detail_payload(agent_ref: str) -> dict[str, object]:
         "terminal_id": None,
         "runtime_session_id": agent_ref,
         "tmux_session_name": "AGENTSYS-headless",
-        "tmux_window_name": None,
+        "tmux_window_name": "agent",
         "manifest_path": "/tmp/manifest.json",
         "session_root": "/tmp/session-root",
         "agent_name": "AGENTSYS-headless",

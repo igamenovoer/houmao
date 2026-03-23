@@ -88,7 +88,7 @@ class _InspectClientDouble:
                     "terminal_id": None,
                     "runtime_session_id": tracked_agent_id,
                     "tmux_session_name": f"tmux-{tracked_agent_id}",
-                    "tmux_window_name": None,
+                    "tmux_window_name": "agent",
                     "manifest_path": manifest_path,
                     "session_root": "/tmp/session-root",
                     "agent_name": tracked_agent_id,

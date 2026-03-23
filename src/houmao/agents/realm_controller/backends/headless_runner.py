@@ -17,7 +17,10 @@ from typing import Any
 from ..errors import BackendExecutionError
 from ..models import SessionControlResult, SessionEvent
 from .tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
+    headless_agent_pane_target as headless_agent_pane_target_shared,
+    prepare_headless_agent_window as prepare_headless_agent_window_shared,
     run_tmux as run_tmux_shared,
     tmux_error_detail as tmux_error_detail_shared,
     wait_for_tmux_signal as wait_for_tmux_signal_shared,
@@ -58,7 +61,7 @@ class HeadlessCliRunner:
     def __init__(self) -> None:
         self._active_process: subprocess.Popen[str] | None = None
         self._active_tmux_session_name: str | None = None
-        self._active_tmux_window_id: str | None = None
+        self._active_tmux_pane_target: str | None = None
         self._active_tmux_wait_signal: str | None = None
         self._active_process_path: Path | None = None
         self._active_process_metadata: HeadlessProcessMetadata | None = None
@@ -124,8 +127,8 @@ class HeadlessCliRunner:
                 detail="Sent terminate signal to active tmux-backed headless process",
             )
 
-        window_id = self._active_tmux_window_id
-        if window_id is None:
+        pane_target = self._active_tmux_pane_target
+        if pane_target is None:
             return SessionControlResult(
                 status="ok",
                 action="interrupt",
@@ -133,24 +136,24 @@ class HeadlessCliRunner:
             )
 
         try:
-            result = run_tmux_shared(["kill-window", "-t", window_id])
+            result = run_tmux_shared(["send-keys", "-t", pane_target, "C-c"])
         except TmuxCommandError as exc:
             return SessionControlResult(
                 status="error",
                 action="interrupt",
-                detail=f"Failed to interrupt tmux turn window: {exc}",
+                detail=f"Failed to interrupt tmux {HEADLESS_AGENT_WINDOW_NAME} surface: {exc}",
             )
         if result.returncode != 0:
             detail = tmux_error_detail_shared(result) or "unknown tmux error"
             return SessionControlResult(
                 status="error",
                 action="interrupt",
-                detail=f"Failed to interrupt tmux turn window: {detail}",
+                detail=f"Failed to interrupt tmux {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}",
             )
         return SessionControlResult(
             status="ok",
             action="interrupt",
-            detail="Killed in-flight tmux turn window",
+            detail="Sent control input to active tmux-backed headless agent surface",
         )
 
     def terminate(self) -> SessionControlResult:
@@ -172,8 +175,8 @@ class HeadlessCliRunner:
                 detail="Killed active tmux-backed headless process",
             )
 
-        window_id = self._active_tmux_window_id
-        if window_id is None:
+        pane_target = self._active_tmux_pane_target
+        if pane_target is None:
             return SessionControlResult(
                 status="ok",
                 action="terminate",
@@ -181,24 +184,24 @@ class HeadlessCliRunner:
             )
 
         try:
-            result = run_tmux_shared(["kill-window", "-t", window_id])
+            result = run_tmux_shared(["send-keys", "-t", pane_target, "C-c"])
         except TmuxCommandError as exc:
             return SessionControlResult(
                 status="error",
                 action="terminate",
-                detail=f"Failed to terminate tmux turn window: {exc}",
+                detail=f"Failed to terminate tmux {HEADLESS_AGENT_WINDOW_NAME} surface: {exc}",
             )
         if result.returncode != 0:
             detail = tmux_error_detail_shared(result) or "unknown tmux error"
             return SessionControlResult(
                 status="error",
                 action="terminate",
-                detail=f"Failed to terminate tmux turn window: {detail}",
+                detail=f"Failed to terminate tmux {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}",
             )
         return SessionControlResult(
             status="ok",
             action="terminate",
-            detail="Killed active tmux turn window",
+            detail="Sent control input to active tmux-backed headless agent surface",
         )
 
     def _run_direct_subprocess(
@@ -294,7 +297,7 @@ class HeadlessCliRunner:
         stdout_pipe_path = turn_dir / f".stdout-{uuid.uuid4().hex}.pipe"
         stderr_pipe_path = turn_dir / f".stderr-{uuid.uuid4().hex}.pipe"
         wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
-        window_name = f"turn-{turn_index}"
+        pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
 
         command_text = shlex.join(command)
         script = "\n".join(
@@ -339,25 +342,27 @@ class HeadlessCliRunner:
                 f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_tmp_path))}",
                 (f"mv {shlex.quote(str(status_tmp_path))} {shlex.quote(str(status_path))}"),
                 f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
-                'exit "$status"',
+                'idle_shell="${SHELL:-/bin/sh}"',
+                'exec "$idle_shell" -l',
             ]
         )
+        pane_command = f"sh -lc {shlex.quote(script)}"
+
+        try:
+            prepare_headless_agent_window_shared(session_name=tmux_session_name)
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(
+                f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
+            ) from exc
 
         try:
             launch = run_tmux_shared(
                 [
-                    "new-window",
-                    "-d",
-                    "-P",
-                    "-F",
-                    "#{window_id}",
+                    "respawn-pane",
+                    "-k",
                     "-t",
-                    tmux_session_name,
-                    "-n",
-                    window_name,
-                    "sh",
-                    "-lc",
-                    script,
+                    pane_target,
+                    pane_command,
                 ]
             )
         except TmuxCommandError as exc:
@@ -366,34 +371,12 @@ class HeadlessCliRunner:
         if launch.returncode != 0:
             detail = tmux_error_detail_shared(launch) or "unknown tmux error"
             raise BackendExecutionError(
-                f"Failed to launch tmux headless turn in `{tmux_session_name}`: {detail}"
-            )
-
-        window_id = ""
-        for raw_line in launch.stdout.splitlines():
-            line = raw_line.strip()
-            if line:
-                window_id = line
-                break
-        if not window_id:
-            raise BackendExecutionError(
-                "Failed to resolve tmux turn window id from `tmux new-window` output."
-            )
-
-        try:
-            select_result = run_tmux_shared(["select-window", "-t", window_id])
-        except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to select tmux headless turn window `{window_id}`: {exc}"
-            ) from exc
-        if select_result.returncode != 0:
-            detail = tmux_error_detail_shared(select_result) or "unknown tmux error"
-            raise BackendExecutionError(
-                f"Failed to select tmux headless turn window `{window_id}`: {detail}"
+                f"Failed to launch tmux headless turn in `{tmux_session_name}` on the "
+                f"stable {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
             )
 
         self._active_tmux_session_name = tmux_session_name
-        self._active_tmux_window_id = window_id
+        self._active_tmux_pane_target = pane_target
         self._active_tmux_wait_signal = wait_signal
         self._active_process_path = process_path
         self._active_process_metadata = self._wait_for_process_metadata(
@@ -458,7 +441,7 @@ class HeadlessCliRunner:
             )
         finally:
             self._active_tmux_session_name = None
-            self._active_tmux_window_id = None
+            self._active_tmux_pane_target = None
             self._active_tmux_wait_signal = None
             self._active_process_path = None
             self._active_process_metadata = None

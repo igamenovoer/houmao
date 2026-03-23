@@ -90,7 +90,7 @@ Interactive companion:
 
 - `scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/case-unattended-full-run.md`
 
-The headless tmux sessions remain a diagnostic watch surface only. They are not the source of headless lifecycle truth, but when a turn is active you should be able to attach and see rolling console output from the live CLI execution.
+The headless tmux sessions remain a diagnostic watch surface only. They are not the source of headless lifecycle truth, but when a turn is active you should be able to attach to window `0` (`agent`) and see rolling console output from the live CLI execution.
 
 ## Kickoff And Thread Contract
 

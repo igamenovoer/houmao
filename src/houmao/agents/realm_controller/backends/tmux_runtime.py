@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Final, Literal, Mapping
 
 from ..agent_identity import (
     derive_agent_id_from_name,
@@ -78,6 +78,8 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
         "Up",
     }
 )
+HEADLESS_AGENT_WINDOW_INDEX: Final[str] = "0"
+HEADLESS_AGENT_WINDOW_NAME: Final[str] = "agent"
 
 
 def ensure_tmux_available() -> None:
@@ -119,6 +121,42 @@ def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
     raise TmuxCommandError(
         f"Failed to create tmux session `{session_name}`: {detail or 'unknown tmux error'}"
     )
+
+
+def headless_agent_window_target(*, session_name: str) -> str:
+    """Return the stable tmux window target for one headless agent surface."""
+
+    return f"{session_name}:{HEADLESS_AGENT_WINDOW_INDEX}"
+
+
+def headless_agent_pane_target(*, session_name: str) -> str:
+    """Return the stable tmux pane target for one headless agent surface."""
+
+    return f"{headless_agent_window_target(session_name=session_name)}.0"
+
+
+def prepare_headless_agent_window(*, session_name: str) -> None:
+    """Rename and select the stable primary tmux surface for headless sessions."""
+
+    window_target = headless_agent_window_target(session_name=session_name)
+    for args, description in (
+        (
+            ["rename-window", "-t", window_target, HEADLESS_AGENT_WINDOW_NAME],
+            "rename",
+        ),
+        (
+            ["select-window", "-t", window_target],
+            "select",
+        ),
+    ):
+        result = run_tmux(args)
+        if result.returncode == 0:
+            continue
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to {description} tmux headless agent window `{window_target}`: "
+            f"{detail or 'unknown tmux error'}"
+        )
 
 
 def cleanup_tmux_session(*, session_name: str) -> None:

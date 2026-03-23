@@ -59,7 +59,9 @@ from houmao.agents.realm_controller.runtime import (
     start_runtime_session,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
+    headless_agent_pane_target,
     run_tmux,
     tmux_session_exists,
     tmux_error_detail,
@@ -977,7 +979,7 @@ class HoumaoServerService:
         )
         turn_artifact_dir = self._headless_turn_artifacts_root(controller) / turn_id
         process_path = turn_artifact_dir / "process.json"
-        tmux_window_name = f"turn-{backend_turn_index}"
+        tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
         turn_record = ManagedHeadlessTurnRecord(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
@@ -1751,7 +1753,7 @@ class HoumaoServerService:
             terminal_id=None,
             runtime_session_id=authority.tracked_agent_id,
             tmux_session_name=authority.tmux_session_name,
-            tmux_window_name=None,
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             manifest_path=authority.manifest_path,
             session_root=authority.session_root,
             agent_name=authority.agent_name,
@@ -2974,23 +2976,19 @@ class HoumaoServerService:
     ) -> None:
         """Interrupt one headless turn through tmux as a last-resort fallback."""
 
-        target = (
-            f"{active_turn.tmux_session_name}:{active_turn.tmux_window_name}"
-            if active_turn.tmux_window_name is not None
-            else active_turn.tmux_session_name
-        )
+        target = headless_agent_pane_target(session_name=active_turn.tmux_session_name)
         try:
-            result = run_tmux(["kill-window", "-t", target])
+            result = run_tmux(["send-keys", "-t", target, "C-c"])
         except TmuxCommandError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         if result.returncode == 0:
             return
         detail = (tmux_error_detail(result) or "unknown tmux error").lower()
-        if "can't find window" in detail or "no server running" in detail:
+        if "can't find pane" in detail or "can't find window" in detail or "no server running" in detail:
             return
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to interrupt tmux turn window `{target}`: {detail}",
+            detail=f"Failed to interrupt tmux headless agent surface `{target}`: {detail}",
         )
 
     def _require_controller_tmux_session_name(self, controller: RuntimeSessionController) -> str:
