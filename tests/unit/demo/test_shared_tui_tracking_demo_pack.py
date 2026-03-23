@@ -428,6 +428,24 @@ def test_repeated_interrupt_scenario_uses_semantic_actions() -> None:
     assert actions.count("wait_for_interrupted_ready") == 2
 
 
+def test_claude_complex_scenario_waits_for_detector_active() -> None:
+    """The Claude complex scenario should wait on detector-owned active posture."""
+
+    scenario = load_scenario(
+        _repo_root()
+        / "scripts"
+        / "demo"
+        / "shared-tui-tracking-demo-pack"
+        / "scenarios"
+        / "claude-success-interrupt-success-complex.json"
+    )
+
+    actions = [step.action for step in scenario.steps]
+
+    assert actions.count("wait_for_active") == 2
+    assert actions.count("wait_for_interrupted_signal") == 2
+
+
 def test_codex_detector_recognizes_wrapped_interrupted_banner() -> None:
     """Wrapped Codex interrupted banners should still count as interrupted-ready."""
 
@@ -592,6 +610,76 @@ def test_send_text_submits_as_separate_managed_events(
         "<[Enter]>",
     ]
     assert sleep_calls == [recorded_module._SUBMIT_KEY_DELAY_SECONDS]
+
+
+def test_wait_for_active_requires_spinner_evidence_for_claude(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claude active waits should key off spinner evidence, not summary-only activity."""
+
+    surfaces = iter(["summary-only", "spinner-active"])
+
+    monkeypatch.setattr(
+        recorded_module,
+        "capture_visible_pane_text",
+        lambda *, pane_id: next(surfaces),
+    )
+    monkeypatch.setattr(recorded_module.time, "sleep", lambda _seconds: None)
+
+    class _FakeDetector:
+        def detect(self, *, output_text: str):
+            if output_text == "summary-only":
+                return SimpleNamespace(
+                    detector_name="claude_code",
+                    active_evidence=True,
+                    active_reasons=("active_block",),
+                )
+            return SimpleNamespace(
+                detector_name="claude_code",
+                active_evidence=True,
+                active_reasons=("thinking_line",),
+            )
+
+    recorded_module._wait_for_active(
+        pane_id="%1",
+        detector=_FakeDetector(),
+        timeout_seconds=1.0,
+    )
+
+
+def test_wait_for_interrupted_signal_accepts_first_interrupted_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Interrupted transition waits should not require a second identical sample."""
+
+    surfaces = iter(["active", "interrupted"])
+
+    monkeypatch.setattr(
+        recorded_module,
+        "capture_visible_pane_text",
+        lambda *, pane_id: next(surfaces),
+    )
+    monkeypatch.setattr(recorded_module.time, "sleep", lambda _seconds: None)
+
+    class _FakeDetector:
+        def detect(self, *, output_text: str):
+            if output_text == "active":
+                return SimpleNamespace(
+                    interrupted=False,
+                    ready_posture="unknown",
+                    active_evidence=True,
+                )
+            return SimpleNamespace(
+                interrupted=True,
+                ready_posture="yes",
+                active_evidence=False,
+            )
+
+    recorded_module._wait_for_interrupted_signal(
+        pane_id="%1",
+        detector=_FakeDetector(),
+        timeout_seconds=1.0,
+    )
 
 
 def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
@@ -2039,6 +2127,42 @@ def test_validate_recorded_fixture_persists_selected_source_config_path(tmp_path
     assert payload["source_config_path"] == str(config_path.resolve())
 
 
+@pytest.mark.parametrize(
+    ("tool", "case_id"),
+    [
+        ("claude", "claude_success_interrupt_success_complex"),
+        ("codex", "codex_success_interrupt_success_complex"),
+    ],
+)
+def test_complex_recorded_fixtures_validate_without_mismatches(
+    tmp_path: Path,
+    tool: str,
+    case_id: str,
+) -> None:
+    """Maintained complex fixtures should replay cleanly against committed labels."""
+
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / tool
+        / case_id
+    )
+
+    result = validate_recorded_fixture(
+        repo_root=_repo_root(),
+        demo_config=_demo_config(),
+        fixture_root=fixture_root,
+        output_root=tmp_path / case_id,
+        render_review_video=False,
+    )
+
+    assert result.comparison.mismatch_count == 0
+    assert result.comparison.transition_order_matches is True
+
+
 def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) -> None:
     """A recorded sweep should write its report and per-variant verdict artifacts."""
 
@@ -2066,6 +2190,55 @@ def test_run_recorded_sweep_writes_summary_and_variant_verdicts(tmp_path: Path) 
 
     assert result.summary_path.is_file()
     assert result.outcome_count == 3
+    assert source_verdict["passed"] is True
+
+
+@pytest.mark.parametrize(
+    ("tool", "case_id"),
+    [
+        ("claude", "claude_success_interrupt_success_complex"),
+        ("codex", "codex_success_interrupt_success_complex"),
+    ],
+)
+def test_complex_recorded_sweep_contracts_pass(
+    tmp_path: Path,
+    tool: str,
+    case_id: str,
+) -> None:
+    """Complex maintained fixtures should satisfy the repeated lifecycle sweep contract."""
+
+    fixture_root = (
+        _repo_root()
+        / "tests"
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "recorded"
+        / tool
+        / case_id
+    )
+
+    result = run_recorded_sweep(
+        repo_root=_repo_root(),
+        demo_config=_demo_config(),
+        sweep_name="capture_frequency",
+        fixture_root=fixture_root,
+        output_root=tmp_path / f"{case_id}-sweep",
+    )
+
+    source_verdict = json.loads(
+        (result.run_root / "variants" / "source" / "verdict.json").read_text(encoding="utf-8")
+    )
+
+    assert source_verdict["required_sequence"] == [
+        "ready_success",
+        "active",
+        "ready_interrupted",
+        "active",
+        "ready_interrupted",
+        "ready_success",
+    ]
+    assert source_verdict["sequence_matches"] is True
+    assert source_verdict["actual_terminal_result"] == "success"
     assert source_verdict["passed"] is True
 
 

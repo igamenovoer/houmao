@@ -681,8 +681,20 @@ def _execute_scenario(
                 detector=detector,
                 timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
             )
+        elif step.action == "wait_for_active":
+            _wait_for_active(
+                pane_id=pane_id,
+                detector=detector,
+                timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
+            )
         elif step.action == "wait_for_interrupted_ready":
             _wait_for_interrupted_ready(
+                pane_id=pane_id,
+                detector=detector,
+                timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
+            )
+        elif step.action == "wait_for_interrupted_signal":
+            _wait_for_interrupted_signal(
                 pane_id=pane_id,
                 detector=detector,
                 timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
@@ -868,6 +880,36 @@ def _wait_for_interrupted_ready(*, pane_id: str, detector: Any, timeout_seconds:
             consecutive_matches = 0
         time.sleep(0.2)
     raise TimeoutError(f"Timed out waiting for interrupted ready posture in {pane_id}")
+
+
+def _wait_for_interrupted_signal(*, pane_id: str, detector: Any, timeout_seconds: float) -> None:
+    """Wait until the detector reports one interrupted-ready transition sample."""
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        output = capture_visible_pane_text(pane_id=pane_id)
+        signals = detector.detect(output_text=output)
+        if signals.interrupted and signals.ready_posture == "yes" and not signals.active_evidence:
+            return
+        time.sleep(0.2)
+    raise TimeoutError(f"Timed out waiting for interrupted signal in {pane_id}")
+
+
+def _wait_for_active(*, pane_id: str, detector: Any, timeout_seconds: float) -> None:
+    """Wait until the detector reports active evidence for the current tool."""
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        output = capture_visible_pane_text(pane_id=pane_id)
+        signals = detector.detect(output_text=output)
+        if not signals.active_evidence:
+            time.sleep(0.2)
+            continue
+        if signals.detector_name == "claude_code" and "thinking_line" not in signals.active_reasons:
+            time.sleep(0.2)
+            continue
+        return
+    raise TimeoutError(f"Timed out waiting for active posture in {pane_id}")
 
 
 def _wait_for_pattern(*, pane_id: str, pattern: str, timeout_seconds: float) -> None:

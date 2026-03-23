@@ -17,7 +17,7 @@
     {
       "action": "send_text",
       "name": "submit-short-success-prompt",
-      "text": "Reply with the single word READY and stop.",
+      "text": "Return exactly READY and nothing else. Do not use tools.",
       "submit": true
     },
     {
@@ -48,9 +48,8 @@
       "key": "Enter"
     },
     {
-      "action": "wait_for_pattern",
+      "action": "wait_for_active",
       "name": "wait-for-active-surface-1",
-      "pattern": "esc to interrupt",
       "timeout_seconds": 30.0
     },
     {
@@ -69,7 +68,7 @@
       "name": "interrupt-turn-1"
     },
     {
-      "action": "wait_for_interrupted_ready",
+      "action": "wait_for_interrupted_signal",
       "name": "wait-for-interrupted-ready-1"
     },
     {
@@ -83,15 +82,14 @@
       "key": "Enter"
     },
     {
-      "action": "wait_for_pattern",
+      "action": "wait_for_active",
       "name": "wait-for-active-surface-2",
-      "pattern": "esc to interrupt",
       "timeout_seconds": 30.0
     },
     {
       "action": "send_text",
       "name": "type-final-short-prompt-draft-during-active-turn-2",
-      "text": "Reply with the single word RECOVERED and stop.",
+      "text": "Return exactly RECOVERED and nothing else. Do not use tools.",
       "submit": false
     },
     {
@@ -104,7 +102,7 @@
       "name": "interrupt-turn-2"
     },
     {
-      "action": "wait_for_interrupted_ready",
+      "action": "wait_for_interrupted_signal",
       "name": "wait-for-interrupted-ready-2"
     },
     {

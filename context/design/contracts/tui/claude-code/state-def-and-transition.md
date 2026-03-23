@@ -1,5 +1,18 @@
 # Claude Code TUI State Definitions And Transitions
 
+## Current Maintained References
+
+This note predates the standalone shared tracked-TUI implementation and the newer maintained parsing docs. For current signal cues and maintained runtime semantics, start with:
+
+- [README.md](README.md)
+- [signals/README.md](signals/README.md)
+- [docs/developer/tui-parsing/shared-contracts.md](../../../../../docs/developer/tui-parsing/shared-contracts.md)
+- [docs/developer/tui-parsing/claude.md](../../../../../docs/developer/tui-parsing/claude.md)
+- [docs/developer/tui-parsing/claude-signals.md](../../../../../docs/developer/tui-parsing/claude-signals.md)
+- [docs/developer/tui-parsing/codex-signals.md](../../../../../docs/developer/tui-parsing/codex-signals.md)
+- [docs/developer/tui-parsing/runtime-lifecycle.md](../../../../../docs/developer/tui-parsing/runtime-lifecycle.md)
+- [scripts/demo/shared-tui-tracking-demo-pack/README.md](../../../../../scripts/demo/shared-tui-tracking-demo-pack/README.md)
+
 ## Purpose
 This note captures the current contract we implicitly and explicitly rely on when parsing Claude Code's TUI scrollback through CAO/tmux. The goal is to make the present contract legible before proposing a stronger one.
 
@@ -12,6 +25,12 @@ This is an audit of the current handling, not an implementation plan.
 - `src/houmao/agents/realm_controller/backends/shadow_parser_core.py`
 - `tests/unit/agents/realm_controller/test_claude_code_shadow_parser.py`
 - `tests/fixtures/shadow_parser/claude/*`
+- `docs/developer/tui-parsing/shared-contracts.md`
+- `docs/developer/tui-parsing/claude.md`
+- `docs/developer/tui-parsing/claude-signals.md`
+- `docs/developer/tui-parsing/codex-signals.md`
+- `docs/developer/tui-parsing/runtime-lifecycle.md`
+- `scripts/demo/shared-tui-tracking-demo-pack/README.md`
 
 ## The Current Contract, As It Exists Today
 

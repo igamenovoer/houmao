@@ -171,6 +171,11 @@ def latest_turn_lines(
     if prompt_index is None:
         return tuple(non_empty_lines[-_LATEST_TURN_WINDOW:])
     start_index = max(prompt_index - _LATEST_TURN_WINDOW, 0)
+    for index in range(prompt_index - 1, -1, -1):
+        if _CODEX_PROMPT_RE.match(surface.stripped_lines[index]) is None:
+            continue
+        start_index = index
+        break
     return tuple(
         line.strip()
         for line in surface.stripped_lines[start_index:prompt_index]

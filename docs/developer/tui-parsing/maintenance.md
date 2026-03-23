@@ -57,7 +57,9 @@ Use this checklist when changing parser behavior:
   - `shared-contracts.md`
   - `runtime-lifecycle.md`
   - `claude.md`
+  - `claude-signals.md`
   - `codex.md`
+  - `codex-signals.md`
 - update the short reference/troubleshooting pages if their quick guidance changed
 
 ## Diagram Maintenance

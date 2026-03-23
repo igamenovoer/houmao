@@ -20,7 +20,9 @@ The TUI parsing stack turns CAO `mode=full` tmux snapshots into stable runtime a
 | [Shared Contracts](shared-contracts.md) | Learn the shared models, payload fields, anomalies, and result surface |
 | [Runtime Lifecycle](runtime-lifecycle.md) | Understand readiness/completion monitor semantics, completion stability, stalled recovery, and success terminality |
 | [Claude](claude.md) | Review Claude-specific state vocabulary, detection signals, preset/version behavior, and projection rules |
+| [Claude Signals](claude-signals.md) | See the concrete on-screen Claude cues currently used for reliable tracking and fixture authoring |
 | [Codex](codex.md) | Review Codex-specific state vocabulary, supported output families, preset/version behavior, and projection rules |
+| [Codex Signals](codex-signals.md) | See the concrete on-screen Codex cues currently used for reliable tracking and fixture authoring |
 | [Maintenance](maintenance.md) | See the update checklist for parser drift, docs/spec alignment, and fixture/test refreshes |
 
 ## Source Of Truth Map

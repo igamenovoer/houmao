@@ -15,7 +15,6 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
 from houmao.shared_tui_tracking.apps.codex_tui.signals.error_cells import latest_error_cell
 from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
     CODEX_STEER_INTERRUPTION_TEXT,
-    interrupted_text_visible,
     is_interrupted_surface,
 )
 from houmao.shared_tui_tracking.apps.codex_tui.signals.overlays import has_blocking_overlay
@@ -117,7 +116,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
         interrupted = is_interrupted_surface(
-            surface=surface,
+            latest_turn_lines=latest_turn_region_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             active_status_row_visible=activity.active_status_row_visible,
         )
@@ -153,6 +152,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             and not current_error_present
             and not interrupted
             and not blocking_overlay
+            and prompt_classification.kind in {"empty", "placeholder"}
         )
         notes: list[str] = [
             *self.m_profile_notes,
@@ -232,7 +232,12 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             blocking_overlay=blocking_overlay,
             active_evidence=activity.active_evidence,
         )
-        if error_line is not None and not interrupted_text_visible(surface=surface):
+        interrupted = is_interrupted_surface(
+            latest_turn_lines=latest_turn_region_lines,
+            prompt_visible=prompt_snapshot.prompt_visible,
+            active_status_row_visible=activity.active_status_row_visible,
+        )
+        if error_line is not None and not interrupted:
             if not activity.active_evidence:
                 ready_posture = "unknown"
         return _CodexTuiFrame(
@@ -240,7 +245,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             blocking_overlay=blocking_overlay,
             active_status_row_visible=activity.active_status_row_visible,
             current_error_present=error_line is not None,
-            interrupted=interrupted_text_visible(surface=surface),
+            interrupted=interrupted,
             ready_posture=ready_posture,
             latest_turn_region_signature=latest_turn_region_signature(latest_turn_region_lines),
             latest_turn_region_length=len("\n".join(latest_turn_region_lines)),

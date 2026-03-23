@@ -12,6 +12,8 @@ from .models import ToolName
 
 ScenarioAction = Literal[
     "wait_for_ready",
+    "wait_for_active",
+    "wait_for_interrupted_signal",
     "wait_for_interrupted_ready",
     "wait_seconds",
     "wait_for_pattern",

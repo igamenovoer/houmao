@@ -2,6 +2,8 @@
 
 Claude-specific parsing lives in `backends/claude_code_shadow.py`. The parser is responsible for one-snapshot interpretation of CAO `mode=full` output and returns `ClaudeSurfaceAssessment` plus `ClaudeDialogProjection`.
 
+For the concrete on-screen cues currently used by the maintained tracked-TUI workflow, see [Claude Signals](claude-signals.md).
+
 ## Claude-Specific Surface Vocabulary
 
 Claude extends the shared `ui_context` vocabulary with provider-specific contexts:
