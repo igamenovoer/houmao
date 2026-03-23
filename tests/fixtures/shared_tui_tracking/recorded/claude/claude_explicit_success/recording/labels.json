@@ -18,11 +18,11 @@
     {
       "label_id": "workspace-trust-prompt",
       "sample_id": "s000006",
-      "sample_end_id": "s000006",
+      "sample_end_id": "s000007",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
+        "surface_editing_input": "unknown",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
         "last_turn_result": "none",
@@ -31,7 +31,7 @@
     },
     {
       "label_id": "stable-ready",
-      "sample_id": "s000007",
+      "sample_id": "s000008",
       "sample_end_id": "s000009",
       "expectations": {
         "diagnostics_availability": "available",

@@ -16,8 +16,22 @@
       }
     },
     {
-      "label_id": "ready-input",
+      "label_id": "workspace-trust-prompt",
       "sample_id": "s000006",
+      "sample_end_id": "s000007",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "unknown",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "ready-input",
+      "sample_id": "s000008",
       "sample_end_id": "s000009",
       "expectations": {
         "diagnostics_availability": "available",
@@ -81,8 +95,8 @@
         "surface_editing_input": "no",
         "surface_ready_posture": "unknown",
         "turn_phase": "active",
-        "last_turn_result": "none",
-        "last_turn_source": "none"
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input"
       }
     },
     {
