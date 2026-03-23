@@ -5,6 +5,14 @@ from __future__ import annotations
 import hashlib
 import re
 
+from houmao.shared_tui_tracking.apps.claude_code.signals.prompt_behavior import (
+    ClaudePromptBehaviorVariant,
+    ClaudePromptBehaviorVariantV2_1_X,
+    FallbackClaudePromptBehaviorVariant,
+    build_prompt_area_snapshot,
+    prompt_behavior_notes,
+)
+
 from houmao.shared_tui_tracking.detectors import BaseVersionedClaudeDetector
 from houmao.shared_tui_tracking.models import DetectedTurnSignals, ParsedSurfaceContext, Tristate
 from houmao.shared_tui_tracking.surface import SurfaceView
@@ -37,8 +45,21 @@ SPINNER_LINE_RE = re.compile(r"^[✢✻✽✶·*]\s+.+…(?:\s+\(.+\))?$")
 FOOTER_INTERRUPT_RE = re.compile(r"esc to(?: interrupt|…|\\.\\.\\.)?")
 
 
-class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
-    """Closest-compatible detector for observed Claude Code `2.1.x`."""
+class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
+    """Tracked-TUI detector for one Claude Code version family."""
+
+    def __init__(
+        self,
+        *,
+        detector_version: str,
+        prompt_behavior_variant: ClaudePromptBehaviorVariant,
+        profile_notes: tuple[str, ...] = (),
+    ) -> None:
+        """Initialize one Claude detector profile."""
+
+        self.m_detector_version: str = detector_version
+        self.m_prompt_behavior_variant: ClaudePromptBehaviorVariant = prompt_behavior_variant
+        self.m_profile_notes: tuple[str, ...] = profile_notes
 
     @property
     def detector_name(self) -> str:
@@ -50,18 +71,7 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
     def detector_version(self) -> str:
         """Return the detector selector version."""
 
-        return "2.1.x"
-
-    def compatibility_score(self, *, observed_version: str | None) -> int:
-        """Return a closeness score for a Claude version string."""
-
-        if observed_version is None:
-            return 50
-        if "2.1." in observed_version:
-            return 200
-        if "2." in observed_version:
-            return 120
-        return 20
+        return self.m_detector_version
 
     def detect(
         self,
@@ -73,9 +83,11 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
 
         del parsed_surface
         surface = SurfaceView.from_text(output_text or "")
-        prompt_text = surface.prompt_text()
-        last_prompt_index = surface.last_prompt_index()
-        prompt_visible = last_prompt_index is not None
+        prompt_snapshot = build_prompt_area_snapshot(surface)
+        prompt_classification = self.m_prompt_behavior_variant.classify(prompt_snapshot)
+        prompt_text = prompt_classification.prompt_text
+        last_prompt_index = prompt_snapshot.prompt_index
+        prompt_visible = prompt_snapshot.prompt_visible
         footer_interruptable = any(
             FOOTER_INTERRUPT_RE.search(line) is not None for line in surface.footer_lines()
         )
@@ -93,7 +105,13 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
         )
 
         active_reasons: list[str] = []
-        notes: list[str] = []
+        notes: list[str] = [
+            *self.m_profile_notes,
+            *prompt_behavior_notes(
+                variant=self.m_prompt_behavior_variant,
+                classification=prompt_classification,
+            ),
+        ]
         current_error_present = False
         latest_response_index: int | None = None
 
@@ -189,7 +207,10 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
             else "unknown"
         )
         accepting_input: Tristate = "yes" if prompt_visible else "unknown"
-        editing_input: Tristate = "yes" if prompt_text else "no" if prompt_visible else "unknown"
+        editing_input = _editing_input_state(
+            prompt_visible=prompt_visible,
+            prompt_kind=prompt_classification.kind,
+        )
         if ambiguous_interactive_surface:
             ready_posture = "unknown"
         if active_evidence:
@@ -227,59 +248,58 @@ class ClaudeCodeSignalDetectorV2_1_X(BaseVersionedClaudeDetector):
         )
 
 
-class FallbackClaudeDetector(BaseVersionedClaudeDetector):
+class ClaudeCodeSignalDetectorV2_1_X(_BaseClaudeCodeSignalDetector):
+    """Closest-compatible detector for observed Claude Code `2.1.x`."""
+
+    def __init__(self) -> None:
+        """Initialize the `2.1.x` Claude detector profile."""
+
+        super().__init__(
+            detector_version="2.1.x",
+            prompt_behavior_variant=ClaudePromptBehaviorVariantV2_1_X(),
+        )
+
+    def compatibility_score(self, *, observed_version: str | None) -> int:
+        """Return a closeness score for a Claude version string."""
+
+        if observed_version is None:
+            return 50
+        if "2.1." in observed_version:
+            return 200
+        if "2." in observed_version:
+            return 120
+        return 20
+
+
+class FallbackClaudeDetector(_BaseClaudeCodeSignalDetector):
     """Conservative fallback detector for unmatched Claude versions."""
 
-    @property
-    def detector_name(self) -> str:
-        """Return the detector family name."""
+    def __init__(self) -> None:
+        """Initialize the fallback Claude detector profile."""
 
-        return "claude_code"
-
-    @property
-    def detector_version(self) -> str:
-        """Return the conservative fallback version selector."""
-
-        return "fallback"
+        super().__init__(
+            detector_version="fallback",
+            prompt_behavior_variant=FallbackClaudePromptBehaviorVariant(),
+            profile_notes=("fallback_detector",),
+        )
 
     def compatibility_score(self, *, observed_version: str | None) -> int:
         """Return a low but always-available score."""
 
         return 1
 
-    def detect(
-        self,
-        *,
-        output_text: str | None,
-        parsed_surface: ParsedSurfaceContext | None = None,
-    ) -> DetectedTurnSignals:
-        """Return a conservative detector result."""
 
-        del parsed_surface
-        surface = SurfaceView.from_text(output_text or "")
-        prompt_visible = surface.last_prompt_index() is not None
-        prompt_text = surface.prompt_text()
-        stripped_text = "\n".join(surface.stripped_lines)
-        surface_signature = hashlib.sha256(stripped_text.encode("utf-8")).hexdigest()
-        return DetectedTurnSignals(
-            detector_name=self.detector_name,
-            detector_version=self.detector_version,
-            accepting_input="yes" if prompt_visible else "unknown",
-            editing_input="yes" if prompt_text else "no" if prompt_visible else "unknown",
-            ready_posture="yes" if prompt_visible else "unknown",
-            prompt_visible=prompt_visible,
-            prompt_text=prompt_text,
-            footer_interruptable=False,
-            active_evidence=False,
-            active_reasons=(),
-            interrupted=False,
-            known_failure=False,
-            current_error_present=False,
-            success_candidate=False,
-            completion_marker=None,
-            latest_status_line=surface.latest_status_line(),
-            ambiguous_interactive_surface=False,
-            success_blocked=False,
-            surface_signature=surface_signature,
-            notes=("fallback_detector",),
-        )
+def _editing_input_state(
+    *,
+    prompt_visible: bool,
+    prompt_kind: str,
+) -> Tristate:
+    """Return the editing-input tristate for one Claude prompt surface."""
+
+    if not prompt_visible:
+        return "unknown"
+    if prompt_kind == "draft":
+        return "yes"
+    if prompt_kind in {"placeholder", "empty"}:
+        return "no"
+    return "unknown"
