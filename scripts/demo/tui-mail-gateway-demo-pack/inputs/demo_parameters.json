@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "demo_id": "tui-mail-gateway-demo-pack",
+  "agent_def_dir": "tests/fixtures/agents",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
+  "cao_base_url": "http://127.0.0.1:9889",
+  "command_timeout_seconds": 180,
+  "gateway": {
+    "host": "127.0.0.1",
+    "notifier_interval_seconds": 1
+  },
+  "drive": {
+    "cadence_seconds": 5,
+    "turn_limit": 3,
+    "timeout_seconds": 240
+  },
+  "delivery": {
+    "sender_principal_id": "AGENTSYS-mail-injector",
+    "sender_address": "AGENTSYS-mail-injector@agents.localhost",
+    "subject_template": "[{run_id}] Turn {turn_index}/{turn_limit} mailbox check-in",
+    "turn_files": [
+      "scripts/demo/tui-mail-gateway-demo-pack/inputs/turn-1.md",
+      "scripts/demo/tui-mail-gateway-demo-pack/inputs/turn-2.md",
+      "scripts/demo/tui-mail-gateway-demo-pack/inputs/turn-3.md"
+    ]
+  },
+  "tools": {
+    "claude": {
+      "blueprint": "blueprints/mailbox-demo-claude.yaml",
+      "agent_identity": "AGENTSYS-tui-mail-gateway-claude",
+      "mailbox_principal_id": "AGENTSYS-tui-mail-gateway-claude",
+      "mailbox_address": "AGENTSYS-tui-mail-gateway-claude@agents.localhost"
+    },
+    "codex": {
+      "blueprint": "blueprints/mailbox-demo-codex.yaml",
+      "agent_identity": "AGENTSYS-tui-mail-gateway-codex",
+      "mailbox_principal_id": "AGENTSYS-tui-mail-gateway-codex",
+      "mailbox_address": "AGENTSYS-tui-mail-gateway-codex@agents.localhost"
+    }
+  }
+}
