@@ -233,6 +233,7 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
    - `turn_phase`
    - `last_turn_result`
    - `last_turn_source`
+   - For Claude fixtures, do not treat visibly styled startup suggestions or trust-screen selections as `surface_editing_input=yes` by default; depending on the presentation, replay may classify those spans as `unknown` or `no`, so confirm them against `recorded-validate` output before committing labels.
    - For repeated intentional-interruption fixtures, distinguish at least `active-turn-1`, `interrupted-ready-1`, `active-turn-2`, `interrupted-ready-2`, and the final post-close diagnostics-loss span so the second-turn reset and the close posture are both reviewable.
 4. Run fast replay validation without video:
 
