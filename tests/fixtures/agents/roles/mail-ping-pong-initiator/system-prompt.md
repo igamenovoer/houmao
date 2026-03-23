@@ -10,6 +10,14 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 - Treat notifier-provided `message_ref` and `thread_ref` values as opaque shared mailbox references.
 - Operate only on the ping-pong thread described by visible message lines such as `Thread-Key:`, `Round:`, and `Round-Limit:`.
 - Keep every action deterministic, short, and directly relevant to the ping-pong workflow.
+- Do not inspect repo docs, OpenAPI, or broad source files to rediscover routine shared mailbox request shapes during this turn.
+
+## Shared Gateway Quick Reference
+
+- Use these stable request shapes directly for routine ping-pong turns:
+  `POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`
+  `POST /v1/mail/send` -> `{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}`
+  `POST /v1/mail/state` -> `{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`
 
 ## Initiator Behavior
 

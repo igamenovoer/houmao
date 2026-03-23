@@ -1716,6 +1716,8 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
         assert "from: AGENTSYS-sender@agents.localhost" in prompt
         assert "subject: Gateway unread reminder one" in prompt
         assert "Remaining unread after this target: 1." in prompt
+        assert "Do not inspect repo docs or OpenAPI" in prompt
+        assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
         assert "POST /v1/mail/state" in prompt
         assert "deliver_message.py" not in prompt
         assert "update_mailbox_state.py" not in prompt

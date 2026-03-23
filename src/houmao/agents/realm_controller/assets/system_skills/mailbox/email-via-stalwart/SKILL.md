@@ -17,6 +17,19 @@ Use this skill when the runtime-selected mailbox transport is `stalwart`.
 - After you successfully process one nominated unread message, mark that same `message_ref` read through `POST /v1/mail/state` with `read=true`.
 - Do not restate direct JMAP request recipes or filesystem helper flows as the default attached-session path when the shared gateway facade is available.
 
+## Shared Gateway Route Quick Reference
+
+- For routine attached-session turns, use these stable v1 request shapes directly instead of scanning repo docs or OpenAPI for contract rediscovery.
+- `POST /v1/mail/check`
+  `{"schema_version":1,"unread_only":true,"limit":10}`
+- `POST /v1/mail/send`
+  `{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}`
+- `POST /v1/mail/reply`
+  `{"schema_version":1,"message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}`
+- `POST /v1/mail/state`
+  `{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`
+- Only fall back to deeper contract inspection when one of those routine requests returns a concrete validation or transport error that you need to resolve.
+
 ## Binding Checks
 
 - Read [references/env-vars.md](references/env-vars.md) before using the transport.

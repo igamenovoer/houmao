@@ -226,6 +226,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
         in filesystem_skill
     )
+    assert "## Shared Gateway Route Quick Reference" in filesystem_skill
+    assert (
+        '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in filesystem_skill
+    )
     assert "## Direct Filesystem Fallback Actions" in filesystem_skill
 
     assert "## Routine Actions With A Live Gateway Facade" in stalwart_skill
@@ -233,6 +237,8 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
         in stalwart_skill
     )
+    assert "## Shared Gateway Route Quick Reference" in stalwart_skill
+    assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in stalwart_skill
     assert "## Direct Stalwart Fallback Actions" in stalwart_skill
 
 

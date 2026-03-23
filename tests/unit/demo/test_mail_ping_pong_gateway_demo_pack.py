@@ -774,6 +774,11 @@ def test_kickoff_prompt_stays_policy_thin_and_gateway_first(tmp_path: Path) -> N
     )
 
     assert "shared gateway mailbox operations" in prompt
+    assert "Do not inspect repo docs or OpenAPI" in prompt
+    assert (
+        '{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}'
+        in prompt
+    )
     assert "message_ref" in prompt
     assert "POST /v1/mail/state" in prompt
     assert "deliver_message.py" not in prompt
@@ -792,6 +797,10 @@ def test_role_overlays_stay_gateway_first_and_mark_read_after_success() -> None:
 
     assert "shared mailbox state update" in initiator_prompt
     assert "shared mailbox state update" in responder_prompt
+    assert "Do not inspect repo docs, OpenAPI, or broad source files" in initiator_prompt
+    assert "Do not inspect repo docs, OpenAPI, or broad source files" in responder_prompt
+    assert '{"schema_version":1,"unread_only":true,"limit":10}' in initiator_prompt
+    assert '{"schema_version":1,"unread_only":true,"limit":10}' in responder_prompt
     assert "message_ref" in initiator_prompt
     assert "message_ref" in responder_prompt
     assert "deliver_message.py" not in initiator_prompt
