@@ -13,6 +13,44 @@ PromptKind = Literal["placeholder", "draft", "empty", "unknown"]
 _CLAUDE_PROMPT_RE = re.compile(r"^\s*❯(.*)$")
 _ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 _PROMPT_REGION_RADIUS = 2
+_NEUTRAL_SIMPLE_COLOR_CODES = frozenset(
+    {
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        49,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -241,25 +279,50 @@ def _apply_sgr_codes(
     next_dim = active_dim
     next_inverse = active_inverse
     next_other_style = active_other_style
-    for code in codes:
+    index = 0
+    while index < len(codes):
+        code = codes[index]
         if code == 0:
             next_dim = False
             next_inverse = False
             next_other_style = False
+            index += 1
             continue
         if code == 2:
             next_dim = True
+            index += 1
             continue
         if code == 22:
             next_dim = False
+            index += 1
             continue
         if code == 7:
             next_inverse = True
+            index += 1
             continue
         if code == 27:
             next_inverse = False
+            index += 1
             continue
-        if code in {39, 49}:
+        if code in _NEUTRAL_SIMPLE_COLOR_CODES:
+            index += 1
+            continue
+        if code in {38, 48}:
+            index += _extended_color_code_width(codes=codes, start_index=index)
             continue
         next_other_style = True
+        index += 1
     return next_dim, next_inverse, next_other_style
+
+
+def _extended_color_code_width(*, codes: list[int], start_index: int) -> int:
+    """Return the width of one `38` or `48` extended-color SGR family."""
+
+    if start_index + 1 >= len(codes):
+        return 1
+    mode = codes[start_index + 1]
+    if mode == 5:
+        return min(len(codes) - start_index, 3)
+    if mode == 2:
+        return min(len(codes) - start_index, 5)
+    return min(len(codes) - start_index, 2)

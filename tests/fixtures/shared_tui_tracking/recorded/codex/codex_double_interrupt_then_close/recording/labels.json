@@ -16,9 +16,23 @@
       }
     },
     {
-      "label_id": "active-turn-1",
+      "label_id": "active-turn-1-entry",
       "sample_id": "s000013",
-      "sample_end_id": "s000027",
+      "sample_end_id": "s000013",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "active-turn-1-submit-echo",
+      "sample_id": "s000014",
+      "sample_end_id": "s000014",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -30,8 +44,36 @@
       }
     },
     {
+      "label_id": "active-turn-1",
+      "sample_id": "s000015",
+      "sample_end_id": "s000027",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
       "label_id": "interrupted-ready-1",
       "sample_id": "s000028",
+      "sample_end_id": "s000032",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "prompt-2-editing",
+      "sample_id": "s000033",
       "sample_end_id": "s000033",
       "expectations": {
         "diagnostics_availability": "available",
@@ -50,7 +92,7 @@
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "no",
         "turn_phase": "active",
         "last_turn_result": "none",
@@ -60,7 +102,21 @@
     {
       "label_id": "interrupted-ready-2",
       "sample_id": "s000039",
-      "sample_end_id": "s000049",
+      "sample_end_id": "s000045",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "prompt-3-editing",
+      "sample_id": "s000046",
+      "sample_end_id": "s000046",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
@@ -69,6 +125,20 @@
         "turn_phase": "ready",
         "last_turn_result": "interrupted",
         "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "post-interrupt-draft",
+      "sample_id": "s000047",
+      "sample_end_id": "s000049",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "surface_inference"
       }
     },
     {
@@ -82,7 +152,7 @@
         "surface_ready_posture": "yes",
         "turn_phase": "unknown",
         "last_turn_result": "interrupted",
-        "last_turn_source": "explicit_input"
+        "last_turn_source": "surface_inference"
       }
     }
   ]

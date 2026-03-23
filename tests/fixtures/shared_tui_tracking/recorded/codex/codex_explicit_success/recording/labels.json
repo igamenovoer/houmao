@@ -16,13 +16,27 @@
       }
     },
     {
-      "label_id": "active-turn",
+      "label_id": "active-turn-submit-echo",
       "sample_id": "s000013",
-      "sample_end_id": "s000039",
+      "sample_end_id": "s000013",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
         "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "active-turn",
+      "sample_id": "s000014",
+      "sample_end_id": "s000039",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "no",
         "turn_phase": "active",
         "last_turn_result": "none",
@@ -36,7 +50,7 @@
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
         "last_turn_result": "none",
@@ -50,7 +64,7 @@
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
         "last_turn_result": "success",

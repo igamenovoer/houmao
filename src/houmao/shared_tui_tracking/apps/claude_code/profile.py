@@ -96,8 +96,11 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
             for line in surface.footer_lines()
             for pattern in READY_FOOTER_ADVISORY_PATTERNS
         )
-        latest_status_index = surface.last_status_index()
-        latest_status_line = surface.latest_status_line()
+        latest_turn_anchor_index = _latest_turn_prompt_anchor_index(surface)
+        latest_status_index, latest_status_line = _latest_turn_status_line(
+            surface=surface,
+            prompt_anchor_index=latest_turn_anchor_index,
+        )
         slash_menu_visible = bool(prompt_text and prompt_text.startswith("/")) and any(
             stripped_line.strip().startswith("/")
             for _, _, stripped_line in surface.iter_lines_with_indices()
@@ -112,6 +115,8 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
                 classification=prompt_classification,
             ),
         ]
+        if latest_turn_anchor_index is None:
+            notes.append("latest_turn_anchor_missing")
         current_error_present = False
         latest_response_index: int | None = None
 
@@ -303,3 +308,42 @@ def _editing_input_state(
     if prompt_kind in {"placeholder", "empty"}:
         return "no"
     return "unknown"
+
+
+def _latest_turn_prompt_anchor_index(surface: SurfaceView) -> int | None:
+    """Return the latest visible non-empty Claude prompt index."""
+
+    for index in range(len(surface.stripped_lines) - 1, -1, -1):
+        stripped_line = surface.stripped_lines[index].strip()
+        if not stripped_line.startswith("❯"):
+            continue
+        if stripped_line[1:].strip():
+            return index
+    return None
+
+
+def _latest_turn_status_line(
+    *,
+    surface: SurfaceView,
+    prompt_anchor_index: int | None,
+) -> tuple[int | None, str | None]:
+    """Return the latest Claude status line scoped to the latest visible prompt anchor."""
+
+    if prompt_anchor_index is None:
+        return None, None
+    active_prompt_anchor_index: int | None = None
+    latest_status_index: int | None = None
+    latest_status_line: str | None = None
+    for index, _, stripped_line in surface.iter_lines_with_indices():
+        normalized_line = stripped_line.strip()
+        if normalized_line.startswith("❯"):
+            if normalized_line[1:].strip():
+                active_prompt_anchor_index = index
+            continue
+        if not normalized_line.startswith("⎿"):
+            continue
+        if active_prompt_anchor_index != prompt_anchor_index:
+            continue
+        latest_status_index = index
+        latest_status_line = normalized_line
+    return latest_status_index, latest_status_line

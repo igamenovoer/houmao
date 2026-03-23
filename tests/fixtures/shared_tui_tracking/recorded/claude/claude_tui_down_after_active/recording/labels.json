@@ -22,7 +22,7 @@
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "unknown",
+        "surface_editing_input": "yes",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
         "last_turn_result": "none",

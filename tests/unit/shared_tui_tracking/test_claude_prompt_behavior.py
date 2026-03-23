@@ -23,7 +23,8 @@ _PLACEHOLDER_SURFACE = (
 )
 _EMPTY_PROMPT_SURFACE = "\x1b[39m❯\xa0\x1b[7m \x1b[0m\n"
 _PLAIN_DRAFT_SURFACE = "\x1b[39m❯ Review staged change\x1b[7ms\x1b[0m\n"
-_UNRECOGNIZED_STYLED_SURFACE = "\x1b[39m❯\xa0\x1b[33mReview staged changes\x1b[0m\n"
+_COLOR_STYLED_DRAFT_SURFACE = "\x1b[39m❯\xa0\x1b[38;5;33mReview staged changes\x1b[49m\x1b[0m\n"
+_UNRECOGNIZED_NON_COLOR_STYLED_SURFACE = "\x1b[39m❯\xa0\x1b[4mReview staged changes\x1b[0m\n"
 
 
 def test_build_claude_prompt_area_snapshot_preserves_bounded_prompt_region() -> None:
@@ -67,8 +68,19 @@ def test_claude_prompt_behavior_2_1_keeps_real_draft_with_cursor_highlight() -> 
     assert classification.prompt_text == "Review staged changes"
 
 
-def test_claude_prompt_behavior_2_1_degrades_unrecognized_styled_prompt() -> None:
-    snapshot = build_prompt_area_snapshot(SurfaceView.from_text(_UNRECOGNIZED_STYLED_SURFACE))
+def test_claude_prompt_behavior_2_1_keeps_color_styled_draft() -> None:
+    snapshot = build_prompt_area_snapshot(SurfaceView.from_text(_COLOR_STYLED_DRAFT_SURFACE))
+
+    classification = ClaudePromptBehaviorVariantV2_1_X().classify(snapshot)
+
+    assert classification.kind == "draft"
+    assert classification.prompt_text == "Review staged changes"
+
+
+def test_claude_prompt_behavior_2_1_degrades_non_color_styled_prompt() -> None:
+    snapshot = build_prompt_area_snapshot(
+        SurfaceView.from_text(_UNRECOGNIZED_NON_COLOR_STYLED_SURFACE)
+    )
 
     classification = ClaudePromptBehaviorVariantV2_1_X().classify(snapshot)
 

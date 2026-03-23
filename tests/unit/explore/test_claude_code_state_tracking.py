@@ -86,6 +86,18 @@ def _stale_failure_surface() -> str:
     )
 
 
+def _stale_interrupted_scrollback_surface() -> str:
+    return (
+        "❯ explain reducer semantics carefully\n"
+        "  ⎿ Interrupted · What should Claude do instead?\n\n"
+        "● Prior turn already settled cleanly.\n\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+        "❯ Review staged changes\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+    )
+
+
 def _success_surface(answer_suffix: str = "") -> str:
     return (
         "● Here are today's top 10 trending papers on Hugging Face:\n"
@@ -189,6 +201,15 @@ def test_detector_matches_current_known_failure_and_suppresses_stale_failure() -
 
     assert current_failure.known_failure is True
     assert stale_failure.known_failure is False
+
+
+def test_detector_ignores_stale_interrupted_scrollback_above_current_draft() -> None:
+    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+
+    signals = detector.detect(output_text=_stale_interrupted_scrollback_surface())
+
+    assert signals.interrupted is False
+    assert signals.editing_input == "yes"
 
 
 def test_detector_marks_live_spinner_variants_active() -> None:
@@ -561,7 +582,7 @@ def test_stream_state_reducer_handles_live_style_success_settle() -> None:
     assert any(item.note == "success_settled" for item in settled_events)
 
 
-def test_stream_state_reducer_keeps_last_success_sticky_during_next_active_turn() -> None:
+def test_stream_state_reducer_clears_last_success_when_next_active_turn_starts() -> None:
     scheduler = TestScheduler()
     reducer = StreamStateReducer(
         observed_version="2.1.80 (Claude Code)",
@@ -586,4 +607,5 @@ def test_stream_state_reducer_keeps_last_success_sticky_during_next_active_turn(
     )
 
     assert next_active_state.turn_phase == "active"
-    assert next_active_state.last_turn_result == "success"
+    assert next_active_state.last_turn_result == "none"
+    assert next_active_state.last_turn_source == "none"
