@@ -1099,6 +1099,25 @@ class GatewayServiceRuntime:
                 "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
                 "`POST /v1/mail/state`."
             ),
+            (
+                "Do not inspect repo docs or OpenAPI to rediscover those routine request "
+                "shapes during this turn."
+            ),
+            ('`POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`'),
+            (
+                "`POST /v1/mail/send` -> "
+                '`{"schema_version":1,"to":["recipient@agents.localhost"],'
+                '"subject":"...","body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/reply` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>",'
+                '"body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/state` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
+            ),
             "Process only the nominated target in this turn.",
             "Mark the target read only after the mailbox action succeeds.",
             "",

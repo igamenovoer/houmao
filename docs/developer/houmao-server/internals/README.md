@@ -4,7 +4,8 @@ This doc set explains how `houmao-server` performs server-owned live TUI trackin
 
 The key architectural boundary is:
 
-- `houmao-server` owns discovery, polling, parsing, in-memory state reduction, and terminal-keyed live lookup.
+- `houmao-server` owns the `src/houmao/server/tui/` watch-plane module: discovery, polling, parsing, host-side lifecycle, and terminal-keyed live lookup.
+- `houmao.shared_tui_tracking` owns tracker semantics for raw-snapshot reduction, detector/profile resolution, and tracker-owned `surface` / `turn` / `last_turn`.
 - The supervised child `cao-server` still exists for CAO-compatible control routes, but it is no longer in the parsing or live-state authority path.
 - Live tracker state is memory-primary. On restart, the server rebuilds watch authority from registration records plus current tmux liveness instead of replaying old tracker snapshots from disk.
 - The public tracked-state contract is now centered on `diagnostics`, foundational `surface` observables, current `turn`, and sticky `last_turn`, while lifecycle authority and settle timing remain internal tracker machinery.
@@ -16,9 +17,9 @@ The key architectural boundary is:
 - [`../../../../src/houmao/server/tui/transport.py`](../../../../src/houmao/server/tui/transport.py): tmux pane resolution and capture
 - [`../../../../src/houmao/server/tui/process.py`](../../../../src/houmao/server/tui/process.py): live process-tree inspection for supported TUI detection
 - [`../../../../src/houmao/server/tui/parser.py`](../../../../src/houmao/server/tui/parser.py): official parser adapter over the shared shadow parser stack
-- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py): compatibility exports for the shared tracked-TUI detector/profile boundary
 - [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py): in-memory tracked state, internal settle/anchor machinery, public simplified turn mapping, stability, and recent transitions
 - [`../../../../src/houmao/server/tui/supervisor.py`](../../../../src/houmao/server/tui/supervisor.py): reconcile loop and per-session watch workers
+- [`tui_tracking_module.md`](tui_tracking_module.md): package-level ownership and module map for `src/houmao/server/tui/`
 - [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py): public route payloads for tracked state, history, and registration
 - [`../../../../src/houmao/shared_tui_tracking/models.py`](../../../../src/houmao/shared_tui_tracking/models.py): canonical type definitions (`Tristate`, `TurnPhase`, `TrackedDiagnosticsAvailability`, etc.)
 - [`../../../../src/houmao/shared_tui_tracking/public_state.py`](../../../../src/houmao/shared_tui_tracking/public_state.py): canonical mapping functions (`diagnostics_availability()`, `turn_phase_from_signals()`)
@@ -39,10 +40,11 @@ Internally, the tracker is not keyed by `terminal_id`. The authoritative identit
 
 ## Reading Order
 
-1. [`registration_and_discovery.md`](registration_and_discovery.md)
-2. [`probe_parse_track_pipeline.md`](probe_parse_track_pipeline.md)
-3. [`live_state_model.md`](live_state_model.md)
-4. [`supervisor_and_lifecycle.md`](supervisor_and_lifecycle.md)
+1. [`tui_tracking_module.md`](tui_tracking_module.md)
+2. [`registration_and_discovery.md`](registration_and_discovery.md)
+3. [`probe_parse_track_pipeline.md`](probe_parse_track_pipeline.md)
+4. [`live_state_model.md`](live_state_model.md)
+5. [`supervisor_and_lifecycle.md`](supervisor_and_lifecycle.md)
 
 ## Primary Source References
 

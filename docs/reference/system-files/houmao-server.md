@@ -57,6 +57,8 @@ The server-owned live tracker is memory-primary:
 - tmux/process probe results, parsed surfaces, stability timing, and recent transitions stay in server memory
 - `/houmao/terminals/{terminal_id}/state` and `/houmao/terminals/{terminal_id}/history` read that in-memory authority directly
 
+The watch-plane implementation for that memory-primary tracker now lives in the dedicated `src/houmao/server/tui/` module family. The filesystem contract stays under `<server-root>/sessions/`, while the reducer host, worker lifecycle, probe/parse adapters, and tracker assembly remain process memory concerns rather than persisted server artifacts.
+
 For native headless agents, the server-owned control-plane truth is split cleanly:
 
 - `state/managed_agents/<tracked_agent_id>/authority.json` identifies the managed headless session

@@ -2,7 +2,7 @@
 
 The public live-state payload is `HoumaoTerminalStateResponse` in [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py). The response is returned by `GET /houmao/terminals/{terminal_id}/state`, but the authoritative state is held in memory by `LiveSessionTracker`.
 
-This migration note focuses on the current implementation shape: a simplified public state model built over existing internal anchor/settle machinery.
+This migration note focuses on the current implementation shape: a simplified public state model built over existing internal anchor/settle machinery. For the package/file layout around this model, start with [tui_tracking_module.md](tui_tracking_module.md).
 
 ## Identity And Aliases
 
@@ -13,6 +13,7 @@ Important identity fields are:
 - `tracked_session_id`: the internal watch-plane key
 - `session_name`: the original registration session name
 - `tool`
+- `observed_tool_version`
 - `tmux_session_name`
 - `tmux_window_name`
 - `terminal_aliases`
@@ -121,6 +122,6 @@ The buffer remains bounded by `recent_transition_limit`, so it is useful for rec
 ## Related Sources
 
 - [`../../../../src/houmao/server/models.py`](../../../../src/houmao/server/models.py)
-- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py)
+- [`../../../../src/houmao/server/tui/registry.py`](../../../../src/houmao/server/tui/registry.py)
 - [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py)
 - [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py)

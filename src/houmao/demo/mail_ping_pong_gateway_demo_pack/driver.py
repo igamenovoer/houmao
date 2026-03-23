@@ -530,6 +530,25 @@ def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> s
                 "work on the shared gateway mailbox operations instead of reconstructing "
                 "transport-local helper recipes."
             ),
+            (
+                "Do not inspect repo docs or OpenAPI to rediscover routine shared mailbox "
+                "request shapes during this turn."
+            ),
+            "Stable shared mailbox request shapes for this workflow:",
+            (
+                "`POST /v1/mail/send` -> "
+                '`{"schema_version":1,"to":["recipient@agents.localhost"],'
+                '"subject":"...","body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/reply` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>",'
+                '"body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/state` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
+            ),
             f"Start a ping-pong conversation with `{state.responder.mailbox_address}`.",
             f"Thread key: {thread_key}",
             f"Round limit: {state.round_limit}",
