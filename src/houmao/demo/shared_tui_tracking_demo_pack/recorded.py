@@ -57,7 +57,7 @@ from .reporting import (
 from .review_video import encode_review_video, render_review_frames
 from .scenario import ScenarioDefinition
 from .tooling import (
-    build_session_name,
+    build_tool_session_name,
     capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
@@ -203,9 +203,7 @@ def run_recorded_capture(
     workdir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     save_json(run_root / "resolved_demo_config.json", demo_config.to_payload())
-    tool_session_name = build_session_name(
-        prefix=f"shared-tui-{scenario.tool}", run_id=run_root.name
-    )
+    tool_session_name = build_tool_session_name(tool=scenario.tool, run_id=run_root.name)
     initialize_demo_session_ownership(
         demo_id=demo_config.demo_id,
         run_root=run_root,

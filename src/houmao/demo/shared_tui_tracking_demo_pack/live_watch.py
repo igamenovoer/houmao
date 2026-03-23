@@ -62,7 +62,8 @@ from .reporting import (
     write_issue_documents,
 )
 from .tooling import (
-    build_session_name,
+    build_dashboard_session_name,
+    build_tool_session_name,
     capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
@@ -142,9 +143,9 @@ def start_live_watch(
             )
         )
         observed_version = detect_tool_version(tool=tool)
-        tool_session_name = build_session_name(prefix=f"shared-tui-{tool}", run_id=run_root.name)
-        dashboard_session_name = build_session_name(
-            prefix="shared-tui-dashboard",
+        tool_session_name = build_tool_session_name(tool=tool, run_id=run_root.name)
+        dashboard_session_name = build_dashboard_session_name(
+            tool=tool,
             run_id=run_root.name,
         )
         recorder_enabled = demo_config.evidence.live_watch_recorder_enabled
