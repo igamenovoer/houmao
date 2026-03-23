@@ -297,12 +297,13 @@ def test_monitor_consumes_server_state_and_writes_samples_and_transitions(
     assert len(samples) == 2
     assert samples[0]["terminal_state"]["turn"]["phase"] == "ready"
     assert samples[0]["terminal_state"]["surface"]["ready_posture"] == "yes"
+    assert samples[0]["terminal_state"]["parsed_surface"]["business_state"] == "idle"
     assert len(transitions) == 2
     assert transitions[0]["summary"].endswith("turn became ready")
 
 
 def test_render_agent_panel_uses_server_owned_status_fields() -> None:
-    """The agent panel should show the server-consumer display contract."""
+    """The agent panel should separate tracker-owned state from server-owned sidecars."""
 
     display_state = monitor_module._display_state_from_terminal(
         slot="codex",

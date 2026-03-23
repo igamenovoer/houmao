@@ -125,6 +125,7 @@ class HoumaoTrackedSessionIdentity(_HoumaoModel):
     tracked_session_id: str
     session_name: str
     tool: str
+    observed_tool_version: str | None = None
     tmux_session_name: str
     tmux_window_name: str | None = None
     terminal_aliases: list[str] = Field(default_factory=list)
@@ -137,6 +138,7 @@ class HoumaoTrackedSessionIdentity(_HoumaoModel):
         "tracked_session_id",
         "session_name",
         "tool",
+        "observed_tool_version",
         "tmux_session_name",
         "tmux_window_name",
         "agent_name",
@@ -337,6 +339,7 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
     session_name: str
     terminal_id: str | None = None
     tool: str
+    observed_tool_version: str | None = None
     manifest_path: str | None = None
     session_root: str | None = None
     agent_name: str | None = None
@@ -348,6 +351,7 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
         "session_name",
         "tool",
         "terminal_id",
+        "observed_tool_version",
         "manifest_path",
         "session_root",
         "agent_name",
