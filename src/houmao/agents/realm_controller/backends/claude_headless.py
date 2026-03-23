@@ -39,4 +39,7 @@ class ClaudeHeadlessSession(HeadlessInteractiveSession):
         return []
 
     def _base_command_args(self) -> list[str]:
-        return ["-p"]
+        args = ["-p"]
+        if self._output_format == "stream-json":
+            args.append("--verbose")
+        return args
