@@ -222,6 +222,11 @@ class TuiTrackerSession:
                 reason="input_submitted",
                 armed_turn_source=self.m_armed_turn_source,
             )
+            last_turn_result, last_turn_source = (
+                self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
+                    reason="input_submitted",
+                )
+            )
             self._emit_state_locked(
                 source="input",
                 note="input_submitted",
@@ -230,8 +235,8 @@ class TuiTrackerSession:
                 surface_editing_input=self.m_state.surface_editing_input,
                 surface_ready_posture=self.m_state.surface_ready_posture,
                 turn_phase="active",
-                last_turn_result=self.m_state.last_turn_result,
-                last_turn_source=self.m_state.last_turn_source,
+                last_turn_result=last_turn_result,
+                last_turn_source=last_turn_source,
                 detector_name=self.m_state.detector_name,
                 detector_version=self.m_state.detector_version,
                 active_reasons=self.m_state.active_reasons,
@@ -289,6 +294,17 @@ class TuiTrackerSession:
                     "signals": effective_signals.to_payload(),
                 },
             )
+            draft_authority_visible = self._has_visible_newer_turn_draft_authority_locked(
+                effective_signals
+            )
+            if draft_authority_visible and self.m_armed_turn_source is None:
+                self.m_armed_turn_source = "surface_inference"
+                self._log_debug(
+                    "turn_authority_armed",
+                    at_seconds=at_seconds,
+                    reason="visible_draft",
+                    armed_turn_source=self.m_armed_turn_source,
+                )
 
             if effective_signals.interrupted:
                 self._log_debug(
@@ -339,6 +355,11 @@ class TuiTrackerSession:
                         armed_turn_source=self.m_armed_turn_source,
                         active_reasons=list(effective_signals.active_reasons),
                     )
+                last_turn_result, last_turn_source = (
+                    self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
+                        reason="active_signal",
+                    )
+                )
                 self._log_debug(
                     "snapshot_decision",
                     at_seconds=at_seconds,
@@ -349,8 +370,8 @@ class TuiTrackerSession:
                     signals=effective_signals,
                     note="active_signal",
                     turn_phase="active",
-                    last_turn_result=self.m_state.last_turn_result,
-                    last_turn_source=self.m_state.last_turn_source,
+                    last_turn_result=last_turn_result,
+                    last_turn_source=last_turn_source,
                 )
                 return
 
@@ -390,6 +411,14 @@ class TuiTrackerSession:
             default_phase: TurnPhase = (
                 "ready" if effective_signals.ready_posture == "yes" else "unknown"
             )
+            last_turn_result = self.m_state.last_turn_result
+            last_turn_source = self.m_state.last_turn_source
+            if draft_authority_visible:
+                last_turn_result, last_turn_source = (
+                    self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
+                        reason="visible_draft",
+                    )
+                )
             self._log_debug(
                 "snapshot_decision",
                 at_seconds=at_seconds,
@@ -401,8 +430,8 @@ class TuiTrackerSession:
                 signals=effective_signals,
                 note="default_snapshot",
                 turn_phase=default_phase,
-                last_turn_result=self.m_state.last_turn_result,
-                last_turn_source=self.m_state.last_turn_source,
+                last_turn_result=last_turn_result,
+                last_turn_source=last_turn_source,
             )
 
     def _emit_state_from_signals_locked(
@@ -585,6 +614,18 @@ class TuiTrackerSession:
 
         return self.m_armed_turn_source in {"explicit_input", "surface_inference"}
 
+    def _has_visible_newer_turn_draft_authority_locked(
+        self,
+        signals: DetectedTurnSignals,
+    ) -> bool:
+        """Return whether the current snapshot shows an authoritative newer draft."""
+
+        return (
+            signals.prompt_visible
+            and signals.accepting_input == "yes"
+            and signals.editing_input == "yes"
+        )
+
     def _terminal_turn_source_locked(self) -> TrackedLastTurnSource:
         """Return the best available turn source for one terminal outcome."""
 
@@ -593,6 +634,25 @@ class TuiTrackerSession:
         if self.m_state.last_turn_result != "none" and self.m_state.last_turn_source != "none":
             return self.m_state.last_turn_source
         return "surface_inference"
+
+    def _invalidate_stale_terminal_outcome_for_newer_turn_locked(
+        self,
+        *,
+        reason: str,
+    ) -> tuple[TrackedLastTurnResult, TrackedLastTurnSource]:
+        """Return cleared terminal-outcome state when a newer turn is authoritative."""
+
+        if self.m_state.last_turn_result == "none" or self.m_state.last_turn_source == "none":
+            return self.m_state.last_turn_result, self.m_state.last_turn_source
+        self._log_debug(
+            "stale_terminal_outcome_invalidated",
+            at_seconds=self._current_seconds_locked(),
+            reason=reason,
+            previous_last_turn_result=self.m_state.last_turn_result,
+            previous_last_turn_source=self.m_state.last_turn_source,
+        )
+        self.m_settled_success_signature = None
+        return "none", "none"
 
     def _cancel_success_timer_locked(self) -> None:
         """Cancel the active success timer if one exists."""

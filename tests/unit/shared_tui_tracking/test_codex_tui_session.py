@@ -150,6 +150,89 @@ def test_codex_tui_exact_interruption_wins_over_ready_return() -> None:
     assert state.last_turn_result == "interrupted"
 
 
+def test_codex_tui_explicit_input_clears_stale_success() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.3)
+    session.on_snapshot(_CODEX_READY_SURFACE)
+    scheduler.advance_to(2.6)
+
+    assert session.current_state().last_turn_result == "success"
+
+    session.on_input_submitted()
+    state = session.current_state()
+
+    assert state.turn_phase == "active"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+
+def test_codex_tui_visible_draft_clears_stale_success() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.3)
+    session.on_snapshot(_CODEX_READY_SURFACE)
+    scheduler.advance_to(2.6)
+
+    assert session.current_state().last_turn_result == "success"
+
+    scheduler.advance_to(2.8)
+    session.on_snapshot(_CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE)
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_editing_input == "yes"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+
+def test_codex_tui_visible_draft_clears_stale_interrupted_result() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_INTERRUPTED_SURFACE)
+
+    assert session.current_state().last_turn_result == "interrupted"
+
+    scheduler.advance_to(1.8)
+    session.on_snapshot(_CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE)
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_editing_input == "yes"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+
+def test_codex_tui_second_active_turn_clears_stale_interrupted_result() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_INTERRUPTED_SURFACE)
+
+    assert session.current_state().last_turn_result == "interrupted"
+
+    scheduler.advance_to(1.8)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    state = session.current_state()
+
+    assert state.turn_phase == "active"
+    assert state.last_turn_result == "none"
+    assert state.last_turn_source == "none"
+
+
 def test_codex_tui_dim_placeholder_does_not_count_as_editing() -> None:
     detector = CodexTuiSignalDetector()
 

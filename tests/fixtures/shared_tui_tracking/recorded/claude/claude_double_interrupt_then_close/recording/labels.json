@@ -22,7 +22,7 @@
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "unknown",
+        "surface_editing_input": "yes",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
         "last_turn_result": "none",
@@ -81,8 +81,8 @@
         "surface_editing_input": "yes",
         "surface_ready_posture": "yes",
         "turn_phase": "ready",
-        "last_turn_result": "interrupted",
-        "last_turn_source": "explicit_input"
+        "last_turn_result": "none",
+        "last_turn_source": "none"
       }
     },
     {
@@ -95,8 +95,8 @@
         "surface_editing_input": "no",
         "surface_ready_posture": "unknown",
         "turn_phase": "active",
-        "last_turn_result": "interrupted",
-        "last_turn_source": "explicit_input"
+        "last_turn_result": "none",
+        "last_turn_source": "none"
       }
     },
     {

@@ -1,0 +1,126 @@
+{
+  "id": "codex_success_interrupt_success_complex",
+  "tool": "codex",
+  "description": "Drive Codex through success, ready-draft, active-draft, repeated interrupts, and final recovered success in one maintained session.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "submit-short-success-prompt",
+      "text": "Reply with the single word READY and stop.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-first-success-surface",
+      "pattern": "• READY",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-first-settled-success",
+      "seconds": 1.4
+    },
+    {
+      "action": "send_text",
+      "name": "type-long-prompt-1-draft",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
+      "submit": false
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-ready-draft-1",
+      "seconds": 1.2
+    },
+    {
+      "action": "send_key",
+      "name": "submit-long-prompt-1",
+      "key": "Enter"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-active-surface-1",
+      "pattern": "esc to interrupt",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_text",
+      "name": "type-long-prompt-2-draft-during-active-turn-1",
+      "text": "Now search this repository for files related to terminal recording and prepare a grouped summary. Think carefully before answering.",
+      "submit": false
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-active-draft-1",
+      "seconds": 1.2
+    },
+    {
+      "action": "interrupt_turn",
+      "name": "interrupt-turn-1"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready-1"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-ready-draft-2",
+      "seconds": 1.2
+    },
+    {
+      "action": "send_key",
+      "name": "submit-long-prompt-2",
+      "key": "Enter"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-active-surface-2",
+      "pattern": "esc to interrupt",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_text",
+      "name": "type-final-short-prompt-draft-during-active-turn-2",
+      "text": "Reply with the single word RECOVERED and stop.",
+      "submit": false
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-active-draft-2",
+      "seconds": 1.2
+    },
+    {
+      "action": "interrupt_turn",
+      "name": "interrupt-turn-2"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready-2"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-final-ready-draft",
+      "seconds": 1.0
+    },
+    {
+      "action": "send_key",
+      "name": "submit-final-short-prompt",
+      "key": "Enter"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-final-success-surface",
+      "pattern": "• RECOVERED",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-final-settled-success",
+      "seconds": 1.4
+    }
+  ]
+}

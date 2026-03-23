@@ -16,13 +16,41 @@
       }
     },
     {
-      "label_id": "active-before-loss",
+      "label_id": "active-before-loss-entry",
       "sample_id": "s000013",
-      "sample_end_id": "s000020",
+      "sample_end_id": "s000013",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "active-before-loss-submit-echo",
+      "sample_id": "s000014",
+      "sample_end_id": "s000014",
       "expectations": {
         "diagnostics_availability": "available",
         "surface_accepting_input": "yes",
         "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "active-before-loss",
+      "sample_id": "s000015",
+      "sample_end_id": "s000020",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "no",
         "turn_phase": "active",
         "last_turn_result": "none",
@@ -36,7 +64,7 @@
       "expectations": {
         "diagnostics_availability": "tui_down",
         "surface_accepting_input": "yes",
-        "surface_editing_input": "yes",
+        "surface_editing_input": "no",
         "surface_ready_posture": "no",
         "turn_phase": "unknown",
         "last_turn_result": "none",
