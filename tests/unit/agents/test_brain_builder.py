@@ -165,6 +165,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
+    assert (home / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert (home / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert not (home / "skills/skill-b").exists()
 
@@ -215,11 +216,11 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     )
 
     filesystem_skill = (
-        result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
+        result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
     ).read_text(encoding="utf-8")
-    stalwart_skill = (
-        result.home_path / "skills/.system/mailbox/email-via-stalwart/SKILL.md"
-    ).read_text(encoding="utf-8")
+    stalwart_skill = (result.home_path / "skills/mailbox/email-via-stalwart/SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "## Routine Actions With A Live Gateway Facade" in filesystem_skill
     assert (
