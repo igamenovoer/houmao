@@ -281,7 +281,11 @@ The runtime SHALL preserve the current operator-facing `mail check`, `mail send`
 
 The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
 
-That mailbox prompt SHALL explicitly tell the agent which projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+That mailbox prompt SHALL explicitly tell the agent which discoverable projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+
+For the current mailbox skill contract, that prompt SHALL identify the stable transport-specific mailbox skill name together with the primary visible mailbox skill path under the active skill destination.
+
+The runtime MAY mention a hidden compatibility mirror for the same mailbox skill, but it SHALL NOT use a hidden `.system/mailbox/...` path as the sole primary mailbox skill reference in that prompt.
 
 The mailbox prompt and projected mailbox system skill SHALL prefer a live gateway mailbox facade when that facade is available for the addressed session.
 
@@ -309,20 +313,21 @@ For `shadow_only` mailbox commands, mailbox completion gating and mailbox result
 #### Scenario: Filesystem mail command prompt includes filesystem-specific mailbox guidance
 - **WHEN** a developer invokes a runtime `mail` command for a filesystem mailbox-enabled session
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the projected filesystem mailbox system skill the agent should use
+- **AND THEN** that prompt explicitly names the discoverable filesystem mailbox system skill the agent should use
+- **AND THEN** that prompt points at the primary visible filesystem mailbox skill path instead of relying only on a hidden `.system` mailbox path
 - **AND THEN** that prompt tells the agent to inspect the shared mailbox `rules/` directory before interacting with shared mailbox state
 - **AND THEN** that prompt tells the agent to use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`
 
 #### Scenario: Gateway-aware mail command prompt prefers the shared gateway facade
 - **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session with a live gateway mailbox facade
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the projected mailbox system skill the agent should use
+- **AND THEN** that prompt explicitly names the discoverable projected mailbox system skill the agent should use
 - **AND THEN** that prompt tells the agent to prefer the live gateway mailbox facade for the shared mailbox operation rather than reasoning about transport details directly
 
 #### Scenario: Stalwart mail command prompt excludes filesystem-only mailbox guidance when direct transport fallback is used
 - **WHEN** a developer invokes a runtime `mail` command for a `stalwart` mailbox-enabled session with no live gateway mailbox facade
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the projected Stalwart mailbox system skill the agent should use
+- **AND THEN** that prompt explicitly names the discoverable Stalwart mailbox system skill the agent should use
 - **AND THEN** that prompt does not direct the agent to use filesystem mailbox `rules/`, lock files, or managed scripts that are not part of the Stalwart transport
 
 #### Scenario: Mail command returns structured mailbox result

@@ -7,6 +7,11 @@ Houmao is under active development, and the operator-facing workflow is still st
 
 The current end-to-end proof-of-concept is the headless ping-pong demo pack at `scripts/demo/mail-ping-pong-gateway-demo-pack/`. It launches one headless Claude agent and one headless Codex agent, lets them coordinate through the shared mailbox and gateway surfaces, and verifies the resulting conversation from demo-owned artifacts.
 
+Current limitations of that proof-of-concept:
+
+- it is fully headless, so the operator does not get an in-band interactive user surface during the run
+- its primary outputs are raw JSON inspect/report artifacts, which are good for verification but not yet a polished human-facing viewing experience
+
 If you want to try Houmao today, start by following that demo instead of assembling a custom workflow from scratch. Treat its practice as the current recommended path:
 
 - use a tracked agent-definition directory with recipes, roles, and projected runtime-owned skills
