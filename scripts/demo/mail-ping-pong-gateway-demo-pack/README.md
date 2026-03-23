@@ -67,6 +67,31 @@ scripts/demo/mail-ping-pong-gateway-demo-pack/run_demo.sh stop --demo-output-dir
 
 If you override `--demo-output-dir`, keep using the same path for the rest of that run. The persisted state file under that root is the resumable source of truth.
 
+## Pack-Local Autotest
+
+The pack now ships a first-class live-agent autotest harness under `scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/`.
+
+Canonical automatic case:
+
+```bash
+scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/run-case.sh \
+  --case unattended-full-run
+```
+
+That case:
+
+- fails fast on missing `pixi`, `git`, `tmux`, `claude`, `codex`, or tracked fixture/config/credential roots
+- cleans stale demo-owned state under `.agent-automation/hacktest/mail-ping-pong-gateway-demo-pack/live/demo-output` before starting
+- runs `start -> inspect -> launch-posture-check -> kickoff -> wait -> inspect -> verify -> stop`
+- writes `control/autotest/case-unattended-full-run.result.json`
+- preserves bounded tmux pane snapshots under `control/autotest/tmux/` when a post-launch failure occurs
+
+Interactive companion:
+
+- `scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/case-unattended-full-run.md`
+
+The headless tmux sessions remain a diagnostic watch surface only. They are not the source of headless lifecycle truth, but when a turn is active you should be able to attach and see rolling console output from the live CLI execution.
+
 ## Kickoff And Thread Contract
 
 The pack sends only one direct operator request.
@@ -157,12 +182,12 @@ scripts/demo/mail-ping-pong-gateway-demo-pack/run_demo.sh verify --snapshot
 
 ## Coverage Posture
 
-V1 regression coverage for this pack is pytest-based only. There is no pack-local live-agent `autotest/` harness yet.
-
-The current automated coverage lives in `tests/unit/demo/test_mail_ping_pong_gateway_demo_pack.py` and focuses on:
+Deterministic regression coverage still lives in `tests/unit/demo/test_mail_ping_pong_gateway_demo_pack.py` and focuses on:
 
 - startup defaults and `outputs/` containment
 - persisted-state reuse
 - successful report generation plus sanitization
 - pause / continue notifier control
 - timeout / incomplete-run diagnostics
+
+The pack-local `autotest/` harness complements those deterministic tests with a real local Claude/Codex path that is suitable for hack-through testing and operator observation.

@@ -84,6 +84,7 @@ def build_participant_brain(
             credential_profile=recipe.credential_profile,
             recipe_path=participant.brain_recipe_path,
             recipe_launch_overrides=recipe.launch_overrides,
+            operator_prompt_mode=recipe.operator_prompt_mode,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
             home_id=home_id,

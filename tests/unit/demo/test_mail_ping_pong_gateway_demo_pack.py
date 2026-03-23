@@ -26,7 +26,10 @@ from houmao.mailbox.managed import (
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 from houmao.server.managed_agents import ManagedHeadlessStore, ManagedHeadlessTurnRecord
 from houmao.server.config import HoumaoServerConfig
-from houmao.demo.mail_ping_pong_gateway_demo_pack.agents import build_demo_environment
+from houmao.demo.mail_ping_pong_gateway_demo_pack.agents import (
+    build_demo_environment,
+    build_participant_brain,
+)
 from houmao.demo.mail_ping_pong_gateway_demo_pack.models import (
     DEFAULT_DEMO_OUTPUT_DIR_RELATIVE,
     DEFAULT_PARAMETERS_RELATIVE,
@@ -65,13 +68,15 @@ class _Dumpable:
 class _InspectClientDouble:
     """Fake managed-agent client used by inspect/report tests."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, manifest_paths: dict[str, str] | None = None) -> None:
         self.m_put_calls: list[tuple[str, int]] = []
         self.m_delete_calls: list[str] = []
+        self.m_manifest_paths = dict(manifest_paths or {})
 
     def get_managed_agent_state(self, tracked_agent_id: str) -> _Dumpable:
         """Return one coarse managed-agent state payload."""
 
+        manifest_path = self.m_manifest_paths.get(tracked_agent_id, "/tmp/manifest.json")
         return _Dumpable(
             {
                 "tracked_agent_id": tracked_agent_id,
@@ -84,7 +89,7 @@ class _InspectClientDouble:
                     "runtime_session_id": tracked_agent_id,
                     "tmux_session_name": f"tmux-{tracked_agent_id}",
                     "tmux_window_name": None,
-                    "manifest_path": "/tmp/manifest.json",
+                    "manifest_path": manifest_path,
                     "session_root": "/tmp/session-root",
                     "agent_name": tracked_agent_id,
                     "agent_id": tracked_agent_id,
@@ -335,8 +340,98 @@ def _make_demo_state(tmp_path: Path, *, active: bool = True) -> tuple[Path, obje
             prompt="kickoff",
         ),
     )
+    _seed_launch_posture_manifests(state)
     save_demo_state(paths.state_path, state)
     return output_root, paths, state
+
+
+def _seed_launch_posture_manifests(state: DemoState) -> None:
+    """Seed built brain manifests and live session manifests with unattended posture."""
+
+    for participant in (state.initiator, state.responder):
+        participant.brain_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        participant.brain_manifest_path.write_text(
+            "\n".join(
+                [
+                    "schema_version: 2",
+                    "launch_policy:",
+                    "  operator_prompt_mode: unattended",
+                    "runtime: {}",
+                    "credentials: {}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        participant.session_root.mkdir(parents=True, exist_ok=True)
+        backend = "claude_headless" if participant.tool == "claude" else "codex_headless"
+        session_manifest = {
+            "schema_version": 3,
+            "backend": backend,
+            "tool": participant.tool,
+            "role_name": participant.role_name,
+            "created_at_utc": "2026-03-23T12:00:00+00:00",
+            "working_directory": str(participant.working_directory),
+            "brain_manifest_path": str(participant.brain_manifest_path),
+            "agent_name": participant.agent_name,
+            "agent_id": participant.agent_id,
+            "tmux_session_name": participant.tmux_session_name,
+            "job_dir": str(participant.session_root / "job"),
+            "launch_plan": {
+                "backend": backend,
+                "tool": participant.tool,
+                "executable": participant.tool,
+                "args": [],
+                "working_directory": str(participant.working_directory),
+                "home_selector": {
+                    "env_var": "CLAUDE_CONFIG_DIR" if participant.tool == "claude" else "CODEX_HOME",
+                    "home_path": str(participant.brain_home_path),
+                },
+                "env_var_names": [],
+                "role_injection": {
+                    "method": (
+                        "native_append_system_prompt"
+                        if participant.tool == "claude"
+                        else "native_developer_instructions"
+                    ),
+                    "role_name": participant.role_name,
+                },
+                "mailbox": None,
+                "metadata": {
+                    "launch_policy_request": {
+                        "operator_prompt_mode": "unattended",
+                    },
+                    "launch_policy": {
+                        "strategy": "test-launch-policy",
+                    },
+                },
+                "launch_policy_provenance": {
+                    "strategy": "test-launch-policy",
+                },
+            },
+            "launch_policy_provenance": {
+                "strategy": "test-launch-policy",
+            },
+            "backend_state": {
+                "tmux_session_name": participant.tmux_session_name,
+                "turn_index": 0,
+                "working_directory": str(participant.working_directory),
+            },
+            "headless": {
+                "session_id": None,
+                "turn_index": 0,
+                "role_bootstrap_applied": False,
+                "working_directory": str(participant.working_directory),
+            },
+            "codex": None,
+            "cao": None,
+            "houmao_server": None,
+            "registry_generation_id": "test-generation",
+        }
+        (participant.session_root / "manifest.json").write_text(
+            json.dumps(session_manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
 
 def _seed_successful_mailbox(state: DemoState) -> None:
@@ -577,6 +672,76 @@ def test_parameters_and_layout_defaults_resolve_from_repo_root() -> None:
     assert layout.output_root == PACK_DIR / "outputs"
     assert layout.registry_root == PACK_DIR / "outputs" / "registry"
     assert layout.mailbox_root == PACK_DIR / "outputs" / "mailbox"
+
+
+def test_pack_local_autotest_assets_exist() -> None:
+    """The pack should ship the owned autotest harness, case, guide, and helpers."""
+
+    expected_paths = (
+        PACK_DIR / "autotest" / "run-case.sh",
+        PACK_DIR / "autotest" / "case-unattended-full-run.sh",
+        PACK_DIR / "autotest" / "case-unattended-full-run.md",
+        PACK_DIR / "autotest" / "helpers" / "common.sh",
+        PACK_DIR / "autotest" / "helpers" / "check_demo_preflight.py",
+        PACK_DIR / "autotest" / "helpers" / "check_launch_posture.py",
+        PACK_DIR / "autotest" / "helpers" / "print_demo_state_summary.py",
+        PACK_DIR / "autotest" / "helpers" / "print_tmux_role_snapshot.sh",
+        PACK_DIR / "autotest" / "helpers" / "write_case_result.py",
+    )
+
+    for path in expected_paths:
+        assert path.is_file()
+
+
+def test_build_participant_brain_preserves_recipe_operator_prompt_mode(tmp_path: Path) -> None:
+    """The demo builder should preserve unattended mode from the tracked recipe."""
+
+    agent_def_dir = _repo_root() / "tests" / "fixtures" / "agents"
+    parameters = load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
+
+    build_result = build_participant_brain(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        participant=parameters.initiator,
+        home_id="mail-ping-pong-initiator-test",
+    )
+
+    assert build_result.manifest["launch_policy"]["operator_prompt_mode"] == "unattended"
+
+
+def test_build_participant_brain_defaults_to_interactive_when_recipe_omits_prompt_mode(
+    tmp_path: Path,
+) -> None:
+    """Recipes without explicit operator prompt mode should still build successfully."""
+
+    recipe_path = tmp_path / "recipe.yaml"
+    recipe_path.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "name: demo-no-prompt-mode",
+                "tool: claude",
+                "default_agent_name: demo-claude",
+                "skills:",
+                "  - openspec-apply-change",
+                "config_profile: default",
+                "credential_profile: personal-a-default",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    parameters = load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
+    participant = parameters.initiator.model_copy(update={"brain_recipe_path": recipe_path})
+
+    build_result = build_participant_brain(
+        agent_def_dir=_repo_root() / "tests" / "fixtures" / "agents",
+        runtime_root=tmp_path / "runtime",
+        participant=participant,
+        home_id="mail-ping-pong-initiator-no-prompt-mode",
+    )
+
+    assert build_result.manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
 
 
 def test_build_demo_environment_redirects_all_owned_roots(tmp_path: Path) -> None:
@@ -865,7 +1030,12 @@ def test_inspect_reuses_persisted_state_and_writes_snapshot(
     _seed_successful_mailbox(state)
     _seed_turn_records(state)
     _seed_gateway_audits(state)
-    fake_client = _InspectClientDouble()
+    fake_client = _InspectClientDouble(
+        manifest_paths={
+            state.initiator.tracked_agent_id: str(state.initiator.session_root / "manifest.json"),
+            state.responder.tracked_agent_id: str(state.responder.session_root / "manifest.json"),
+        }
+    )
     monkeypatch.setattr(demo_driver, "HoumaoServerClient", lambda base_url: fake_client)
 
     result = demo_driver.main(["inspect", "--demo-output-dir", str(paths.output_root)])
@@ -877,6 +1047,13 @@ def test_inspect_reuses_persisted_state_and_writes_snapshot(
         inspect_payload["participants"]["initiator"]["state"]["tracked_agent_id"]
         == "tracked-initiator"
     )
+    assert (
+        inspect_payload["participants"]["initiator"]["launch_posture"][
+            "live_launch_request_operator_prompt_mode"
+        ]
+        == "unattended"
+    )
+    assert inspect_payload["participants"]["responder"]["launch_posture"]["launch_policy_applied"] is True
     assert inspect_payload["participants"]["responder"]["gateway_mail_notifier"]["enabled"] is True
 
 
@@ -887,7 +1064,12 @@ def test_refresh_artifacts_builds_complete_report_and_matches_snapshot(tmp_path:
     _seed_successful_mailbox(state)
     _seed_turn_records(state)
     _seed_gateway_audits(state)
-    fake_client = _InspectClientDouble()
+    fake_client = _InspectClientDouble(
+        manifest_paths={
+            state.initiator.tracked_agent_id: str(state.initiator.session_root / "manifest.json"),
+            state.responder.tracked_agent_id: str(state.responder.session_root / "manifest.json"),
+        }
+    )
 
     progress, _inspect_snapshot, _report_payload = demo_driver._refresh_artifacts(
         paths=paths,
@@ -901,6 +1083,12 @@ def test_refresh_artifacts_builds_complete_report_and_matches_snapshot(tmp_path:
     )
 
     assert progress.success is True
+    assert (
+        _report_payload["per_role"]["initiator"]["launch_posture"][
+            "tracked_recipe_operator_prompt_mode"
+        ]
+        == "unattended"
+    )
     verify_sanitized_report(sanitized, expected)
 
 

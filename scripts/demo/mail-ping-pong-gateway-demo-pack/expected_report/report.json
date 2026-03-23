@@ -70,6 +70,12 @@
       "gateway_enqueued": true,
       "gateway_health": "healthy",
       "last_turn_result": "success",
+      "launch_posture": {
+        "built_brain_manifest_operator_prompt_mode": "unattended",
+        "launch_policy_applied": true,
+        "live_launch_request_operator_prompt_mode": "unattended",
+        "tracked_recipe_operator_prompt_mode": "unattended"
+      },
       "message_count": 5,
       "notifier_enabled": true,
       "role_name": "mail-ping-pong-initiator",
@@ -82,6 +88,12 @@
       "gateway_enqueued": true,
       "gateway_health": "healthy",
       "last_turn_result": "success",
+      "launch_posture": {
+        "built_brain_manifest_operator_prompt_mode": "unattended",
+        "launch_policy_applied": true,
+        "live_launch_request_operator_prompt_mode": "unattended",
+        "tracked_recipe_operator_prompt_mode": "unattended"
+      },
       "message_count": 5,
       "notifier_enabled": true,
       "role_name": "mail-ping-pong-responder",

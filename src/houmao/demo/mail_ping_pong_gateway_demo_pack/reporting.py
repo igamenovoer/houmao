@@ -5,8 +5,11 @@ from __future__ import annotations
 import difflib
 import json
 import re
+from pathlib import Path
 from typing import Any
 
+from houmao.agents.brain_builder import load_brain_recipe
+from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.server.client import HoumaoServerClient
 
 from .events import ConversationEvidence
@@ -20,7 +23,9 @@ from .models import (
     InspectSnapshot,
     MailboxEvidenceSummary,
     ParticipantInspectSnapshot,
+    ParticipantLaunchPostureSummary,
     ParticipantOutcomeSummary,
+    ParticipantState,
     ReportSnapshot,
     utc_now_iso,
 )
@@ -41,11 +46,11 @@ def build_inspect_snapshot(
     participants = {
         "initiator": _participant_inspect_snapshot(
             client=client,
-            tracked_agent_id=state.initiator.tracked_agent_id,
+            participant=state.initiator,
         ),
         "responder": _participant_inspect_snapshot(
             client=client,
-            tracked_agent_id=state.responder.tracked_agent_id,
+            participant=state.responder,
         ),
     }
     return InspectSnapshot(
@@ -200,50 +205,58 @@ def verify_sanitized_report(actual: Any, expected: Any) -> None:
 def _participant_inspect_snapshot(
     *,
     client: HoumaoServerClient | None,
-    tracked_agent_id: str,
+    participant: ParticipantState,
 ) -> ParticipantInspectSnapshot:
     """Collect one live inspect snapshot or return a redacted offline fallback."""
 
+    launch_posture = _participant_launch_posture_summary(participant=participant)
     if client is None:
         fallback = {
             "availability": "unavailable",
             "detail": "live inspection unavailable",
-            "tracked_agent_id": tracked_agent_id,
+            "tracked_agent_id": participant.tracked_agent_id,
         }
         return ParticipantInspectSnapshot(
             state=fallback,
             detail=fallback,
             gateway_status={"gateway_health": "unknown"},
             gateway_mail_notifier={"enabled": False, "supported": False},
+            launch_posture=launch_posture,
         )
     try:
-        state_payload = client.get_managed_agent_state(tracked_agent_id).model_dump(mode="json")
-        detail_payload = client.get_managed_agent_state_detail(tracked_agent_id).model_dump(
+        state_payload = client.get_managed_agent_state(participant.tracked_agent_id).model_dump(
             mode="json"
         )
-        gateway_status = client.get_managed_agent_gateway_status(tracked_agent_id).model_dump(
+        detail_payload = client.get_managed_agent_state_detail(participant.tracked_agent_id).model_dump(
+            mode="json"
+        )
+        gateway_status = client.get_managed_agent_gateway_status(
+            participant.tracked_agent_id
+        ).model_dump(
             mode="json"
         )
         gateway_mail_notifier = client.get_managed_agent_gateway_mail_notifier(
-            tracked_agent_id
+            participant.tracked_agent_id
         ).model_dump(mode="json")
     except Exception as exc:
         fallback = {
             "availability": "error",
             "detail": str(exc),
-            "tracked_agent_id": tracked_agent_id,
+            "tracked_agent_id": participant.tracked_agent_id,
         }
         return ParticipantInspectSnapshot(
             state=fallback,
             detail=fallback,
             gateway_status={"gateway_health": "unavailable", "detail": str(exc)},
             gateway_mail_notifier={"enabled": False, "supported": False, "detail": str(exc)},
+            launch_posture=launch_posture,
         )
     return ParticipantInspectSnapshot(
         state=state_payload,
         detail=detail_payload,
         gateway_status=gateway_status,
         gateway_mail_notifier=gateway_mail_notifier,
+        launch_posture=launch_posture,
     )
 
 
@@ -279,4 +292,95 @@ def _participant_outcome_summary(
         gateway_health=str(gateway_status.get("gateway_health", "unknown")),
         gateway_enqueued=progress.gateway_enqueued_by_role.get(role, False),
         last_turn_result=last_turn_result,
+        launch_posture=participant_inspect.launch_posture,
     )
+
+
+def _participant_launch_posture_summary(
+    *,
+    participant: ParticipantState,
+) -> ParticipantLaunchPostureSummary:
+    """Summarize the tracked, built, and live launch posture for one participant."""
+
+    recipe_mode = _recipe_operator_prompt_mode(participant.brain_recipe_path)
+    manifest_mode = _brain_manifest_operator_prompt_mode(participant.brain_manifest_path)
+    session_payload = _load_json_mapping(participant.session_root / "manifest.json")
+    live_mode = _nested_optional_string(
+        session_payload,
+        "launch_plan",
+        "metadata",
+        "launch_policy_request",
+        "operator_prompt_mode",
+    )
+    return ParticipantLaunchPostureSummary(
+        tracked_recipe_operator_prompt_mode=recipe_mode,
+        built_brain_manifest_operator_prompt_mode=manifest_mode,
+        live_launch_request_operator_prompt_mode=live_mode,
+        launch_policy_applied=_launch_policy_applied(session_payload),
+    )
+
+
+def _recipe_operator_prompt_mode(recipe_path: Path) -> str | None:
+    """Return the tracked recipe operator prompt mode when readable."""
+
+    try:
+        return load_brain_recipe(recipe_path).operator_prompt_mode
+    except Exception:
+        return None
+
+
+def _brain_manifest_operator_prompt_mode(manifest_path: Path) -> str | None:
+    """Return the built brain-manifest operator prompt mode when readable."""
+
+    try:
+        manifest = load_brain_manifest(manifest_path)
+    except Exception:
+        return None
+    launch_policy = manifest.get("launch_policy")
+    if not isinstance(launch_policy, dict):
+        return None
+    value = launch_policy.get("operator_prompt_mode")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _load_json_mapping(path: Path) -> dict[str, Any] | None:
+    """Return one JSON object payload when the file is readable."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _nested_optional_string(payload: dict[str, Any] | None, *keys: str) -> str | None:
+    """Read one nested string from a mapping payload."""
+
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current.strip() if isinstance(current, str) and current.strip() else None
+
+
+def _launch_policy_applied(payload: dict[str, Any] | None) -> bool | None:
+    """Return whether live launch-policy evidence was persisted."""
+
+    if payload is None:
+        return None
+    if isinstance(payload.get("launch_policy_provenance"), dict) and payload[
+        "launch_policy_provenance"
+    ]:
+        return True
+    launch_plan = payload.get("launch_plan")
+    if not isinstance(launch_plan, dict):
+        return False
+    if isinstance(launch_plan.get("launch_policy_provenance"), dict) and launch_plan[
+        "launch_policy_provenance"
+    ]:
+        return True
+    metadata = launch_plan.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    return isinstance(metadata.get("launch_policy"), dict) and bool(metadata.get("launch_policy"))
