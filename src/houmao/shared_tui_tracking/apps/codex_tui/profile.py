@@ -1,4 +1,4 @@
-"""Codex TUI tracked-TUI detector profile with temporal inference."""
+"""Codex TUI tracked-TUI detector profiles with temporal inference."""
 
 from __future__ import annotations
 
@@ -19,9 +19,16 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
     is_interrupted_surface,
 )
 from houmao.shared_tui_tracking.apps.codex_tui.signals.overlays import has_blocking_overlay
+from houmao.shared_tui_tracking.apps.codex_tui.signals.prompt_behavior import (
+    CodexPromptBehaviorVariant,
+    CodexPromptBehaviorVariantV0_116_X,
+    FallbackCodexPromptBehaviorVariant,
+    build_prompt_area_snapshot,
+    latest_turn_lines,
+    prompt_behavior_notes,
+)
 from houmao.shared_tui_tracking.apps.codex_tui.signals.ready import (
     accepting_input_state,
-    build_prompt_context,
     editing_input_state,
     ready_posture_state,
 )
@@ -58,8 +65,27 @@ class _CodexTuiFrame:
     latest_turn_region_line_count: int
 
 
-class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
-    """Tracked-TUI detector for interactive Codex raw surfaces."""
+class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
+    """Tracked-TUI detector for one Codex version family."""
+
+    def __init__(
+        self,
+        *,
+        detector_version: str,
+        prompt_behavior_variant: CodexPromptBehaviorVariant,
+        profile_notes: tuple[str, ...] = (),
+    ) -> None:
+        """Initialize one Codex detector profile."""
+
+        self.m_detector_version: str = detector_version
+        self.m_prompt_behavior_variant: CodexPromptBehaviorVariant = prompt_behavior_variant
+        self.m_profile_notes: tuple[str, ...] = profile_notes
+
+    @property
+    def detector_version(self) -> str:
+        """Return the stable detector profile selector."""
+
+        return self.m_detector_version
 
     @property
     def temporal_window_seconds(self) -> float:
@@ -77,53 +103,64 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
 
         del parsed_surface
         surface = SurfaceView.from_text(output_text or "")
-        prompt_context = build_prompt_context(surface)
+        prompt_snapshot = build_prompt_area_snapshot(surface)
+        latest_turn_region_lines = latest_turn_lines(
+            surface=surface,
+            prompt_index=prompt_snapshot.prompt_index,
+        )
+        prompt_classification = self.m_prompt_behavior_variant.classify(prompt_snapshot)
         blocking_overlay = has_blocking_overlay(surface)
         activity = detect_activity(
             surface=surface,
-            latest_turn_lines=prompt_context.latest_turn_lines,
-            prompt_visible=prompt_context.prompt_visible,
+            latest_turn_lines=latest_turn_region_lines,
+            prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
         interrupted = is_interrupted_surface(
             surface=surface,
-            prompt_visible=prompt_context.prompt_visible,
+            prompt_visible=prompt_snapshot.prompt_visible,
             active_status_row_visible=activity.active_status_row_visible,
         )
-        error_line = latest_error_cell(prompt_context.latest_turn_lines)
+        error_line = latest_error_cell(latest_turn_region_lines)
         current_error_present = error_line is not None
         ready_posture = ready_posture_state(
-            prompt_visible=prompt_context.prompt_visible,
+            prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_evidence=activity.active_evidence,
         )
         if current_error_present and not interrupted and not activity.active_evidence:
             ready_posture = "unknown"
         accepting_input = accepting_input_state(
-            prompt_visible=prompt_context.prompt_visible,
+            prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
         )
         editing_input = editing_input_state(
-            prompt_visible=prompt_context.prompt_visible,
-            prompt_text=prompt_context.prompt_text,
+            prompt_visible=prompt_snapshot.prompt_visible,
+            prompt_classification=prompt_classification,
         )
         completion_marker = next(
             (
                 line
-                for line in reversed(prompt_context.latest_turn_lines)
+                for line in reversed(latest_turn_region_lines)
                 if line.strip().startswith(_CODEX_WORKED_PREFIX)
             ),
             None,
         )
         success_candidate = bool(
-            prompt_context.prompt_visible
+            prompt_snapshot.prompt_visible
             and ready_posture == "yes"
             and not activity.active_evidence
             and not current_error_present
             and not interrupted
             and not blocking_overlay
         )
-        notes: list[str] = []
+        notes: list[str] = [
+            *self.m_profile_notes,
+            *prompt_behavior_notes(
+                variant=self.m_prompt_behavior_variant,
+                classification=prompt_classification,
+            ),
+        ]
         if activity.steer_handoff:
             notes.append("steer_handoff_active")
         if interrupted:
@@ -144,12 +181,12 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         )
         return DetectedTurnSignals(
             detector_name="codex_tui",
-            detector_version="builtin",
+            detector_version=self.detector_version,
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
-            prompt_visible=prompt_context.prompt_visible,
-            prompt_text=prompt_context.prompt_text,
+            prompt_visible=prompt_snapshot.prompt_visible,
+            prompt_text=prompt_classification.prompt_text,
             footer_interruptable=activity.active_status_row_visible,
             active_evidence=activity.active_evidence,
             active_reasons=activity.active_reasons,
@@ -177,17 +214,21 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         del observed_at_seconds
         del signals
         surface = SurfaceView.from_text(output_text or "")
-        prompt_context = build_prompt_context(surface)
+        prompt_snapshot = build_prompt_area_snapshot(surface)
+        latest_turn_region_lines = latest_turn_lines(
+            surface=surface,
+            prompt_index=prompt_snapshot.prompt_index,
+        )
         activity = detect_activity(
             surface=surface,
-            latest_turn_lines=prompt_context.latest_turn_lines,
-            prompt_visible=prompt_context.prompt_visible,
+            latest_turn_lines=latest_turn_region_lines,
+            prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
-        error_line = latest_error_cell(prompt_context.latest_turn_lines)
+        error_line = latest_error_cell(latest_turn_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
         ready_posture = ready_posture_state(
-            prompt_visible=prompt_context.prompt_visible,
+            prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_evidence=activity.active_evidence,
         )
@@ -195,17 +236,15 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             if not activity.active_evidence:
                 ready_posture = "unknown"
         return _CodexTuiFrame(
-            prompt_visible=prompt_context.prompt_visible,
+            prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_status_row_visible=activity.active_status_row_visible,
             current_error_present=error_line is not None,
             interrupted=interrupted_text_visible(surface=surface),
             ready_posture=ready_posture,
-            latest_turn_region_signature=latest_turn_region_signature(
-                prompt_context.latest_turn_lines
-            ),
-            latest_turn_region_length=len("\n".join(prompt_context.latest_turn_lines)),
-            latest_turn_region_line_count=len(prompt_context.latest_turn_lines),
+            latest_turn_region_signature=latest_turn_region_signature(latest_turn_region_lines),
+            latest_turn_region_length=len("\n".join(latest_turn_region_lines)),
+            latest_turn_region_line_count=len(latest_turn_region_lines),
         )
 
     def derive_temporal_hints(
@@ -269,6 +308,34 @@ class CodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
                 ),
             )
         return hints
+
+
+class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):
+    """Tracked-TUI detector for observed Codex `0.116.x` surfaces."""
+
+    def __init__(self) -> None:
+        """Initialize the `0.116.x` detector family."""
+
+        super().__init__(
+            detector_version="0.116.x",
+            prompt_behavior_variant=CodexPromptBehaviorVariantV0_116_X(),
+        )
+
+
+class FallbackCodexTuiSignalDetector(_BaseCodexTuiSignalDetector):
+    """Conservative tracked-TUI detector for unmatched Codex versions."""
+
+    def __init__(self) -> None:
+        """Initialize the fallback Codex detector family."""
+
+        super().__init__(
+            detector_version="fallback",
+            prompt_behavior_variant=FallbackCodexPromptBehaviorVariant(),
+            profile_notes=("fallback_detector",),
+        )
+
+
+CodexTuiSignalDetector = CodexTuiSignalDetectorV0_116_X
 
 
 CodexTrackedTurnSignalDetector = CodexTuiSignalDetector

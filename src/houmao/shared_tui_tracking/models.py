@@ -307,4 +307,6 @@ def _optional_int(value: object) -> int | None:
         return None
     if isinstance(value, bool):
         raise ValueError("boolean is not a valid integer value")
+    if not isinstance(value, (int, str, bytes, bytearray)):
+        raise ValueError(f"unsupported integer payload value: {type(value)!r}")
     return int(value)

@@ -3,7 +3,10 @@ from __future__ import annotations
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
-from houmao.shared_tui_tracking.apps.codex_tui.profile import CodexTuiSignalDetector
+from houmao.shared_tui_tracking.apps.codex_tui.profile import (
+    CodexTuiSignalDetector,
+    FallbackCodexTuiSignalDetector,
+)
 
 
 _CODEX_READY_SURFACE = "› \n\n  ? for shortcuts            100% context left\n"
@@ -13,7 +16,19 @@ _CODEX_DIM_PLACEHOLDER_READY_SURFACE = (
     "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
 )
 _CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE = (
-    "› Find and fix a bug in @filename\n\n"
+    "\x1b[1m›\x1b[0m Find and fix a bug in @filename\n\n"
+    "  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\n"
+)
+_CODEX_DYNAMIC_PLACEHOLDER_READY_SURFACE = (
+    "\x1b[1m›\x1b[0m \x1b[2mPlan the next three refactors\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
+)
+_CODEX_DISABLED_INPUT_SURFACE = (
+    "\x1b[2m› Input disabled for test.\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
+)
+_CODEX_UNRECOGNIZED_STYLED_PROMPT_SURFACE = (
+    "\x1b[1m›\x1b[0m \x1b[33mReview staged changes\x1b[0m\n\n"
     "  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\n"
 )
 _CODEX_INTERRUPTED_SURFACE = (
@@ -47,7 +62,7 @@ _CODEX_TRANSCRIPT_GROWTH_CONTINUES = (
 def _codex_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
     return TuiTrackerSession.from_config(
         app_id="codex_tui",
-        observed_version=None,
+        observed_version="0.116.4 (Codex)",
         config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.0),
         scheduler=scheduler,
     )
@@ -153,6 +168,51 @@ def test_codex_tui_literal_placeholder_phrase_still_counts_as_user_editing() -> 
     assert signals.accepting_input == "yes"
     assert signals.editing_input == "yes"
     assert signals.prompt_text == "Find and fix a bug in @filename"
+
+
+def test_codex_tui_dynamic_placeholder_does_not_require_stable_literal_list() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_DYNAMIC_PLACEHOLDER_READY_SURFACE)
+
+    assert signals.accepting_input == "yes"
+    assert signals.editing_input == "no"
+    assert signals.prompt_text is None
+    assert "prompt_behavior_variant=0.116.x" in signals.notes
+
+
+def test_codex_tui_disabled_input_placeholder_stays_non_editing() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_DISABLED_INPUT_SURFACE)
+
+    assert signals.accepting_input == "yes"
+    assert signals.editing_input == "no"
+    assert signals.prompt_text is None
+
+
+def test_codex_tui_unrecognized_styled_prompt_degrades_to_unknown_editing() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_UNRECOGNIZED_STYLED_PROMPT_SURFACE)
+
+    assert signals.accepting_input == "yes"
+    assert signals.editing_input == "unknown"
+    assert signals.prompt_text is None
+    assert "unrecognized_prompt_presentation" in signals.notes
+    assert "prompt_behavior_variant=0.116.x" in signals.notes
+
+
+def test_fallback_codex_detector_keeps_nonempty_prompt_unknown() -> None:
+    detector = FallbackCodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_TYPED_PLACEHOLDER_TEXT_SURFACE)
+
+    assert signals.accepting_input == "yes"
+    assert signals.editing_input == "unknown"
+    assert signals.prompt_text is None
+    assert "fallback_detector" in signals.notes
+    assert "prompt_behavior_variant=fallback" in signals.notes
 
 
 def test_codex_tui_steer_handoff_surface_stays_active() -> None:

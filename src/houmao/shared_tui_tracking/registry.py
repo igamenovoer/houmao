@@ -9,8 +9,9 @@ from typing import Callable
 from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
-    CodexTuiSignalDetector,
+    CodexTuiSignalDetectorV0_116_X,
     FallbackClaudeDetector,
+    FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
 )
 
@@ -77,9 +78,16 @@ class DetectorProfileRegistry:
                 DetectorProfileRegistration(
                     app_id="codex_tui",
                     detector_name="codex_tui",
-                    detector_version="builtin",
+                    detector_version="0.116.x",
+                    minimum_supported_version=(0, 116, 0),
+                    profile_factory=CodexTuiSignalDetectorV0_116_X,
+                ),
+                DetectorProfileRegistration(
+                    app_id="codex_tui",
+                    detector_name="codex_tui",
+                    detector_version="fallback",
                     minimum_supported_version=None,
-                    profile_factory=CodexTuiSignalDetector,
+                    profile_factory=FallbackCodexTuiSignalDetector,
                 ),
                 DetectorProfileRegistration(
                     app_id="unsupported_tool",

@@ -80,7 +80,9 @@ from houmao.shared_tui_tracking.apps.claude_code.profile import (  # noqa: E402
 )
 from houmao.shared_tui_tracking.apps.codex_tui.profile import (  # noqa: E402
     CodexTrackedTurnSignalDetector,
+    CodexTuiSignalDetectorV0_116_X,
     CodexTuiSignalDetector,
+    FallbackCodexTuiSignalDetector,
 )
 from houmao.shared_tui_tracking.apps.unsupported_tool.profile import (  # noqa: E402
     FallbackTrackedTurnSignalDetector,
@@ -91,7 +93,9 @@ __all__ = [
     "BaseVersionedClaudeDetector",
     "ClaudeCodeSignalDetectorV2_1_X",
     "CodexTrackedTurnSignalDetector",
+    "CodexTuiSignalDetectorV0_116_X",
     "CodexTuiSignalDetector",
+    "FallbackCodexTuiSignalDetector",
     "FallbackClaudeDetector",
     "FallbackTrackedTurnSignalDetector",
     "select_claude_detector",

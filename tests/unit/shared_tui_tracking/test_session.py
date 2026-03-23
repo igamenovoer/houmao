@@ -74,6 +74,27 @@ def test_detector_profile_registry_uses_closest_compatible_floor() -> None:
     assert fallback_family.detector_version == "fallback"
 
 
+def test_detector_profile_registry_resolves_codex_version_family_and_fallback() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    current_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.116.4 (Codex)",
+    )
+    fallback_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.115.9",
+    )
+    missing_version_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version=None,
+    )
+
+    assert current_family.detector_version == "0.116.x"
+    assert fallback_family.detector_version == "fallback"
+    assert missing_version_family.detector_version == "fallback"
+
+
 def test_tracker_session_accepts_direct_tmux_raw_text_fixture() -> None:
     session = TuiTrackerSession.from_config(
         app_id="codex_tui",
