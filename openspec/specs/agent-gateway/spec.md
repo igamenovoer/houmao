@@ -127,7 +127,7 @@ The gateway SHALL expose an HTTP API for health inspection, status inspection, g
 
 The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
 
-For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, and `POST /v1/mail/reply`.
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
 
 When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
 
@@ -141,7 +141,7 @@ When the gateway mail notifier capability is implemented, that HTTP API SHALL ad
 
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
-The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, and `reply` behaviors supported by both the filesystem and `stalwart` transports.
+The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, `reply`, and explicit single-message read-state update behaviors supported by both the filesystem and `stalwart` transports.
 
 Those shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
 
@@ -205,6 +205,31 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 - **WHEN** a caller needs to enable, inspect, or disable gateway mail notification for a mailbox-enabled session
 - **THEN** the gateway exposes the dedicated `/v1/mail-notifier` control routes on the same resolved listener
 - **AND THEN** callers do not need to mutate gateway queue persistence directly to manage notifier behavior
+
+### Requirement: Shared gateway mailbox facade supports explicit read-state updates by opaque message reference
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose `POST /v1/mail/state` alongside the existing shared mailbox routes.
+
+That shared mailbox state-update route SHALL accept exactly one opaque `message_ref` target and the explicit read-state mutation field it supports in this change.
+
+For this change, the shared mailbox state-update contract SHALL support explicit single-message `read` mutation for one message addressed to the current session principal and SHALL reject broader mailbox-state fields such as `starred`, `archived`, or `deleted`.
+
+The gateway SHALL resolve that request through the same manifest-backed mailbox adapter boundary used by the other `/v1/mail/*` routes rather than by inventing a second transport-local state path inside the gateway service layer.
+
+The shared mailbox state-update route SHALL remain loopback-only under the same listener-availability rules as the rest of the shared `/v1/mail/*` surface.
+
+The shared mailbox state-update route SHALL NOT consume the single terminal-mutation slot used by `POST /v1/requests`.
+
+The shared mailbox state-update route SHALL return a structured acknowledgment of the resulting read state for that `message_ref` rather than a full delivered-message envelope.
+
+#### Scenario: Filesystem-backed session marks one processed message read through the shared facade
+- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound filesystem mailbox session with a valid opaque `message_ref` and `read=true`
+- **THEN** the gateway applies that read-state update for the current session principal through the filesystem mailbox adapter
+- **AND THEN** the canonical message content remains immutable while recipient-local read state changes
+
+#### Scenario: Stalwart-backed session marks one processed message read through the shared facade
+- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound `stalwart` mailbox session with a valid opaque `message_ref` and `read=true`
+- **THEN** the gateway applies that read-state update through the Stalwart-backed mailbox adapter
+- **AND THEN** the caller does not need to understand transport-owned message identifiers to complete that update
 
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and terminal-surface readiness.
@@ -516,4 +541,3 @@ The published gateway status contract SHALL remain structurally stable across tr
 - **WHEN** a live gateway targets a managed headless session that already has one active managed turn
 - **THEN** the gateway status reports non-open prompt admission for that session
 - **AND THEN** the gateway does not pretend that a new prompt can safely execute merely because no TUI parser is involved
-

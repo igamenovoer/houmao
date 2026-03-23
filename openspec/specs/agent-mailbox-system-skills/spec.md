@@ -92,7 +92,7 @@ Refreshed mailbox bindings SHALL apply to subsequent runtime-controlled work for
 ### Requirement: Runtime-owned mailbox commands rely on projected mailbox system skills
 The system SHALL allow runtime-owned mailbox command surfaces to rely on projected, transport-specific mailbox system skills plus runtime-managed mailbox bindings, without requiring mailbox-specific instructions to be authored in the role or recipe.
 
-When a live gateway exposes the shared `/v1/mail/*` mailbox surface for the session, the projected mailbox system skill SHALL prefer that gateway surface for the shared mailbox operations in this change: `check`, `send`, and `reply`.
+When a live gateway exposes the shared `/v1/mail/*` mailbox surface for the session, the projected mailbox system skill SHALL prefer that gateway surface for the shared mailbox operations in this change: `check`, `send`, `reply`, and explicit read-state update after successful processing.
 
 When no live gateway mailbox facade is available, the projected mailbox system skill MAY fall back to direct transport-specific mailbox behavior appropriate to the selected transport.
 
@@ -111,6 +111,32 @@ When no live gateway mailbox facade is available, the projected mailbox system s
 - **WHEN** the runtime delivers a mailbox-operation prompt to a `stalwart` mailbox-enabled session with no live gateway mailbox surface
 - **THEN** the launched agent can satisfy that request through the projected Stalwart mailbox system skills and runtime-managed email mailbox bindings
 - **AND THEN** that mailbox operation does not require the role or recipe to define transport-specific Stalwart instructions
+
+### Requirement: Projected mailbox system skills keep routine attached-session actions on the shared gateway facade
+When a live loopback gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbox-enabled session, the projected mailbox system skills SHALL treat that shared gateway facade as the default routine action surface for ordinary mailbox work.
+
+Projected mailbox system skills for both filesystem and Stalwart transports SHALL present that default structurally: a gateway-first routine-actions section first, followed by transport-local fallback guidance for no-gateway or transport-specific work.
+
+For this change, ordinary mailbox work includes:
+
+- checking unread mail,
+- sending one new message,
+- replying to one existing message, and
+- marking one processed message read.
+
+For attached filesystem sessions, the projected mailbox system skills SHALL present direct managed-script flows such as `deliver_message.py` or `update_mailbox_state.py` as fallback guidance for no-gateway sessions or transport-specific work outside the shared facade rather than as the first-choice path for ordinary attached-session turns.
+
+For attached Stalwart sessions, the projected mailbox system skills SHALL present direct env-backed transport access as fallback guidance rather than as the first-choice path for ordinary attached-session turns.
+
+#### Scenario: Attached filesystem session replies without reconstructing transport-local delivery
+- **WHEN** an attached filesystem mailbox session needs to perform one routine reply in a bounded turn
+- **THEN** the projected mailbox system skill directs the agent toward the shared gateway mailbox operations for `check`, `reply`, and read-state update
+- **AND THEN** the agent does not need to reconstruct `deliver_message.py` payload fields or raw threading metadata to complete that routine action
+
+#### Scenario: Filesystem session without gateway still has a direct fallback path
+- **WHEN** a filesystem mailbox-enabled session has no live shared gateway mailbox facade
+- **THEN** the projected mailbox system skill may fall back to direct managed-script guidance for the mailbox action
+- **AND THEN** that fallback remains transport-specific rather than being restated inside the role or recipe
 
 ### Requirement: Filesystem mailbox system skills instruct agents to consult shared mailbox rules first
 The system SHALL require the projected filesystem mailbox system skill to instruct agents to inspect the shared mailbox `rules/` directory under the effective filesystem mailbox root before interacting with shared mailbox state.
