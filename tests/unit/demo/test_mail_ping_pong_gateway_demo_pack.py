@@ -45,7 +45,10 @@ from houmao.demo.mail_ping_pong_gateway_demo_pack.models import (
     save_demo_state,
     utc_now_iso,
 )
-from houmao.demo.mail_ping_pong_gateway_demo_pack.reporting import verify_sanitized_report
+from houmao.demo.mail_ping_pong_gateway_demo_pack.reporting import (
+    sanitize_report,
+    verify_sanitized_report,
+)
 
 
 PACK_DIR = (
@@ -269,7 +272,7 @@ def _make_demo_state(tmp_path: Path, *, active: bool = True) -> tuple[Path, obje
         round_limit=5,
         wait_defaults={
             "poll_interval_seconds": 2.0,
-            "timeout_seconds": 180.0,
+            "timeout_seconds": 600.0,
             "history_limit": 32,
         },
         server=ServerProcessState(
@@ -672,6 +675,7 @@ def test_parameters_and_layout_defaults_resolve_from_repo_root() -> None:
     assert parameters.responder.role_name == "mail-ping-pong-responder"
     assert parameters.initiator.brain_recipe_path.name == "mail-ping-pong-initiator-default.yaml"
     assert parameters.responder.brain_recipe_path.name == "mail-ping-pong-responder-default.yaml"
+    assert parameters.wait_defaults.timeout_seconds == 600.0
     assert default_parameters == PACK_DIR / "inputs" / "demo_parameters.json"
     assert layout.output_root == PACK_DIR / "outputs"
     assert layout.registry_root == PACK_DIR / "outputs" / "registry"
@@ -957,7 +961,27 @@ def test_start_command_uses_tracked_defaults_and_persists_state(
     assert state.agent_def_dir == (_repo_root() / "tests" / "fixtures" / "agents")
     assert state.mailbox_root == (tmp_path / "outputs" / "mailbox").resolve()
     assert state.initiator.brain_manifest_path.name.startswith("mail-ping-pong-initiator-")
-    assert state.wait_defaults.timeout_seconds == 180.0
+    assert state.wait_defaults.timeout_seconds == 600.0
+
+
+def test_sanitize_report_normalizes_thread_subjects_and_thread_key_variants() -> None:
+    """Subject evidence should not depend on exact live reply formatting."""
+
+    payload = {
+        "mailbox_evidence": {
+            "subjects": [
+                "[mail-ping-pong-20260323T120000Z-abcdef] Round 1 ping-pong",
+                "Re: [mail-ping-pong-20260323T185049+0000-941192] Round 1 ping-pong",
+            ]
+        }
+    }
+
+    sanitized = sanitize_report(payload)
+
+    assert sanitized["mailbox_evidence"]["subjects"] == [
+        "<THREAD_SUBJECT>",
+        "<THREAD_SUBJECT>",
+    ]
 
 
 def test_start_command_honors_agent_def_dir_env_override(

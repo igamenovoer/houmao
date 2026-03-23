@@ -1,6 +1,22 @@
 # Houmao
 > A framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents.
 
+## Current Status
+
+Houmao is under active development, and the operator-facing workflow is still stabilizing. Expect rough edges, incomplete coverage, and interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
+
+The current end-to-end proof-of-concept is the headless ping-pong demo pack at `scripts/demo/mail-ping-pong-gateway-demo-pack/`. It launches one headless Claude agent and one headless Codex agent, lets them coordinate through the shared mailbox and gateway surfaces, and verifies the resulting conversation from demo-owned artifacts.
+
+If you want to try Houmao today, start by following that demo instead of assembling a custom workflow from scratch. Treat its practice as the current recommended path:
+
+- use a tracked agent-definition directory with recipes, roles, and projected runtime-owned skills
+- keep generated runtime, mailbox, project, and server state under one dedicated output root
+- drive the system through the managed `start -> kickoff -> wait/inspect -> verify -> stop` flow
+- use the persisted inspect and report artifacts as the source of truth for what happened
+- prefer the gateway-first shared mailbox workflow demonstrated there for multi-agent coordination
+
+Once that demo works in your environment, use it as the baseline pattern for adapting Houmao to your own agents and tasks.
+
 ## Project Introduction
 
 ### What It Is

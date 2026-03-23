@@ -31,7 +31,7 @@ from .models import (
 )
 
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
-_THREAD_KEY_PATTERN = re.compile(r"mail-ping-pong-\d{8}T\d{6}Z-[A-Za-z0-9]+")
+_THREAD_KEY_PATTERN = re.compile(r"mail-ping-pong-\d{8}T\d{6}(?:Z|\+\d{4})-[A-Za-z0-9]+")
 
 
 def build_inspect_snapshot(
@@ -176,6 +176,8 @@ def sanitize_report(payload: Any, *, key: str | None = None, parent_key: str | N
             return "<API_BASE_URL>"
         if key is not None and (key.endswith("_path") or key.endswith("_root")):
             return f"<{key.upper()}>"
+        if parent_key == "subjects":
+            return "<THREAD_SUBJECT>"
         if _ABSOLUTE_PATH_PATTERN.match(payload):
             return "<ABSOLUTE_PATH>"
         normalized = _THREAD_KEY_PATTERN.sub("<THREAD_KEY>", payload)

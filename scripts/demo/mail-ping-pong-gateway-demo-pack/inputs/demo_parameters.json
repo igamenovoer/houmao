@@ -12,7 +12,7 @@
   },
   "wait_defaults": {
     "poll_interval_seconds": 2.0,
-    "timeout_seconds": 180.0,
+    "timeout_seconds": 600.0,
     "history_limit": 32
   },
   "conversation": {

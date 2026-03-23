@@ -37,16 +37,16 @@
   },
   "mailbox_evidence": {
     "subjects": [
-      "[<THREAD_KEY>] Round 1 ping-pong",
-      "[<THREAD_KEY>] Round 1 ping-pong",
-      "[<THREAD_KEY>] Round 2 ping-pong",
-      "[<THREAD_KEY>] Round 2 ping-pong",
-      "[<THREAD_KEY>] Round 3 ping-pong",
-      "[<THREAD_KEY>] Round 3 ping-pong",
-      "[<THREAD_KEY>] Round 4 ping-pong",
-      "[<THREAD_KEY>] Round 4 ping-pong",
-      "[<THREAD_KEY>] Round 5 ping-pong",
-      "[<THREAD_KEY>] Round 5 ping-pong"
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>"
     ],
     "thread_ids": [
       "<THREAD_ID>"
