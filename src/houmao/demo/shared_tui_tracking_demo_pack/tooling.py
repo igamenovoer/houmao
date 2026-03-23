@@ -297,6 +297,18 @@ def build_session_name(*, prefix: str, run_id: str) -> str:
     return f"{prefix}-{run_id}"[:60]
 
 
+def build_tool_session_name(*, tool: ToolName, run_id: str) -> str:
+    """Build the tmux session name for one tool-owned demo pane."""
+
+    return build_session_name(prefix=f"shared-tui-{tool}", run_id=run_id)
+
+
+def build_dashboard_session_name(*, tool: ToolName, run_id: str) -> str:
+    """Build the tmux session name for one tool-scoped live-watch dashboard."""
+
+    return build_session_name(prefix=f"shared-tui-{tool}-dashboard", run_id=run_id)
+
+
 def write_command_script(*, script_path: Path, command: str) -> Path:
     """Write one shell script that executes a fixed command."""
 

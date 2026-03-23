@@ -50,7 +50,11 @@ from houmao.demo.shared_tui_tracking_demo_pack.sweep import (
     _match_required_sequence,
     run_recorded_sweep,
 )
-from houmao.demo.shared_tui_tracking_demo_pack.tooling import default_tool_runtime_metadata
+from houmao.demo.shared_tui_tracking_demo_pack.tooling import (
+    build_dashboard_session_name,
+    build_tool_session_name,
+    default_tool_runtime_metadata,
+)
 from houmao.shared_tui_tracking.apps.codex_tui.profile import CodexTuiSignalDetector
 from houmao.shared_tui_tracking.models import RuntimeObservation
 
@@ -237,6 +241,26 @@ def test_demo_session_ownership_round_trips_and_saves_atomically(tmp_path: Path)
 
     assert load_session_ownership(path) == ownership
     assert list(run_root.glob("*.tmp")) == []
+
+
+def test_live_watch_session_names_associate_tool_and_dashboard_without_cross_tool_collision() -> None:
+    """Tool and dashboard session names should stay associated and tool-scoped for one run id."""
+
+    run_id = "20260323T140207"
+
+    claude_tool = build_tool_session_name(tool="claude", run_id=run_id)
+    claude_dashboard = build_dashboard_session_name(tool="claude", run_id=run_id)
+    codex_tool = build_tool_session_name(tool="codex", run_id=run_id)
+    codex_dashboard = build_dashboard_session_name(tool="codex", run_id=run_id)
+
+    assert claude_tool == "shared-tui-claude-20260323T140207"
+    assert claude_dashboard == "shared-tui-claude-dashboard-20260323T140207"
+    assert codex_tool == "shared-tui-codex-20260323T140207"
+    assert codex_dashboard == "shared-tui-codex-dashboard-20260323T140207"
+    assert claude_tool != codex_tool
+    assert claude_dashboard != codex_dashboard
+    assert claude_dashboard.startswith("shared-tui-claude-")
+    assert codex_dashboard.startswith("shared-tui-codex-")
 
 
 def test_publish_demo_session_recovery_pointers_sets_tmux_env(
@@ -791,8 +815,10 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     assert recorder_start_calls == []
     assert set(cleaned_sessions) == {
         "shared-tui-claude-live-run",
-        "shared-tui-dashboard-live-run",
+        "shared-tui-claude-dashboard-live-run",
     }
+    assert manifest_payload["tool_session_name"] == "shared-tui-claude-live-run"
+    assert manifest_payload["dashboard_session_name"] == "shared-tui-claude-dashboard-live-run"
     assert manifest_payload["recorder_enabled"] is False
     assert manifest_payload["terminal_record_run_root"] is None
     assert live_state_payload["status"] == "failed"
