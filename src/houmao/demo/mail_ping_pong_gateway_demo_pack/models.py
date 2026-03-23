@@ -445,6 +445,29 @@ class ConversationProgressSummary(_DemoModel):
         return stripped
 
 
+class ParticipantLaunchPostureSummary(_DemoModel):
+    """Stable launch-posture summary for one participant."""
+
+    tracked_recipe_operator_prompt_mode: str | None = None
+    built_brain_manifest_operator_prompt_mode: str | None = None
+    live_launch_request_operator_prompt_mode: str | None = None
+    launch_policy_applied: bool | None = None
+
+    @field_validator(
+        "tracked_recipe_operator_prompt_mode",
+        "built_brain_manifest_operator_prompt_mode",
+        "live_launch_request_operator_prompt_mode",
+    )
+    @classmethod
+    def _validate_optional_non_empty_string(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
 class ParticipantInspectSnapshot(_DemoModel):
     """Per-participant inspect payload."""
 
@@ -452,6 +475,7 @@ class ParticipantInspectSnapshot(_DemoModel):
     detail: dict[str, Any]
     gateway_status: dict[str, Any]
     gateway_mail_notifier: dict[str, Any]
+    launch_posture: ParticipantLaunchPostureSummary
 
 
 class InspectSnapshot(_DemoModel):
@@ -486,6 +510,7 @@ class ParticipantOutcomeSummary(_DemoModel):
     gateway_health: str
     gateway_enqueued: bool
     last_turn_result: str
+    launch_posture: ParticipantLaunchPostureSummary
 
 
 class GatewayEvidenceSummary(_DemoModel):

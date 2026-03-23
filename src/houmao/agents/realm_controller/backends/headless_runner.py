@@ -291,6 +291,8 @@ class HeadlessCliRunner:
         process_path = turn_dir / "process.json"
         process_tmp_path = turn_dir / f".process-{uuid.uuid4().hex}.tmp"
         status_tmp_path = turn_dir / f".exitcode-{uuid.uuid4().hex}.tmp"
+        stdout_pipe_path = turn_dir / f".stdout-{uuid.uuid4().hex}.pipe"
+        stderr_pipe_path = turn_dir / f".stderr-{uuid.uuid4().hex}.pipe"
         wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         window_name = f"turn-{turn_index}"
 
@@ -300,8 +302,29 @@ class HeadlessCliRunner:
                 "set +e",
                 f"cd {shlex.quote(str(cwd))}",
                 'started_at_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
-                f"{command_text} > {shlex.quote(str(stdout_path))} "
-                f"2> {shlex.quote(str(stderr_path))} &",
+                f"rm -f {shlex.quote(str(stdout_pipe_path))} {shlex.quote(str(stderr_pipe_path))}",
+                f"mkfifo {shlex.quote(str(stdout_pipe_path))} {shlex.quote(str(stderr_pipe_path))}",
+                (
+                    "trap "
+                    f"'rm -f {shlex.quote(str(stdout_pipe_path))} "
+                    f"{shlex.quote(str(stderr_pipe_path))}' EXIT HUP INT TERM"
+                ),
+                f": > {shlex.quote(str(stdout_path))}",
+                f": > {shlex.quote(str(stderr_path))}",
+                (
+                    f"tee -a {shlex.quote(str(stdout_path))} "
+                    f"< {shlex.quote(str(stdout_pipe_path))} &"
+                ),
+                "stdout_tee_pid=$!",
+                (
+                    f"tee -a {shlex.quote(str(stderr_path))} "
+                    f"< {shlex.quote(str(stderr_pipe_path))} >&2 &"
+                ),
+                "stderr_tee_pid=$!",
+                (
+                    f"( exec {command_text} > {shlex.quote(str(stdout_pipe_path))} "
+                    f"2> {shlex.quote(str(stderr_pipe_path))} ) &"
+                ),
                 "child_pid=$!",
                 (
                     "printf "
@@ -311,6 +334,8 @@ class HeadlessCliRunner:
                 (f"mv {shlex.quote(str(process_tmp_path))} {shlex.quote(str(process_path))}"),
                 'wait "$child_pid"',
                 "status=$?",
+                'wait "$stdout_tee_pid" || true',
+                'wait "$stderr_tee_pid" || true',
                 f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_tmp_path))}",
                 (f"mv {shlex.quote(str(status_tmp_path))} {shlex.quote(str(status_path))}"),
                 f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
@@ -353,6 +378,18 @@ class HeadlessCliRunner:
         if not window_id:
             raise BackendExecutionError(
                 "Failed to resolve tmux turn window id from `tmux new-window` output."
+            )
+
+        try:
+            select_result = run_tmux_shared(["select-window", "-t", window_id])
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(
+                f"Failed to select tmux headless turn window `{window_id}`: {exc}"
+            ) from exc
+        if select_result.returncode != 0:
+            detail = tmux_error_detail_shared(select_result) or "unknown tmux error"
+            raise BackendExecutionError(
+                f"Failed to select tmux headless turn window `{window_id}`: {detail}"
             )
 
         self._active_tmux_session_name = tmux_session_name

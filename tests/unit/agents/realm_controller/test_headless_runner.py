@@ -96,10 +96,12 @@ def test_headless_runner_tmux_persists_process_metadata(
     script.chmod(0o755)
 
     def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
-        if args[:1] != ["new-window"]:
-            raise AssertionError(args)
-        subprocess.Popen(["sh", "-lc", str(args[-1])], cwd=tmp_path)
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout="@11\n", stderr="")
+        if args[:1] == ["new-window"]:
+            subprocess.Popen(["sh", "-lc", str(args[-1])], cwd=tmp_path)
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="@11\n", stderr="")
+        if args[:1] == ["select-window"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        raise AssertionError(args)
 
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
@@ -135,3 +137,73 @@ def test_headless_runner_tmux_persists_process_metadata(
     assert persisted["runner_pid"] == result.process_metadata.runner_pid
     assert persisted["child_pid"] == result.process_metadata.child_pid
     assert persisted["launched_at_utc"]
+
+
+def test_headless_runner_tmux_mirrors_output_to_console_and_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "emit_tmux_visible_output.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'echo \'{"type":"delta","text":"visible-stdout"}\'',
+                'echo "visible-stderr" >&2',
+                'echo \'{"type":"final","session_id":"sess-visible","text":"done"}\'',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    captured: dict[str, str] = {}
+
+    def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args[:1] == ["new-window"]:
+            result = subprocess.run(
+                ["sh", "-lc", str(args[-1])],
+                cwd=tmp_path,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            captured["stdout"] = result.stdout
+            captured["stderr"] = result.stderr
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="@11\n", stderr="")
+        if args[:1] == ["select-window"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
+    monkeypatch.setattr(
+        headless_runner_module,
+        "wait_for_tmux_signal_shared",
+        lambda **_kwargs: subprocess.CompletedProcess(
+            args=["tmux", "wait-for"],
+            returncode=1,
+            stdout="",
+            stderr="timed out",
+        ),
+    )
+
+    runner = HeadlessCliRunner()
+    result = runner.run(
+        command=[str(script)],
+        env={},
+        cwd=tmp_path,
+        turn_index=1,
+        output_format="stream-json",
+        tmux_session_name="AGENTSYS-headless-visible-output",
+        turn_artifacts_root=tmp_path / "turn-artifacts",
+    )
+
+    assert result.returncode == 0
+    assert result.session_id == "sess-visible"
+    assert result.stdout_path is not None
+    assert result.stderr_path is not None
+    assert "visible-stdout" in result.stdout_path.read_text(encoding="utf-8")
+    assert "visible-stderr" in result.stderr_path.read_text(encoding="utf-8")
+    assert "visible-stdout" in captured["stdout"]
+    assert "visible-stderr" in captured["stderr"]
