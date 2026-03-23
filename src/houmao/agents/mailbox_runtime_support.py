@@ -500,13 +500,20 @@ def mailbox_skill_reference(config: MailboxResolvedConfig) -> str:
 
 
 def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, ...]:
-    """Project packaged runtime-owned mailbox skills into one brain home."""
+    """Project packaged runtime-owned mailbox skills into one brain home.
+
+    Mirror the packaged mailbox skill tree into both the hidden system-style
+    path and a visible `skills/mailbox/...` path. Codex reserves `.system` for
+    its own embedded cache and skips dot-prefixed entries during ordinary skill
+    discovery, so the visible mirror is the stable path for Codex-managed homes.
+    """
 
     source_root = (
         resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
     )
     namespace_root = destination_root / MAILBOX_SYSTEM_NAMESPACE_DIR
     _copy_resource_tree(source_root, namespace_root)
+    _copy_resource_tree(source_root, destination_root / "mailbox")
     return MAILBOX_SYSTEM_SKILL_REFERENCES
 
 

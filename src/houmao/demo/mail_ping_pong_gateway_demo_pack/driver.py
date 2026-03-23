@@ -21,6 +21,7 @@ from .agents import (
     disable_notifier,
     enable_notifier,
     ensure_project_workdir_from_fixture,
+    expose_runtime_skills_in_project,
     launch_participant,
     stop_participant,
 )
@@ -162,6 +163,14 @@ def _command_start(args: argparse.Namespace) -> int:
             runtime_root=paths.runtime_root,
             participant=parameters.responder,
             home_id=f"mail-ping-pong-responder-{build_suffix}",
+        )
+        expose_runtime_skills_in_project(
+            project_workdir=initiator_project,
+            build_result=initiator_build,
+        )
+        expose_runtime_skills_in_project(
+            project_workdir=responder_project,
+            build_result=responder_build,
         )
         initiator = launch_participant(
             client=client,
@@ -524,7 +533,19 @@ def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> s
     )
     return "\n".join(
         [
-            "Use the runtime-owned mailbox skill for all mailbox actions.",
+            (
+                "Use the runtime-owned mailbox skill document `email-via-filesystem` for all "
+                "mailbox actions in this demo."
+            ),
+            (
+                "Open and follow the exact mailbox skill file "
+                "`skills/mailbox/email-via-filesystem/SKILL.md` from the project worktree. "
+                "The same document may also be mirrored at "
+                "`skills/.system/mailbox/email-via-filesystem/SKILL.md`, but prefer the "
+                "visible `skills/mailbox/...` path."
+            ),
+            ("Do not search for that file with `rg`, `find`, or slash-skill lookup first."),
+            ("Treat it as a runtime-owned skill document, not as a registered slash skill."),
             (
                 "When a live loopback gateway mailbox facade is attached, keep routine mailbox "
                 "work on the shared gateway mailbox operations instead of reconstructing "

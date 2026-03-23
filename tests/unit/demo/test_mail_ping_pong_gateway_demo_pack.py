@@ -29,6 +29,7 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.demo.mail_ping_pong_gateway_demo_pack.agents import (
     build_demo_environment,
     build_participant_brain,
+    expose_runtime_skills_in_project,
 )
 from houmao.demo.mail_ping_pong_gateway_demo_pack.models import (
     DEFAULT_DEMO_OUTPUT_DIR_RELATIVE,
@@ -774,6 +775,8 @@ def test_kickoff_prompt_stays_policy_thin_and_gateway_first(tmp_path: Path) -> N
     )
 
     assert "shared gateway mailbox operations" in prompt
+    assert "email-via-filesystem" in prompt
+    assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt
     assert "Do not inspect repo docs or OpenAPI" in prompt
     assert (
         '{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}'
@@ -797,6 +800,10 @@ def test_role_overlays_stay_gateway_first_and_mark_read_after_success() -> None:
 
     assert "shared mailbox state update" in initiator_prompt
     assert "shared mailbox state update" in responder_prompt
+    assert "email-via-filesystem" in initiator_prompt
+    assert "email-via-filesystem" in responder_prompt
+    assert "skills/mailbox/email-via-filesystem/SKILL.md" in initiator_prompt
+    assert "skills/mailbox/email-via-filesystem/SKILL.md" in responder_prompt
     assert "Do not inspect repo docs, OpenAPI, or broad source files" in initiator_prompt
     assert "Do not inspect repo docs, OpenAPI, or broad source files" in responder_prompt
     assert '{"schema_version":1,"unread_only":true,"limit":10}' in initiator_prompt
@@ -855,6 +862,13 @@ def test_start_command_uses_tracked_defaults_and_persists_state(
         manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
         launch_helper_path = home_path / "launch.sh"
         home_path.mkdir(parents=True, exist_ok=True)
+        (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(
+            parents=True, exist_ok=True
+        )
+        (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
+            "# mailbox skill\n",
+            encoding="utf-8",
+        )
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
         launch_helper_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
@@ -937,6 +951,8 @@ def test_start_command_uses_tracked_defaults_and_persists_state(
         tmp_path / "outputs" / "projects" / "initiator",
         tmp_path / "outputs" / "projects" / "responder",
     ]
+    assert (created_projects[0] / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert (created_projects[1] / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert state.output_root == (tmp_path / "outputs").resolve()
     assert state.agent_def_dir == (_repo_root() / "tests" / "fixtures" / "agents")
     assert state.mailbox_root == (tmp_path / "outputs" / "mailbox").resolve()
@@ -977,6 +993,13 @@ def test_start_command_honors_agent_def_dir_env_override(
         manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
         launch_helper_path = home_path / "launch.sh"
         home_path.mkdir(parents=True, exist_ok=True)
+        (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(
+            parents=True, exist_ok=True
+        )
+        (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
+            "# mailbox skill\n",
+            encoding="utf-8",
+        )
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
         launch_helper_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
@@ -1047,6 +1070,63 @@ def test_start_command_honors_agent_def_dir_env_override(
 
     assert result == 0
     assert state.agent_def_dir == override_agent_def_dir.resolve()
+
+
+def test_expose_runtime_skills_in_project_copies_mailbox_skill_docs(tmp_path: Path) -> None:
+    """Demo projects should keep a stable project-local mailbox skill path."""
+
+    project_workdir = tmp_path / "project"
+    project_workdir.mkdir()
+    home_path = tmp_path / "home"
+    (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(parents=True)
+    (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
+        "# mailbox skill\n",
+        encoding="utf-8",
+    )
+    build_result = BuildResult(
+        home_id="demo-home",
+        home_path=home_path,
+        manifest_path=tmp_path / "manifest.yaml",
+        launch_helper_path=tmp_path / "launch.sh",
+        launch_preview="launch",
+        manifest={},
+    )
+
+    expose_runtime_skills_in_project(
+        project_workdir=project_workdir,
+        build_result=build_result,
+    )
+
+    assert (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert (project_workdir / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert not (project_workdir / "skills").is_symlink()
+
+
+def test_expose_runtime_skills_in_project_falls_back_to_packaged_mailbox_docs(
+    tmp_path: Path,
+) -> None:
+    """Demo projects should still expose mailbox docs when the runtime home lost them."""
+
+    project_workdir = tmp_path / "project"
+    project_workdir.mkdir()
+    home_path = tmp_path / "home"
+    (home_path / "skills").mkdir(parents=True)
+    build_result = BuildResult(
+        home_id="demo-home",
+        home_path=home_path,
+        manifest_path=tmp_path / "manifest.yaml",
+        launch_helper_path=tmp_path / "launch.sh",
+        launch_preview="launch",
+        manifest={},
+    )
+
+    expose_runtime_skills_in_project(
+        project_workdir=project_workdir,
+        build_result=build_result,
+    )
+
+    assert (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert (project_workdir / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
 
 
 def test_wait_for_server_health_ignores_child_cao_status_for_native_headless_startup(

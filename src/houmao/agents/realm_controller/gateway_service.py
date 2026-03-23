@@ -1095,6 +1095,22 @@ class GatewayServiceRuntime:
         lines = [
             "You have one bounded shared-mailbox task to process.",
             (
+                "Use the runtime-owned mailbox skill document for this transport: "
+                "`email-via-filesystem` at `skills/mailbox/email-via-filesystem/SKILL.md` "
+                "when `AGENTSYS_MAILBOX_TRANSPORT=filesystem`, or `email-via-stalwart` at "
+                "`skills/mailbox/email-via-stalwart/SKILL.md` when "
+                "`AGENTSYS_MAILBOX_TRANSPORT=stalwart`."
+            ),
+            (
+                "The same documents may also be mirrored under `skills/.system/mailbox/...`, "
+                "but prefer the visible `skills/mailbox/...` paths and open them directly "
+                "instead of searching with `rg`, `find`, or slash-skill lookup. If the project "
+                "worktree truly does not expose those visible paths, fall back to the same "
+                "locations under the runtime home. Treat that mailbox skill as a runtime-owned "
+                "skill document to read and follow, not as a registered slash skill to invoke "
+                "by name."
+            ),
+            (
                 "Use shared mailbox operations through the live gateway facade for this turn: "
                 "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
                 "`POST /v1/mail/state`."

@@ -14,6 +14,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
+from houmao.agents.mailbox_runtime_support import project_runtime_mailbox_system_skills
 from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.owned_paths import (
     AGENTSYS_GLOBAL_MAILBOX_DIR_ENV_VAR,
@@ -91,6 +92,51 @@ def build_participant_brain(
             reuse_home=False,
         )
     )
+
+
+def expose_runtime_skills_in_project(
+    *,
+    project_workdir: Path,
+    build_result: BuildResult,
+) -> None:
+    """Stage mailbox skill docs in the demo project workdir.
+
+    Codex may rewrite `CODEX_HOME/skills/.system` during bootstrap, so the demo
+    keeps project-local mailbox skill copies at both `skills/.system/mailbox/...`
+    and `skills/mailbox/...` instead of relying on a live symlink into the
+    runtime home.
+    """
+
+    skills_target = project_workdir / "skills"
+    if skills_target.exists() and not skills_target.is_dir():
+        raise DemoAgentError(
+            f"demo project already contains a non-directory `skills` path: {skills_target}"
+        )
+    skills_target.mkdir(parents=True, exist_ok=True)
+
+    runtime_mailbox_source = build_result.home_path / "skills" / ".system" / "mailbox"
+    if runtime_mailbox_source.is_dir():
+        _stage_project_mailbox_skill_tree(
+            source_root=runtime_mailbox_source,
+            skills_target=skills_target,
+        )
+        return
+
+    project_runtime_mailbox_system_skills(skills_target)
+    _stage_project_mailbox_skill_tree(
+        source_root=skills_target / ".system" / "mailbox",
+        skills_target=skills_target,
+    )
+
+
+def _stage_project_mailbox_skill_tree(*, source_root: Path, skills_target: Path) -> None:
+    """Copy one mailbox skill tree into both hidden and visible project paths."""
+
+    hidden_target = skills_target / ".system" / "mailbox"
+    visible_target = skills_target / "mailbox"
+    if source_root.resolve() != hidden_target.resolve():
+        shutil.copytree(source_root, hidden_target, dirs_exist_ok=True)
+    shutil.copytree(source_root, visible_target, dirs_exist_ok=True)
 
 
 def launch_participant(
