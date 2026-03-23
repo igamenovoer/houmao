@@ -26,6 +26,7 @@ This change therefore needs a refactor direction, not a one-off flag patch.
 - Make backend applicability explicit so unsupported launch surfaces fail closed instead of being silently persisted and ignored.
 - Persist enough provenance in the built manifest and runtime launch metadata to explain which launch settings came from adapter defaults, recipe overrides, direct overrides, launch policy, and backend-reserved protocol injection.
 - Support concrete tool-specific launch parameters without pretending every provider feature can be modeled as one flat universal `args` list.
+- Avoid reusing the overloaded `launch_surface` name because `LaunchSurface` already means backend selection inside `launch_policy/`.
 
 **Non-Goals:**
 
@@ -37,14 +38,14 @@ This change therefore needs a refactor direction, not a one-off flag patch.
 
 ## Decisions
 
-### 1. Introduce an explicit recipe-owned `launch_surface` layer
+### 1. Introduce an explicit recipe-owned `launch_overrides` layer
 
-Brain recipes gain an optional structured `launch_surface` mapping, and direct builds gain a matching `BuildRequest.launch_surface_override` input. The same model is used in both paths so recipe-backed and explicit builds do not drift.
+Brain recipes gain an optional structured `launch_overrides` mapping, and direct builds gain a matching `BuildRequest.launch_overrides` input. The same model is used in both paths so recipe-backed and explicit builds do not drift.
 
 The initial shape is:
 
 ```yaml
-launch_surface:
+launch_overrides:
   args:
     mode: append | replace
     values:
@@ -62,6 +63,7 @@ Why:
 - The core missing feature is recipe-owned launch intent.
 - A shared structured model avoids keeping recipe builds and direct builds on different contracts.
 - `tool_params` gives us a place for supported launch semantics that are more stable and reviewable than magic arg strings.
+- `launch_overrides` describes what the structure actually does and avoids colliding with the established `LaunchSurface` backend-selection enum.
 
 Alternatives considered:
 
@@ -72,7 +74,7 @@ Alternatives considered:
 
 ### 2. Keep `launch.executable` adapter-owned in v1
 
-This change does not let recipes override the tool executable itself. Tool adapters remain the owner of the executable path/name and the projection contract for that tool. Recipe overrides start at the launch-surface layer above that default.
+This change does not let recipes override the tool executable itself. Tool adapters remain the owner of the executable path/name and the projection contract for that tool. Recipe overrides start at the launch-overrides layer above that default.
 
 Why:
 
@@ -87,14 +89,14 @@ Alternatives considered:
 
 ### 3. Keep optional provider launch behavior declarative and keep backend code focused on protocol mechanics
 
-Tool adapters remain declarative data files for defaults and home/projection rules. This change extends that declarative boundary so optional provider launch behavior also lives in tool-adapter-owned launch metadata and recipe/direct-build `launch_surface` input rather than being hardcoded inside headless backend classes.
+Tool adapters remain declarative data files for defaults and home/projection rules. This change extends that declarative boundary so optional provider launch behavior also lives in tool-adapter-owned launch metadata and recipe/direct-build `launch_overrides` input rather than being hardcoded inside headless backend classes.
 
-A new Python package, tentatively `src/houmao/agents/launch_surface/`, still owns the shared typed resolver and validator, but it consumes declarative launch metadata instead of hardcoding every optional provider flag in backend `.py` code.
+A new Python package, tentatively `src/houmao/agents/launch_overrides/`, still owns the shared typed resolver and validator, but it consumes declarative launch metadata instead of hardcoding every optional provider flag in backend `.py` code.
 
 That split is:
 
 - declarative tool-adapter defaults and supported optional launch settings
-- declarative recipe/direct-build launch-surface requests
+- declarative recipe/direct-build launch-override requests
 - Python merge, validation, provenance, and backend-applicability logic
 - backend `.py` code for protocol-required headless controls only
 
@@ -104,19 +106,20 @@ In practice, that means backend code may still own args required by the headless
 - Codex `exec --json` / `resume`
 - runtime-owned native role-injection protocol args
 
-But backend code should not be the place where optional provider behavior such as “include partial messages” is invented or silently defaulted.
+But backend code should not be the place where optional provider behavior such as `include_partial_messages` is invented or silently defaulted.
 
-The shared Python launch-surface package owns:
+The shared Python launch-overrides package owns:
 
-- the typed launch-surface models,
+- the typed launch-override models,
 - merge logic,
 - loading and validating declarative per-tool supported `tool_params`,
 - backend applicability rules,
 - translation of typed tool params into effective CLI args and/or runtime-owned launch-affecting state.
 
-This registry is the authoritative place for questions such as:
+This shared resolver is the authoritative place for questions such as:
 
 - which `tool_params` keys exist for Claude vs Codex,
+- which tools intentionally expose no typed params in v1, such as Gemini,
 - which backends support a given param,
 - whether a param turns into CLI args or runtime-owned state,
 - which settings are recipe-overridable vs backend-reserved.
@@ -136,20 +139,21 @@ Alternatives considered:
 - Hardcode everything in backend classes without a shared registry.
   Rejected because recipe parsing, build-time validation, runtime resolution, and docs/tests would drift quickly.
 
-### 4. Persist build-time defaults and requested overrides separately; resolve backend applicability at launch time
+### 4. Persist build-time defaults and requested overrides separately; use schema version 2 for the new contract
 
 The built manifest will no longer treat a flat `launch_executable` + `launch_args` snapshot as the whole launch contract. Instead, it will persist:
 
 - the adapter-owned launch defaults snapshot needed for reproducibility,
-- the requested recipe/direct launch-surface override,
-- launch-surface provenance metadata.
+- the requested recipe/direct launch overrides,
+- construction-time launch-override provenance metadata,
+- `schema_version = 2` for manifests written by the new builder.
 
-Backend applicability is resolved later, at launch-plan time, because the selected backend may differ per launch even when the built brain is the same.
+Build time still does **not** resolve backend applicability or write backend-resolved effective args. Those remain runtime responsibilities because the selected backend may differ per launch even when the built brain is the same.
 
 This is especially important for cases like:
 
 - a Claude recipe that requests a headless-only param,
-- the same recipe later being launched through `cao_rest`,
+- the same recipe later being launched through `cao_rest` or `houmao_server_rest`,
 - a Codex headless backend that cannot expose raw provider partial deltas even if a user wants them.
 
 Why:
@@ -157,6 +161,7 @@ Why:
 - Builder-time code does not own the final backend choice.
 - Persisting a defaults snapshot avoids adapter drift after build.
 - Launch-time resolution is the only place that knows the actual backend contract that will be used.
+- A schema bump keeps the manifest contract explicit instead of trying to smuggle new semantics through the v1 layout.
 
 Alternatives considered:
 
@@ -165,22 +170,42 @@ Alternatives considered:
 - Re-read the live tool adapter at launch and ignore the manifest snapshot.
   Rejected because it weakens reproducibility and makes later repo changes silently alter old built brains.
 
-### 5. Backend support must fail closed, and backend code only owns protocol-required args
+### 5. Define partial-merge behavior explicitly
 
-If a requested launch-surface override cannot be honored by the selected backend, runtime launch-plan construction fails explicitly before the backend starts.
+When adapter defaults, recipe overrides, and direct-build overrides are merged, the merge happens by top-level section, not by one undifferentiated structure.
 
-This is the explicit direction for the current `cao_rest` mismatch: this change does not extend CAO to pass arbitrary launch args through. Instead, runtime resolution must reject launch-surface requests that CAO-backed launches cannot honor.
+The merge rules are:
+
+- unmentioned top-level sections survive from lower-priority layers,
+- `tool_params` merges per key,
+- `args` is an atomic section,
+- if a higher-priority layer provides `args`, that section replaces lower-priority `args`,
+- `args.mode` always evaluates against adapter defaults after section precedence is decided; modes do not compose across layers.
+
+This means a direct-build override that only sets `args` does not wipe out recipe `tool_params`, but a direct-build `args` section does fully replace the recipe `args` section.
+
+Why:
+
+- This is the narrowest rule that keeps direct-build overrides targeted without introducing recursive merge ambiguity.
+- It resolves the open question about partial-field survival explicitly before implementation.
+
+### 6. Backend support must fail closed, and backend code only owns protocol-required args
+
+If a requested launch override cannot be honored by the selected backend, runtime launch-plan construction fails explicitly before the backend starts.
+
+This is the explicit direction for the current `cao_rest` mismatch and the same rule applies to `houmao_server_rest`: this change does not extend those REST backends to pass arbitrary provider launch args through. Instead, runtime resolution must reject launch-override requests that those backends cannot honor.
 
 It is also the rule that keeps headless backends clean:
 
 - backend code appends protocol-required args and continuity controls,
-- declarative launch metadata plus `launch_surface` owns optional provider behavior,
+- declarative launch metadata plus `launch_overrides` owns optional provider behavior,
 - runtime resolution rejects attempts to treat protocol-owned args as recipe-overridable.
 
-For concrete motivation:
+For concrete v1 scope:
 
-- `claude_headless` can support a typed `include_partial_messages` setting because the installed CLI exposes that headless print-mode flag.
-- `codex_headless` cannot honestly support an equivalent “show provider partial messages” setting while it remains `codex exec --json`, because upstream exec JSONL intentionally emits normalized lifecycle/item events instead of raw message deltas.
+- `claude_headless` supports the first typed launch param, `include_partial_messages`,
+- `gemini_headless` starts with an empty supported typed-tool-param set,
+- `codex_headless` does not claim an equivalent raw provider-partial streaming param while it remains `codex exec --json`.
 
 Why:
 
@@ -195,14 +220,14 @@ Alternatives considered:
 - Extend CAO right now to support arbitrary recipe launch overrides.
   Rejected as too large for this refactor and not required to fix the contract boundary.
 
-### 6. Normalize precedence and ordering across build, launch-surface resolution, launch policy, and backend protocol args
+### 7. Normalize precedence and ordering across build, launch-override resolution, launch policy, and backend protocol args
 
 The effective launch flow becomes:
 
 1. adapter defaults snapshot
-2. recipe `launch_surface`
-3. direct `BuildRequest.launch_surface_override` for explicit builds
-4. shared launch-surface validation/translation for the selected tool/backend using declarative tool-launch metadata
+2. recipe `launch_overrides`
+3. direct `BuildRequest.launch_overrides` for explicit builds
+4. shared launch-override validation/translation for the selected tool/backend using declarative tool-launch metadata
 5. versioned launch-policy application
 6. backend-reserved protocol arg injection
 
@@ -215,25 +240,26 @@ Why:
 
 Alternatives considered:
 
-- Apply launch policy before launch-surface resolution.
-  Rejected because launch policy needs to validate against the effective pre-protocol launch surface, not an incomplete one.
+- Apply launch policy before launch-overrides resolution.
+  Rejected because launch policy needs to validate against the effective pre-protocol launch overrides, not an incomplete one.
 - Let recipe overrides compete with backend-reserved args.
   Rejected because it would break continuity and machine-readable control guarantees.
 
-### 7. Replace `launch_args_override` with the structured override contract
+### 8. Replace `launch_args_override` directly with the structured override contract
 
-The ad hoc `BuildRequest.launch_args_override` path is deprecated and replaced by the structured launch-surface override model. The build CLI should expose one structured input, such as `--launch-surface-override <file-or-json>`, instead of accumulating more one-off flags.
+The ad hoc `BuildRequest.launch_args_override` path is replaced directly by the structured launch-overrides model. The build CLI should expose one structured input, such as `--launch-overrides <file-or-json>`, instead of accumulating more one-off flags.
 
 Why:
 
 - The current override path exists only in code and is not part of the normal recipe-first operator contract.
 - One structured input keeps direct-build parity with recipe-backed builds.
+- This repository does not need a soft deprecation window for generated brain-home plumbing.
 
-### 8. Normalize headless arg ownership around “protocol vs optional behavior”
+### 9. Normalize headless arg ownership around “protocol vs optional behavior”
 
 For headless backends, the source of truth becomes:
 
-- tool-adapter defaults and `launch_surface` for optional provider launch behavior
+- tool-adapter defaults and `launch_overrides` for optional provider launch behavior
 - backend `.py` code for only the args required by the headless protocol itself
 
 This implies a cleanup direction in the implementation phase:
@@ -248,27 +274,22 @@ Why:
 - It lets recipes and adapters describe provider behavior without turning backends into hidden policy stores.
 - It preserves the runtime’s ability to own continuity, machine-readable mode, and other protocol requirements.
 
-Alternatives considered:
-
-- Add repeatable `--launch-arg` and `--launch-param` CLI flags.
-  Rejected because the contract is nested enough that it will become noisy and harder to audit than one structured override input.
-
 ## Risks / Trade-offs
 
 - [The launch contract becomes more layered and harder to explain] → Mitigation: persist explicit provenance, keep adapters as defaults only, and update the recipe/tool-adapter docs with one clear precedence model.
-- [The new typed launch-surface registry may lag provider feature growth] → Mitigation: keep `args` as a low-level escape hatch for supported backends while adding stable `tool_params` keys incrementally for important features.
+- [The new typed launch-overrides resolver may lag provider feature growth] → Mitigation: keep `args` as a low-level escape hatch for supported backends while adding stable `tool_params` keys incrementally for important features.
 - [Manifest/schema churn touches many tests and docs] → Mitigation: treat the change as one repo-wide contract refactor and update fixtures, docs, and runtime JSON/schema snapshots together.
-- [Some users may expect executable override once recipe overrides exist] → Mitigation: call executable override out as an explicit non-goal in v1 and revisit only after the smaller launch-surface refactor lands cleanly.
-- [`cao_rest` users may view fail-closed behavior as a regression] → Mitigation: document that it is an intentional correction of a previously misleading contract and link the runtime error to the known CAO-boundary limitation.
+- [Some users may expect executable override once recipe overrides exist] → Mitigation: call executable override out as an explicit non-goal in v1 and revisit only after the smaller launch-overrides refactor lands cleanly.
+- [`cao_rest` or `houmao_server_rest` users may view fail-closed behavior as a regression] → Mitigation: document that it is an intentional correction of a previously misleading contract and link the runtime error to the known REST-boundary limitation.
 
 ## Migration Plan
 
-1. Add the new launch-surface models, recipe parsing, direct-build override input, and manifest schema.
-2. Update `build_brain_home()` to write the new structured launch-surface data and provenance.
-3. Update launch-plan composition to consume the new structure, perform backend-aware validation, and emit effective launch-surface provenance.
-4. Refactor backends to consume the resolved launch surface rather than assuming a flat adapter-owned args list is universally meaningful.
-5. Update recipes, tests, and docs to use the new contract.
-6. During one repo-internal migration window, runtime readers MAY continue to accept legacy manifest fields for already-built local homes, but new builder output should write only the new launch-surface structure.
+1. Add the new launch-overrides models, recipe parsing, direct-build override input, declarative tool-launch metadata, and manifest schema version 2.
+2. Update `build_brain_home()` to write the new structured launch-overrides data and construction-time provenance without writing backend-resolved effective args.
+3. Update launch-plan composition to consume the new structure, apply the explicit merge rules, perform backend-aware validation, and emit effective launch-overrides provenance.
+4. Refactor backends to consume the resolved launch overrides rather than assuming a flat adapter-owned args list is universally meaningful.
+5. Reject legacy schema-version-1 brain manifests for this contract and require rebuilding affected homes.
+6. Update recipes, tests, fixture adapters, and docs to use the new contract.
 
 Rollback strategy:
 
