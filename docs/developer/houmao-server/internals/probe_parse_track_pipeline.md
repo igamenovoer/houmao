@@ -100,9 +100,9 @@ The parsing sequence is:
 
 ## Turn-Signal Detection
 
-After capture and parse, `LiveSessionTracker` feeds the current raw `output_text` into the standalone shared tracker session. Parsed surface metadata remains server-owned and is not required by the tracker boundary.
+After tmux capture, `LiveSessionTracker` feeds the current raw `output_text` directly into the standalone shared tracker session. Parsed surface metadata remains server-owned and is not required by the tracker boundary, so parser success and tracker input are intentionally decoupled.
 
-This detector layer lives in [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py) and is responsible for:
+The detector layer now resolves inside the shared tracker modules, primarily [`../../../../src/houmao/shared_tui_tracking/session.py`](../../../../src/houmao/shared_tui_tracking/session.py), [`../../../../src/houmao/shared_tui_tracking/registry.py`](../../../../src/houmao/shared_tui_tracking/registry.py), and the profile implementations under [`../../../../src/houmao/shared_tui_tracking/apps/`](../../../../src/houmao/shared_tui_tracking/apps/). It is responsible for:
 
 - foundational surface observables such as `accepting_input`, `editing_input`, and `ready_posture`
 - current active-turn evidence that can come from more than visible spinner rows
@@ -116,6 +116,8 @@ The shared tracker now selects detectors through a tracker-local app/profile reg
 - unsupported tools fall back to a conservative raw-text detector
 
 This keeps tool/version selection inside the shared tracker module while still letting the public tracked-state contract expose one common `surface / turn / last_turn` model.
+
+Observed tool version reaches that registry through tracked-session identity metadata. The live server reconstructs it primarily from manifest `launch_policy_provenance.detected_tool_version`, falls back to `launch_plan.launch_policy_provenance.detected_tool_version` when needed, and finally tolerates registration-only fallback metadata when manifest provenance is absent.
 
 ## Recorded Outcomes
 
@@ -142,7 +144,7 @@ All of these outcomes still flow through `LiveSessionTracker.record_cycle(...)`,
 - generic stability
 - recent transitions
 
-This remains true even when the cycle ended in a probe or parse error.
+This remains true even when the cycle ended in a probe or parse error. Parser failure stays explicit in diagnostics while the shared tracker still reduces from whatever raw tmux text was captured for that cycle.
 
 ## Related Sources
 
@@ -150,5 +152,6 @@ This remains true even when the cycle ended in a probe or parse error.
 - [`../../../../src/houmao/server/tui/transport.py`](../../../../src/houmao/server/tui/transport.py)
 - [`../../../../src/houmao/server/tui/process.py`](../../../../src/houmao/server/tui/process.py)
 - [`../../../../src/houmao/server/tui/parser.py`](../../../../src/houmao/server/tui/parser.py)
-- [`../../../../src/houmao/server/tui/turn_signals.py`](../../../../src/houmao/server/tui/turn_signals.py)
 - [`../../../../src/houmao/server/tui/tracking.py`](../../../../src/houmao/server/tui/tracking.py)
+- [`../../../../src/houmao/shared_tui_tracking/registry.py`](../../../../src/houmao/shared_tui_tracking/registry.py)
+- [`../../../../src/houmao/shared_tui_tracking/session.py`](../../../../src/houmao/shared_tui_tracking/session.py)

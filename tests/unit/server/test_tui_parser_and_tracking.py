@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -10,16 +11,23 @@ from houmao.server.models import (
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
     HoumaoTrackedSessionIdentity,
+    HoumaoTerminalStateResponse,
 )
 from houmao.server.tui import OfficialTuiParserAdapter
 from houmao.server.tui.tracking import LiveSessionTracker
 
+_CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
+_CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
+_CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = "Would you like to run the following command?\n› \n"
+_UNSET_OUTPUT_TEXT = object()
 
-def _identity() -> HoumaoTrackedSessionIdentity:
+
+def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessionIdentity:
     return HoumaoTrackedSessionIdentity(
         tracked_session_id="cao-gpu",
         session_name="cao-gpu",
         tool="codex",
+        observed_tool_version=observed_tool_version,
         tmux_session_name="AGENTSYS-gpu",
         terminal_aliases=["abcd1234"],
     )
@@ -75,6 +83,56 @@ def _arm_anchor(tracker: LiveSessionTracker, *, at: float, observed_at_utc: str)
     )
 
 
+def _output_text_for_surface(parsed_surface: HoumaoParsedSurface | None) -> str | None:
+    """Return a test-only raw tmux snapshot aligned with one parsed surface."""
+
+    if parsed_surface is None:
+        return None
+    if parsed_surface.availability != "supported":
+        return ""
+    if parsed_surface.business_state == "working":
+        return _CODEX_ACTIVE_RAW_SNAPSHOT
+    if parsed_surface.input_mode == "modal" or parsed_surface.business_state == "awaiting_operator":
+        return _CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT
+    return _CODEX_READY_RAW_SNAPSHOT
+
+
+def _record_cycle(
+    tracker: LiveSessionTracker,
+    *,
+    observed_at_utc: str,
+    monotonic_ts: float,
+    transport_state: str,
+    process_state: str,
+    parse_status: str,
+    probe_snapshot: HoumaoProbeSnapshot | None,
+    probe_error: HoumaoErrorDetail | None,
+    parse_error: HoumaoErrorDetail | None,
+    parsed_surface: HoumaoParsedSurface | None,
+    output_text: str | None | object = _UNSET_OUTPUT_TEXT,
+) -> HoumaoTerminalStateResponse:
+    """Record one cycle with raw tracker input by default."""
+
+    resolved_output_text = (
+        _output_text_for_surface(parsed_surface)
+        if output_text is _UNSET_OUTPUT_TEXT
+        else cast(str | None, output_text)
+    )
+    return tracker.record_cycle(
+        identity=_identity(),
+        observed_at_utc=observed_at_utc,
+        monotonic_ts=monotonic_ts,
+        transport_state=transport_state,
+        process_state=process_state,
+        parse_status=parse_status,
+        probe_snapshot=probe_snapshot,
+        probe_error=probe_error,
+        parse_error=parse_error,
+        parsed_surface=parsed_surface,
+        output_text=resolved_output_text,
+    )
+
+
 def test_official_parser_adapter_parses_direct_tmux_fixture() -> None:
     fixture_path = (
         Path(__file__).resolve().parents[2]
@@ -117,8 +175,8 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
         matched_process_names=["codex"],
     )
 
-    first = tracker.record_cycle(
-        identity=_identity(),
+    first = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -129,8 +187,8 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
-    second = tracker.record_cycle(
-        identity=_identity(),
+    second = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:03+00:00",
         monotonic_ts=13.0,
         transport_state="tmux_up",
@@ -141,8 +199,8 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
         parse_error=None,
         parsed_surface=_processing_surface(),
     )
-    third = tracker.record_cycle(
-        identity=_identity(),
+    third = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:04+00:00",
         monotonic_ts=14.0,
         transport_state="tmux_up",
@@ -153,8 +211,8 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
         parse_error=None,
         parsed_surface=None,
     )
-    fourth = tracker.record_cycle(
-        identity=_identity(),
+    fourth = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:06+00:00",
         monotonic_ts=16.0,
         transport_state="tmux_up",
@@ -187,8 +245,8 @@ def test_live_session_tracker_exposes_parse_failure_explicitly() -> None:
         unknown_to_stalled_timeout_seconds=30.0,
     )
 
-    state = tracker.record_cycle(
-        identity=_identity(),
+    state = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -198,12 +256,14 @@ def test_live_session_tracker_exposes_parse_failure_explicitly() -> None:
         probe_error=None,
         parse_error=HoumaoErrorDetail(kind="parse_error", message="bad snapshot"),
         parsed_surface=None,
+        output_text=_CODEX_READY_RAW_SNAPSHOT,
     )
 
     assert state.parse_status == "parse_error"
     assert state.parsed_surface is None
     assert state.parse_error is not None
     assert state.operator_state.status == "error"
+    assert state.surface.ready_posture == "yes"
 
 
 def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> None:
@@ -221,8 +281,8 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
         matched_process_names=["codex"],
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -234,8 +294,8 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
         parsed_surface=_ready_surface(),
     )
     _arm_anchor(tracker, at=10.2, observed_at_utc="2026-03-19T10:00:00+00:00")
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.0,
         transport_state="tmux_up",
@@ -247,8 +307,8 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
         parsed_surface=_processing_surface(),
     )
 
-    candidate = tracker.record_cycle(
-        identity=_identity(),
+    candidate = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.4,
         transport_state="tmux_up",
@@ -266,8 +326,8 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
     assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
     assert candidate.lifecycle_authority.turn_anchor_state == "active"
 
-    completed = tracker.record_cycle(
-        identity=_identity(),
+    completed = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:03+00:00",
         monotonic_ts=13.0,
         transport_state="tmux_up",
@@ -299,8 +359,8 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
         matched_process_names=["codex"],
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -311,8 +371,8 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("prompt ready"),
     )
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.2,
         transport_state="tmux_up",
@@ -325,8 +385,8 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
     )
     _arm_anchor(tracker, at=10.25, observed_at_utc="2026-03-19T10:00:00+00:00")
 
-    candidate = tracker.record_cycle(
-        identity=_identity(),
+    candidate = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.3,
         transport_state="tmux_up",
@@ -344,8 +404,8 @@ def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> 
     assert candidate.lifecycle_timing.completion_candidate_elapsed_seconds == 0.0
     assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
 
-    completed = tracker.record_cycle(
-        identity=_identity(),
+    completed = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:02+00:00",
         monotonic_ts=12.0,
         transport_state="tmux_up",
@@ -378,8 +438,8 @@ def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
         matched_process_names=["codex"],
     )
 
-    first = tracker.record_cycle(
-        identity=_identity(),
+    first = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -390,8 +450,8 @@ def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("startup welcome"),
     )
-    second = tracker.record_cycle(
-        identity=_identity(),
+    second = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.3,
         transport_state="tmux_up",
@@ -402,8 +462,8 @@ def test_live_session_tracker_ignores_startup_ready_surface_churn() -> None:
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("steady prompt"),
     )
-    third = tracker.record_cycle(
-        identity=_identity(),
+    third = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.0,
         transport_state="tmux_up",
@@ -454,8 +514,8 @@ def test_live_session_tracker_promotes_continuous_unknown_to_stalled() -> None:
         operator_blocked_excerpt=None,
     )
 
-    unknown = tracker.record_cycle(
-        identity=_identity(),
+    unknown = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -466,8 +526,8 @@ def test_live_session_tracker_promotes_continuous_unknown_to_stalled() -> None:
         parse_error=None,
         parsed_surface=unknown_surface,
     )
-    stalled = tracker.record_cycle(
-        identity=_identity(),
+    stalled = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:06+00:00",
         monotonic_ts=16.0,
         transport_state="tmux_up",
@@ -496,8 +556,8 @@ def test_live_session_tracker_note_prompt_submission_arms_turn_anchor() -> None:
         unknown_to_stalled_timeout_seconds=30.0,
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -520,7 +580,44 @@ def test_live_session_tracker_note_prompt_submission_arms_turn_anchor() -> None:
     assert state.lifecycle_authority.completion_monitoring_armed is True
 
 
-def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change() -> None:
+def test_live_session_tracker_rebuilds_when_observed_tool_version_changes() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(observed_tool_version=None),
+        recent_transition_limit=3,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    fallback_session = tracker.m_tracker_session
+    fallback_state = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+
+    tracker.set_identity(_identity(observed_tool_version="0.116.4 (Codex)"))
+    versioned_session = tracker.m_tracker_session
+    tracker.set_identity(_identity(observed_tool_version="0.116.5 (Codex)"))
+    rebuilt_same_family_session = tracker.m_tracker_session
+    tracker.set_identity(_identity(observed_tool_version="0.116.5 (Codex)"))
+
+    assert fallback_session.detector_version == "fallback"
+    assert fallback_state.surface.ready_posture == "yes"
+    assert versioned_session is not fallback_session
+    assert versioned_session.detector_version == "0.116.x"
+    assert rebuilt_same_family_session is not versioned_session
+    assert tracker.m_tracker_session is rebuilt_same_family_session
+
+
+def test_live_session_tracker_uses_shared_raw_snapshot_surface_inference() -> None:
     tracker = LiveSessionTracker(
         identity=_identity(),
         recent_transition_limit=4,
@@ -529,8 +626,8 @@ def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change
         unknown_to_stalled_timeout_seconds=30.0,
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -541,8 +638,76 @@ def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("prompt ready"),
     )
-    stable_ready = tracker.record_cycle(
+    active = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+    )
+    candidate = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("assistant answered and prompt ready"),
+    )
+    settled = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:03+00:00",
+        monotonic_ts=13.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("assistant answered and prompt ready"),
+    )
+
+    assert active.turn.phase == "active"
+    assert active.lifecycle_authority.completion_authority == "unanchored_background"
+    assert active.lifecycle_authority.turn_anchor_state == "absent"
+    assert candidate.last_turn.result == "none"
+    assert settled.last_turn.result == "success"
+    assert settled.last_turn.source == "surface_inference"
+    assert settled.lifecycle_authority.completion_authority == "unanchored_background"
+    assert settled.lifecycle_authority.turn_anchor_state == "absent"
+
+
+def test_live_session_tracker_does_not_arm_tracker_authority_from_parser_only_churn() -> None:
+    tracker = LiveSessionTracker(
         identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("prompt ready"),
+    )
+    stable_ready = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:02+00:00",
         monotonic_ts=12.0,
         transport_state="tmux_up",
@@ -553,8 +718,8 @@ def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change
         parse_error=None,
         parsed_surface=_ready_surface_with_projection("prompt ready"),
     )
-    candidate = tracker.record_cycle(
-        identity=_identity(),
+    parser_only = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:02+00:00",
         monotonic_ts=12.2,
         transport_state="tmux_up",
@@ -572,60 +737,11 @@ def test_live_session_tracker_infers_anchor_after_stable_ready_projection_change
     )
 
     assert stable_ready.stability.stable is True
-    assert candidate.operator_state.completion_state == "candidate_complete"
-    assert candidate.lifecycle_authority.completion_authority == "turn_anchored"
-    assert candidate.lifecycle_authority.turn_anchor_state == "active"
-
-
-def test_live_session_tracker_does_not_infer_anchor_for_small_stable_ready_churn() -> None:
-    tracker = LiveSessionTracker(
-        identity=_identity(),
-        recent_transition_limit=4,
-        stability_threshold_seconds=1.0,
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-    )
-
-    tracker.record_cycle(
-        identity=_identity(),
-        observed_at_utc="2026-03-19T10:00:00+00:00",
-        monotonic_ts=10.0,
-        transport_state="tmux_up",
-        process_state="tui_up",
-        parse_status="parsed",
-        probe_snapshot=None,
-        probe_error=None,
-        parse_error=None,
-        parsed_surface=_ready_surface_with_projection("prompt ready"),
-    )
-    tracker.record_cycle(
-        identity=_identity(),
-        observed_at_utc="2026-03-19T10:00:02+00:00",
-        monotonic_ts=12.0,
-        transport_state="tmux_up",
-        process_state="tui_up",
-        parse_status="parsed",
-        probe_snapshot=None,
-        probe_error=None,
-        parse_error=None,
-        parsed_surface=_ready_surface_with_projection("prompt ready"),
-    )
-    small_churn = tracker.record_cycle(
-        identity=_identity(),
-        observed_at_utc="2026-03-19T10:00:02+00:00",
-        monotonic_ts=12.2,
-        transport_state="tmux_up",
-        process_state="tui_up",
-        parse_status="parsed",
-        probe_snapshot=None,
-        probe_error=None,
-        parse_error=None,
-        parsed_surface=_ready_surface_with_projection("prompt ready!"),
-    )
-
-    assert small_churn.operator_state.completion_state == "inactive"
-    assert small_churn.lifecycle_authority.completion_authority == "unanchored_background"
-    assert small_churn.lifecycle_authority.turn_anchor_state == "absent"
+    assert parser_only.operator_state.completion_state == "inactive"
+    assert parser_only.last_turn.result == "none"
+    assert parser_only.last_turn.source == "none"
+    assert parser_only.lifecycle_authority.completion_authority == "unanchored_background"
+    assert parser_only.lifecycle_authority.turn_anchor_state == "absent"
 
 
 def test_live_session_tracker_tracking_debug_emits_expected_streams(tmp_path: Path) -> None:
@@ -638,8 +754,8 @@ def test_live_session_tracker_tracking_debug_emits_expected_streams(tmp_path: Pa
         tracking_debug_sink=TrackingDebugSink(root=tmp_path / "trace"),
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -655,8 +771,8 @@ def test_live_session_tracker_tracking_debug_emits_expected_streams(tmp_path: Pa
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.1,
     )
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.0,
         transport_state="tmux_up",
@@ -667,8 +783,8 @@ def test_live_session_tracker_tracking_debug_emits_expected_streams(tmp_path: Pa
         parse_error=None,
         parsed_surface=_processing_surface(),
     )
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:02+00:00",
         monotonic_ts=12.0,
         transport_state="tmux_up",
@@ -698,8 +814,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         unknown_to_stalled_timeout_seconds=30.0,
     )
 
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
         transport_state="tmux_up",
@@ -711,8 +827,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parsed_surface=_ready_surface(),
     )
     _arm_anchor(tracker, at=10.1, observed_at_utc="2026-03-19T10:00:00+00:00")
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.0,
         transport_state="tmux_up",
@@ -723,8 +839,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parse_error=None,
         parsed_surface=_processing_surface(),
     )
-    tracker.record_cycle(
-        identity=_identity(),
+    _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:01+00:00",
         monotonic_ts=11.4,
         transport_state="tmux_up",
@@ -735,8 +851,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
-    completed = tracker.record_cycle(
-        identity=_identity(),
+    completed = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:03+00:00",
         monotonic_ts=13.0,
         transport_state="tmux_up",
@@ -747,8 +863,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
-    next_cycle = tracker.record_cycle(
-        identity=_identity(),
+    next_cycle = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:04+00:00",
         monotonic_ts=14.0,
         transport_state="tmux_up",
@@ -759,8 +875,8 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
         parse_error=None,
         parsed_surface=_ready_surface(),
     )
-    post_expiry_cycle = tracker.record_cycle(
-        identity=_identity(),
+    post_expiry_cycle = _record_cycle(
+        tracker,
         observed_at_utc="2026-03-19T10:00:05+00:00",
         monotonic_ts=15.0,
         transport_state="tmux_up",
