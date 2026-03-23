@@ -1006,15 +1006,24 @@ def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> Non
     while time.monotonic() < deadline:
         try:
             health = client.health_extended()
+            cao_health = client.health()
         except Exception as exc:
             last_error = str(exc)
             time.sleep(0.25)
             continue
-        if health.houmao_service == "houmao-server" and (
-            health.child_cao is None or health.child_cao.healthy
+        if (
+            health.status == "ok"
+            and health.houmao_service == "houmao-server"
+            and cao_health.status == "ok"
         ):
             return
-        last_error = health.model_dump_json()
+        last_error = json.dumps(
+            {
+                "houmao": health.model_dump(mode="json"),
+                "cao": cao_health.model_dump(mode="json"),
+            },
+            sort_keys=True,
+        )
         time.sleep(0.25)
     raise HoumaoServerDualShadowWatchError(
         f"timed out waiting for demo-owned houmao-server health at {api_base_url}: {last_error}"

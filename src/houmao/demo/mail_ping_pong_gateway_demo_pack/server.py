@@ -90,9 +90,7 @@ def wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> None
             last_error = str(exc)
             time.sleep(0.25)
             continue
-        if health.houmao_service == "houmao-server" and (
-            health.child_cao is None or health.child_cao.healthy
-        ):
+        if health.status == "ok" and health.houmao_service == "houmao-server":
             return
         last_error = health.model_dump_json()
         time.sleep(0.25)

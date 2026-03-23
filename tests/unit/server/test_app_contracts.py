@@ -4,6 +4,7 @@ import ast
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
 
@@ -901,6 +902,46 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert state_response.terminal_id == "abcd1234"
     assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
+
+
+def test_houmao_extension_routes_omit_child_metadata_when_service_returns_none() -> None:
+    """Wire responses should omit null child metadata for no-child mode."""
+
+    class _NoChildServiceDouble(_AppServiceDouble):
+        def health_response(self) -> HoumaoHealthResponse:
+            return HoumaoHealthResponse(
+                status="ok",
+                service="cli-agent-orchestrator",
+                child_cao=None,
+            )
+
+        def current_instance_response(self) -> HoumaoCurrentInstance:
+            return HoumaoCurrentInstance(
+                pid=12345,
+                api_base_url="http://127.0.0.1:9889",
+                server_root="/tmp/houmao-server",
+                child_cao=None,
+            )
+
+    with TestClient(create_app(service=_NoChildServiceDouble())) as client:
+        health_response = client.get("/health")
+        current_instance_response = client.get("/houmao/server/current-instance")
+
+    assert health_response.status_code == 200
+    assert health_response.json() == {
+        "status": "ok",
+        "service": "cli-agent-orchestrator",
+        "houmao_service": "houmao-server",
+    }
+    assert current_instance_response.status_code == 200
+    assert current_instance_response.json() == {
+        "schema_version": 1,
+        "status": "ok",
+        "pid": 12345,
+        "api_base_url": "http://127.0.0.1:9889",
+        "server_root": "/tmp/houmao-server",
+        "started_at_utc": current_instance_response.json()["started_at_utc"],
+    }
 
 
 def test_root_cao_routes_are_removed_from_public_inventory() -> None:

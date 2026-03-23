@@ -351,7 +351,7 @@ class HoumaoServerService:
         return HoumaoHealthResponse(
             status="ok",
             service="cli-agent-orchestrator",
-            child_cao=self.child_status(),
+            child_cao=self._projected_child_status(),
         )
 
     def current_instance_response(self) -> HoumaoCurrentInstance:
@@ -361,7 +361,7 @@ class HoumaoServerService:
             pid=os.getpid(),
             api_base_url=self.m_config.api_base_url,
             server_root=str(self.m_config.server_root),
-            child_cao=self.child_status(),
+            child_cao=self._projected_child_status(),
         )
 
     def install_agent_profile(
@@ -446,6 +446,13 @@ class HoumaoServerService:
                 else None
             ),
         )
+
+    def _projected_child_status(self) -> ChildCaoStatus | None:
+        """Return child metadata only when child startup is part of this server mode."""
+
+        if not self.m_config.startup_child:
+            return None
+        return self.child_status()
 
     def sync_created_terminal(self, payload: object) -> None:
         """Accept the proxied create payload without admitting tracking authority."""
@@ -2758,7 +2765,7 @@ class HoumaoServerService:
     def _write_current_instance(self) -> None:
         """Persist the current server instance and pid files."""
 
-        payload = self.current_instance_response().model_dump(mode="json")
+        payload = self.current_instance_response().model_dump(mode="json", exclude_none=True)
         self.m_config.current_instance_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

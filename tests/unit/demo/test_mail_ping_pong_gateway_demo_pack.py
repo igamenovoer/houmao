@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import houmao.demo.mail_ping_pong_gateway_demo_pack.driver as demo_driver
+import houmao.demo.mail_ping_pong_gateway_demo_pack.server as demo_server
 from houmao.agents.brain_builder import BuildResult
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditUnreadMessage,
@@ -289,13 +290,13 @@ def _make_demo_state(tmp_path: Path, *, active: bool = True) -> tuple[Path, obje
             / "brains"
             / "brain-recipes"
             / "claude"
-            / "mailbox-demo-default.yaml",
+            / "mail-ping-pong-initiator-default.yaml",
             brain_home_path=paths.runtime_root / "homes" / "initiator",
             brain_manifest_path=paths.runtime_root / "manifests" / "initiator.yaml",
             launch_helper_path=paths.runtime_root / "homes" / "initiator" / "launch.sh",
             tracked_agent_id="tracked-initiator",
-            agent_name="mailbox-demo-claude",
-            agent_id="AGENTSYS-mailbox-demo-claude",
+            agent_name="mail-ping-pong-initiator-claude",
+            agent_id="AGENTSYS-mail-ping-pong-initiator-claude",
             session_root=paths.runtime_root / "sessions" / "claude_headless" / "initiator",
             tmux_session_name="tmux-initiator",
             gateway_host="127.0.0.1",
@@ -314,13 +315,13 @@ def _make_demo_state(tmp_path: Path, *, active: bool = True) -> tuple[Path, obje
             / "brains"
             / "brain-recipes"
             / "codex"
-            / "mailbox-demo-default.yaml",
+            / "mail-ping-pong-responder-default.yaml",
             brain_home_path=paths.runtime_root / "homes" / "responder",
             brain_manifest_path=paths.runtime_root / "manifests" / "responder.yaml",
             launch_helper_path=paths.runtime_root / "homes" / "responder" / "launch.sh",
             tracked_agent_id="tracked-responder",
-            agent_name="mailbox-demo-codex",
-            agent_id="AGENTSYS-mailbox-demo-codex",
+            agent_name="mail-ping-pong-responder-codex",
+            agent_id="AGENTSYS-mail-ping-pong-responder-codex",
             session_root=paths.runtime_root / "sessions" / "codex_headless" / "responder",
             tmux_session_name="tmux-responder",
             gateway_host="127.0.0.1",
@@ -570,6 +571,8 @@ def test_parameters_and_layout_defaults_resolve_from_repo_root() -> None:
     assert parameters.demo_id == "mail-ping-pong-gateway-demo-pack"
     assert parameters.initiator.tool == "claude"
     assert parameters.responder.role_name == "mail-ping-pong-responder"
+    assert parameters.initiator.brain_recipe_path.name == "mail-ping-pong-initiator-default.yaml"
+    assert parameters.responder.brain_recipe_path.name == "mail-ping-pong-responder-default.yaml"
     assert default_parameters == PACK_DIR / "inputs" / "demo_parameters.json"
     assert layout.output_root == PACK_DIR / "outputs"
     assert layout.registry_root == PACK_DIR / "outputs" / "registry"
@@ -822,6 +825,34 @@ def test_start_command_honors_agent_def_dir_env_override(
 
     assert result == 0
     assert state.agent_def_dir == override_agent_def_dir.resolve()
+
+
+def test_wait_for_server_health_ignores_child_cao_status_for_native_headless_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The no-child native-headless waiter should only require Houmao root health."""
+
+    class _HealthDouble:
+        status = "ok"
+        houmao_service = "houmao-server"
+        child_cao = SimpleNamespace(healthy=False)
+
+        def model_dump_json(self) -> str:
+            return '{"status":"ok"}'
+
+    class _ClientDouble:
+        def __init__(self, base_url: str, timeout_seconds: float = 1.0) -> None:
+            del base_url, timeout_seconds
+
+        def health_extended(self) -> _HealthDouble:
+            return _HealthDouble()
+
+    monkeypatch.setattr(demo_server, "HoumaoServerClient", _ClientDouble)
+
+    demo_server.wait_for_server_health(
+        api_base_url="http://127.0.0.1:19989",
+        timeout_seconds=0.01,
+    )
 
 
 def test_inspect_reuses_persisted_state_and_writes_snapshot(

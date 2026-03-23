@@ -473,6 +473,8 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
             transport=_NoopTransport(),
             child_manager=_NoopChildManager(),
         )
+        assert service.health_response().child_cao is None
+        assert service.current_instance_response().child_cao is None
 
         response = service.launch_headless_agent(
             HoumaoHeadlessLaunchRequest(

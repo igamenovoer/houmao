@@ -21,4 +21,6 @@ For narrow installed-skill invocation coverage, use `claude/skill-invocation-dem
 
 For narrow mailbox/demo coverage, use `claude/mailbox-demo-default.yaml` and `codex/mailbox-demo-default.yaml`.
 
+For the headless mail ping-pong gateway demo, use `claude/mail-ping-pong-initiator-default.yaml` and `codex/mail-ping-pong-responder-default.yaml`.
+
 Keep heavyweight GPU-oriented recipes for repository-scale engineering flows.

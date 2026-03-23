@@ -20,8 +20,8 @@ The pack is intentionally headless-first in v1. It does not try to cover TUI/TUI
 Tracked fixture sources used by the pack:
 
 - dummy project: `tests/fixtures/dummy-projects/mailbox-demo-python`
-- Claude recipe: `tests/fixtures/agents/brains/brain-recipes/claude/mailbox-demo-default.yaml`
-- Codex recipe: `tests/fixtures/agents/brains/brain-recipes/codex/mailbox-demo-default.yaml`
+- Claude recipe: `tests/fixtures/agents/brains/brain-recipes/claude/mail-ping-pong-initiator-default.yaml`
+- Codex recipe: `tests/fixtures/agents/brains/brain-recipes/codex/mail-ping-pong-responder-default.yaml`
 - initiator role: `tests/fixtures/agents/roles/mail-ping-pong-initiator`
 - responder role: `tests/fixtures/agents/roles/mail-ping-pong-responder`
 

@@ -259,6 +259,51 @@ def test_inspect_demo_reports_monitor_cadence_separately_from_server_posture(
     assert payload["agents"]["claude"]["tracked_state"]["stability"]["stable"] is False
 
 
+def test_wait_for_server_health_checks_root_and_cao_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CAO-dependent demo startup should probe both Houmao and CAO health surfaces."""
+
+    calls: list[str] = []
+
+    class _HoumaoHealthDouble:
+        status = "ok"
+        houmao_service = "houmao-server"
+
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            del mode
+            return {"status": "ok", "houmao_service": "houmao-server"}
+
+    class _CaoHealthDouble:
+        status = "ok"
+        service = "cli-agent-orchestrator"
+
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            del mode
+            return {"status": "ok", "service": "cli-agent-orchestrator"}
+
+    class _ClientDouble:
+        def __init__(self, base_url: str, timeout_seconds: float = 1.0) -> None:
+            del base_url, timeout_seconds
+
+        def health_extended(self) -> _HoumaoHealthDouble:
+            calls.append("houmao")
+            return _HoumaoHealthDouble()
+
+        def health(self) -> _CaoHealthDouble:
+            calls.append("cao")
+            return _CaoHealthDouble()
+
+    monkeypatch.setattr(demo_driver, "HoumaoServerClient", _ClientDouble)
+
+    demo_driver._wait_for_server_health(
+        api_base_url="http://127.0.0.1:19989",
+        timeout_seconds=0.01,
+    )
+
+    assert calls == ["houmao", "cao"]
+
+
 def test_wait_for_session_registration_times_out() -> None:
     """Session registration waits should fail explicitly instead of hanging."""
 

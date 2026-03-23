@@ -72,11 +72,11 @@ def create_app(
 
     cao_router = APIRouter(prefix="/cao")
 
-    @app.get("/health")
+    @app.get("/health", response_model_exclude_none=True)
     def health() -> HoumaoHealthResponse:
         return resolved_service.health_response()
 
-    @app.get("/houmao/server/current-instance")
+    @app.get("/houmao/server/current-instance", response_model_exclude_none=True)
     def current_instance() -> HoumaoCurrentInstance:
         return resolved_service.current_instance_response()
 

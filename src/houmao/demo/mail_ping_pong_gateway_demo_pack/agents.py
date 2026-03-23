@@ -238,15 +238,21 @@ def is_standalone_git_repo(
 
     runner = _default_git_runner if run_git is None else run_git
     inside = _git_output(
-        ["git", "rev-parse", "--is-inside-work-tree"], cwd=project_workdir, run_git=runner
+        args=["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=project_workdir,
+        run_git=runner,
     )
     if inside != "true":
         return False
     project_top = _git_output(
-        ["git", "rev-parse", "--show-toplevel"], cwd=project_workdir, run_git=runner
+        args=["git", "rev-parse", "--show-toplevel"],
+        cwd=project_workdir,
+        run_git=runner,
     )
     project_common = _git_output(
-        ["git", "rev-parse", "--git-common-dir"], cwd=project_workdir, run_git=runner
+        args=["git", "rev-parse", "--git-common-dir"],
+        cwd=project_workdir,
+        run_git=runner,
     )
     if project_top is None or project_common is None:
         return False

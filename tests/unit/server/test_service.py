@@ -91,6 +91,7 @@ class _FakeChildManager:
         self.m_install_stderr = install_stderr
         self.start_calls = 0
         self.stop_calls = 0
+        self.inspect_calls = 0
         self.install_calls: list[tuple[str, str, Path | None]] = []
 
     def start(self) -> None:
@@ -100,6 +101,7 @@ class _FakeChildManager:
         self.stop_calls += 1
 
     def inspect(self) -> object:
+        self.inspect_calls += 1
         config = type("Config", (), {"base_url": self.m_base_url})()
         status = type(
             "Status",
@@ -684,6 +686,48 @@ def test_startup_persists_current_instance_and_child_metadata(
     assert health.houmao_service == "houmao-server"
     assert health.child_cao is not None
     assert health.child_cao.healthy is True
+
+
+def test_startup_omits_child_metadata_when_child_startup_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """No-child mode should persist Houmao-owned state without child metadata."""
+
+    child_manager = _FakeChildManager(healthy=False, error="connection refused")
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
+    )
+    monkeypatch.setattr(
+        "houmao.server.tui.supervisor.TuiTrackingSupervisor.request_reconcile",
+        lambda self: None,
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=child_manager,
+    )
+
+    service.startup()
+
+    current_instance_path = (
+        tmp_path / "houmao_servers" / "127.0.0.1-9889" / "run" / "current-instance.json"
+    )
+    current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
+    health = service.health_response()
+
+    assert child_manager.start_calls == 0
+    assert child_manager.inspect_calls == 0
+    assert current_instance["status"] == "ok"
+    assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
+    assert "child_cao" not in current_instance
+    assert health.status == "ok"
+    assert health.houmao_service == "houmao-server"
+    assert health.child_cao is None
 
 
 def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
