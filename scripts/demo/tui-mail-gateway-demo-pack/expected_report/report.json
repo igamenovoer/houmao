@@ -1,0 +1,64 @@
+{
+  "config": {
+    "cadence_seconds": 5,
+    "selected_tool": "<TOOL>",
+    "turn_limit": 3
+  },
+  "counts": {
+    "final_unread_count": 0,
+    "injected_messages": 3,
+    "processed_turns": 3
+  },
+  "gateway_evidence": {
+    "enqueued_mail_work": true,
+    "notifier_enabled": true,
+    "poll_errors_present": false
+  },
+  "generated_at_utc": "<TIMESTAMP>",
+  "human_review_evidence": {
+    "snapshot_count": 3,
+    "tail_count": 3
+  },
+  "mailbox_evidence": {
+    "message_count": 3,
+    "state_source": "gateway",
+    "unread_count": 0
+  },
+  "outcome": {
+    "failures": [],
+    "status": "complete"
+  },
+  "schema_version": 1,
+  "session": {
+    "agent_identity": "<AGENT_IDENTITY>",
+    "session_manifest_path": "<SESSION_MANIFEST_PATH>",
+    "tmux_session_name": "<TMUX_SESSION_NAME>"
+  },
+  "turns": [
+    {
+      "message_id": "<MESSAGE_ID>",
+      "processed": true,
+      "snapshot_present": true,
+      "tail_present": true,
+      "thread_id": "<THREAD_ID>",
+      "turn_index": 1
+    },
+    {
+      "message_id": "<MESSAGE_ID>",
+      "processed": true,
+      "snapshot_present": true,
+      "tail_present": true,
+      "thread_id": "<THREAD_ID>",
+      "turn_index": 2
+    },
+    {
+      "message_id": "<MESSAGE_ID>",
+      "processed": true,
+      "snapshot_present": true,
+      "tail_present": true,
+      "thread_id": "<THREAD_ID>",
+      "turn_index": 3
+    }
+  ]
+}
+
