@@ -3,14 +3,20 @@
 
 ## Current Status
 
+### Development State
+
 Houmao is under active development, and the operator-facing workflow is still stabilizing. Expect rough edges, incomplete coverage, and interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
+
+### Current Proof Of Concept
 
 The current end-to-end proof-of-concept is the headless ping-pong demo pack at `scripts/demo/mail-ping-pong-gateway-demo-pack/`. It launches one headless Claude agent and one headless Codex agent, lets them coordinate through the shared mailbox and gateway surfaces, and verifies the resulting conversation from demo-owned artifacts.
 
-Current limitations of that proof-of-concept:
+### Current Limitations
 
-- it is fully headless, so the operator does not get an in-band interactive user surface during the run
-- its primary outputs are raw JSON inspect/report artifacts, which are good for verification but not yet a polished human-facing viewing experience
+- **Headless only:** the demo uses headless calls, so the operator does not get an in-band interactive user surface during the run.
+- **Raw artifact viewing:** its primary outputs are raw JSON inspect/report artifacts, which are good for verification but not yet a polished human-facing viewing experience.
+
+### Recommended First Run
 
 If you want to try Houmao today, start by following that demo instead of assembling a custom workflow from scratch. Treat its practice as the current recommended path:
 
@@ -21,6 +27,15 @@ If you want to try Houmao today, start by following that demo instead of assembl
 - prefer the gateway-first shared mailbox workflow demonstrated there for multi-agent coordination
 
 Once that demo works in your environment, use it as the baseline pattern for adapting Houmao to your own agents and tasks.
+
+### Watching The Demo
+
+Even though the ping-pong proof-of-concept is headless, the started agent processes are still tmux-backed diagnostic surfaces.
+
+- Run `scripts/demo/mail-ping-pong-gateway-demo-pack/run_demo.sh inspect --demo-output-dir <output-root>` to refresh the persisted state.
+- Read `control/demo_state.json` under that output root to find each participant's `tmux_session_name`.
+- Attach directly with `tmux attach -t <tmux_session_name>` and watch window `0` (`agent`) for the live CLI output.
+- For web-based viewing, prefer `tailmux` pointed at those same tmux sessions instead of reading the raw JSON files by hand.
 
 ## Project Introduction
 
