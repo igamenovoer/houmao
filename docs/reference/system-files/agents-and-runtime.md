@@ -61,6 +61,17 @@ Current manifest-level launch-policy artifacts:
 - unattended `launch.sh` helpers call `houmao.agents.launch_policy.cli` before the final tool exec,
 - runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source.
 
+Current manifest-level launch-override artifacts:
+
+- build manifests now use `schema_version=2`,
+- `runtime.launch_contract.adapter_defaults` snapshots adapter-owned default args and typed tool-param defaults,
+- `runtime.launch_contract.requested_overrides` stores the secret-free recipe and direct-build `launch_overrides` layers separately,
+- `runtime.launch_contract.tool_metadata` persists the declarative supported optional-launch metadata needed for runtime resolution,
+- `runtime.launch_contract.construction_provenance` records builder-time source metadata without persisting secrets,
+- build manifests intentionally do not store backend-resolved effective args because backend applicability is resolved later, at launch-plan time.
+
+Operational note: the current runtime loader rejects legacy `schema_version=1` brain manifests for this contract. Rebuild older brain homes with the current builder before starting or resuming sessions against them.
+
 ## Runtime-Owned Mailbox Credential Artifacts
 
 Mailbox filesystem layout remains documented under [Mailbox Reference](../mailbox/index.md). This page only covers the runtime-owned credential artifacts that exist around a Stalwart-backed session.

@@ -78,7 +78,7 @@ If omitted inside the section, the implementation defaults match the checked-in 
 Tool-specific launch defaults. The supported keys today are:
 
 - `recipe_path`: brain recipe used when launching the selected tool
-- `launch_args_override`: explicit launch-arg replacement list for the tool runtime
+- `launch_overrides`: optional structured launch override contract; use the same `args` / `tool_params` shape accepted by brain recipes and direct builds
 - `operator_prompt_mode`: optional launch policy request (`interactive` or `unattended`)
 
 The demo currently expects both `tools.claude` and `tools.codex`.

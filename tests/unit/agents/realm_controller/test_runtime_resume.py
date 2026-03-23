@@ -54,14 +54,23 @@ def _seed_manifest(
 
     manifest_path = tmp_path / "brain.yaml"
     runtime_lines = [
+        "schema_version: 2",
         "inputs:",
         f"  tool: {tool}",
         "runtime:",
         f"  launch_executable: {tool}",
-        "  launch_args: []",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
         f"    value: {tmp_path / 'home'}",
+        "  launch_contract:",
+        "    adapter_defaults:",
+        "      args: []",
+        "      tool_params: {}",
+        "    requested_overrides:",
+        "      recipe: null",
+        "      direct: null",
+        "    tool_metadata:",
+        "      tool_params: {}",
     ]
     if cao_parsing_mode is not None:
         runtime_lines.append(f"  cao_parsing_mode: {cao_parsing_mode}")

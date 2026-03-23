@@ -1607,7 +1607,7 @@ def summarize_notifier_audit_records(rows: list[Any]) -> dict[str, Any]:
 
     observed_outcomes = sorted({row.outcome for row in rows if row.outcome != "empty"})
     unread_subjects = sorted({item.subject for row in rows for item in row.unread_summary})
-    unread_message_ids = sorted({item.message_id for row in rows for item in row.unread_summary})
+    unread_message_ids = sorted({item.message_ref for row in rows for item in row.unread_summary})
     return {
         "total_rows": len(rows),
         "observed_outcomes": observed_outcomes,
@@ -1688,8 +1688,8 @@ def inspect_demo(*, state_path: Path, output_path: Path | None = None) -> dict[s
                     "detail": row.detail,
                     "unread_summary": [
                         {
-                            "message_id": item.message_id,
-                            "thread_id": item.thread_id,
+                            "message_id": item.message_ref,
+                            "thread_id": item.thread_ref,
                             "created_at_utc": item.created_at_utc,
                             "subject": item.subject,
                         }

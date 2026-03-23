@@ -171,7 +171,7 @@ class CodexAppServerSession:
         env[self._plan.home_env_var] = str(self._plan.home_path)
         inject_loopback_no_proxy_env(env)
 
-        command = [self._plan.executable, *self._plan.args]
+        command = [self._plan.executable, *self._plan.args, "app-server"]
         self._process = subprocess.Popen(
             command,
             cwd=str(self._plan.working_directory),

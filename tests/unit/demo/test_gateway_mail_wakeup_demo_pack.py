@@ -351,8 +351,8 @@ def test_summarize_notifier_audit_records_captures_stable_outcome_summary(tmp_pa
         unread_digest="digest-1",
         unread_summary=(
             GatewayNotifierAuditUnreadMessage(
-                message_id="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                thread_id="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                message_ref="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                thread_ref="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 created_at_utc="2026-03-16T10:00:00Z",
                 subject="Gateway wake-up demo",
             ),
@@ -370,8 +370,8 @@ def test_summarize_notifier_audit_records_captures_stable_outcome_summary(tmp_pa
         unread_digest="digest-1",
         unread_summary=(
             GatewayNotifierAuditUnreadMessage(
-                message_id="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                thread_id="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                message_ref="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                thread_ref="msg-20260316T100000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 created_at_utc="2026-03-16T10:00:00Z",
                 subject="Gateway wake-up demo",
             ),
@@ -437,8 +437,8 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         unread_digest="digest-1",
         unread_summary=(
             GatewayNotifierAuditUnreadMessage(
-                message_id=message_id,
-                thread_id=message_id,
+                message_ref=message_id,
+                thread_ref=message_id,
                 created_at_utc="2026-03-16T10:00:00Z",
                 subject="Gateway wake-up demo",
             ),

@@ -2,10 +2,9 @@
 
 from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector as BaseTurnSignalDetector,
-    SurfaceView,
     select_claude_detector,
-    strip_ansi,
 )
+from houmao.shared_tui_tracking.surface import SurfaceView, strip_ansi
 
 __all__ = [
     "BaseTurnSignalDetector",

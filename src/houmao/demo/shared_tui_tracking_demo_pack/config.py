@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
+from houmao.agents.launch_overrides import LaunchOverrides, parse_launch_overrides
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.shared_tui_tracking.models import TrackedLastTurnResult
 from houmao.terminal_record.models import DEFAULT_SAMPLE_INTERVAL_SECONDS
@@ -43,7 +44,7 @@ class DemoToolConfig:
     """Tool-specific launch defaults for the demo pack."""
 
     recipe_path: str
-    launch_args_override: tuple[str, ...]
+    launch_overrides: LaunchOverrides | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
 
     def to_payload(self) -> dict[str, Any]:
@@ -355,11 +356,18 @@ def _parse_tools(payload: dict[str, Any]) -> dict[ToolName, DemoToolConfig]:
     tools: dict[ToolName, DemoToolConfig] = {}
     for tool_name in ("claude", "codex"):
         tool_payload = _require_mapping(payload.get(tool_name), context=f"tools.{tool_name}")
+        raw_launch_overrides = tool_payload.get("launch_overrides")
+        launch_overrides = (
+            parse_launch_overrides(
+                raw_launch_overrides,
+                source=f"tools.{tool_name}.launch_overrides",
+            )
+            if raw_launch_overrides is not None
+            else None
+        )
         tools[tool_name] = DemoToolConfig(
             recipe_path=_require_string(tool_payload.get("recipe_path"), context="recipe_path"),
-            launch_args_override=tuple(
-                _require_string_list(tool_payload.get("launch_args_override", []))
-            ),
+            launch_overrides=launch_overrides,
             operator_prompt_mode=cast(
                 OperatorPromptMode | None,
                 tool_payload.get("operator_prompt_mode"),

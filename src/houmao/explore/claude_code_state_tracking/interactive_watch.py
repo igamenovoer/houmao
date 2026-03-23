@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
+from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     cleanup_tmux_session,
     ensure_tmux_available,
@@ -115,9 +116,17 @@ def start_interactive_watch(
             skills=list(recipe.skills),
             config_profile=recipe.config_profile,
             credential_profile=recipe.credential_profile,
+            recipe_path=selected_recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             runtime_root=paths.runtime_root,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(
+                    mode="replace",
+                    values=tuple(CLAUDE_INTERACTIVE_LAUNCH_ARGS),
+                )
+            ),
             operator_prompt_mode="unattended",
         )
     )

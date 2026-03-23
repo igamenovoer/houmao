@@ -349,8 +349,8 @@ class TuiTrackerSession:
                     signals=effective_signals,
                     note="active_signal",
                     turn_phase="active",
-                    last_turn_result="none",
-                    last_turn_source="none",
+                    last_turn_result=self.m_state.last_turn_result,
+                    last_turn_source=self.m_state.last_turn_source,
                 )
                 return
 
@@ -545,6 +545,9 @@ class TuiTrackerSession:
         if not signals.success_candidate:
             return signals
         if self._has_armed_turn_authority_locked():
+            return signals
+        if self.m_state.last_turn_result == "success" and self.m_settled_success_signature is not None:
+            # Allow later same-turn observations to invalidate or reconfirm a settled success.
             return signals
         notes = tuple(dict.fromkeys((*signals.notes, "success_candidate_requires_authority")))
         self._log_debug(

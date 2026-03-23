@@ -131,6 +131,22 @@ pixi run python -m houmao.agents.realm_controller build-brain \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
 
+Direct build overrides can use the same structured launch contract that recipes use:
+
+```bash
+pixi run python -m houmao.agents.realm_controller build-brain \
+  --agent-def-dir tests/fixtures/agents \
+  --recipe brains/brain-recipes/claude/researcher.yaml \
+  --launch-overrides '{"tool_params":{"include_partial_messages":true}}'
+```
+
+Notes:
+
+- `--launch-overrides` accepts either a YAML/JSON file path or one inline JSON object.
+- The builder writes `schema_version=2` manifests with `runtime.launch_contract`, which preserves adapter defaults, requested recipe/direct overrides, declarative tool metadata, and construction provenance separately.
+- The build manifest stays secret-free and intentionally does not persist backend-resolved effective args.
+- Old `schema_version=1` brain manifests are rejected by the current runtime loader; rebuild the affected brain home with the current builder before start or resume.
+
 ## Mailbox-Enabled Sessions
 
 Mailbox support can come from declarative brain config or from `start-session` overrides. The implemented v1 transport is `filesystem`.
@@ -193,6 +209,13 @@ Notes:
 - Runtime persists Codex `thread_id` as the resumable headless session id.
 - Role injection uses Codex config override:
   `-c developer_instructions=<role-prompt>`.
+
+Launch-overrides ownership rule across backends:
+
+- Optional provider behavior comes from adapter defaults plus recipe/direct `launch_overrides`.
+- Runtime launch-plan construction resolves those overrides for the selected backend and records typed provenance in session metadata.
+- Protocol-required args remain backend-owned implementation details. For example, `claude_headless` and `gemini_headless` add `-p`, `codex_headless` owns `exec --json` and `resume`, and `codex_app_server` owns `app-server`.
+- Unsupported backends such as `cao_rest` and `houmao_server_rest` fail closed when a launch override requests behavior they cannot honor.
 
 ## Legacy Codex App-Server Override (Deprecation Window)
 

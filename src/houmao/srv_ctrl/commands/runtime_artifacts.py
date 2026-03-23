@@ -99,13 +99,30 @@ def materialize_delegated_launch(
     brain_manifest_path.write_text(
         json.dumps(
             {
+                "schema_version": 2,
                 "inputs": {"tool": tool},
                 "runtime": {
                     "launch_executable": "cao",
-                    "launch_args": ["launch"],
                     "launch_home_selector": {
                         "env_var": _HOME_ENV_BY_TOOL.get(tool, "HOME"),
                         "value": str(tool_home),
+                    },
+                    "launch_contract": {
+                        "adapter_defaults": {
+                            "args": [],
+                            "tool_params": {},
+                        },
+                        "requested_overrides": {
+                            "recipe": None,
+                            "direct": None,
+                        },
+                        "tool_metadata": {"tool_params": {}},
+                        "construction_provenance": {
+                            "adapter_path": None,
+                            "recipe_path": None,
+                            "recipe_overrides_present": False,
+                            "direct_overrides_present": False,
+                        },
                     },
                 },
                 "credentials": {
@@ -237,6 +254,8 @@ def materialize_headless_launch_request(
             skills=recipe.skills,
             config_profile=recipe.config_profile,
             credential_profile=recipe.credential_profile,
+            recipe_path=recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
         )

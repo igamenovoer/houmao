@@ -384,9 +384,9 @@ def test_default_tool_runtime_metadata_uses_permissive_launch_posture() -> None:
     claude_metadata = default_tool_runtime_metadata(repo_root=repo_root, tool="claude")
     codex_metadata = default_tool_runtime_metadata(repo_root=repo_root, tool="codex")
 
-    assert claude_metadata.launch_args_override is None
+    assert claude_metadata.launch_overrides is None
     assert claude_metadata.operator_prompt_mode == "unattended"
-    assert codex_metadata.launch_args_override is None
+    assert codex_metadata.launch_overrides is None
     assert codex_metadata.operator_prompt_mode is None
     assert claude_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
     assert codex_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
@@ -623,7 +623,7 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
 
     def _fake_build(request):
         requested["runtime_root"] = request.runtime_root
-        requested["launch_args_override"] = request.launch_args_override
+        requested["launch_overrides"] = request.launch_overrides
         requested["operator_prompt_mode"] = request.operator_prompt_mode
         home_path = Path(request.runtime_root) / "homes" / "claude-home"  # type: ignore[arg-type]
         manifest_path = Path(request.runtime_root) / "manifests" / "claude-home.yaml"  # type: ignore[arg-type]
@@ -698,7 +698,7 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     live_state_payload = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
     manifest_payload = json.loads(paths.watch_manifest_path.read_text(encoding="utf-8"))
     assert requested["runtime_root"] == run_root / "runtime"
-    assert requested["launch_args_override"] is None
+    assert requested["launch_overrides"] is None
     assert requested["operator_prompt_mode"] == "unattended"
     assert recorder_start_calls == []
     assert set(cleaned_sessions) == {
@@ -1295,7 +1295,6 @@ def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path
                 "",
                 "[tools.codex]",
                 'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
-                "launch_args_override = []",
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",
@@ -1446,7 +1445,6 @@ def test_resolve_demo_config_rejects_missing_required_section(tmp_path: Path) ->
                 "",
                 "[tools.codex]",
                 'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
-                "launch_args_override = []",
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",
@@ -2119,7 +2117,6 @@ def test_run_recorded_sweep_supports_required_sequence_contract(tmp_path: Path) 
                 "",
                 "[tools.codex]",
                 'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
-                "launch_args_override = []",
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",

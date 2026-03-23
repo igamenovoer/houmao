@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,6 +26,64 @@ from houmao.agents.realm_controller.loaders import (
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _manifest(
+    *,
+    tool: str,
+    executable: str,
+    home_env_var: str,
+    home_path: Path,
+    env_file: Path,
+    allowlisted_env_vars: list[str],
+    launch_args: list[str] | None = None,
+    launch_policy: dict[str, Any] | None = None,
+    runtime_extra: dict[str, Any] | None = None,
+    recipe_overrides: dict[str, Any] | None = None,
+    direct_overrides: dict[str, Any] | None = None,
+    tool_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    runtime: dict[str, Any] = {
+        "launch_executable": executable,
+        "launch_home_selector": {
+            "env_var": home_env_var,
+            "value": str(home_path),
+        },
+        "launch_contract": {
+            "adapter_defaults": {
+                "args": list(launch_args or []),
+                "tool_params": {},
+            },
+            "requested_overrides": {
+                "recipe": recipe_overrides,
+                "direct": direct_overrides,
+            },
+            "tool_metadata": tool_metadata or {"tool_params": {}},
+            "construction_provenance": {
+                "adapter_path": "/tmp/tool-adapter.yaml",
+                "recipe_path": None,
+                "recipe_overrides_present": recipe_overrides is not None,
+                "direct_overrides_present": direct_overrides is not None,
+            },
+        },
+    }
+    if runtime_extra is not None:
+        runtime.update(runtime_extra)
+
+    manifest: dict[str, Any] = {
+        "schema_version": 2,
+        "inputs": {"tool": tool},
+        "runtime": runtime,
+        "credentials": {
+            "env_contract": {
+                "source_file": str(env_file),
+                "allowlisted_env_vars": allowlisted_env_vars,
+            }
+        },
+    }
+    if launch_policy is not None:
+        manifest["launch_policy"] = launch_policy
+    return manifest
 
 
 def test_load_role_package_reads_prompt(tmp_path: Path) -> None:
@@ -78,23 +137,14 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
     _write(role_prompt_path, "Test role prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    )
 
     role = load_role_package(tmp_path / "repo", "test-role")
     plan = build_launch_plan(
@@ -120,23 +170,14 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
     _write(role_prompt_path, "Test role prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+    )
 
     role = load_role_package(tmp_path / "repo", "test-role")
     mailbox = FilesystemMailboxResolvedConfig(
@@ -205,24 +246,15 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
         _fake_version,
     )
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "launch_policy": {"operator_prompt_mode": "unattended"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     plan = build_launch_plan(
@@ -279,40 +311,34 @@ def test_parse_allowlisted_env_selects_claude_model_selection_vars(
 
 
 @pytest.mark.parametrize(
-    ("backend", "launch_args", "expected_arg"),
+    ("tool", "backend", "launch_args", "expected_arg", "protocol_arg"),
     [
-        ("codex_app_server", ["--x"], "app-server"),
-        ("claude_headless", ["-p", "--x"], "-p"),
-        ("gemini_headless", ["--x"], "-p"),
+        ("codex", "codex_app_server", ["--x"], "--x", "app-server"),
+        ("claude", "claude_headless", ["--x"], "--x", "-p"),
+        ("gemini", "gemini_headless", ["--x"], "--x", "-p"),
     ],
 )
-def test_build_launch_plan_backend_args(
+def test_build_launch_plan_keeps_optional_args_separate_from_protocol_args(
     tmp_path: Path,
+    tool: str,
     backend: str,
     launch_args: list[str],
     expected_arg: str,
+    protocol_arg: str,
 ) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("A=1\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex" if backend == "codex_app_server" else "claude"},
-        "runtime": {
-            "launch_executable": "tool",
-            "launch_args": launch_args,
-            "launch_home_selector": {
-                "env_var": "HOME_VAR",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["A"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool=tool,
+        executable="tool",
+        home_env_var="HOME_VAR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["A"],
+        launch_args=launch_args,
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     plan = build_launch_plan(
@@ -325,6 +351,9 @@ def test_build_launch_plan_backend_args(
     )
 
     assert expected_arg in plan.args
+    protocol_args = plan.metadata["launch_overrides"]["backend_resolution"]["protocol_reserved_args"]
+    assert protocol_arg in protocol_args
+    assert protocol_arg not in plan.args
 
 
 def test_build_launch_plan_rejects_claude_reserved_headless_args(
@@ -334,23 +363,15 @@ def test_build_launch_plan_rejects_claude_reserved_headless_args(
     env_file.write_text("A=1\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "claude"},
-        "runtime": {
-            "launch_executable": "claude",
-            "launch_args": ["-p", "--resume", "existing-session"],
-            "launch_home_selector": {
-                "env_var": "CLAUDE_CONFIG_DIR",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["A"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["A"],
+        launch_args=["-p", "--resume", "existing-session"],
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="backend-reserved argument"):
@@ -371,23 +392,15 @@ def test_build_launch_plan_rejects_codex_headless_reserved_args(
     env_file.write_text("A=1\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": ["exec", "--json"],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["A"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["A"],
+        launch_args=["exec", "--json"],
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="backend-reserved argument"):
@@ -407,23 +420,15 @@ def test_build_launch_plan_codex_headless_sets_cli_mode_metadata(
     env_file = tmp_path / "vars.env"
     env_file.write_text("A=1\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": ["--x"],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["A"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["A"],
+        launch_args=["--x"],
+    )
     role = load_role_package(tmp_path / "repo", "r")
     plan = build_launch_plan(
         LaunchPlanRequest(
@@ -502,24 +507,15 @@ def test_build_launch_plan_records_configured_cao_parsing_mode(tmp_path: Path) -
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-            "cao": {"parsing_mode": "shadow_only"},
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={"cao": {"parsing_mode": "shadow_only"}},
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     plan = build_launch_plan(
@@ -539,24 +535,15 @@ def test_build_launch_plan_rejects_unknown_cao_parsing_mode(tmp_path: Path) -> N
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
-            "cao_parsing_mode": "hybrid",
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
-            }
-        },
-    }
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={"cao_parsing_mode": "hybrid"},
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="Unsupported CAO parsing mode"):
@@ -575,15 +562,14 @@ def test_build_launch_plan_records_shadow_stall_policy_config(tmp_path: Path) ->
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={
             "cao": {
                 "parsing_mode": "shadow_only",
                 "shadow": {
@@ -591,15 +577,9 @@ def test_build_launch_plan_records_shadow_stall_policy_config(tmp_path: Path) ->
                     "completion_stability_seconds": 1.5,
                     "stalled_is_terminal": True,
                 },
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
             }
         },
-    }
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     plan = build_launch_plan(
@@ -623,28 +603,21 @@ def test_build_launch_plan_rejects_invalid_shadow_unknown_timeout(tmp_path: Path
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={
             "cao": {
                 "shadow": {
                     "unknown_to_stalled_timeout_seconds": 0,
                 }
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
             }
         },
-    }
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="must be > 0"):
@@ -665,29 +638,22 @@ def test_build_launch_plan_rejects_invalid_shadow_terminality_type(
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={
             "cao": {
                 "shadow": {
                     "unknown_to_stalled_timeout_seconds": 5,
                     "stalled_is_terminal": "yes",
                 }
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
             }
         },
-    }
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="Expected boolean"):
@@ -706,28 +672,21 @@ def test_build_launch_plan_rejects_invalid_completion_stability_timeout(tmp_path
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={
             "cao": {
                 "shadow": {
                     "completion_stability_seconds": 0,
                 }
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
             }
         },
-    }
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="must be > 0"):
@@ -746,28 +705,21 @@ def test_build_launch_plan_rejects_invalid_completion_stability_type(tmp_path: P
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
 
-    manifest = {
-        "inputs": {"tool": "codex"},
-        "runtime": {
-            "launch_executable": "codex",
-            "launch_args": [],
-            "launch_home_selector": {
-                "env_var": "CODEX_HOME",
-                "value": str(tmp_path / "home"),
-            },
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        runtime_extra={
             "cao": {
                 "shadow": {
                     "completion_stability_seconds": "fast",
                 }
-            },
-        },
-        "credentials": {
-            "env_contract": {
-                "source_file": str(env_file),
-                "allowlisted_env_vars": ["OPENAI_API_KEY"],
             }
         },
-    }
+    )
 
     role = load_role_package(tmp_path / "repo", "r")
     with pytest.raises(LaunchPlanError, match="Expected number"):
@@ -776,6 +728,148 @@ def test_build_launch_plan_rejects_invalid_completion_stability_type(tmp_path: P
                 brain_manifest=manifest,
                 role_package=role,
                 backend="cao_rest",
+                working_directory=tmp_path,
+            )
+        )
+
+
+def test_build_launch_plan_resolves_claude_typed_launch_param(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        recipe_overrides={"tool_params": {"include_partial_messages": True}},
+        tool_metadata={
+            "tool_params": {
+                "include_partial_messages": {
+                    "type": "boolean",
+                    "backends": {
+                        "claude_headless": {
+                            "args_when_true": ["--include-partial-messages"],
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="claude_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert "--include-partial-messages" in plan.args
+    assert "-p" not in plan.args
+    assert (
+        plan.metadata["launch_overrides"]["backend_resolution"]["translated_args"]
+        == ["--include-partial-messages"]
+    )
+
+
+def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        direct_overrides={"tool_params": {"include_partial_messages": True}},
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    with pytest.raises(LaunchPlanError, match="tool `codex` exposes no supported"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="codex_headless",
+                working_directory=tmp_path,
+            )
+        )
+
+
+@pytest.mark.parametrize("backend", ["cao_rest", "houmao_server_rest"])
+def test_build_launch_plan_rejects_rest_backends_that_cannot_honor_overrides(
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        recipe_overrides={"tool_params": {"include_partial_messages": True}},
+        tool_metadata={
+            "tool_params": {
+                "include_partial_messages": {
+                    "type": "boolean",
+                    "backends": {
+                        "claude_headless": {
+                            "args_when_true": ["--include-partial-messages"],
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    with pytest.raises(LaunchPlanError, match="cannot honor launch overrides"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend=backend,  # type: ignore[arg-type]
+                working_directory=tmp_path,
+            )
+        )
+
+
+def test_build_launch_plan_rejects_schema_version_1_manifest(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+    )
+    manifest["schema_version"] = 1
+
+    role = load_role_package(tmp_path / "repo", "r")
+    with pytest.raises(LaunchPlanError, match="Rebuild the affected brain home"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="codex_headless",
                 working_directory=tmp_path,
             )
         )

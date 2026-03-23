@@ -915,6 +915,8 @@ def _prepare_lane(
             skills=list(recipe.skills),
             config_profile=lane_preflight.config_profile,
             credential_profile=lane_preflight.credential_profile,
+            recipe_path=lane_preflight.brain_recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             agent_name=recipe.default_agent_name,
             home_id=f"projection-demo-{slot}",
             reuse_home=False,

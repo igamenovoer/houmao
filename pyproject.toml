@@ -87,6 +87,9 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]

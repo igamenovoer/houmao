@@ -82,6 +82,8 @@ def build_participant_brain(
             skills=list(recipe.skills),
             config_profile=recipe.config_profile,
             credential_profile=recipe.credential_profile,
+            recipe_path=participant.brain_recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
             home_id=home_id,

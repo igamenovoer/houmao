@@ -10,7 +10,11 @@ from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 
-from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.brain_builder import (
+    BuildRequest,
+    build_brain_home,
+    load_launch_overrides_input,
+)
 from houmao.mailbox.protocol import mailbox_address_path_segment
 
 from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
@@ -112,6 +116,10 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument("--skill", dest="skills", action="append", default=[])
     build.add_argument("--config-profile", help="Config profile")
     build.add_argument("--cred-profile", help="Credential profile")
+    build.add_argument(
+        "--launch-overrides",
+        help="Path to launch-overrides YAML/JSON, or an inline JSON object",
+    )
     build.add_argument("--home-id", help="Optional home id")
     build.add_argument("--reuse-home", action="store_true", help="Allow reusing home id")
 
@@ -410,11 +418,24 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     runtime_root = _optional_path(args.runtime_root, base=cwd)
 
     recipe = None
+    recipe_path: Path | None = None
     if args.recipe:
-        recipe = load_brain_recipe_from_path(_resolve_path(args.recipe, base=agent_def_dir))
+        recipe_path = _resolve_path(args.recipe, base=agent_def_dir)
+        recipe = load_brain_recipe_from_path(recipe_path)
     elif args.blueprint:
         blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))
-        recipe = load_brain_recipe_from_path(blueprint.brain_recipe_path)
+        recipe_path = blueprint.brain_recipe_path
+        recipe = load_brain_recipe_from_path(recipe_path)
+
+    direct_launch_overrides = (
+        load_launch_overrides_input(
+            args.launch_overrides,
+            base=cwd,
+            source="--launch-overrides",
+        )
+        if args.launch_overrides
+        else None
+    )
 
     tool = args.tool or (recipe.tool if recipe else None)
     skills = list(args.skills) if args.skills else (recipe.skills if recipe else [])
@@ -441,10 +462,13 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             skills=[str(skill) for skill in skills],
             config_profile=str(config_profile),
             credential_profile=str(credential_profile),
+            recipe_path=recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides if recipe else None,
             mailbox=recipe.mailbox if recipe else None,
             agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
+            launch_overrides=direct_launch_overrides,
         )
     )
 
@@ -545,11 +569,17 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     mailbox = getattr(controller.launch_plan, "mailbox", None)
     if mailbox is not None:
         payload["mailbox"] = mailbox.redacted_payload()
-    if controller.launch_plan.launch_policy_provenance is not None:
+    launch_policy_provenance = getattr(controller.launch_plan, "launch_policy_provenance", None)
+    if launch_policy_provenance is not None:
         payload["launch_policy_provenance"] = (
-            controller.launch_plan.launch_policy_provenance.to_payload()
+            launch_policy_provenance.to_payload()
         )
-    launch_policy_metadata = controller.launch_plan.metadata.get("launch_policy")
+    launch_plan_metadata = getattr(controller.launch_plan, "metadata", None)
+    launch_policy_metadata = (
+        launch_plan_metadata.get("launch_policy")
+        if isinstance(launch_plan_metadata, dict)
+        else None
+    )
     if isinstance(launch_policy_metadata, dict):
         payload["launch_policy"] = launch_policy_metadata
 

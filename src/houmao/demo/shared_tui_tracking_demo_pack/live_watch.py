@@ -108,7 +108,6 @@ def start_live_watch(
         workflow_kind="live_watch",
         tool=tool,
     )
-
     try:
         tool_metadata = default_tool_runtime_metadata(
             repo_root=repo_root,
@@ -132,10 +131,12 @@ def start_live_watch(
                 skills=list(recipe.skills),
                 config_profile=recipe.config_profile,
                 credential_profile=recipe.credential_profile,
+                recipe_path=selected_recipe_path,
+                recipe_launch_overrides=getattr(recipe, "launch_overrides", None),
                 runtime_root=paths.runtime_root,
                 mailbox=recipe.mailbox,
                 agent_name=recipe.default_agent_name,
-                launch_args_override=tool_metadata.launch_args_override,
+                launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
             )

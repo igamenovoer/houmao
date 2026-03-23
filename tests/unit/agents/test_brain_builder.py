@@ -13,6 +13,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
+from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 
 
@@ -84,8 +85,16 @@ home_selector:
   env_var: CLAUDE_CONFIG_DIR
 launch:
   executable: claude
-  args:
-    - -p
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params:
+      include_partial_messages:
+        type: boolean
+        backends:
+          claude_headless:
+            args_when_true:
+              - --include-partial-messages
   env_injection:
     mode: export_from_env_file
 config_projection:
@@ -224,6 +233,38 @@ launch_policy:
     recipe = load_brain_recipe(recipe_path)
 
     assert recipe.operator_prompt_mode == "unattended"
+
+
+def test_load_brain_recipe_accepts_launch_overrides(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+launch_overrides:
+  args:
+    mode: append
+    values:
+      - --verbose
+  tool_params:
+    include_partial_messages: true
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.launch_overrides is not None
+    assert recipe.launch_overrides.to_payload() == {
+        "args": {"mode": "append", "values": ["--verbose"]},
+        "tool_params": {"include_partial_messages": True},
+    }
 
 
 def test_load_brain_recipe_accepts_mailbox_config(tmp_path: Path) -> None:
@@ -423,7 +464,7 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     assert payload["skipDangerousModePermissionPrompt"] is True
     assert (result.home_path / "claude_state.template.json").is_file()
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    assert 'exec claude -p "$@"' in launch_script
+    assert 'exec claude "$@"' in launch_script
     assert "export ANTHROPIC_API_KEY=sk-test" in launch_script
     assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
     assert "ENV_FILE=" not in launch_script
@@ -460,7 +501,7 @@ def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_
     assert "--backend raw_launch" in launch_script
 
 
-def test_build_brain_home_supports_launch_args_override(tmp_path: Path) -> None:
+def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_claude_repo(agent_def_dir)
@@ -474,14 +515,66 @@ def test_build_brain_home_supports_launch_args_override(tmp_path: Path) -> None:
             config_profile="default",
             credential_profile="personal-a",
             home_id="claude-home-interactive",
-            launch_args_override=[],
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="replace", values=()),
+            ),
         )
     )
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    assert manifest["runtime"]["launch_args"] == []
+    assert manifest["schema_version"] == 2
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
+        "args": {"mode": "replace", "values": []}
+    }
     assert 'exec claude "$@"' in launch_script
+
+
+def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            recipe_path=tmp_path / "recipe.yaml",
+            recipe_launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="append", values=("--recipe",)),
+                tool_params={"include_partial_messages": True},
+            ),
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="replace", values=("--direct",)),
+            ),
+            home_id="claude-home-layered",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+
+    assert manifest["runtime"]["launch_contract"]["adapter_defaults"] == {
+        "args": [],
+        "tool_params": {},
+    }
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["recipe"] == {
+        "args": {"mode": "append", "values": ["--recipe"]},
+        "tool_params": {"include_partial_messages": True},
+    }
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
+        "args": {"mode": "replace", "values": ["--direct"]}
+    }
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["recipe_path"] == str(
+        (tmp_path / "recipe.yaml").resolve()
+    )
+    assert 'exec claude --direct "$@"' in launch_script
 
 
 def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> None:
