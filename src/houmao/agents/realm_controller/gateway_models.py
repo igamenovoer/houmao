@@ -746,6 +746,8 @@ class GatewayMailStateRequestV1(_StrictGatewayModel):
 
     schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
     message_ref: str
+    # v1 shared mailbox state updates are intentionally one-way: mark the processed
+    # message read, while broader flag editing and mark-unread remain out of scope.
     read: Literal[True] = True
 
     @field_validator("message_ref")

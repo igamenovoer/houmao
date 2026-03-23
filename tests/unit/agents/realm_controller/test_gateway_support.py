@@ -1507,6 +1507,64 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     assert state_response.json()["read"] is True
 
 
+def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root_with_stalwart_mailbox(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+
+    class _MalformedStalwartJmapClient:
+        def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
+            del jmap_url, login_identity, credential_file
+
+        def update_read_state(
+            self,
+            *,
+            message_ref: str,
+            read: bool,
+        ) -> dict[str, object]:
+            del read
+            return {
+                "id": message_ref,
+                "threadId": "thread-1",
+                "receivedAt": "2026-03-19T08:00:00Z",
+                "subject": "Stalwart unread",
+                "preview": "preview",
+                "body": "full body",
+                "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
+                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "cc": [],
+                "replyTo": [],
+                "attachments": [],
+            }
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
+        _MalformedStalwartJmapClient,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/state",
+        json=GatewayMailStateRequestV1(
+            message_ref="stalwart:mail-1",
+            read=True,
+        ).model_dump(mode="json"),
+    )
+    assert response.status_code == 502
+    assert "explicit boolean `unread` state" in response.json()["detail"]
+
+
 def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

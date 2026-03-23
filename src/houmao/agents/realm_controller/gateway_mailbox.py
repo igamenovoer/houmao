@@ -35,7 +35,9 @@ from houmao.mailbox.managed import (
     update_mailbox_state,
 )
 from houmao.mailbox.protocol import (
+    MailboxAttachment,
     MailboxMessage,
+    MailboxPrincipal,
     parse_message_document,
     serialize_message_document,
 )
@@ -510,12 +512,13 @@ class StalwartGatewayMailboxAdapter:
         except StalwartError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         message_id = _require_string(payload, "id")
+        unread = _require_boolean(payload, "unread")
         return GatewayMailStateResponseV1(
             transport="stalwart",
             principal_id=self.m_mailbox.principal_id,
             address=self.m_mailbox.address,
             message_ref=f"stalwart:{message_id}",
-            read=not bool(payload.get("unread")),
+            read=not unread,
         )
 
     def _client(self) -> StalwartJmapClient:
@@ -531,23 +534,25 @@ class StalwartGatewayMailboxAdapter:
         )
 
 
-def _participant_from_mailbox_principal(principal: object) -> GatewayMailboxParticipantV1:
+def _participant_from_mailbox_principal(principal: MailboxPrincipal) -> GatewayMailboxParticipantV1:
     return GatewayMailboxParticipantV1(
-        address=getattr(principal, "address"),
-        display_name=getattr(principal, "display_name", None),
-        principal_id=getattr(principal, "principal_id", None),
+        address=principal.address,
+        display_name=principal.display_name,
+        principal_id=principal.principal_id,
     )
 
 
-def _attachment_from_mailbox_attachment(attachment: object) -> GatewayMailboxAttachmentV1:
+def _attachment_from_mailbox_attachment(
+    attachment: MailboxAttachment,
+) -> GatewayMailboxAttachmentV1:
     return GatewayMailboxAttachmentV1(
-        attachment_id=getattr(attachment, "attachment_id"),
-        kind=getattr(attachment, "kind"),
-        media_type=getattr(attachment, "media_type"),
-        locator=getattr(attachment, "path"),
-        size_bytes=getattr(attachment, "size_bytes", None),
-        sha256=getattr(attachment, "sha256", None),
-        label=getattr(attachment, "label", None),
+        attachment_id=attachment.attachment_id,
+        kind=attachment.kind,
+        media_type=attachment.media_type,
+        locator=attachment.path,
+        size_bytes=attachment.size_bytes,
+        sha256=attachment.sha256,
+        label=attachment.label,
     )
 
 
@@ -691,6 +696,15 @@ def _require_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise GatewayMailboxError(f"mailbox payload is missing `{key}`")
+    return value
+
+
+def _require_boolean(payload: dict[str, object], key: str) -> bool:
+    """Return one required boolean mailbox payload field."""
+
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise GatewayMailboxError(f"mailbox payload is missing explicit boolean `{key}` state")
     return value
 
 

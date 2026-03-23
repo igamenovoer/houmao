@@ -588,6 +588,8 @@ class StalwartJmapClient:
             ]
         )
         _require_method_response(response, method_name="Email/set", call_id="m1")
+        # The shared gateway facade speaks in `read`, while JMAP models the same state
+        # through the presence or absence of the `$seen` keyword.
         return self.get_email(email_id=email_id)
 
     def get_email(self, *, email_id: str) -> dict[str, Any]:
