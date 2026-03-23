@@ -16,7 +16,9 @@ from typing import Any, Callable, Literal
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_reference,
+    mailbox_skill_compatibility_document_path,
+    mailbox_skill_document_path,
+    mailbox_skill_name,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
 from houmao.agents.mailbox_runtime_models import (
@@ -151,9 +153,16 @@ def _mail_prompt_instruction_lines(
     mailbox: MailboxResolvedConfig,
     prefer_live_gateway: bool,
 ) -> list[str]:
-    skill_reference = mailbox_skill_reference(mailbox)
+    skill_name = mailbox_skill_name(mailbox)
+    skill_document_path = mailbox_skill_document_path(mailbox)
+    compatibility_document_path = mailbox_skill_compatibility_document_path(mailbox)
     lines = [
-        f"Use the runtime-owned mailbox skill `{skill_reference}` for this mailbox operation.",
+        (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
+        f"Open the primary mailbox skill document at `{skill_document_path}`.",
+        (
+            "The same mailbox skill may also be mirrored at "
+            f"`{compatibility_document_path}`, but treat that hidden path as compatibility-only."
+        ),
         "Follow the mailbox env bindings for the current session. Do not guess sender identity or mailbox endpoints.",
         "Only mark messages read after the message has actually been processed successfully.",
     ]

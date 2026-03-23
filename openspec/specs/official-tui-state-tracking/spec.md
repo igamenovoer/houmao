@@ -2,27 +2,49 @@
 Define the server-owned live TUI tracking contract for direct tmux/process observation, official parsing, in-memory tracked state, and stability metadata.
 ## Requirements
 ### Requirement: Live tracked-state reduction SHALL be implemented through the shared TUI tracking core
-For supported parsed tmux-backed sessions, the server SHALL derive tracker-owned `surface`, `turn`, `last_turn`, detector identity, and tracker-state stability semantics through the repo-owned shared TUI tracking core rather than through a package-local reducer that replay and validation tools cannot reuse.
+For supported tmux-backed TUI sessions, the server SHALL derive tracker-owned `surface`, `turn`, `last_turn`, detector identity, and tracker-state stability semantics through the repo-owned shared TUI tracking core rather than through a package-local reducer or parser-owned reduction path.
 
-The server SHALL remain responsible for live tmux/process/probe observation, session identity, explicit prompt-submission capture, parsed-surface metadata, diagnostics, lifecycle readiness/completion pipelines, effective visible stability, and in-memory authority, but the tracker-owned reduction itself SHALL come from the shared standalone tracker session.
+The server SHALL remain responsible for live tmux/process/probe observation, session identity, explicit prompt-submission capture, optional parser-derived surface metadata, optional parser-fed lifecycle/operator enrichment, diagnostics, visible-stability metadata over the published response, and in-memory authority, but the tracker-owned reduction itself SHALL come from the shared standalone tracker session.
 
-The server's live adapter SHALL feed raw captured TUI snapshot text and any explicit prompt-submission evidence into that shared tracker and SHALL then merge the resulting tracker state back into the published live contract together with server-owned diagnostics, lifecycle snapshots, and visible-stability metadata.
+The server's live adapter SHALL feed raw captured TUI snapshot text and any explicit prompt-submission evidence into that shared tracker. Parser-derived data MAY be computed from the same raw capture for server-owned features, but SHALL NOT be required tracker input, SHALL NOT replace raw snapshot text as the authoritative tracking source, and SHALL NOT arm tracker authority through parser-derived surface-inference heuristics.
+
+Optional server-owned `operator_state`, `lifecycle_timing`, and `lifecycle_authority` fields MAY continue to derive from parser-fed lifecycle monitoring and explicit-input server anchors, but those fields SHALL remain sidecar server evidence and SHALL NOT redefine tracker-owned `surface`, `turn`, or `last_turn`.
 
 #### Scenario: Live cycle adapts raw TUI snapshot and diagnostics into the shared core
 - **WHEN** the server records one live tracking cycle for a supported tmux-backed session
 - **THEN** it supplies the captured raw TUI snapshot and any explicit prompt-submission evidence to the shared core
-- **AND THEN** it keeps tmux/process/probe/parse diagnostics and lifecycle readiness/completion under server ownership
-- **AND THEN** the published tracked-state response preserves the official live contract while sharing tracker reduction semantics with replay consumers
+- **AND THEN** it keeps tmux/process/probe diagnostics and any parser-owned sidecar data under server ownership
+- **AND THEN** the published tracked-state response preserves the official live contract while sharing tracker reduction semantics with the standalone tracker module
 
 #### Scenario: Server-owned input remains authoritative through the shared core
 - **WHEN** the server accepts prompt input through its owned input route
 - **THEN** the live adapter arms turn authority in the shared core from that explicit input event
 - **AND THEN** later tracked state can still report `last_turn.source=explicit_input`
 
-#### Scenario: Visible stability remains server-owned when diagnostics participate
-- **WHEN** the published live stability signature depends on transport/process/parse diagnostics or other host-owned fields in addition to tracker state
-- **THEN** the server computes the visible stability view over the merged live contract
-- **AND THEN** tracker-owned stability from the shared core remains limited to tracker-state transitions
+#### Scenario: Surface-inference authority comes from the shared raw-snapshot tracker
+- **WHEN** a tracked live TUI session shows enough raw-snapshot evidence for a newer turn without an explicit input event
+- **THEN** the shared tracker may infer `last_turn.source=surface_inference` from raw snapshot evidence
+- **AND THEN** the live adapter does not arm tracker authority from parser-derived submit-ready heuristics for that turn
+
+#### Scenario: Observed tool version informs live profile selection when available
+- **WHEN** the server has observed tool-version metadata for a tracked live TUI session
+- **THEN** the live adapter supplies that version metadata to the shared tracker during profile resolution
+- **AND THEN** the live server does not default to an unspecified tracker profile merely because the session is live rather than standalone
+
+#### Scenario: Missing observed tool version falls back gracefully
+- **WHEN** the server lacks observed tool-version metadata for a tracked live TUI session
+- **THEN** the live adapter still resolves the shared tracker through its compatible fallback profile behavior
+- **AND THEN** missing version metadata alone does not fail live tracking or invent a parser-owned warning state
+
+#### Scenario: Parsed surface does not replace raw tracker input
+- **WHEN** the server also computes parsed-surface data from the captured tmux snapshot for server-owned functionality
+- **THEN** the live adapter still feeds the shared tracker from the raw captured snapshot text
+- **AND THEN** it does not synthesize or substitute tracker input from parser-owned fields during normal live execution
+
+#### Scenario: Parser-fed lifecycle sidecar does not override tracker-owned state
+- **WHEN** the server also computes parser-fed lifecycle or operator fields for that cycle
+- **THEN** those fields remain server-owned enrichment
+- **AND THEN** they do not override tracker-owned `surface`, `turn`, or `last_turn`
 
 ### Requirement: Known tmux-backed sessions are tracked continuously
 The system SHALL continuously track every known tmux-backed Houmao session while its tmux session exists, independent of whether any client is currently querying state and independent of whether a prompt was recently submitted.
@@ -65,22 +87,30 @@ For each tracked tmux-backed session, the system SHALL determine whether the sup
 - **AND THEN** the parsing stage may consume directly captured pane text for live state reduction
 
 ### Requirement: Parsed TUI state comes from direct tmux capture through the official parser
-For supported live TUI tools, the system SHALL capture pane content directly from tmux and SHALL derive parsed live state through the repo-owned official parser stack for that tool.
+For supported live TUI tools, when the system computes parser-owned surface evidence it SHALL parse pane content directly captured from tmux through the repo-owned official parser stack for server-owned functionality such as structured diagnostics, parser metadata, or operator-facing surface evidence.
 
-The parsing and state-tracking path SHALL NOT require `cao-server` terminal-status or terminal-output endpoints as the authoritative source for live TUI interpretation.
+That parser path SHALL remain separate from state-tracking authority. Parsed live surface data SHALL be server-owned sidecar enrichment derived from the same raw tmux capture, and the shared tracked-state reduction SHALL NOT require parsed-surface output as its input contract.
 
-#### Scenario: Supported live TUI snapshot is parsed directly from tmux capture
+The parsing and state-tracking paths SHALL NOT require `cao-server` terminal-status or terminal-output endpoints as the authoritative source for either live TUI interpretation or tracked-state reduction.
+
+#### Scenario: Supported live TUI snapshot can be parsed as sidecar server evidence
 - **WHEN** a tracked supported TUI session is up and the server captures pane content directly from tmux
-- **THEN** the system parses that captured content through the official parser stack
-- **AND THEN** the resulting parsed state becomes the live interpretation surface for that cycle
+- **THEN** the system may parse that captured content through the official parser stack
+- **AND THEN** the resulting parsed state is available as server-owned structured evidence for that cycle
+- **AND THEN** the tracker-reduction path continues to depend on the raw captured snapshot rather than on parsed-surface output
 
-#### Scenario: CAO is not the parsing authority for tracked state
+#### Scenario: CAO is not the parsing or tracking authority for live state
 - **WHEN** the system updates live tracked state for a supported tmux-backed session
 - **THEN** it does not rely on child `cao-server` output or status polling as the parsing authority
-- **AND THEN** the tracked state remains available even when the CAO parsing path is intentionally bypassed
+- **AND THEN** it does not rely on child `cao-server` as the authoritative source for tracker input or live tracked-state interpretation
+
+#### Scenario: Parser failure remains explicit without becoming tracker input
+- **WHEN** the server captures raw pane text successfully but the official parser fails for that cycle
+- **THEN** the server records explicit parser failure in server-owned diagnostics
+- **AND THEN** it does not fabricate parser-derived tracker input in order to continue state reduction
 
 ### Requirement: Live tracked state exposes foundational observables and unified turn semantics for consumer dashboards
-For supported parsed tmux-backed sessions, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus one unified turn lifecycle.
+For supported tmux-backed sessions whose raw pane capture is available to the shared tracker, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus one unified turn lifecycle.
 
 At minimum, that simplified model SHALL include:
 
@@ -91,13 +121,13 @@ At minimum, that simplified model SHALL include:
 - `last_turn.result`: whether the most recent completed turn ended in `success`, `interrupted`, `known_failure`, or `none`
 - `last_turn.source`: whether the most recent completed turn came from `explicit_input`, `surface_inference`, or `none`
 
-The system SHALL treat those fields as the primary consumer-facing state contract instead of requiring dashboards to interpret reducer-internal readiness, completion, or anchor-bookkeeping terms.
+The system SHALL treat those fields as the primary consumer-facing state contract instead of requiring dashboards to interpret reducer-internal readiness, completion, parser heuristics, or anchor-bookkeeping terms.
 
 The system SHALL NOT distinguish chat turns from slash commands in the public tracked-state contract. Submitted input is modeled as one turn lifecycle because command-looking prompt text is not a reliable semantic discriminator.
 
 The system SHALL NOT assume that every visible TUI change has a known cause. Surface churn such as prompt repaint, cursor movement, tab handling, left/right navigation, local prompt editing, or other unexplained UI changes MAY alter the visible sample without starting, advancing, or completing a tracked turn.
 
-Such unexplained surface churn MAY update diagnostics, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `turn.phase=active` or emit a new `last_turn` unless the stricter turn-evidence rules are satisfied.
+Such unexplained surface churn MAY update diagnostics, parser-owned sidecar evidence, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `turn.phase=active` or emit a new `last_turn` unless the stricter turn-evidence rules are satisfied.
 
 Visible progress or spinner signals SHALL be treated as supporting evidence only. When present, they are sufficient evidence for active-turn inference. When absent, they SHALL NOT by themselves negate the possibility of an active turn.
 
@@ -106,48 +136,27 @@ Ambiguous menus, selection boxes, permission prompts, slash-command UI, and simi
 The system SHALL NOT publish a generic catch-all failure outcome. Only specifically recognized failure signatures SHALL produce `last_turn.result=known_failure`. Failure-like but unmatched surfaces SHALL degrade to `turn.phase=unknown` unless stronger evidence supports another state.
 
 #### Scenario: Ready posture surfaces a ready turn
-- **WHEN** the parsed live surface is supported, accepting prompt input, and visibly ready for immediate submit
+- **WHEN** the live TUI surface is supported, accepting prompt input, and visibly ready for immediate submit
 - **THEN** the tracked state reports `surface.accepting_input=yes`
 - **AND THEN** the tracked state reports `surface.ready_posture=yes`
 - **AND THEN** the tracked state reports `turn.phase=ready`
 
 #### Scenario: Response-region growth surfaces an active turn without spinner evidence
-- **WHEN** the parsed live surface shows scrolling dialog or tool-response growth that satisfies the tracker's active-turn evidence rules
+- **WHEN** the live TUI surface shows scrolling dialog or tool-response growth that satisfies the tracker's active-turn evidence rules
 - **AND WHEN** no spinner or progress banner is currently visible
 - **THEN** the tracked state reports `turn.phase=active`
 - **AND THEN** the tracked state does not require spinner visibility to recognize that the turn is in flight
 
 #### Scenario: Spinner evidence is sufficient for an active turn
-- **WHEN** the parsed live surface shows a visible spinner, progress signal, or equivalent activity banner during a tracked turn
+- **WHEN** the live TUI surface shows a visible spinner, progress signal, or equivalent activity banner during a tracked turn
 - **THEN** the tracked state may report `turn.phase=active` from that evidence
 - **AND THEN** the same contract does not require such a signal to exist on every active turn
-
-#### Scenario: Slash-looking input does not create a separate lifecycle kind
-- **WHEN** the visible prompt text is shaped like `/<command-name>` or another slash-looking token
-- **THEN** the tracked state does not create a separate public command lifecycle from that text shape alone
-- **AND THEN** the tracked state continues to treat submitted input through the unified turn model
 
 #### Scenario: Unexplained prompt-area churn does not create a turn
 - **WHEN** the visible prompt area changes because of tab, cursor navigation, repaint, or other unexplained UI-local churn
 - **AND WHEN** no explicit input route, strict surface-inference threshold, active-turn evidence, interrupt, or known-failure signal is present
 - **THEN** the tracked state does not create a new active turn from that churn alone
-- **AND THEN** any resulting state change is limited to diagnostics, `surface`, generic stability, or recent transitions
-
-#### Scenario: Ambiguous interactive UI degrades to unknown rather than a dedicated operator state
-- **WHEN** the live surface shows a menu, selection box, permission prompt, slash-command picker, or similar interactive UI whose semantics are not stable enough for a dedicated public state
-- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
-- **AND THEN** the tracked state does not emit a dedicated operator-handoff terminal outcome
-- **AND THEN** the caller is not required to interpret tool-specific operator-gate styling as a stable API contract
-
-#### Scenario: Unmatched failure-like UI degrades to unknown rather than known-failure
-- **WHEN** the live surface shows failure-looking text or layout churn that does not match a supported known-failure rule
-- **THEN** the tracked state reports `turn.phase=unknown` unless stronger active or terminal evidence is present
-- **AND THEN** the tracked state does not emit `last_turn.result=known_failure` from that observation alone
-
-#### Scenario: Recognized failure signature records known-failure
-- **WHEN** the live surface shows a specifically recognized failure signature for the supported tool
-- **THEN** the tracked state records `last_turn.result=known_failure`
-- **AND THEN** the caller can distinguish that explicit known failure from generic unknown posture
+- **AND THEN** any resulting state change is limited to diagnostics, parser-owned sidecar evidence, `surface`, generic stability, or recent transitions
 
 #### Scenario: Settled return to ready records a success outcome
 - **WHEN** an active tracked turn returns to a stable ready posture after observable post-submit activity that satisfies the tracker’s turn-evidence rules
@@ -185,16 +194,17 @@ At minimum, the tracked-state contract SHALL expose:
 - `parse_status`,
 - optional `probe_error` detail,
 - optional `parse_error` detail,
-- nullable parsed TUI surface,
+- optional parsed TUI surface data when the server computes it for that cycle,
 - diagnostic availability or health metadata for the current sample, and
-- the simplified foundational/turn/last-turn state defined by this capability.
+- the simplified foundational `surface`, `turn`, and `last_turn` state defined by this capability.
 
-For supported parsed tools, parse failure SHALL be represented explicitly rather than fabricated as a successful parsed surface.
+For supported tools, parse failure SHALL be represented explicitly as a server-owned diagnostic outcome rather than fabricated as a successful parsed surface. Parse outcomes SHALL remain distinct from tracker-owned reduction and SHALL NOT require converting parser-owned fields back into tracker input.
 
 #### Scenario: Parser failure is explicit in live tracked state
-- **WHEN** the tmux session is live, the supported TUI process is up, and the official parser fails for that cycle
+- **WHEN** the tmux session is live, the supported TUI process is up, raw pane capture succeeds, and the official parser fails for that cycle
 - **THEN** the live tracked state records an explicit parse-failure status
 - **AND THEN** the parsed-surface field is absent or null for that cycle
+- **AND THEN** the server does not claim parser-owned data as the source of tracker reduction for that sample
 
 #### Scenario: TUI-down cycle still exposes transport and process state
 - **WHEN** the tmux session remains live but the expected supported TUI process is down
@@ -243,46 +253,23 @@ At minimum, that stability metadata SHALL include whether the current signature 
 - **THEN** the system resets the stability duration for the new signature
 - **AND THEN** the live state no longer reports the prior signature's accumulated duration
 
-### Requirement: Timer-driven live lifecycle semantics use ReactiveX observation streams
-For supported parsed tmux-backed sessions, all timed behavior in this capability SHALL be implemented over ordered observation streams using ReactiveX operators rather than hand-rolled mutable timestamp reducers, ad hoc polling arithmetic, or manual wall-clock timers.
+### Requirement: Timer-driven server-owned lifecycle enrichment SHALL remain separate from tracker-owned success settlement
+For supported tmux-backed TUI sessions, timed behavior in server-owned lifecycle enrichment SHALL remain separate from tracker-owned success settlement and SHALL remain implementable over ordered observation streams using ReactiveX operators.
 
-That ReactiveX timing layer SHALL be authoritative for:
+That ReactiveX timing layer SHALL remain authoritative for server-owned readiness/completion enrichment such as `operator_state`, `lifecycle_timing`, and `lifecycle_authority`, but SHALL NOT redefine or delay tracker-owned `surface`, `turn`, or `last_turn`.
 
-- unknown-duration and degraded-visibility timing,
-- success settle timing before the tracker records `last_turn.result=success`,
-- cancellation or reset when later observations invalidate a pending timed outcome, and
-- deterministic scheduler-driven tests for those timing rules.
+Shared-tracker success settlement remains owned by the standalone tracker session even when server-owned lifecycle timing is also present for the same live cycle.
 
-#### Scenario: Known observation cancels pending unknown timing
-- **WHEN** the live observation stream enters an unknown-or-degraded timed path
-- **AND WHEN** the corresponding timeout has not yet elapsed
-- **AND WHEN** a later known observation arrives before that timeout
-- **THEN** the pending timed transition is canceled
-- **AND THEN** the tracked state continues from the returned known observation instead of entering a degraded timed outcome
+#### Scenario: Tracker-owned success remains authoritative when lifecycle timing differs
+- **WHEN** the shared tracker records `last_turn.result=success` for a live cycle
+- **AND WHEN** the server-owned lifecycle pipeline has not yet reached its own completed posture
+- **THEN** the published `last_turn.result` remains the tracker-owned success outcome
+- **AND THEN** the lifecycle/operator fields remain sidecar server enrichment rather than replacing that outcome
 
-#### Scenario: Success settle timing resets on later observation change
-- **WHEN** an active tracked turn has already reached a ready-looking post-activity posture
-- **AND WHEN** a later observation changes the settle signature before the success settle window elapses
-- **THEN** the pending success recording resets
-- **AND THEN** the tracked state does not record `last_turn.result=success` until the settle signature remains stable for the full configured window
-
-#### Scenario: Later surface growth invalidates an earlier premature success
-- **WHEN** the tracker has already recorded `last_turn.result=success` from an earlier answer-bearing ready surface
-- **AND WHEN** a later observation shows that the latest-turn surface kept growing or otherwise changed to a newer success-candidate signature
-- **THEN** the tracker may retract that premature success and continue waiting for the final stable candidate surface
-- **AND THEN** the tracked state does not treat the earlier settled signature as final if later observations prove it was not the last stable success surface
-
-#### Scenario: Success does not require a tool-specific completion marker on every turn
-- **WHEN** the latest turn returns to a fresh ready prompt with visible answer content from the latest turn
-- **AND WHEN** no current interrupt, known-failure, or tool-specific success blocker remains
-- **AND WHEN** that answer-bearing ready surface remains stable for the full configured settle window
-- **THEN** the tracked state may record `last_turn.result=success`
-- **AND THEN** the capability does not require a `Worked for <duration>`-style marker on every successful turn
-
-#### Scenario: Lifecycle timing is testable without real sleeps
-- **WHEN** unit tests exercise unknown-duration handling, timed recovery, or success settle timing for this capability
-- **THEN** the implementation can drive those cases with deterministic scheduler control
-- **AND THEN** the tests do not require real wall-clock sleeps to verify the lifecycle semantics
+#### Scenario: Server-owned lifecycle timing remains testable without real sleeps
+- **WHEN** unit tests exercise unknown-duration handling or completion timing for server-owned lifecycle enrichment
+- **THEN** the implementation can continue to drive those lifecycle cases with deterministic scheduler control
+- **AND THEN** those tests do not redefine the authority boundary for tracker-owned state
 
 ### Requirement: Interactive Codex live tracking resolves through the Codex TUI tracker family
 When the server tracks an interactive Codex session from raw captured TUI snapshots, the live tracked-TUI adapter SHALL resolve the shared tracker through the `codex_tui` tracker app family rather than through a headless backend label.
@@ -377,4 +364,3 @@ Selected profiles MAY still classify visible placeholder or suggestion text as `
 - **AND WHEN** the current prompt area contains real draft text for the next turn
 - **THEN** the tracked state reports `surface.editing_input=yes`
 - **AND THEN** the stale interrupted transcript text does not force `surface.editing_input=unknown`
-

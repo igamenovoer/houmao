@@ -5,7 +5,11 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 ## Core Rules
 
-- Use the runtime-owned mailbox skill for mailbox actions.
+- Use the runtime-owned mailbox skill document `email-via-filesystem` for mailbox actions in this demo.
+- Open the exact mailbox skill file directly from the project worktree: `skills/mailbox/email-via-filesystem/SKILL.md`.
+- The same document may also be mirrored at `skills/.system/mailbox/email-via-filesystem/SKILL.md`, but treat the visible `skills/mailbox/...` path as the primary Codex-friendly location.
+- Do not search for that file with `rg`, `find`, or slash-skill lookup first when the exact path is already known.
+- Treat it as a runtime-owned skill document, not as a registered slash skill.
 - When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.
 - Treat notifier-provided `message_ref` and `thread_ref` values as opaque shared mailbox references.
 - Operate only on the ping-pong thread described by visible message lines such as `Thread-Key:`, `Round:`, and `Round-Limit:`.

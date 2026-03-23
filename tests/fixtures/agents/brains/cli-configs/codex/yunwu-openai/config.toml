@@ -1,6 +1,6 @@
 model = "gpt-5.4"
 model_provider = "yunwu-openai"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 personality = "friendly"
 
 [model_providers]

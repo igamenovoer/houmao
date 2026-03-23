@@ -43,14 +43,21 @@ _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
 MAILBOX_TRANSPORT_NONE = "none"
 MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
-MAILBOX_SYSTEM_NAMESPACE_DIR = ".system/mailbox"
+MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
+MAILBOX_COMPATIBILITY_NAMESPACE_DIR = ".system/mailbox"
 MAILBOX_FILESYSTEM_SKILL_NAME = "email-via-filesystem"
 MAILBOX_STALWART_SKILL_NAME = "email-via-stalwart"
 MAILBOX_FILESYSTEM_SKILL_REFERENCE = (
-    f"{MAILBOX_SYSTEM_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
+    f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
 )
-MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_SYSTEM_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
-MAILBOX_SYSTEM_SKILL_REFERENCES = (
+MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
+MAILBOX_FILESYSTEM_COMPATIBILITY_SKILL_REFERENCE = (
+    f"{MAILBOX_COMPATIBILITY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
+)
+MAILBOX_STALWART_COMPATIBILITY_SKILL_REFERENCE = (
+    f"{MAILBOX_COMPATIBILITY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
+)
+MAILBOX_PRIMARY_SKILL_REFERENCES = (
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
@@ -492,22 +499,66 @@ def bootstrap_resolved_mailbox(
 
 
 def mailbox_skill_reference(config: MailboxResolvedConfig) -> str:
-    """Return the projected mailbox system-skill reference for one transport."""
+    """Return the primary projected mailbox skill reference for one transport."""
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
         return MAILBOX_FILESYSTEM_SKILL_REFERENCE
     return MAILBOX_STALWART_SKILL_REFERENCE
 
 
+def mailbox_skill_compatibility_reference(config: MailboxResolvedConfig) -> str:
+    """Return the hidden compatibility mailbox skill reference for one transport."""
+
+    if isinstance(config, FilesystemMailboxResolvedConfig):
+        return MAILBOX_FILESYSTEM_COMPATIBILITY_SKILL_REFERENCE
+    return MAILBOX_STALWART_COMPATIBILITY_SKILL_REFERENCE
+
+
+def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
+    """Return the stable transport-specific mailbox skill name."""
+
+    if isinstance(config, FilesystemMailboxResolvedConfig):
+        return MAILBOX_FILESYSTEM_SKILL_NAME
+    return MAILBOX_STALWART_SKILL_NAME
+
+
+def mailbox_skill_document_path(
+    config: MailboxResolvedConfig,
+    *,
+    skills_destination: str = "skills",
+) -> str:
+    """Return the primary mailbox skill document path for the active skill destination."""
+
+    return f"{skills_destination}/{mailbox_skill_reference(config)}/SKILL.md"
+
+
+def mailbox_skill_compatibility_document_path(
+    config: MailboxResolvedConfig,
+    *,
+    skills_destination: str = "skills",
+) -> str:
+    """Return the hidden compatibility mailbox skill document path."""
+
+    return f"{skills_destination}/{mailbox_skill_compatibility_reference(config)}/SKILL.md"
+
+
 def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, ...]:
-    """Project packaged runtime-owned mailbox skills into one brain home."""
+    """Project packaged runtime-owned mailbox skills into one brain home.
+
+    Mirror the packaged mailbox skill tree into both the primary visible path
+    and the hidden compatibility path. Codex reserves `.system` for its own
+    embedded cache and skips dot-prefixed entries during ordinary skill
+    discovery, so the visible mirror is the stable path for Codex-managed homes.
+    """
 
     source_root = (
         resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
     )
-    namespace_root = destination_root / MAILBOX_SYSTEM_NAMESPACE_DIR
-    _copy_resource_tree(source_root, namespace_root)
-    return MAILBOX_SYSTEM_SKILL_REFERENCES
+    primary_root = destination_root / MAILBOX_PRIMARY_NAMESPACE_DIR
+    compatibility_root = destination_root / MAILBOX_COMPATIBILITY_NAMESPACE_DIR
+    _copy_resource_tree(source_root, compatibility_root)
+    _copy_resource_tree(source_root, primary_root)
+    return MAILBOX_PRIMARY_SKILL_REFERENCES
 
 
 def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:

@@ -21,5 +21,11 @@ placeholder `{}` file does not count as usable login state, so launches without
 `OPENAI_API_KEY` still require a non-empty top-level JSON object in
 `files/auth.json`.
 
+Codex model selection and reasoning effort do not belong in the credential
+profile. Keep those defaults in the matching secret-free
+`agents/brains/cli-configs/codex/<profile>/config.toml` profile instead. The
+tracked Codex fixture profiles currently target `gpt-5.4` with
+`model_reasoning_effort = "medium"`.
+
 For Claude credential profiles, include `files/claude_state.template.json` as
 the launch-time input template for runtime `.claude.json` materialization.

@@ -19,7 +19,7 @@ You do not wire mailbox behavior into prompts by hand. The runtime does three jo
 
 1. Resolve one mailbox binding for the session.
 2. Bootstrap or validate the selected transport binding and register or provision the session address.
-3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding.
+3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding. The visible `skills/mailbox/...` subtree is the primary mailbox skill surface, and `skills/.system/mailbox/...` remains a compatibility mirror.
 
 After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill for the selected transport, and the session returns one structured result payload.
 
@@ -140,8 +140,8 @@ Important details:
 
 Every `mail` command uses the runtime-owned projected mailbox skill for the selected transport and expects exactly one sentinel-delimited JSON result payload back from the session.
 
-- Filesystem sessions use `.system/mailbox/email-via-filesystem`.
-- Stalwart sessions use `.system/mailbox/email-via-stalwart`.
+- Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-filesystem/SKILL.md` as a compatibility mirror.
+- Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-stalwart/SKILL.md` as a compatibility mirror.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 

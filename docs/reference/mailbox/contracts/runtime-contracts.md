@@ -9,7 +9,7 @@ The runtime is the authority for mailbox attachment to a session.
 - Declarative config or CLI overrides choose the mailbox transport and identity.
 - The runtime resolves that into one `MailboxResolvedConfig`.
 - The launch plan publishes mailbox env vars into the session.
-- The runtime also projects the mailbox system skill into the built brain home.
+- The runtime also projects the mailbox system skill into the built brain home, with a visible `skills/mailbox/...` primary surface and a hidden `.system/mailbox/...` compatibility mirror.
 - Later `mail` commands reuse the persisted mailbox binding rather than rebuilding the contract from scratch.
 
 ## Declarative And Resolved Config
@@ -93,10 +93,15 @@ The filesystem transport now splits durable state between a shared catalog and m
 
 ## Projected Skill Contract
 
-The runtime projects one transport-specific mailbox skill into the brain home during brain build:
+The runtime projects one transport-specific mailbox skill into the brain home during brain build. For current adapters whose active skill destination is `skills`, the primary discoverable mailbox skill surface is:
 
-- `.system/mailbox/email-via-filesystem`
-- `.system/mailbox/email-via-stalwart`
+- `skills/mailbox/email-via-filesystem/SKILL.md`
+- `skills/mailbox/email-via-stalwart/SKILL.md`
+
+The runtime also keeps a hidden compatibility mirror for the same content at:
+
+- `skills/.system/mailbox/email-via-filesystem/SKILL.md`
+- `skills/.system/mailbox/email-via-stalwart/SKILL.md`
 
 Shared runtime rules:
 
