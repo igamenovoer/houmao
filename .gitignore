@@ -74,3 +74,4 @@ site/
 
 .agent-automation/impl-branches/
 .git/
+scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/
