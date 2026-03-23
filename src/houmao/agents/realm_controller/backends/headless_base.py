@@ -221,7 +221,7 @@ class HeadlessInteractiveSession:
         self._publish_tmux_session_environment()
 
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
-        command = [self._plan.executable, *self._plan.args]
+        command = [self._plan.executable, *self._plan.args, *self._base_command_args()]
         effective_prompt = prompt
 
         if self._state.session_id:
@@ -243,6 +243,9 @@ class HeadlessInteractiveSession:
         return prompt
 
     def _bootstrap_args(self) -> list[str]:
+        return []
+
+    def _base_command_args(self) -> list[str]:
         return []
 
     def _resume_args(self, session_id: str) -> list[str]:

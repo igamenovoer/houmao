@@ -18,7 +18,7 @@ def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
         backend="codex_app_server",
         tool="codex",
         executable="codex",
-        args=["app-server"],
+        args=[],
         working_directory=tmp_path / "workspace",
         home_env_var="CODEX_HOME",
         home_path=tmp_path / "home",

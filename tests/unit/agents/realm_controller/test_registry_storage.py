@@ -157,7 +157,7 @@ def test_registry_schema_is_packaged_and_covers_optional_gateway_and_mailbox_gro
     assert gateway_object["properties"]["protocol_version"]["anyOf"][1]["type"] == "null"
 
     assert mailbox["anyOf"][1]["type"] == "null"
-    mailbox_object = schema["$defs"]["RegistryMailboxV1"]
+    mailbox_object = schema["$defs"]["RegistryMailboxFilesystemV1"]
     assert mailbox_object["required"] == [
         "transport",
         "principal_id",

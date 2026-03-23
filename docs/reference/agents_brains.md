@@ -88,6 +88,27 @@ not secret values).
 
 Both recipe-driven and explicit builds can also declare the operator-prompt posture. Use `launch_policy.operator_prompt_mode` in the recipe or pass `--operator-prompt-mode unattended` to `build-brain` when you want Houmao to resolve a versioned unattended launch strategy at runtime. The default remains `interactive`.
 
+Both recipe-driven and explicit builds also share the same secret-free `launch_overrides` contract for optional launch behavior. Recipes can declare:
+
+```yaml
+launch_overrides:
+  args:
+    mode: append
+    values:
+      - --example-flag
+  tool_params:
+    include_partial_messages: true
+```
+
+Explicit builds can pass the same shape through `build-brain --launch-overrides <path-or-inline-json>`.
+
+Ownership rules:
+
+- Tool adapters still own `launch.executable`, adapter default args, and declarative optional-launch metadata.
+- Recipes and direct builds only request secret-free overrides on top of those defaults.
+- Backend-owned protocol args such as `claude -p`, `gemini -p`, `codex exec --json`, `resume`, and `app-server` stay in runtime backend code and are not recipe-overridable.
+- The builder persists unresolved launch intent only; backend-specific applicability and effective args are resolved later when a session is launched.
+
 ## Credential Profiles (Local-Only)
 
 Credential profiles live under:

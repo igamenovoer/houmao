@@ -149,7 +149,7 @@ def test_start_interactive_watch_builds_run_local_runtime(
 
     def _fake_build(request):
         requested["runtime_root"] = request.runtime_root
-        requested["launch_args_override"] = request.launch_args_override
+        requested["launch_overrides"] = request.launch_overrides
         home_path = Path(request.runtime_root) / "homes" / "claude-home"  # type: ignore[arg-type]
         manifest_path = Path(request.runtime_root) / "manifests" / "claude-home.yaml"  # type: ignore[arg-type]
         launch_path = home_path / "launch.sh"
@@ -204,7 +204,12 @@ def test_start_interactive_watch_builds_run_local_runtime(
     dashboard_script = (run_root / "logs" / "dashboard_launch.sh").read_text(encoding="utf-8")
     assert result.run_root == run_root
     assert requested["runtime_root"] == run_root / "runtime"
-    assert requested["launch_args_override"] == ["--dangerously-skip-permissions"]
+    assert requested["launch_overrides"].to_payload() == {
+        "args": {
+            "mode": "replace",
+            "values": ["--dangerously-skip-permissions"],
+        }
+    }
     assert manifest_payload["runtime_root"] == str(run_root / "runtime")
     assert manifest_payload["brain_home_path"].startswith(str(run_root / "runtime"))
     assert "exec bash -lc" in dashboard_script

@@ -37,3 +37,6 @@ class ClaudeHeadlessSession(HeadlessInteractiveSession):
         if self._plan.role_injection.method == "native_append_system_prompt":
             return ["--append-system-prompt", self._plan.role_injection.prompt]
         return []
+
+    def _base_command_args(self) -> list[str]:
+        return ["-p"]

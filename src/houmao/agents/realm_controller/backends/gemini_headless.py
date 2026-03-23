@@ -32,3 +32,6 @@ class GeminiHeadlessSession(HeadlessInteractiveSession):
             tmux_session_name=tmux_session_name,
             output_format=output_format,
         )
+
+    def _base_command_args(self) -> list[str]:
+        return ["-p"]

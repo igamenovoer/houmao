@@ -13,7 +13,6 @@ operator_prompt_mode = "unattended"
 
 [tools.codex]
 recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"
-launch_args_override = []
 
 [evidence]
 sample_interval_seconds = 0.2

@@ -649,20 +649,18 @@
       "additionalProperties": false,
       "description": "Override fragment for one tool config.",
       "properties": {
-        "launch_args_override": {
+        "launch_overrides": {
           "anyOf": [
             {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
+              "additionalProperties": true,
+              "type": "object"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Launch Args Override"
+          "title": "Launch Overrides"
         },
         "operator_prompt_mode": {
           "anyOf": [
@@ -700,12 +698,18 @@
       "additionalProperties": false,
       "description": "Full tool config for one supported tool.",
       "properties": {
-        "launch_args_override": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Launch Args Override",
-          "type": "array"
+        "launch_overrides": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Overrides"
         },
         "operator_prompt_mode": {
           "anyOf": [

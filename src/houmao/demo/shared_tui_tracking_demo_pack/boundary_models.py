@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
+from houmao.agents.launch_overrides import parse_launch_overrides
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -40,7 +41,7 @@ class DemoToolConfigV1(_DemoConfigBoundaryModel):
     """Full tool config for one supported tool."""
 
     recipe_path: str
-    launch_args_override: list[str] = Field(default_factory=list)
+    launch_overrides: dict[str, object] | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
 
     @field_validator("recipe_path")
@@ -50,19 +51,25 @@ class DemoToolConfigV1(_DemoConfigBoundaryModel):
 
         return _require_non_blank(value)
 
-    @field_validator("launch_args_override")
+    @field_validator("launch_overrides")
     @classmethod
-    def _launch_args_not_blank(cls, value: list[str]) -> list[str]:
-        """Reject blank launch-arg items."""
+    def _validate_launch_overrides(
+        cls,
+        value: dict[str, object] | None,
+    ) -> dict[str, object] | None:
+        """Validate the structured launch-overrides shape when present."""
 
-        return [_require_non_blank(item) for item in value]
+        if value is None:
+            return None
+        parse_launch_overrides(value, source="tools.<tool>.launch_overrides")
+        return value
 
 
 class DemoToolConfigOverrideV1(_DemoConfigBoundaryModel):
     """Override fragment for one tool config."""
 
     recipe_path: str | None = None
-    launch_args_override: list[str] | None = None
+    launch_overrides: dict[str, object] | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
 
     @field_validator("recipe_path")
@@ -74,14 +81,18 @@ class DemoToolConfigOverrideV1(_DemoConfigBoundaryModel):
             return None
         return _require_non_blank(value)
 
-    @field_validator("launch_args_override")
+    @field_validator("launch_overrides")
     @classmethod
-    def _optional_launch_args_not_blank(cls, value: list[str] | None) -> list[str] | None:
-        """Reject blank optional launch-arg items."""
+    def _optional_launch_overrides(
+        cls,
+        value: dict[str, object] | None,
+    ) -> dict[str, object] | None:
+        """Validate structured launch overrides for override fragments."""
 
         if value is None:
             return None
-        return [_require_non_blank(item) for item in value]
+        parse_launch_overrides(value, source="tools.<tool>.launch_overrides")
+        return value
 
 
 class DemoToolsConfigV1(_DemoConfigBoundaryModel):

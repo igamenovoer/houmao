@@ -5,6 +5,9 @@ home_selector:
 launch:
   executable: codex
   args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
   env_injection:
     mode: home_dotenv
     env_file_in_home: .env

@@ -237,6 +237,8 @@ def materialize_headless_launch_request(
             skills=recipe.skills,
             config_profile=recipe.config_profile,
             credential_profile=recipe.credential_profile,
+            recipe_path=recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
         )

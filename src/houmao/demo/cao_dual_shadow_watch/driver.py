@@ -561,6 +561,8 @@ def _start_agent_session(
             skills=list(recipe.skills),
             config_profile=recipe.config_profile,
             credential_profile=recipe.credential_profile,
+            recipe_path=blueprint.brain_recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides,
             mailbox=recipe.mailbox,
             agent_name=recipe.default_agent_name,
             operator_prompt_mode=recipe.operator_prompt_mode,
