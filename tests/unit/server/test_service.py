@@ -143,7 +143,7 @@ class _FakeChildManager:
 
 
 class _FakeTmuxTransportResolver:
-    def __init__(self, *, output_text: str) -> None:
+    def __init__(self, *, output_text: str | list[str]) -> None:
         self.m_output_text = output_text
         self.m_resolve_calls: list[tuple[str, str | None]] = []
         self.m_capture_calls = 0
@@ -165,6 +165,10 @@ class _FakeTmuxTransportResolver:
     def capture_text(self, *, target: ResolvedTmuxTarget) -> str:
         assert target.pane.pane_id == "%9"
         self.m_capture_calls += 1
+        if isinstance(self.m_output_text, list):
+            if not self.m_output_text:
+                raise AssertionError("No tmux output fixture remains for capture_text().")
+            return self.m_output_text.pop(0)
         return self.m_output_text
 
 
@@ -268,6 +272,10 @@ class _FakeHeadlessController:
 
     def persist_manifest(self) -> None:
         self.m_persist_calls += 1
+
+
+_CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
+_CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
 
 
 def _ready_surface() -> HoumaoParsedSurface:
@@ -408,7 +416,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
             )
         }
     )
-    tmux_transport = _FakeTmuxTransportResolver(output_text="visible tmux text")
+    tmux_transport = _FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT)
     process_inspector = _FakeProcessInspector(
         PaneProcessInspection(
             process_state="tui_up",
@@ -455,7 +463,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert transport.m_calls == []
     assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None)]
     assert process_inspector.m_calls == [("codex", 4321)]
-    assert parser_adapter.m_capture_baseline_calls == [("codex", "visible tmux text")]
+    assert parser_adapter.m_capture_baseline_calls == [("codex", _CODEX_READY_RAW_SNAPSHOT)]
     assert parser_adapter.m_parse_calls == [("codex", 17)]
 
 
@@ -491,7 +499,13 @@ def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
         child_manager=_FakeChildManager(),
-        transport_resolver=_FakeTmuxTransportResolver(output_text="visible tmux text"),
+        transport_resolver=_FakeTmuxTransportResolver(
+            output_text=[
+                _CODEX_READY_RAW_SNAPSHOT,
+                _CODEX_ACTIVE_RAW_SNAPSHOT,
+                _CODEX_READY_RAW_SNAPSHOT,
+            ]
+        ),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
                 process_state="tui_up",
@@ -644,7 +658,9 @@ def test_terminal_history_returns_recent_in_memory_transitions(
             }
         ),
         child_manager=_FakeChildManager(),
-        transport_resolver=_FakeTmuxTransportResolver(output_text="visible tmux text"),
+        transport_resolver=_FakeTmuxTransportResolver(
+            output_text=[_CODEX_READY_RAW_SNAPSHOT, _CODEX_ACTIVE_RAW_SNAPSHOT]
+        ),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
                 process_state="tui_up",
@@ -1018,6 +1034,7 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
         lambda *, manifest_path: tui_registry_module._ManifestMetadata(
             tool=None,
             terminal_id=None,
+            observed_tool_version="0.116.4 (Codex)",
             tmux_session_name=None,
             tmux_window_name="developer-2",
             session_root=(manifest_path.parent / "session-root").resolve(),
@@ -1054,6 +1071,7 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
 
     state = service.terminal_state("abcd1234")
     assert state.tracked_session.tmux_window_name == "developer-2"
+    assert state.tracked_session.observed_tool_version == "0.116.4 (Codex)"
 
 
 def test_launch_headless_persists_authority_and_projects_shared_state(

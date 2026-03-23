@@ -7,6 +7,7 @@ import subprocess
 
 import click
 
+from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.cao.models import CaoSessionTerminalSummary, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.models import HoumaoRegisterLaunchRequest
@@ -170,11 +171,13 @@ def _launch_session_backed_pair_command(
         agent_profile=agents,
         working_directory=working_directory,
     )
+    observed_tool_version = _observed_tool_version_from_manifest_path(manifest_path)
     client.register_launch(
         request_model=HoumaoRegisterLaunchRequest(
             session_name=terminal.session_name,
             terminal_id=terminal.id,
             tool=_tool_from_provider(provider),
+            observed_tool_version=observed_tool_version,
             manifest_path=str(manifest_path),
             session_root=str(session_root),
             agent_name=canonical_agent_name,
@@ -206,3 +209,28 @@ def _find_terminal_summary(
     raise click.ClickException(
         f"`houmao-server` did not return terminals for session `{terminal.session_name}`."
     )
+
+
+def _observed_tool_version_from_manifest_path(manifest_path: Path) -> str | None:
+    """Return one optional observed tool version from a session manifest."""
+
+    try:
+        payload = load_session_manifest(manifest_path).payload
+    except Exception:
+        return None
+
+    top_level = payload.get("launch_policy_provenance")
+    if isinstance(top_level, dict):
+        detected_tool_version = top_level.get("detected_tool_version")
+        if isinstance(detected_tool_version, str) and detected_tool_version.strip():
+            return detected_tool_version
+
+    launch_plan = payload.get("launch_plan")
+    if isinstance(launch_plan, dict):
+        launch_policy_provenance = launch_plan.get("launch_policy_provenance")
+        if isinstance(launch_policy_provenance, dict):
+            detected_tool_version = launch_policy_provenance.get("detected_tool_version")
+            if isinstance(detected_tool_version, str) and detected_tool_version.strip():
+                return detected_tool_version
+
+    return None

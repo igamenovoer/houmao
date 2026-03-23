@@ -31,6 +31,7 @@ Low-level observation detail still remains available alongside the simplified mo
 - optional `parse_error`
 - nullable `parsed_surface`
 - optional `probe_snapshot`
+- tracked-session metadata such as `tracked_session.observed_tool_version`
 
 Those lower-level fields are diagnostic evidence, not the primary consumer-facing lifecycle vocabulary.
 
@@ -51,16 +52,16 @@ flowchart TD
     Ready["readiness pipeline"]
     Anchor{"turn anchor?"}
     Anch["anchored settle pipeline"]
-    Public["diagnostics + shared tracker state"]
+    Public["diagnostics + shared tracker state<br/>+ server sidecars"]
     Stable["stability"]
     Hist["recent_transitions"]
 
     Probe --> Proc --> Parse --> Surf
-    Surf --> Detect
     Probe --> Detect
     Surf --> Ready
     Surf --> Anchor
     Anchor -->|active| Anch
+    Surf --> Public
     Detect --> Shared
     Ready --> Public
     Anch --> Public
@@ -83,7 +84,7 @@ flowchart TD
 
 ### Foundational Surface Observables
 
-`surface.accepting_input`, `surface.editing_input`, and `surface.ready_posture` are built from the tool detector plus the parsed surface.
+`surface.accepting_input`, `surface.editing_input`, and `surface.ready_posture` are built from raw tmux pane text through the shared tracker’s tool/version detector profile. Parsed surface data is published as server-owned sidecar evidence and does not feed tracker authority.
 
 Important consequences:
 
@@ -99,7 +100,7 @@ Important consequences:
 - `active`: there is enough evidence that a turn is currently in flight
 - `unknown`: the server cannot safely classify the posture as `ready` or `active`
 
-Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through guarded surface inference plus later turn evidence.
+Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge.
 
 ### Last Turn
 
@@ -115,26 +116,23 @@ Two clarifications matter:
 - success does not require a `Worked for <duration>`-style marker on every turn
 - a premature success may be retracted if a later observation proves the same turn surface was still evolving; the tracker keeps the success anchor alive briefly to allow that correction before expiry
 
-## Turn Anchors
+## Turn Sources And Server Anchors
 
-The tracker still uses anchors internally, but they are now an implementation detail behind the public turn model.
+The public `last_turn.source` field and the server-owned lifecycle anchor state are related, but they are not the same thing.
 
-Anchors are armed from two sources:
+The shared tracker can publish two turn sources:
 
 | Source | How it is armed | Public source |
 |--------|-----------------|---------------|
 | `terminal_input` | `POST /houmao/terminals/{terminal_id}/input` succeeds and the service calls `note_prompt_submission()` | `explicit_input` |
-| `surface_inference` | direct interactive tmux input changed the surface enough that the tracker can safely infer a submitted turn | `surface_inference` |
+| `surface_inference` | raw tmux snapshots show enough active/success evidence for the shared tracker to infer a direct in-terminal turn | `surface_inference` |
 
-The guarded `surface_inference` path is intentionally narrow. The tracker requires:
+Separately, the server still owns explicit-input lifecycle anchors for parser-fed `operator_state`, `lifecycle_timing`, and `lifecycle_authority`.
 
-1. no active anchor
-2. a previous parsed surface
-3. the previous surface was submit-ready
-4. the previous visible state was already stable
-5. the current projection materially grew relative to the previous one
-
-This keeps repaint churn, cursor motion, and small prompt edits from manufacturing turn semantics.
+- `explicit_input` can arm both the shared tracker and the server-owned lifecycle anchor.
+- `surface_inference` is tracker-owned only. It can produce public `last_turn.source=surface_inference` while server-owned `lifecycle_authority.turn_anchor_state` remains `absent`.
+- Parser-derived surface churn does not arm tracker authority. Parsed surface remains server-owned evidence and lifecycle input only.
+- Observed tool version for tracker profile selection comes from tracked-session metadata, primarily manifest launch-policy provenance with graceful fallback when unavailable.
 
 ## Stability And Recent Transitions
 

@@ -235,7 +235,7 @@ The two anchor sources have different timing characteristics:
 - This is the preferred path for automation
 
 **`surface_inference`** — armed by the tracker when it detects that a direct tmux interaction has produced a new turn:
-- The tracker requires a multi-condition guard before arming: no active anchor, a previous parsed surface that was submit-ready and stable, and material output growth relative to the previous observation
+- The tracker uses raw tmux snapshots plus tool/version detector rules; parser-derived surface growth is not part of this authority path
 - The submission moment is estimated from surface changes, not known precisely
 - Settle times may be slightly longer due to the estimation uncertainty
 - This path keeps repaint churn, cursor motion, and small prompt edits from manufacturing turn semantics
@@ -244,33 +244,30 @@ The two anchor sources have different timing characteristics:
 
 ## Reducer Transition Rules
 
-The standalone `TuiTrackerSession` in `shared_tui_tracking/session.py` applies a strict priority chain when processing each raw snapshot. The compatibility `StreamStateReducer` wrapper and the live server host adapter both reuse that same core behavior.
+The standalone `TuiTrackerSession` in `shared_tui_tracking/session.py` applies a strict priority chain when processing each raw snapshot. The compatibility `StreamStateReducer` wrapper and the live server host adapter both reuse that same core behavior. Server-owned diagnostics, parser sidecars, and lifecycle enrichment are published alongside this reducer output; they do not become reducer inputs.
 
 ### Priority Chain
 
 Each observation is processed through these checks in order. The first matching condition determines the output:
 
-1. **Diagnostics degradation** — If `diagnostics.availability` is not `available`, emit `turn.phase=unknown` with current `last_turn` preserved. Cancel any pending success timer. This overrides all other signals.
+1. **Interrupted signal** — If the detector reports `interrupted=true`, emit `turn.phase=ready` and `last_turn.result=interrupted`. Cancel any pending success timer. Clear the armed turn source.
 
-2. **Interrupted signal** — If the detector reports `interrupted=true`, emit `turn.phase=ready` and `last_turn.result=interrupted`. Cancel any pending success timer. Clear the armed turn source.
+2. **Known failure signal** — If the detector reports `known_failure=true`, emit `turn.phase=ready` and `last_turn.result=known_failure`. Cancel any pending success timer. Clear the armed turn source.
 
-3. **Known failure signal** — If the detector reports `known_failure=true`, emit `turn.phase=ready` and `last_turn.result=known_failure`. Cancel any pending success timer. Clear the armed turn source.
+3. **Active evidence** — If the detector reports `active_evidence=true`, emit `turn.phase=active`. Cancel any pending success timer. If no turn source is armed yet, arm `surface_inference`.
 
-4. **Active evidence** — If the detector reports `active_evidence=true`, emit `turn.phase=active`. Cancel any pending success timer. If no turn source is armed yet, arm `surface_inference`.
+4. **Success candidate** — If the detector reports `success_candidate=true`, emit `turn.phase=ready` and arm or retain the settle timer. If a previous settled success exists with a different surface signature, retract it first.
 
-5. **Success candidate** — If the detector reports `success_candidate=true`, emit `turn.phase=ready` and arm or retain the settle timer. If a previous settled success exists with a different surface signature, retract it first.
-
-6. **Default** — No strong signal matched. Cancel any pending success timer. Emit `turn.phase=ready` if `ready_posture=yes`, otherwise `turn.phase=unknown`.
+5. **Default** — No strong signal matched. Cancel any pending success timer. Emit `turn.phase=ready` if `ready_posture=yes`, otherwise `turn.phase=unknown`.
 
 ### Success Timer
 
 When a `success_candidate` is detected, the reducer arms a settle timer for the configured settle window duration. The timer fires only if:
-- The latest observation still has `available` diagnostics
 - The latest signals still report `success_candidate`
 - No `current_error_present`
 - The surface signature has not changed since arming
 
-On fire, the reducer emits `last_turn.result=success` with the appropriate turn source and clears the armed anchor.
+On fire, the reducer emits `last_turn.result=success` with the appropriate turn source and clears the armed tracker source.
 
 ### Cancellation
 

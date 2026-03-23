@@ -46,7 +46,7 @@ Optional server-owned `operator_state`, `lifecycle_timing`, and `lifecycle_autho
 - **AND THEN** they do not override tracker-owned `surface`, `turn`, or `last_turn`
 
 ### Requirement: Parsed TUI state comes from direct tmux capture through the official parser
-For supported live TUI tools, the system MAY parse pane content directly captured from tmux through the repo-owned official parser stack for server-owned functionality such as structured diagnostics, parser metadata, or operator-facing surface evidence.
+For supported live TUI tools, when the system computes parser-owned surface evidence it SHALL parse pane content directly captured from tmux through the repo-owned official parser stack for server-owned functionality such as structured diagnostics, parser metadata, or operator-facing surface evidence.
 
 That parser path SHALL remain separate from state-tracking authority. Parsed live surface data SHALL be server-owned sidecar enrichment derived from the same raw tmux capture, and the shared tracked-state reduction SHALL NOT require parsed-surface output as its input contract.
 
@@ -154,7 +154,7 @@ For supported tools, parse failure SHALL be represented explicitly as a server-o
 - **AND THEN** the simplified turn state does not fabricate a ready or active posture for that cycle
 
 ### Requirement: Timer-driven server-owned lifecycle enrichment SHALL remain separate from tracker-owned success settlement
-For supported tmux-backed TUI sessions, timed behavior in server-owned lifecycle enrichment MAY continue to be implemented over ordered observation streams using ReactiveX operators.
+For supported tmux-backed TUI sessions, timed behavior in server-owned lifecycle enrichment SHALL remain separate from tracker-owned success settlement and SHALL remain implementable over ordered observation streams using ReactiveX operators.
 
 That ReactiveX timing layer SHALL remain authoritative for server-owned readiness/completion enrichment such as `operator_state`, `lifecycle_timing`, and `lifecycle_authority`, but SHALL NOT redefine or delay tracker-owned `surface`, `turn`, or `last_turn`.
 
