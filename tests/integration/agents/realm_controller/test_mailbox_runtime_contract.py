@@ -146,9 +146,11 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         )
     )
 
-    assert (
-        build_result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
-    ).is_file()
+    visible_skill = build_result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
+    hidden_skill = build_result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
+    assert visible_skill.is_file()
+    assert hidden_skill.is_file()
+    assert visible_skill.read_text(encoding="utf-8") == hidden_skill.read_text(encoding="utf-8")
 
     class _FakeStartBackend:
         def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
