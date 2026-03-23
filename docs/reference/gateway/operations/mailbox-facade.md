@@ -28,6 +28,7 @@ The gateway mailbox facade is the shared mailbox control surface for one attache
 | `POST /v1/mail/check` | list normalized mailbox messages | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/send` | send a new message without consuming the terminal-mutation slot | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/reply` | reply to an existing message via opaque `message_ref` | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/state` | mark one processed shared mailbox message read through opaque `message_ref` and return a minimal acknowledgment | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `GET|PUT|DELETE /v1/mail-notifier` | inspect or control unread-mail reminder behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 
 ## Why `/v1/mail/*` Exists
@@ -50,7 +51,7 @@ Sequence:
 2. `attach.json.manifest_path` points to the runtime-managed session manifest.
 3. The gateway reads `payload.launch_plan.mailbox` from that manifest.
 4. The gateway builds one transport-specific adapter from that mailbox binding.
-5. Shared mailbox routes call the adapter for `status`, `check`, `send`, or `reply`.
+5. Shared mailbox routes call the adapter for `status`, `check`, `send`, `reply`, or the single-message read-state update.
 
 ```mermaid
 sequenceDiagram
@@ -64,7 +65,7 @@ sequenceDiagram
     Gw->>Att: load manifest_path
     Gw->>Man: read launch_plan.mailbox
     Gw->>Ad: build adapter for<br/>resolved transport
-    Ad->>MB: perform status/check/<br/>send/reply
+    Ad->>MB: perform status/check/<br/>send/reply/state-update
     MB-->>Ad: normalized mailbox data
     Ad-->>Gw: gateway mailbox model
     Gw-->>Cli: HTTP response
@@ -102,6 +103,7 @@ The unread-mail notifier is gateway-owned, but unread truth is transport-owned.
 - The notifier checks unread mail through the same shared mailbox facade used for `check`.
 - The gateway still owns notifier cadence, deduplication, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
 - This is what allows the notifier to work for both filesystem-backed and Stalwart-backed sessions without hard-wiring itself to filesystem mailbox-local SQLite.
+- Current reminder behavior is intentionally bounded: the notifier nominates the oldest actionable unread shared target, includes sender or thread context plus remaining-unread count, and expects the later turn to finish with `POST /v1/mail/state` after success.
 
 Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the broader runtime-managed filesystem placement around `gateway/` and session-local secret material.
 

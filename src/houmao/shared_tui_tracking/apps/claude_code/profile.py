@@ -184,9 +184,7 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
 
         ambiguous_interactive_surface = slash_menu_visible and not active_evidence
         success_blocked = bool(
-            footer_interruptable
-            or current_error_present
-            or ambiguous_interactive_surface
+            footer_interruptable or current_error_present or ambiguous_interactive_surface
         )
         success_candidate = (
             (completion_marker is not None or response_candidate_visible)

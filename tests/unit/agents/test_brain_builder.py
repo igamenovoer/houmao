@@ -189,6 +189,53 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert "sk-test-123" not in manifest_text
 
 
+def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path: Path) -> None:
+    """Projected mailbox skills should lead with gateway-first routine actions."""
+
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            mailbox=FilesystemMailboxDeclarativeConfig(
+                transport="filesystem",
+                principal_id="AGENTSYS-research",
+                address="AGENTSYS-research@agents.localhost",
+                filesystem_root="shared-mail",
+            ),
+            home_id="home-gateway-first-mailbox",
+        )
+    )
+
+    filesystem_skill = (
+        result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
+    ).read_text(encoding="utf-8")
+    stalwart_skill = (
+        result.home_path / "skills/.system/mailbox/email-via-stalwart/SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    assert "## Routine Actions With A Live Gateway Facade" in filesystem_skill
+    assert (
+        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
+        in filesystem_skill
+    )
+    assert "## Direct Filesystem Fallback Actions" in filesystem_skill
+
+    assert "## Routine Actions With A Live Gateway Facade" in stalwart_skill
+    assert (
+        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
+        in stalwart_skill
+    )
+    assert "## Direct Stalwart Fallback Actions" in stalwart_skill
+
+
 def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:
     recipe_path = tmp_path / "recipe.yaml"
     _write(

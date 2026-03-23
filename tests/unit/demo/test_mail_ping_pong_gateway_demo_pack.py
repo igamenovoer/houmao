@@ -50,6 +50,7 @@ from houmao.demo.mail_ping_pong_gateway_demo_pack.reporting import verify_saniti
 PACK_DIR = (
     Path(__file__).resolve().parents[3] / "scripts" / "demo" / "mail-ping-pong-gateway-demo-pack"
 )
+ROLE_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "agents" / "roles"
 
 
 class _Dumpable:
@@ -384,7 +385,9 @@ def _seed_launch_posture_manifests(state: DemoState) -> None:
                 "args": [],
                 "working_directory": str(participant.working_directory),
                 "home_selector": {
-                    "env_var": "CLAUDE_CONFIG_DIR" if participant.tool == "claude" else "CODEX_HOME",
+                    "env_var": "CLAUDE_CONFIG_DIR"
+                    if participant.tool == "claude"
+                    else "CODEX_HOME",
                     "home_path": str(participant.brain_home_path),
                 },
                 "env_var_names": [],
@@ -758,6 +761,45 @@ def test_build_demo_environment_redirects_all_owned_roots(tmp_path: Path) -> Non
     assert env["PATH"] == "/usr/bin"
 
 
+def test_kickoff_prompt_stays_policy_thin_and_gateway_first(tmp_path: Path) -> None:
+    """The kickoff prompt should name shared mailbox policy, not helper recipes."""
+
+    _output_root, _paths, state = _make_demo_state(tmp_path)
+    parameters = load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
+
+    prompt = demo_driver._build_kickoff_prompt(
+        parameters=parameters,
+        state=state,
+        thread_key=state.thread_key or "mail-ping-pong-20260323T120000Z-abcdef",
+    )
+
+    assert "shared gateway mailbox operations" in prompt
+    assert "message_ref" in prompt
+    assert "POST /v1/mail/state" in prompt
+    assert "deliver_message.py" not in prompt
+    assert "update_mailbox_state.py" not in prompt
+
+
+def test_role_overlays_stay_gateway_first_and_mark_read_after_success() -> None:
+    """Tracked role overlays should carry ping-pong policy without helper recipes."""
+
+    initiator_prompt = (
+        ROLE_FIXTURES_DIR / "mail-ping-pong-initiator" / "system-prompt.md"
+    ).read_text(encoding="utf-8")
+    responder_prompt = (
+        ROLE_FIXTURES_DIR / "mail-ping-pong-responder" / "system-prompt.md"
+    ).read_text(encoding="utf-8")
+
+    assert "shared mailbox state update" in initiator_prompt
+    assert "shared mailbox state update" in responder_prompt
+    assert "message_ref" in initiator_prompt
+    assert "message_ref" in responder_prompt
+    assert "deliver_message.py" not in initiator_prompt
+    assert "deliver_message.py" not in responder_prompt
+    assert "update_mailbox_state.py" not in initiator_prompt
+    assert "update_mailbox_state.py" not in responder_prompt
+
+
 def test_demo_state_round_trip_preserves_minimum_contract(tmp_path: Path) -> None:
     """Persisted demo state should round-trip with the required fields intact."""
 
@@ -902,7 +944,9 @@ def test_start_command_honors_agent_def_dir_env_override(
     override_agent_def_dir = tmp_path / "custom-agent-defs"
     override_agent_def_dir.mkdir(parents=True)
 
-    def fake_start_demo_server(*, api_base_url: str, paths, env, timeout_seconds: float) -> ServerProcessState:
+    def fake_start_demo_server(
+        *, api_base_url: str, paths, env, timeout_seconds: float
+    ) -> ServerProcessState:
         del env, timeout_seconds
         return ServerProcessState(
             api_base_url=api_base_url,
@@ -916,7 +960,9 @@ def test_start_command_honors_agent_def_dir_env_override(
             stderr_log_path=paths.server_logs_dir / "stderr.log",
         )
 
-    def fake_build_participant_brain(*, agent_def_dir: Path, runtime_root: Path, participant, home_id: str) -> BuildResult:
+    def fake_build_participant_brain(
+        *, agent_def_dir: Path, runtime_root: Path, participant, home_id: str
+    ) -> BuildResult:
         del participant
         home_path = runtime_root / "homes" / home_id
         manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
@@ -983,7 +1029,9 @@ def test_start_command_honors_agent_def_dir_env_override(
         "ensure_project_workdir_from_fixture",
         lambda *, project_fixture, project_workdir, allow_reprovision: project_workdir,
     )
-    monkeypatch.setattr(demo_driver, "HoumaoServerClient", lambda base_url: SimpleNamespace(base_url=base_url))
+    monkeypatch.setattr(
+        demo_driver, "HoumaoServerClient", lambda base_url: SimpleNamespace(base_url=base_url)
+    )
 
     result = demo_driver.main(["start", "--demo-output-dir", str(tmp_path / "outputs")])
     state = load_demo_state(tmp_path / "outputs" / "control" / "demo_state.json")
@@ -1053,7 +1101,10 @@ def test_inspect_reuses_persisted_state_and_writes_snapshot(
         ]
         == "unattended"
     )
-    assert inspect_payload["participants"]["responder"]["launch_posture"]["launch_policy_applied"] is True
+    assert (
+        inspect_payload["participants"]["responder"]["launch_posture"]["launch_policy_applied"]
+        is True
+    )
     assert inspect_payload["participants"]["responder"]["gateway_mail_notifier"]["enabled"] is True
 
 

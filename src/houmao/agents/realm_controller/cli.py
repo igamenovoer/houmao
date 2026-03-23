@@ -571,9 +571,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         payload["mailbox"] = mailbox.redacted_payload()
     launch_policy_provenance = getattr(controller.launch_plan, "launch_policy_provenance", None)
     if launch_policy_provenance is not None:
-        payload["launch_policy_provenance"] = (
-            launch_policy_provenance.to_payload()
-        )
+        payload["launch_policy_provenance"] = launch_policy_provenance.to_payload()
     launch_plan_metadata = getattr(controller.launch_plan, "metadata", None)
     launch_policy_metadata = (
         launch_plan_metadata.get("launch_policy")
@@ -814,7 +812,8 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     try:
         gateway_status = controller.gateway_status()
         prefer_live_gateway = (
-            gateway_status.gateway_health == "healthy" and gateway_status.gateway_host == "127.0.0.1"
+            gateway_status.gateway_health == "healthy"
+            and gateway_status.gateway_host == "127.0.0.1"
         )
     except Exception:
         prefer_live_gateway = False

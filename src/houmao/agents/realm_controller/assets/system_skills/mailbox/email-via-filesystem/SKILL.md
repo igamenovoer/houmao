@@ -7,38 +7,47 @@ description: Operate the filesystem-backed async mailbox transport for agents us
 
 ## Overview
 
-Use this skill to work with the mailbox transport where canonical messages live on the local filesystem as Markdown files under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, shared catalog state lives in `index.sqlite`, and mailbox-view state for the current mailbox lives in mailbox-local `mailbox.sqlite`. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
+Use this skill to work with the filesystem mailbox transport where canonical messages live on the local filesystem under `messages/<YYYY-MM-DD>/...`, mailbox-visible inbox or sent entries are symlink projections to those canonical files, shared catalog state lives in `index.sqlite`, and mailbox-view state for the current mailbox lives in mailbox-local `mailbox.sqlite`. Treat this as the system-defined mailbox skill for the `filesystem` transport, not as a role-authored workflow. Do not assume mailbox content lives under the run directory; use the env-provided filesystem mailbox root.
 
 ## References
 
 - Read [references/env-vars.md](references/env-vars.md) when validating mailbox bindings.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
 
+## Routine Actions With A Live Gateway Facade
+
+- When a live loopback gateway exposes the shared `/v1/mail/*` facade for this session, treat that gateway surface as the default routine path for ordinary mailbox work.
+- Ordinary attached-session mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
+- Prefer the shared gateway mailbox routes for those routine actions: `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
+- Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
+- After you successfully process one nominated unread message, mark that same `message_ref` read through `POST /v1/mail/state` with `read=true`.
+- Do not reconstruct `deliver_message.py`, `update_mailbox_state.py`, raw threading payloads, or ad hoc SQLite mutations for ordinary attached-session turns when the shared gateway facade is available.
+
 ## Binding Checks
 
 - Require the common and filesystem-specific env vars defined in [references/env-vars.md](references/env-vars.md).
 - Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
 - Re-read the mailbox env vars before each mailbox action. Do not cache paths or addresses across turns.
-- Before interacting with shared mailbox state, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
+- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and reload the current bindings before continuing.
+
+## Direct Filesystem Fallback Actions
+
+- Use the direct filesystem transport path only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
+- Before interacting with shared mailbox state through direct filesystem access, inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` and follow any mailbox-local README, scripts, or helper skills there.
 - If the mailbox claims to be initialized but the managed `rules/scripts/` files are missing, stop and report a mailbox-initialization error instead of improvising replacements.
-- Before invoking a shared Python helper from `rules/scripts/`, inspect `rules/scripts/requirements.txt` so you know which Python dependencies must already be installed or need to be installed for that mailbox.
-- For any mailbox step that touches shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
-- When the shared mailbox provides a header-helper script under `rules/scripts/`, you may use it to insert or normalize standardized headers or YAML front matter during message composition, but treat it as optional guidance rather than a required transport primitive.
+- Before invoking a shared Python helper from `rules/scripts/`, inspect `rules/scripts/requirements.txt` so you know which dependencies the mailbox expects.
+- For any direct filesystem step that touches shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, use the shared helper script from `rules/scripts/` when the shared mailbox provides one.
 
-## Read Mail
+## Direct Read Mail
 
-- Inspect the shared mailbox `rules/` directory first so mailbox-local rules can refine how this particular shared mailbox expects reads or status updates to work.
 - Inspect unread state from `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` when available; treat that mailbox-local database as the source of truth for read or unread, starred, archived, deleted, and thread summary state for the current mailbox.
 - Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as shared structural catalog state, not as the mailbox-view authority for the current mailbox.
 - Read message content by following inbox or sent symlink projections back to the canonical Markdown message file in `messages/<YYYY-MM-DD>/...`, not from ad hoc cached copies.
-- Use [references/filesystem-layout.md](references/filesystem-layout.md) for the exact mailbox tree and message file shape.
 - Preserve thread ancestry exactly as stored. Do not infer thread membership from subject lines alone.
 - Mark a message read only after the message has actually been processed successfully.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and reload the current bindings before continuing.
 
-## Send Or Reply
+## Direct Send Or Reply
 
-- Inspect the shared mailbox `rules/` directory first so mailbox-local rules, scripts, or helper skills can refine standardized mailbox operations for this shared mail group.
 - Use a new `message_id` for each outgoing message.
 - Generate `message_id` using the format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}`.
 - For a new thread, set `thread_id = message_id`.
@@ -50,19 +59,18 @@ Use this skill to work with the mailbox transport where canonical messages live 
 When writing directly to the filesystem transport:
 
 1. Stage the outgoing message before exposing it to recipients.
-2. Inspect `rules/scripts/requirements.txt` before invoking a shared Python helper from `rules/scripts/`.
-3. Use the shared helper script from `rules/scripts/` for sensitive steps that touch shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`.
-4. Respect the mailbox `.lock` files for any full mailbox address whose registration, mailbox state, or projections will be changed.
-5. Place the canonical delivered Markdown message under `messages/<YYYY-MM-DD>/...`.
-6. Materialize recipient inbox and sender sent entries as symlink projections to that canonical message instead of copying the message body into mailbox folders.
-7. Keep canonical message content immutable after delivery.
-8. Update mailbox-view state in mailbox-local SQLite instead of rewriting delivered message bodies.
+2. Use the shared helper script from `rules/scripts/` for sensitive steps that touch shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`.
+3. Respect the mailbox `.lock` files for any full mailbox address whose registration, mailbox state, or projections will be changed.
+4. Place the canonical delivered Markdown message under `messages/<YYYY-MM-DD>/...`.
+5. Materialize recipient inbox and sender sent entries as symlink projections to that canonical message instead of copying the message body into mailbox folders.
+6. Keep canonical message content immutable after delivery.
+7. Update mailbox-view state in mailbox-local SQLite instead of rewriting delivered message bodies.
 
 ## Guardrails
 
 - Do not hardcode mailbox roots, SQLite paths, or mailbox addresses into instructions, prompts, or generated files.
 - Do not assume mailbox content lives under the runtime root unless the env bindings explicitly point there.
-- Do not skip the shared mailbox `rules/` directory when interacting with a shared mail root; mailbox-local rules there are the first place to look for standardized operation guidance.
+- Do not skip the shared mailbox `rules/` directory when direct filesystem access is required.
 - Do not hand-write raw SQLite mutations or lock-file orchestration when the shared mailbox provides a standardized helper script for that sensitive operation under `rules/scripts/`.
 - Do not assume shared Python helper dependencies are already available without checking `rules/scripts/requirements.txt`.
 - Do not invent archive or draft folder workflows in v1; treat `archive/` and `drafts/` as reserved placeholders unless a future change defines those workflows.
@@ -71,4 +79,4 @@ When writing directly to the filesystem transport:
 - Do not mark a message read merely because unread mail was detected or because a reminder prompt mentioned it.
 - Do not bypass locking when creating or updating mailbox projections.
 - Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
-- Do not assume a true-email runtime transport exists in this change; if the transport is not `filesystem`, stop and report that only the filesystem mailbox transport is implemented here.
+- Do not present `deliver_message.py` or `update_mailbox_state.py` as the first-choice attached-session path when the shared gateway facade is available.

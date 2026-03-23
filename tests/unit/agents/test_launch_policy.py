@@ -157,9 +157,7 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
         is True
     )
     assert (
-        state_payload["projects"][str((tmp_path / "workspace").resolve())][
-            "hasTrustDialogAccepted"
-        ]
+        state_payload["projects"][str((tmp_path / "workspace").resolve())]["hasTrustDialogAccepted"]
         is True
     )
     assert api_key not in state_text

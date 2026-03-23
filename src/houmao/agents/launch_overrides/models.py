@@ -318,8 +318,7 @@ class ToolLaunchMetadata:
             return
         if not self.tool_params:
             raise ValueError(
-                f"{source}: tool `{tool}` exposes no supported `launch_overrides.tool_params` "
-                "in v1"
+                f"{source}: tool `{tool}` exposes no supported `launch_overrides.tool_params` in v1"
             )
         for key, value in tool_params.items():
             definition = self.tool_params.get(key)
@@ -336,8 +335,7 @@ class ToolLaunchMetadata:
 
         return {
             "tool_params": {
-                key: definition.to_payload()
-                for key, definition in sorted(self.tool_params.items())
+                key: definition.to_payload() for key, definition in sorted(self.tool_params.items())
             }
         }
 
@@ -366,7 +364,10 @@ def _normalize_json_value(value: object, *, source: str) -> JsonValue:
     if isinstance(value, float):
         return value
     if isinstance(value, list):
-        return [_normalize_json_value(item, source=f"{source}[{index}]") for index, item in enumerate(value)]
+        return [
+            _normalize_json_value(item, source=f"{source}[{index}]")
+            for index, item in enumerate(value)
+        ]
     if isinstance(value, dict):
         normalized: dict[str, JsonValue] = {}
         for key, child in value.items():

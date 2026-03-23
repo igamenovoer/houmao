@@ -9,7 +9,12 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from houmao.cao.models import CaoSessionDetail, CaoSessionInfo, CaoSessionTerminalSummary, CaoTerminal
+from houmao.cao.models import (
+    CaoSessionDetail,
+    CaoSessionInfo,
+    CaoSessionTerminalSummary,
+    CaoTerminal,
+)
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoInstallAgentProfileRequest,

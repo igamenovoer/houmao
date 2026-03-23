@@ -231,7 +231,7 @@ def _codex_validate_minimal_inputs(request: LaunchPolicyRequest) -> None:
         raise LaunchPolicyError(
             "Codex unattended launch requires `auth.json`, `OPENAI_API_KEY`, or a "
             "config-backed env-only provider with `requires_openai_auth = false` "
-            "and `wire_api = \"responses\"`."
+            'and `wire_api = "responses"`.'
         )
     if not isinstance(env_key, str) or not env_key.strip():
         raise LaunchPolicyError(
@@ -320,8 +320,10 @@ def _render_toml_mapping(payload: Mapping[str, Any], *, prefix: tuple[str, ...] 
 def _toml_key_literal(value: str) -> str:
     """Render one TOML bare key when possible, otherwise use a quoted key."""
 
-    if value and value[0].isalpha() and all(
-        character.isalnum() or character in {"_", "-"} for character in value
+    if (
+        value
+        and value[0].isalpha()
+        and all(character.isalnum() or character in {"_", "-"} for character in value)
     ):
         return value
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')

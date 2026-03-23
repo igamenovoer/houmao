@@ -4,21 +4,37 @@ description: Operate the Stalwart-backed mailbox transport for agents using runt
 license: MIT
 ---
 
+# Email Via Stalwart
+
 Use this skill when the runtime-selected mailbox transport is `stalwart`.
 
-Key rules:
+## Routine Actions With A Live Gateway Facade
+
+- When a live loopback gateway exposes the shared `/v1/mail/*` facade for this session, treat that shared gateway surface as the default routine path for ordinary mailbox work.
+- Ordinary attached-session mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
+- Prefer the shared gateway mailbox routes for those routine actions: `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
+- Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
+- After you successfully process one nominated unread message, mark that same `message_ref` read through `POST /v1/mail/state` with `read=true`.
+- Do not restate direct JMAP request recipes or filesystem helper flows as the default attached-session path when the shared gateway facade is available.
+
+## Binding Checks
 
 - Read [references/env-vars.md](references/env-vars.md) before using the transport.
-- Prefer the live gateway mailbox facade exposed through the existing gateway env bindings and `/v1/mail/*` routes for shared mailbox operations: `check`, `send`, and `reply`.
-- When no live gateway mailbox facade is available, use the runtime-managed `AGENTSYS_MAILBOX_EMAIL_*` env vars for direct Stalwart-backed mailbox access.
+- Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `stalwart`.
+- Re-read the mailbox env vars before each mailbox action. Do not cache session endpoints or credentials across turns.
+
+## Direct Stalwart Fallback Actions
+
+- Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
+- Use the runtime-managed `AGENTSYS_MAILBOX_EMAIL_*` env vars for direct Stalwart-backed mailbox access.
 - Treat `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
+- Use `AGENTSYS_MAILBOX_EMAIL_JMAP_URL` as the JMAP session endpoint.
+- Use `AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY` as the mailbox login identity.
+- Use `AGENTSYS_MAILBOX_ADDRESS` as the sender address for outbound mail.
+- Preserve reply ancestry with standard email headers and the opaque `message_ref` contract.
+
+## Guardrails
+
 - Do not assume filesystem mailbox `rules/`, mailbox-local SQLite, lock files, or projection symlinks exist for this transport.
-- Keep shared mailbox behavior transport-neutral: return opaque `message_ref` values, preserve reply ancestry, and do not leak raw Stalwart object shapes into the operator-facing result.
-
-When using direct Stalwart access:
-
-1. Use `AGENTSYS_MAILBOX_EMAIL_JMAP_URL` as the JMAP session endpoint.
-2. Use `AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY` as the mailbox login identity.
-3. Resolve credentials through `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE`.
-4. Use `AGENTSYS_MAILBOX_ADDRESS` as the sender address for outbound mail.
-5. Preserve reply ancestry with standard email headers and the opaque `message_ref` contract.
+- Do not leak raw Stalwart object shapes into operator-facing behavior when a shared mailbox operation can stay transport-neutral.
+- Do not present direct env-backed transport access as the first-choice attached-session path when the shared gateway facade is available.

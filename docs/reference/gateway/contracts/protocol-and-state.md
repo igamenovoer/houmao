@@ -82,6 +82,7 @@ Current v1 routes:
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
 - `POST /v1/mail/reply`
+- `POST /v1/mail/state`
 - `GET /v1/mail-notifier`
 - `PUT /v1/mail-notifier`
 - `DELETE /v1/mail-notifier`
@@ -300,6 +301,40 @@ Representative request:
 }
 ```
 
+### `POST /v1/mail/state`
+
+This route applies the shared single-message read-state mutation used by bounded mailbox turns after successful processing.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+  "read": true
+}
+```
+
+Representative response:
+
+```json
+{
+  "schema_version": 1,
+  "transport": "filesystem",
+  "principal_id": "AGENTSYS-gpu",
+  "address": "AGENTSYS-gpu@agents.localhost",
+  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+  "read": true
+}
+```
+
+Shared state-update rules:
+
+- `message_ref` is the full targeting contract; callers must not derive transport-local ids from it.
+- v1 supports explicit single-message read mutation only. Broader mailbox-state fields such as `starred`, `archived`, or `deleted` are rejected.
+- The response is a minimal acknowledgment of the resulting read state for that shared target, not a full message envelope.
+- Like the other shared mailbox routes, this route does not consume the terminal-mutation slot behind `POST /v1/requests`.
+
 Shared mailbox route availability rules:
 
 - `/v1/mail/*` is available only when the live gateway listener is bound to `127.0.0.1`.
@@ -343,6 +378,9 @@ Support contract rules:
 - Enabling the notifier fails explicitly when the attach contract has no readable manifest or when the manifest launch plan has no mailbox binding.
 - Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
+- Wake-up prompts nominate exactly one actionable unread target using the oldest unread message by `created_at_utc` with a stable tie-breaker.
+- The prompt includes the nominated `message_ref`, optional `thread_ref`, sender context, subject, and the remaining unread count beyond that nominated target.
+- Deduplication stays keyed to the full unread set rather than the prompt text or the nominated target alone, so reminder rewrites do not create duplicate wake-ups when mailbox truth is unchanged.
 
 Detailed inspection note:
 

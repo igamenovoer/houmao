@@ -525,6 +525,11 @@ def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> s
     return "\n".join(
         [
             "Use the runtime-owned mailbox skill for all mailbox actions.",
+            (
+                "When a live loopback gateway mailbox facade is attached, keep routine mailbox "
+                "work on the shared gateway mailbox operations instead of reconstructing "
+                "transport-local helper recipes."
+            ),
             f"Start a ping-pong conversation with `{state.responder.mailbox_address}`.",
             f"Thread key: {thread_key}",
             f"Round limit: {state.round_limit}",
@@ -542,10 +547,17 @@ def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> s
             subject,
             "",
             "The responder should reply in the same thread with the current UTC time.",
-            "On later wake-up turns, read the newest reply in the same thread.",
-            "If the latest round is below the round limit, send the next round message.",
+            (
+                "Later wake-up turns will nominate one actionable unread target by shared "
+                "`message_ref` and optional `thread_ref`."
+            ),
+            (
+                "Use shared mailbox operations for that later work: inspect the nominated "
+                "message, send the next in-thread reply when needed, and mark the processed "
+                "source message read through `POST /v1/mail/state` only after success."
+            ),
+            "If the latest round is below the round limit, send the next round message in the same thread.",
             "If the latest round equals the round limit, stop without sending a new message.",
-            "Mark processed mail read only after you have acted on it.",
         ]
     )
 

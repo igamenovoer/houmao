@@ -41,6 +41,7 @@ _PROVIDERS_REQUIRING_WORKSPACE_ACCESS = frozenset(
     }
 )
 
+
 @click.command(name="launch")
 @click.option("--agents", required=True, help="Agent profile to launch")
 @click.option("--session-name", help="Name of the session (default: auto-generated)")

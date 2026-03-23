@@ -741,6 +741,27 @@ class GatewayMailReplyRequestV1(_StrictGatewayModel):
         return self
 
 
+class GatewayMailStateRequestV1(_StrictGatewayModel):
+    """`POST /v1/mail/state` request body."""
+
+    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
+    message_ref: str
+    read: Literal[True] = True
+
+    @field_validator("message_ref")
+    @classmethod
+    def _message_ref_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayMailStateRequestV1":
+        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
+        return self
+
+
 class GatewayMailActionResponseV1(_StrictGatewayModel):
     """`POST /v1/mail/send|reply` response body."""
 
@@ -760,6 +781,30 @@ class GatewayMailActionResponseV1(_StrictGatewayModel):
 
     @model_validator(mode="after")
     def _validate_schema(self) -> "GatewayMailActionResponseV1":
+        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayMailStateResponseV1(_StrictGatewayModel):
+    """`POST /v1/mail/state` response body."""
+
+    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
+    transport: MailboxTransport
+    principal_id: str
+    address: str
+    message_ref: str
+    read: bool
+
+    @field_validator("principal_id", "address", "message_ref")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayMailStateResponseV1":
         if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
         return self

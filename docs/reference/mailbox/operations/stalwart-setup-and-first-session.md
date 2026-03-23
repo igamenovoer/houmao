@@ -156,8 +156,9 @@ Once a live gateway is attached on `127.0.0.1`, the runtime-owned mailbox guidan
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
 - `POST /v1/mail/reply`
+- `POST /v1/mail/state`
 
-That preference matters because the gateway becomes the transport abstraction boundary. The session can keep one operator-facing `mail` UX while the gateway resolves either a filesystem-backed adapter or a Stalwart-backed adapter from the same manifest-backed mailbox binding.
+That preference matters because the gateway becomes the transport abstraction boundary. The session can keep one operator-facing `mail` UX while the gateway resolves either a filesystem-backed adapter or a Stalwart-backed adapter from the same manifest-backed mailbox binding. It also means one bounded later turn can reply to a shared `message_ref` and then mark that same processed message read without recovering raw Stalwart ids.
 
 Use [Gateway Mailbox Facade](../../gateway/operations/mailbox-facade.md) for the attach-time and route-availability story. Use [Protocol And State Contracts](../../gateway/contracts/protocol-and-state.md) for the exact HTTP request and response shapes.
 

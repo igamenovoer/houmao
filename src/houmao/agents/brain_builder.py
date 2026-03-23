@@ -279,8 +279,7 @@ def _parse_operator_prompt_mode(
     value = raw_value.strip()
     if value not in {"interactive", "unattended"}:
         raise BuildError(
-            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, "
-            f"got {value!r}"
+            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, got {value!r}"
         )
     return cast(OperatorPromptMode, value)
 
@@ -478,7 +477,7 @@ def _build_launch_helper(
         )
         script_lines.append('EXTRA_ARGS=("$@")')
         launch_policy_args = [
-            "\"${BOOTSTRAP_PYTHON[@]}\"",
+            '"${BOOTSTRAP_PYTHON[@]}"',
             "-m",
             "houmao.agents.launch_policy.cli",
             "--tool",
@@ -652,7 +651,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     construction_provenance: dict[str, object] = {
         "adapter_path": str(adapter_path),
-        "recipe_path": str(request.recipe_path.resolve()) if request.recipe_path is not None else None,
+        "recipe_path": str(request.recipe_path.resolve())
+        if request.recipe_path is not None
+        else None,
         "recipe_overrides_present": request.recipe_launch_overrides is not None,
         "direct_overrides_present": request.launch_overrides is not None,
     }
@@ -666,7 +667,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "config_profile": request.config_profile,
             "credential_profile": request.credential_profile,
             "adapter_path": str(adapter_path),
-            "recipe_path": str(request.recipe_path.resolve()) if request.recipe_path is not None else None,
+            "recipe_path": str(request.recipe_path.resolve())
+            if request.recipe_path is not None
+            else None,
         },
         "launch_policy": {
             "operator_prompt_mode": request.operator_prompt_mode or "interactive",

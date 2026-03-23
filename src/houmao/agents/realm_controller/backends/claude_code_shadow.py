@@ -908,9 +908,7 @@ class ClaudeCodeShadowParser:
                 start_index -= 1
         excerpt_end = min(option_indices[-1] + 2, len(clean_tail_lines))
         excerpt = "\n".join(
-            line.rstrip()
-            for line in clean_tail_lines[start_index:excerpt_end]
-            if line.strip()
+            line.rstrip() for line in clean_tail_lines[start_index:excerpt_end] if line.strip()
         ).strip()
         if not excerpt:
             return None

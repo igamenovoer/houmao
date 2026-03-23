@@ -156,9 +156,7 @@ def resolve_launch_behavior(
         unsupported_fields: list[str] = []
         if merged.args:
             unsupported_fields.append("args")
-        unsupported_fields.extend(
-            f"tool_params.{key}" for key in sorted(merged.tool_params)
-        )
+        unsupported_fields.extend(f"tool_params.{key}" for key in sorted(merged.tool_params))
         if unsupported_fields:
             joined = ", ".join(unsupported_fields)
             raise ValueError(

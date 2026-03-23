@@ -225,7 +225,9 @@ def test_codex_extract_signals_ignore_historical_slash_command_after_prompt_reco
     assert signals.has_processing_spinner is False
 
 
-def test_codex_shadow_regression_historical_spinner_like_text_with_fresh_prompt_stays_idle() -> None:
+def test_codex_shadow_regression_historical_spinner_like_text_with_fresh_prompt_stays_idle() -> (
+    None
+):
     parser = CodexShadowParser()
     scrollback = "OpenAI Codex (v0.98.0)\nassistant: ⠋ historical unicode text\n› \n"
 

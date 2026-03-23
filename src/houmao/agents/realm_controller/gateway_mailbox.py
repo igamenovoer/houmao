@@ -18,6 +18,7 @@ from houmao.agents.mailbox_runtime_models import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayMailAttachmentUploadV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayMailboxAttachmentV1,
     GatewayMailboxMessageV1,
@@ -29,9 +30,15 @@ from houmao.mailbox.managed import (
     ManagedAttachment,
     ManagedMailboxOperationError,
     ManagedPrincipal,
+    StateUpdateRequest,
     deliver_message,
+    update_mailbox_state,
 )
-from houmao.mailbox.protocol import MailboxMessage, parse_message_document, serialize_message_document
+from houmao.mailbox.protocol import (
+    MailboxMessage,
+    parse_message_document,
+    serialize_message_document,
+)
 from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
 
 
@@ -73,6 +80,14 @@ class GatewayMailboxAdapter(Protocol):
         attachments: Sequence[GatewayMailAttachmentUploadV1],
     ) -> GatewayMailboxMessageV1:
         """Reply to one existing message and return the normalized delivered record."""
+
+    def update_read_state(
+        self,
+        *,
+        message_ref: str,
+        read: bool,
+    ) -> GatewayMailStateResponseV1:
+        """Apply one single-message read-state update by opaque shared reference."""
 
 
 def build_gateway_mailbox_adapter(mailbox: MailboxResolvedConfig) -> GatewayMailboxAdapter:
@@ -181,7 +196,9 @@ class FilesystemGatewayMailboxAdapter:
         return self._message_to_model(
             message=self._load_message_document(
                 message_id=message_id,
-                canonical_path=self._canonical_message_path(message_id=message_id, created_at_utc=created_at_utc),
+                canonical_path=self._canonical_message_path(
+                    message_id=message_id, created_at_utc=created_at_utc
+                ),
             ),
             unread=False,
         )
@@ -221,9 +238,37 @@ class FilesystemGatewayMailboxAdapter:
         return self._message_to_model(
             message=self._load_message_document(
                 message_id=message_id,
-                canonical_path=self._canonical_message_path(message_id=message_id, created_at_utc=created_at_utc),
+                canonical_path=self._canonical_message_path(
+                    message_id=message_id, created_at_utc=created_at_utc
+                ),
             ),
             unread=False,
+        )
+
+    def update_read_state(
+        self,
+        *,
+        message_ref: str,
+        read: bool,
+    ) -> GatewayMailStateResponseV1:
+        message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
+        try:
+            update_mailbox_state(
+                self.m_mailbox.filesystem_root,
+                StateUpdateRequest(
+                    address=self.m_mailbox.address,
+                    message_id=message_id,
+                    read=read,
+                ),
+            )
+        except ManagedMailboxOperationError as exc:
+            raise GatewayMailboxError(str(exc)) from exc
+        return GatewayMailStateResponseV1(
+            transport="filesystem",
+            principal_id=self.m_mailbox.principal_id,
+            address=self.m_mailbox.address,
+            message_ref=f"filesystem:{message_id}",
+            read=read,
         )
 
     def _build_delivery_request(
@@ -243,7 +288,9 @@ class FilesystemGatewayMailboxAdapter:
         staged_message_path = (
             self.m_mailbox.filesystem_root / "staging" / f"gateway-{uuid4().hex[:12]}.md"
         ).resolve()
-        with sqlite3.connect((self.m_mailbox.filesystem_root / "index.sqlite").resolve()) as connection:
+        with sqlite3.connect(
+            (self.m_mailbox.filesystem_root / "index.sqlite").resolve()
+        ) as connection:
             to_principals = [
                 self._managed_principal_for_address(connection=connection, address=address)
                 for address in to_addresses
@@ -267,12 +314,12 @@ class FilesystemGatewayMailboxAdapter:
             cc=tuple(cc_principals),
             reply_to=(),
             subject=subject,
-            attachments=tuple(
-                _managed_attachment_from_upload(item) for item in attachments
-            ),
+            attachments=tuple(_managed_attachment_from_upload(item) for item in attachments),
             headers={},
         )
-        self._write_staged_message(staged_message_path=staged_message_path, request=request, body_content=body_content)
+        self._write_staged_message(
+            staged_message_path=staged_message_path, request=request, body_content=body_content
+        )
         return request
 
     def _write_staged_message(
@@ -282,20 +329,24 @@ class FilesystemGatewayMailboxAdapter:
         request: DeliveryRequest,
         body_content: str,
     ) -> None:
-        message = MailboxMessage(
-            message_id=request.message_id,
-            thread_id=request.thread_id,
-            in_reply_to=request.in_reply_to,
-            references=list(request.references),
-            created_at_utc=request.created_at_utc,
-            sender=request.sender.to_mailbox_principal(),
-            to=[principal.to_mailbox_principal() for principal in request.to],
-            cc=[principal.to_mailbox_principal() for principal in request.cc],
-            reply_to=[principal.to_mailbox_principal() for principal in request.reply_to],
-            subject=request.subject,
-            body_markdown=body_content,
-            attachments=[attachment.to_mailbox_attachment() for attachment in request.attachments],
-            headers=dict(request.headers),
+        message = MailboxMessage.model_validate(
+            {
+                "message_id": request.message_id,
+                "thread_id": request.thread_id,
+                "in_reply_to": request.in_reply_to,
+                "references": list(request.references),
+                "created_at_utc": request.created_at_utc,
+                "from": request.sender.to_mailbox_principal(),
+                "to": [principal.to_mailbox_principal() for principal in request.to],
+                "cc": [principal.to_mailbox_principal() for principal in request.cc],
+                "reply_to": [principal.to_mailbox_principal() for principal in request.reply_to],
+                "subject": request.subject,
+                "body_markdown": body_content,
+                "attachments": [
+                    attachment.to_mailbox_attachment() for attachment in request.attachments
+                ],
+                "headers": dict(request.headers),
+            }
         )
         staged_message_path.parent.mkdir(parents=True, exist_ok=True)
         staged_message_path.write_text(
@@ -304,7 +355,9 @@ class FilesystemGatewayMailboxAdapter:
         )
 
     def _canonical_message_path(self, *, message_id: str, created_at_utc: str) -> Path:
-        return (self.m_mailbox.filesystem_root / "messages" / created_at_utc[:10] / f"{message_id}.md").resolve()
+        return (
+            self.m_mailbox.filesystem_root / "messages" / created_at_utc[:10] / f"{message_id}.md"
+        ).resolve()
 
     def _managed_principal_for_address(
         self,
@@ -331,7 +384,9 @@ class FilesystemGatewayMailboxAdapter:
         )
 
     def _load_message_by_id(self, message_id: str) -> MailboxMessage:
-        with sqlite3.connect((self.m_mailbox.filesystem_root / "index.sqlite").resolve()) as connection:
+        with sqlite3.connect(
+            (self.m_mailbox.filesystem_root / "index.sqlite").resolve()
+        ) as connection:
             row = connection.execute(
                 "SELECT canonical_path FROM messages WHERE message_id = ?",
                 (message_id,),
@@ -354,7 +409,9 @@ class FilesystemGatewayMailboxAdapter:
                 f"filesystem mailbox canonical message `{message_id}` is invalid: {canonical_path}"
             ) from exc
 
-    def _message_to_model(self, *, message: MailboxMessage, unread: bool | None) -> GatewayMailboxMessageV1:
+    def _message_to_model(
+        self, *, message: MailboxMessage, unread: bool | None
+    ) -> GatewayMailboxMessageV1:
         return GatewayMailboxMessageV1(
             message_ref=f"filesystem:{message.message_id}",
             thread_ref=f"filesystem:{message.thread_id}",
@@ -439,6 +496,28 @@ class StalwartGatewayMailboxAdapter:
             raise GatewayMailboxError(str(exc)) from exc
         return _stalwart_message_to_model(row)
 
+    def update_read_state(
+        self,
+        *,
+        message_ref: str,
+        read: bool,
+    ) -> GatewayMailStateResponseV1:
+        try:
+            payload = self._client().update_read_state(
+                message_ref=_require_prefixed_ref(message_ref, prefix="stalwart"),
+                read=read,
+            )
+        except StalwartError as exc:
+            raise GatewayMailboxError(str(exc)) from exc
+        message_id = _require_string(payload, "id")
+        return GatewayMailStateResponseV1(
+            transport="stalwart",
+            principal_id=self.m_mailbox.principal_id,
+            address=self.m_mailbox.address,
+            message_ref=f"stalwart:{message_id}",
+            read=not bool(payload.get("unread")),
+        )
+
     def _client(self) -> StalwartJmapClient:
         credential_file = self.m_mailbox.credential_file
         if credential_file is None:
@@ -489,6 +568,8 @@ def _managed_attachment_from_upload(item: GatewayMailAttachmentUploadV1) -> Mana
 
 
 def _stalwart_message_to_model(payload: dict[str, object]) -> GatewayMailboxMessageV1:
+    unread_value = payload.get("unread")
+    normalized_unread: bool | None = unread_value if isinstance(unread_value, bool) else None
     return GatewayMailboxMessageV1(
         message_ref=f"stalwart:{_require_string(payload, 'id')}",
         thread_ref=(
@@ -498,7 +579,7 @@ def _stalwart_message_to_model(payload: dict[str, object]) -> GatewayMailboxMess
         ),
         created_at_utc=_require_string(payload, "receivedAt"),
         subject=_require_string(payload, "subject"),
-        unread=payload.get("unread") if isinstance(payload.get("unread"), bool) else None,
+        unread=normalized_unread,
         body_preview=_optional_string(payload.get("preview")),
         body_text=_optional_string(payload.get("body")),
         sender=_participant_from_address_list(payload.get("from")),
@@ -547,11 +628,15 @@ def _attachments_from_stalwart_list(value: object) -> list[GatewayMailboxAttachm
         blob_id = item.get("blobId")
         if not isinstance(blob_id, str) or not blob_id.strip():
             continue
+        media_type = item.get("type")
+        normalized_media_type = (
+            media_type if isinstance(media_type, str) else "application/octet-stream"
+        )
         attachments.append(
             GatewayMailboxAttachmentV1(
                 attachment_id=blob_id,
                 kind="transport_owned",
-                media_type=item.get("type") if isinstance(item.get("type"), str) else "application/octet-stream",
+                media_type=normalized_media_type,
                 locator=f"blob:{blob_id}",
                 size_bytes=item.get("size") if isinstance(item.get("size"), int) else None,
                 label=item.get("name") if isinstance(item.get("name"), str) else None,

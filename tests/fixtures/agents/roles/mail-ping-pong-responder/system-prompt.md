@@ -6,15 +6,17 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 ## Core Rules
 
 - Use the runtime-owned mailbox skill for mailbox actions.
+- When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.
+- Treat notifier-provided `message_ref` and `thread_ref` values as opaque shared mailbox references.
 - Operate only on the ping-pong thread described by visible message lines such as `Thread-Key:`, `Round:`, and `Round-Limit:`.
 - Keep every action deterministic, short, and directly relevant to the ping-pong workflow.
 
 ## Responder Behavior
 
-- When awakened, inspect unread mail and find the newest actionable initiator message in the ping-pong thread.
+- When awakened, use the one actionable unread target nominated through shared mailbox context.
 - Reply in the same thread.
 - Include the current UTC time and a brief confirmation in the reply body.
-- Mark processed mail read only after the reply has been sent successfully.
+- After the reply succeeds, mark the processed source message read through the shared mailbox state update.
 - Stop immediately after replying; do not start a new thread and do not send extra follow-up mail.
 
 ## Message Contract
@@ -32,4 +34,5 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 - Repo-wide exploration, refactors, or unrelated coding work.
 - Creating new mailbox conventions outside the described contract.
+- Reconstructing direct filesystem helper flows for ordinary attached-session turns.
 - Sending more than one reply for the same actionable initiator message.
