@@ -75,6 +75,7 @@ class DemoEvidenceConfig:
     runtime_observer_interval_seconds: float
     ready_timeout_seconds: float
     cleanup_session: bool
+    live_watch_recorder_enabled: bool
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -392,6 +393,7 @@ def _parse_evidence(payload: dict[str, Any]) -> DemoEvidenceConfig:
         runtime_observer_interval_seconds=runtime_observer_interval_seconds,
         ready_timeout_seconds=float(payload.get("ready_timeout_seconds", 45.0)),
         cleanup_session=bool(payload.get("cleanup_session", True)),
+        live_watch_recorder_enabled=bool(payload.get("live_watch_recorder_enabled", False)),
     )
 
 

@@ -212,7 +212,8 @@ class LiveWatchManifest:
     dashboard_session_name: str
     dashboard_attach_command: str
     dashboard_command: str
-    terminal_record_run_root: str
+    recorder_enabled: bool
+    terminal_record_run_root: str | None
     resolved_config_path: str
     sample_interval_seconds: float
     runtime_observer_interval_seconds: float
@@ -250,7 +251,10 @@ class LiveWatchManifest:
             dashboard_session_name=str(payload["dashboard_session_name"]),
             dashboard_attach_command=str(payload["dashboard_attach_command"]),
             dashboard_command=str(payload["dashboard_command"]),
-            terminal_record_run_root=str(payload["terminal_record_run_root"]),
+            recorder_enabled=_coerce_recorder_enabled(payload=payload, run_root=run_root),
+            terminal_record_run_root=_coerce_terminal_record_run_root(
+                payload=payload, run_root=run_root
+            ),
             resolved_config_path=str(
                 payload.get(
                     "resolved_config_path",
@@ -442,3 +446,23 @@ def _optional_string(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _coerce_terminal_record_run_root(*, payload: dict[str, Any], run_root: str) -> str | None:
+    """Return the persisted recorder root when one is present."""
+
+    raw_value = _optional_string(payload.get("terminal_record_run_root"))
+    if raw_value is not None:
+        return raw_value
+    if payload.get("recorder_enabled") is True:
+        return str(LiveWatchPaths.from_run_root(run_root=Path(run_root)).terminal_record_run_root)
+    return None
+
+
+def _coerce_recorder_enabled(*, payload: dict[str, Any], run_root: str) -> bool:
+    """Infer recorder enablement for newer and older live-watch manifests."""
+
+    raw_value = payload.get("recorder_enabled")
+    if isinstance(raw_value, bool):
+        return raw_value
+    return _coerce_terminal_record_run_root(payload=payload, run_root=run_root) is not None

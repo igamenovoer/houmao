@@ -6,3 +6,5 @@ skills:
   - skill-invocation-probe
 config_profile: default
 credential_profile: personal-a-default
+launch_policy:
+  operator_prompt_mode: unattended

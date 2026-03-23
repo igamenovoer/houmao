@@ -2,8 +2,6 @@ model = "gpt-5.4"
 model_provider = "yunwu-openai"
 model_reasoning_effort = "high"
 personality = "friendly"
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
 
 [model_providers]
 

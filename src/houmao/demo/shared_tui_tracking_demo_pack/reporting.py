@@ -158,10 +158,13 @@ def build_live_run_issues(
     *,
     comparison: TimelineComparison | None,
     labels_present: bool,
+    recorder_enabled: bool,
 ) -> list[IssueNote]:
     """Return live-watch issue notes."""
 
     issues: list[IssueNote] = []
+    if not recorder_enabled:
+        return issues
     if not labels_present:
         issues.append(
             IssueNote(
@@ -184,12 +187,15 @@ def build_live_summary_report(
     manifest: LiveWatchManifest,
     comparison: TimelineComparison | None,
     labels_present: bool,
+    recorder_enabled: bool,
     issue_paths: list[Path],
     artifact_paths: dict[str, Path],
 ) -> str:
     """Render the summary report for one live-watch run."""
 
-    if not labels_present:
+    if not recorder_enabled:
+        verdict = "observed_only"
+    elif not labels_present:
         verdict = "incomplete"
     elif comparison is not None and comparison.mismatch_count == 0:
         verdict = "passed"
@@ -197,10 +203,19 @@ def build_live_summary_report(
         verdict = "failed"
     what_worked = [
         "Live dashboard persisted latest state, state samples, and transitions.",
-        "Recorder evidence was retained for offline replay.",
     ]
+    if recorder_enabled:
+        what_worked.append("Recorder evidence was retained for offline replay.")
+    else:
+        what_worked.append(
+            "Live watch ran without recorder-backed capture for a lower-overhead interactive session."
+        )
     what_failed: list[str] = []
-    if not labels_present:
+    if not recorder_enabled:
+        what_failed.append(
+            "Recorder-backed replay and comparison artifacts were not retained for this run."
+        )
+    elif not labels_present:
         what_failed.append("No labels were present, so no ground-truth comparison was produced.")
     elif comparison is not None and comparison.mismatch_count > 0:
         what_failed.append(
@@ -217,7 +232,8 @@ def build_live_summary_report(
         f"- Run root: `{manifest.run_root}`",
         f"- Recipe: `{manifest.recipe_path}`",
         f"- Brain home: `{manifest.brain_home_path}`",
-        f"- Recorder root: `{manifest.terminal_record_run_root}`",
+        f"- Recorder enabled: `{manifest.recorder_enabled}`",
+        f"- Recorder root: `{manifest.terminal_record_run_root or 'none'}`",
         f"- Observed version: `{manifest.observed_version or 'unknown'}`",
         f"- Sample interval seconds: `{manifest.sample_interval_seconds}`",
         f"- Runtime observer interval seconds: `{manifest.runtime_observer_interval_seconds}`",

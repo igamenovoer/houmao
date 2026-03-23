@@ -1,6 +1,6 @@
 # Shared TUI Tracking Demo Pack
 
-This demo pack validates the standalone tracked-TUI module directly from tmux and recorder evidence. It does not depend on `houmao-server`.
+This demo pack validates the standalone tracked-TUI module directly from tmux observation, with optional recorder evidence when replay debugging is needed. It does not depend on `houmao-server`.
 
 The package lives in [src/houmao/demo/shared_tui_tracking_demo_pack](/data1/huangzhe/code/houmao/src/houmao/demo/shared_tui_tracking_demo_pack) and the operator entrypoint is [run_demo.sh](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh).
 
@@ -98,6 +98,12 @@ Start a live watch dashboard for Codex:
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
 ```
 
+Enable recorder-backed live capture only when you want replay-debug artifacts from the same run:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude --with-recorder
+```
+
 Use an alternate config file for live watch when you want different path roots, capture cadence, or sweep definitions:
 
 ```bash
@@ -132,12 +138,13 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop \
 
 Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run-id>/`.
 
-The normal launch posture is intentionally permissive:
+The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
-- Claude explicitly requests `operator_prompt_mode = "unattended"` so the runtime applies the versioned no-prompt launch policy
-- Codex uses the repo-managed runtime-home config with `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`
+- The checked-in Claude and Codex interactive-watch recipes request `launch_policy.operator_prompt_mode: unattended`
+- Live watch defaults to `live_watch_recorder_enabled = false`, so an ordinary interactive test does not start terminal-recorder
+- Use `--with-recorder` or a config/profile override only when you want retained replay-debug artifacts from that run
 
-This avoids routine stalls on approval prompts during capture or observation.
+This avoids routine approval stalls during observation without paying recorder overhead on every smoke test.
 
 Each live run also persists `artifacts/resolved_demo_config.json` so later inspection can see which launch, evidence, semantic, and presentation defaults were active.
 

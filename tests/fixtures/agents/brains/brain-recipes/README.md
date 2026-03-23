@@ -10,9 +10,12 @@ skills:
   - <skill-name>
 config_profile: <profile-name>
 credential_profile: <cred-profile-name>
+launch_policy:
+  operator_prompt_mode: unattended
 ```
 
 Recipes must reference credential profiles by name only.
+Startup no-prompt posture belongs in `launch_policy.operator_prompt_mode`, not in tool-specific checked-in config defaults.
 
 For narrow installed-skill invocation coverage, use `claude/skill-invocation-demo-default.yaml` and `codex/skill-invocation-demo-default.yaml`.
 

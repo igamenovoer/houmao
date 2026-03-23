@@ -45,6 +45,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.sweep import (
 )
 from houmao.demo.shared_tui_tracking_demo_pack.tooling import default_tool_runtime_metadata
 from houmao.shared_tui_tracking.apps.codex_tui.profile import CodexTuiSignalDetector
+from houmao.shared_tui_tracking.models import RuntimeObservation
 
 
 def _repo_root() -> Path:
@@ -88,7 +89,11 @@ def _write_demo_config_copy(path: Path, *, replacements: dict[str, str] | None =
     _write(path, content)
 
 
-def _watch_manifest(paths: LiveWatchPaths) -> LiveWatchManifest:
+def _watch_manifest(
+    paths: LiveWatchPaths,
+    *,
+    recorder_enabled: bool = True,
+) -> LiveWatchManifest:
     """Return one deterministic live-watch manifest for tests."""
 
     return LiveWatchManifest(
@@ -108,7 +113,10 @@ def _watch_manifest(paths: LiveWatchPaths) -> LiveWatchManifest:
         dashboard_session_name="shared-tui-dashboard-demo",
         dashboard_attach_command="tmux attach-session -t shared-tui-dashboard-demo",
         dashboard_command="pixi run python scripts/demo/shared-tui-tracking-demo-pack/scripts/demo_driver.py dashboard --run-root /tmp/run",
-        terminal_record_run_root=str(paths.terminal_record_run_root),
+        recorder_enabled=recorder_enabled,
+        terminal_record_run_root=(
+            str(paths.terminal_record_run_root) if recorder_enabled else None
+        ),
         resolved_config_path=str(paths.resolved_config_path),
         sample_interval_seconds=0.2,
         runtime_observer_interval_seconds=0.2,
@@ -363,7 +371,7 @@ def test_send_text_submits_as_separate_managed_events(
 def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Live watch should build run-local runtime and clean up sessions after dashboard failure."""
+    """Default live watch should skip recorder startup and still clean up on failure."""
 
     recipe_path = tmp_path / "recipe.yaml"
     _write(
@@ -385,6 +393,7 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     requested: dict[str, object] = {}
     cleaned_sessions: list[str] = []
+    recorder_start_calls: list[dict[str, object]] = []
 
     def _fake_build(request):
         requested["runtime_root"] = request.runtime_root
@@ -417,7 +426,7 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     )
     monkeypatch.setattr(
         "houmao.demo.shared_tui_tracking_demo_pack.live_watch.start_terminal_record",
-        lambda **_kwargs: {"run_root": str(paths.terminal_record_run_root)},
+        lambda **kwargs: recorder_start_calls.append(kwargs),
     )
     monkeypatch.setattr(
         "houmao.demo.shared_tui_tracking_demo_pack.live_watch.detect_tool_version",
@@ -450,15 +459,122 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
         )
 
     live_state_payload = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
+    manifest_payload = json.loads(paths.watch_manifest_path.read_text(encoding="utf-8"))
     assert requested["runtime_root"] == run_root / "runtime"
     assert requested["launch_args_override"] is None
     assert requested["operator_prompt_mode"] == "unattended"
+    assert recorder_start_calls == []
     assert set(cleaned_sessions) == {
         "shared-tui-claude-live-run",
         "shared-tui-dashboard-live-run",
     }
+    assert manifest_payload["recorder_enabled"] is False
+    assert manifest_payload["terminal_record_run_root"] is None
     assert live_state_payload["status"] == "failed"
     assert live_state_payload["last_error"] == "dashboard failed"
+
+
+def test_start_live_watch_starts_recorder_when_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorder-enabled live watch should start and clean up passive recorder state."""
+
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        "\n".join(
+            [
+                "schema_version: 1",
+                "name: interactive-watch-default",
+                "tool: claude",
+                "skills:",
+                "  - openspec-explore",
+                "config_profile: default",
+                "credential_profile: personal-a-default",
+            ]
+        )
+        + "\n",
+    )
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    recorder_start_calls: list[dict[str, object]] = []
+    recorder_stop_calls: list[Path] = []
+
+    def _fake_build(request):
+        home_path = Path(request.runtime_root) / "homes" / "claude-home"  # type: ignore[arg-type]
+        manifest_path = Path(request.runtime_root) / "manifests" / "claude-home.yaml"  # type: ignore[arg-type]
+        launch_path = home_path / "launch.sh"
+        home_path.mkdir(parents=True, exist_ok=True)
+        launch_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
+        return SimpleNamespace(
+            home_path=home_path,
+            manifest_path=manifest_path,
+            launch_helper_path=launch_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_brain_home",
+        _fake_build,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.launch_tmux_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.resolve_active_pane_id",
+        lambda **_kwargs: "%1",
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.start_terminal_record",
+        lambda **kwargs: (
+            recorder_start_calls.append(kwargs),
+            Path(kwargs["run_root"]).mkdir(parents=True, exist_ok=True),
+            {"status": "running"},
+        )[-1],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.detect_tool_version",
+        lambda *, tool: "2.1.80 (Claude Code)" if tool == "claude" else None,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._wait_for_dashboard_running",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
+        lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        lambda **_kwargs: None,
+    )
+
+    demo_config = resolve_demo_config(
+        repo_root=_repo_root(),
+        cli_overrides={"evidence": {"live_watch_recorder_enabled": True}},
+    )
+
+    with pytest.raises(RuntimeError, match="dashboard failed"):
+        start_live_watch(
+            repo_root=tmp_path,
+            demo_config=demo_config,
+            tool="claude",
+            output_root=run_root,
+            recipe_path=recipe_path,
+            sample_interval_seconds=0.25,
+            runtime_observer_interval_seconds=0.2,
+            settle_seconds=1.0,
+            trace_enabled=False,
+        )
+
+    manifest_payload = json.loads(paths.watch_manifest_path.read_text(encoding="utf-8"))
+    assert len(recorder_start_calls) == 1
+    assert recorder_start_calls[0]["run_root"] == paths.terminal_record_run_root
+    assert recorder_stop_calls == [paths.terminal_record_run_root]
+    assert manifest_payload["recorder_enabled"] is True
+    assert manifest_payload["terminal_record_run_root"] == str(paths.terminal_record_run_root)
 
 
 def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
@@ -472,6 +588,7 @@ def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
     paths.issues_dir.mkdir(parents=True, exist_ok=True)
     manifest_payload = _watch_manifest(paths).to_payload()
     manifest_payload.pop("resolved_config_path")
+    manifest_payload.pop("recorder_enabled")
     _write_json(paths.watch_manifest_path, manifest_payload)
     _write_json(
         paths.live_state_path,
@@ -551,10 +668,188 @@ def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
     updated_live_state = json.loads(paths.live_state_path.read_text(encoding="utf-8"))
 
     assert payload["run_root"] == str(run_root.resolve())
+    assert payload["recorder_enabled"] is True
     assert set(cleaned_sessions) == {"shared-tui-claude-demo", "shared-tui-dashboard-demo"}
     assert updated_manifest["resolved_config_path"] == str(paths.resolved_config_path)
     assert updated_manifest["stop_reason"] == "operator_requested"
     assert updated_live_state["status"] == "stopped"
+
+
+def test_stop_live_watch_without_recorder_skips_recorder_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorder-disabled live watch should stop cleanly without recorder artifacts."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.analysis_dir.mkdir(parents=True, exist_ok=True)
+    paths.issues_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("recorder should not stop")),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._wait_for_dashboard_stop",
+        lambda **_kwargs: None,
+    )
+    cleaned_sessions: list[str] = []
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_run_issues",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.write_issue_documents",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_summary_report",
+        lambda **kwargs: "summary\n" if kwargs["recorder_enabled"] is False else "",
+    )
+    timestamps = iter(["2026-03-22T00:00:03+00:00", "2026-03-22T00:00:04+00:00"])
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.now_utc_iso",
+        lambda: next(timestamps),
+    )
+
+    payload = stop_live_watch(
+        repo_root=tmp_path,
+        demo_config=_demo_config(),
+        run_root=run_root,
+        stop_reason="operator_requested",
+    )
+
+    updated_manifest = json.loads(paths.watch_manifest_path.read_text(encoding="utf-8"))
+    assert payload["comparison_path"] is None
+    assert payload["recorder_stop"] is None
+    assert payload["recorder_enabled"] is False
+    assert set(cleaned_sessions) == {"shared-tui-claude-demo", "shared-tui-dashboard-demo"}
+    assert updated_manifest["recorder_enabled"] is False
+    assert updated_manifest["terminal_record_run_root"] is None
+
+
+def test_run_dashboard_uses_direct_visible_pane_capture_without_recorder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorder-disabled dashboard runs should derive observations from visible tmux text."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "starting",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": "2026-03-22T00:00:01+00:00",
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+
+    class _FakeReducer:
+        def __init__(self, **_kwargs) -> None:
+            self.latest_observation = None
+            self.latest_signals = SimpleNamespace(
+                accepting_input="yes",
+                editing_input="no",
+                ready_posture="yes",
+                detector_name="fake-detector",
+                detector_version="1",
+                active_reasons=(),
+                notes=(),
+            )
+
+        def process_observation(self, observation):
+            self.latest_observation = observation
+            return SimpleNamespace(
+                diagnostics_availability="available",
+                surface_accepting_input="yes",
+                surface_editing_input="no",
+                surface_ready_posture="yes",
+                turn_phase="ready",
+                last_turn_result="none",
+                last_turn_source="none",
+                detector_name="fake-detector",
+                detector_version="1",
+                active_reasons=(),
+                notes=(),
+            )
+
+        def drain_events(self):
+            return []
+
+    class _FakeLive:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def update(self, _panel) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.StreamStateReducer",
+        _FakeReducer,
+    )
+    monkeypatch.setattr("houmao.demo.shared_tui_tracking_demo_pack.live_watch.Live", _FakeLive)
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.resolve_active_pane_id",
+        lambda **_kwargs: "%1",
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.sample_runtime_observation",
+        lambda **_kwargs: RuntimeObservation(
+            ts_utc="2026-03-22T00:00:02+00:00",
+            elapsed_seconds=0.2,
+            session_exists=True,
+            pane_exists=True,
+            pane_dead=False,
+            pane_pid=123,
+            pane_pid_alive=True,
+            supported_process_pid=456,
+            supported_process_alive=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.capture_visible_pane_text",
+        lambda **_kwargs: "› READY\n",
+    )
+
+    assert demo_driver.main(["dashboard", "--run-root", str(run_root)]) == 0
+
+    latest_state = json.loads(paths.latest_state_path.read_text(encoding="utf-8"))
+    state_samples = paths.state_samples_path.read_text(encoding="utf-8").strip().splitlines()
+
+    assert latest_state["sample_id"] == "s000001"
+    assert latest_state["detector_name"] == "fake-detector"
+    assert len(state_samples) == 1
 
 
 def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path) -> None:
@@ -933,6 +1228,89 @@ def test_inspect_live_watch_uses_selected_live_root_when_run_root_is_omitted(
     )
 
     assert payload["run_root"] == str(run_root.resolve())
+
+
+def test_inspect_live_watch_reports_recorder_disabled_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspection should make recorder absence explicit for recorder-disabled runs."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+    _write_json(
+        paths.latest_state_path,
+        {
+            "sample_id": "s000001",
+            "elapsed_seconds": 0.0,
+            "diagnostics_availability": "available",
+            "turn_phase": "ready",
+            "last_turn_result": "none",
+            "last_turn_source": "none",
+            "surface_accepting_input": "yes",
+            "surface_editing_input": "no",
+            "surface_ready_posture": "yes",
+        },
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.tmux_session_exists",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.status_terminal_record",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("recorder status should not load")),
+    )
+
+    payload = inspect_live_watch(
+        repo_root=_repo_root(),
+        demo_config=_demo_config(),
+        run_root=run_root,
+    )
+
+    assert payload["recorder_enabled"] is False
+    assert payload["recorder_root"] is None
+    assert payload["recorder_status"] is None
+
+
+def test_driver_start_supports_with_recorder_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The driver should expose an explicit live-watch recorder opt-in flag."""
+
+    captured: dict[str, object] = {}
+
+    def _fake_start_live_watch(**kwargs):
+        captured["recorder_enabled"] = kwargs["demo_config"].evidence.live_watch_recorder_enabled
+        return SimpleNamespace(
+            run_root=tmp_path / "live-run",
+            manifest=SimpleNamespace(
+                runtime_root=str(tmp_path / "live-run" / "runtime"),
+                brain_home_path=str(tmp_path / "live-run" / "runtime" / "home"),
+                brain_manifest_path=str(tmp_path / "live-run" / "runtime" / "manifest.yaml"),
+                tool_attach_command="tmux attach-session -t tool",
+                dashboard_attach_command="tmux attach-session -t dashboard",
+            ),
+        )
+
+    monkeypatch.setattr(demo_driver, "start_live_watch", _fake_start_live_watch)
+
+    assert demo_driver.main(["start", "--tool", "claude", "--with-recorder", "--json"]) == 0
+    capsys.readouterr()
+    assert captured["recorder_enabled"] is True
 
 
 def test_validate_recorded_fixture_persists_selected_source_config_path(tmp_path: Path) -> None:

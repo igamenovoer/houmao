@@ -85,10 +85,11 @@ The demo currently expects both `tools.claude` and `tools.codex`.
 
 Controls how evidence is captured around the tmux-backed demo session:
 
-- `sample_interval_seconds`: recorder pane-snapshot cadence
+- `sample_interval_seconds`: live observation cadence, and recorder pane-snapshot cadence when recorder capture is enabled
 - `runtime_observer_interval_seconds`: runtime liveness sampling cadence
 - `ready_timeout_seconds`: timeout used by scenario steps that wait for a ready surface
 - `cleanup_session`: whether the demo reaps the tmux session after capture
+- `live_watch_recorder_enabled`: whether live watch retains passive terminal-recorder capture for replay debugging
 
 If `runtime_observer_interval_seconds` is omitted, it defaults to the sample interval in the resolved config.
 
@@ -209,4 +210,12 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh inspect \
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop \
   --demo-config /path/to/alternate-demo-config.toml \
   --json
+```
+
+Opt into recorder-backed live capture for replay debugging without changing the checked-in config:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start \
+  --tool codex \
+  --with-recorder
 ```

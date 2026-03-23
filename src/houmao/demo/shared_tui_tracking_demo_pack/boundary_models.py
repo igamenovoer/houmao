@@ -139,6 +139,7 @@ class DemoEvidenceConfigV1(_DemoConfigBoundaryModel):
     runtime_observer_interval_seconds: float | None = None
     ready_timeout_seconds: float = 45.0
     cleanup_session: bool = True
+    live_watch_recorder_enabled: bool = False
 
     @field_validator(
         "sample_interval_seconds",
@@ -169,6 +170,7 @@ class DemoEvidenceConfigOverrideV1(_DemoConfigBoundaryModel):
     runtime_observer_interval_seconds: float | None = None
     ready_timeout_seconds: float | None = None
     cleanup_session: bool | None = None
+    live_watch_recorder_enabled: bool | None = None
 
     @field_validator(
         "sample_interval_seconds",

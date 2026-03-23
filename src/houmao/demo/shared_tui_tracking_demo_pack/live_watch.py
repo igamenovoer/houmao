@@ -19,9 +19,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     ensure_tmux_available,
     tmux_session_exists,
 )
-from houmao.shared_tui_tracking.models import RuntimeObservation
+from houmao.shared_tui_tracking.models import RecordedObservation, RuntimeObservation
 from houmao.shared_tui_tracking.reducer import StreamStateReducer, replay_timeline
-from houmao.terminal_record.models import TerminalRecordPaths, load_manifest
+from houmao.terminal_record.models import TerminalRecordPaths, load_manifest as load_terminal_record_manifest
 from houmao.terminal_record.service import (
     start_terminal_record,
     status_terminal_record,
@@ -52,6 +52,7 @@ from .reporting import (
 )
 from .tooling import (
     build_session_name,
+    capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
     kill_tmux_session_if_exists,
@@ -134,6 +135,7 @@ def start_live_watch(
     observed_version = detect_tool_version(tool=tool)
     tool_session_name = build_session_name(prefix=f"shared-tui-{tool}", run_id=run_root.name)
     dashboard_session_name = build_session_name(prefix="shared-tui-dashboard", run_id=run_root.name)
+    recorder_enabled = demo_config.evidence.live_watch_recorder_enabled
     resources = _StartupResources()
     try:
         save_json(paths.resolved_config_path, demo_config.to_payload())
@@ -144,15 +146,16 @@ def start_live_watch(
         )
         resources.tool_session_name = tool_session_name
         pane_id = resolve_active_pane_id(session_name=tool_session_name)
-        start_terminal_record(
-            mode="passive",
-            target_session=tool_session_name,
-            target_pane=pane_id,
-            tool=tool,
-            run_root=paths.terminal_record_run_root,
-            sample_interval_seconds=sample_interval_seconds,
-        )
-        resources.terminal_record_run_root = paths.terminal_record_run_root
+        if recorder_enabled:
+            start_terminal_record(
+                mode="passive",
+                target_session=tool_session_name,
+                target_pane=pane_id,
+                tool=tool,
+                run_root=paths.terminal_record_run_root,
+                sample_interval_seconds=sample_interval_seconds,
+            )
+            resources.terminal_record_run_root = paths.terminal_record_run_root
         dashboard_command = (
             f"cd {repo_root} && pixi run python "
             f"scripts/demo/shared-tui-tracking-demo-pack/scripts/demo_driver.py "
@@ -179,7 +182,10 @@ def start_live_watch(
             dashboard_session_name=dashboard_session_name,
             dashboard_attach_command=f"tmux attach-session -t {dashboard_session_name}",
             dashboard_command=dashboard_command,
-            terminal_record_run_root=str(paths.terminal_record_run_root),
+            recorder_enabled=recorder_enabled,
+            terminal_record_run_root=(
+                str(paths.terminal_record_run_root) if recorder_enabled else None
+            ),
             resolved_config_path=str(paths.resolved_config_path),
             sample_interval_seconds=sample_interval_seconds,
             runtime_observer_interval_seconds=runtime_observer_interval_seconds,
@@ -244,12 +250,13 @@ def inspect_live_watch(
         "brain_manifest_path": manifest.brain_manifest_path,
         "tool_attach_command": manifest.tool_attach_command,
         "dashboard_attach_command": manifest.dashboard_attach_command,
+        "recorder_enabled": manifest.recorder_enabled,
         "recorder_root": manifest.terminal_record_run_root,
         "tool_session_running": tmux_session_exists(session_name=manifest.tool_session_name),
         "dashboard_session_running": tmux_session_exists(
             session_name=manifest.dashboard_session_name
         ),
-        "recorder_status": status_terminal_record(run_root=Path(manifest.terminal_record_run_root)),
+        "recorder_status": _recorder_status_payload(manifest=manifest),
         "live_status": live_state.to_payload(),
         "latest_state": latest_state,
         "artifact_paths": {
@@ -294,29 +301,43 @@ def stop_live_watch(
             updated_at_utc=stop_requested_at,
         ).to_payload(),
     )
-    recorder_stop = stop_terminal_record(run_root=Path(manifest.terminal_record_run_root))
+    recorder_stop = (
+        stop_terminal_record(run_root=Path(manifest.terminal_record_run_root))
+        if manifest.recorder_enabled and manifest.terminal_record_run_root is not None
+        else None
+    )
     _wait_for_dashboard_stop(paths=paths)
     kill_tmux_session_if_exists(session_name=manifest.dashboard_session_name)
     kill_tmux_session_if_exists(session_name=manifest.tool_session_name)
 
     comparison = _finalize_live_replay(paths=paths, manifest=manifest)
-    labels_present = (Path(manifest.terminal_record_run_root) / "labels.json").is_file()
-    issues = build_live_run_issues(comparison=comparison, labels_present=labels_present)
+    labels_present = bool(
+        manifest.terminal_record_run_root is not None
+        and (Path(manifest.terminal_record_run_root) / "labels.json").is_file()
+    )
+    issues = build_live_run_issues(
+        comparison=comparison,
+        labels_present=labels_present,
+        recorder_enabled=manifest.recorder_enabled,
+    )
     issue_paths = write_issue_documents(issues_dir=paths.issues_dir, issues=issues)
+    artifact_paths: dict[str, Path] = {
+        "latest state": paths.latest_state_path,
+        "state samples": paths.state_samples_path,
+        "transitions": paths.transitions_path,
+        "runtime observations": paths.runtime_observations_path,
+        "resolved demo config": paths.resolved_config_path,
+    }
+    if manifest.recorder_enabled:
+        artifact_paths["replay timeline"] = paths.replay_timeline_path
+        artifact_paths["comparison JSON"] = paths.comparison_json_path
     report = build_live_summary_report(
         manifest=manifest,
         comparison=comparison,
         labels_present=labels_present,
+        recorder_enabled=manifest.recorder_enabled,
         issue_paths=issue_paths,
-        artifact_paths={
-            "latest state": paths.latest_state_path,
-            "state samples": paths.state_samples_path,
-            "transitions": paths.transitions_path,
-            "runtime observations": paths.runtime_observations_path,
-            "resolved demo config": paths.resolved_config_path,
-            "replay timeline": paths.replay_timeline_path,
-            "comparison JSON": paths.comparison_json_path,
-        },
+        artifact_paths=artifact_paths,
     )
     paths.report_path.write_text(report, encoding="utf-8")
 
@@ -340,6 +361,7 @@ def stop_live_watch(
             dashboard_session_name=manifest.dashboard_session_name,
             dashboard_attach_command=manifest.dashboard_attach_command,
             dashboard_command=manifest.dashboard_command,
+            recorder_enabled=manifest.recorder_enabled,
             terminal_record_run_root=manifest.terminal_record_run_root,
             resolved_config_path=manifest.resolved_config_path,
             sample_interval_seconds=manifest.sample_interval_seconds,
@@ -368,8 +390,9 @@ def stop_live_watch(
     return {
         "run_root": str(paths.run_root),
         "report_path": str(paths.report_path),
-        "comparison_path": str(paths.comparison_json_path),
+        "comparison_path": str(paths.comparison_json_path) if manifest.recorder_enabled else None,
         "recorder_stop": recorder_stop,
+        "recorder_enabled": manifest.recorder_enabled,
     }
 
 
@@ -400,56 +423,64 @@ def run_dashboard(*, run_root: Path) -> int:
         scheduler=TimeoutScheduler.singleton(),
     )
     console = Console()
-    terminal_record_paths = TerminalRecordPaths.from_run_root(
-        run_root=Path(manifest.terminal_record_run_root)
-    )
-    recorder_manifest = load_manifest(terminal_record_paths.manifest_path)
-    recorder_started = datetime.fromisoformat(recorder_manifest.started_at_utc)
+    terminal_record_paths: TerminalRecordPaths | None = None
+    pane_id = resolve_active_pane_id(session_name=manifest.tool_session_name)
+    observation_started_at = datetime.fromisoformat(manifest.started_at_utc)
+    if manifest.recorder_enabled:
+        if manifest.terminal_record_run_root is None:
+            raise RuntimeError("Recorder-enabled live watch manifest is missing recorder root.")
+        terminal_record_paths = TerminalRecordPaths.from_run_root(
+            run_root=Path(manifest.terminal_record_run_root)
+        )
+        recorder_manifest = load_terminal_record_manifest(terminal_record_paths.manifest_path)
+        observation_started_at = datetime.fromisoformat(recorder_manifest.started_at_utc)
+        pane_id = recorder_manifest.target.pane_id
     processed_snapshot_count = 0
     latest_state_payload: dict[str, Any] | None = None
+    runtime_rows: list[RuntimeObservation] = []
     try:
         with Live(console=console, refresh_per_second=DEFAULT_DASHBOARD_REFRESH_PER_SECOND) as live:
             while True:
                 runtime_observation = sample_runtime_observation(
                     tool=manifest.tool,
                     session_name=manifest.tool_session_name,
-                    pane_id=recorder_manifest.target.pane_id,
-                    recorder_started_at=recorder_started,
+                    pane_id=pane_id,
+                    recorder_started_at=observation_started_at,
                 )
                 append_ndjson(paths.runtime_observations_path, runtime_observation.to_payload())
-                snapshot_payloads = load_ndjson(terminal_record_paths.pane_snapshots_path)
-                runtime_rows = [
-                    RuntimeObservation.from_payload(item)
-                    for item in load_ndjson(paths.runtime_observations_path)
-                ]
-                while processed_snapshot_count < len(snapshot_payloads):
-                    snapshot_payload = snapshot_payloads[processed_snapshot_count]
+                runtime_rows.append(runtime_observation)
+                if manifest.recorder_enabled:
+                    assert terminal_record_paths is not None
+                    snapshot_payloads = load_ndjson(terminal_record_paths.pane_snapshots_path)
+                    while processed_snapshot_count < len(snapshot_payloads):
+                        snapshot_payload = snapshot_payloads[processed_snapshot_count]
+                        processed_snapshot_count += 1
+                        observation = _recorded_observation_from_snapshot(
+                            snapshot_payload=snapshot_payload,
+                            runtime_rows=runtime_rows,
+                        )
+                        latest_state_payload = _persist_live_observation(
+                            observation=observation,
+                            reducer=reducer,
+                            paths=paths,
+                        )
+                        _append_transition_events(
+                            reducer=reducer,
+                            paths=paths,
+                            latest_state_payload_ref=lambda payload=latest_state_payload: payload,
+                        )
+                else:
                     processed_snapshot_count += 1
-                    observation = _recorded_observation_from_snapshot(
-                        snapshot_payload=snapshot_payload,
-                        runtime_rows=runtime_rows,
+                    observation = _recorded_observation_from_visible_pane(
+                        pane_id=pane_id,
+                        runtime_observation=runtime_observation,
+                        sample_index=processed_snapshot_count,
                     )
-                    state = reducer.process_observation(observation)
-                    latest_state_payload = {
-                        "source": "observation",
-                        "sample_id": observation.sample_id,
-                        "elapsed_seconds": observation.elapsed_seconds,
-                        "ts_utc": observation.ts_utc,
-                        "diagnostics_availability": state.diagnostics_availability,
-                        "surface_accepting_input": state.surface_accepting_input,
-                        "surface_editing_input": state.surface_editing_input,
-                        "surface_ready_posture": state.surface_ready_posture,
-                        "turn_phase": state.turn_phase,
-                        "last_turn_result": state.last_turn_result,
-                        "last_turn_source": state.last_turn_source,
-                        "detector_name": state.detector_name,
-                        "detector_version": state.detector_version,
-                        "active_reasons": list(state.active_reasons),
-                        "notes": list(state.notes),
-                        "transition_note": "observation_sample",
-                    }
-                    append_ndjson(paths.state_samples_path, latest_state_payload)
-                    save_json(paths.latest_state_path, latest_state_payload)
+                    latest_state_payload = _persist_live_observation(
+                        observation=observation,
+                        reducer=reducer,
+                        paths=paths,
+                    )
                     _append_transition_events(
                         reducer=reducer,
                         paths=paths,
@@ -466,13 +497,13 @@ def run_dashboard(*, run_root: Path) -> int:
                     _render_dashboard(manifest=manifest, latest_state_payload=latest_state_payload)
                 )
                 current_live_state = _load_live_state(paths.live_state_path)
-                recorder_status = status_terminal_record(
-                    run_root=Path(manifest.terminal_record_run_root)
-                )
-                if (
-                    current_live_state.stop_requested_at_utc is not None
-                    and recorder_status["status"] != "running"
-                ):
+                if current_live_state.stop_requested_at_utc is None:
+                    time.sleep(manifest.runtime_observer_interval_seconds)
+                    continue
+                if not manifest.recorder_enabled:
+                    break
+                recorder_status = _recorder_status_payload(manifest=manifest)
+                if recorder_status is None or recorder_status.get("status") != "running":
                     break
                 time.sleep(manifest.runtime_observer_interval_seconds)
     except Exception as exc:
@@ -695,9 +726,10 @@ def _render_dashboard(
         Text(f"tool: {manifest.tool}"),
         Text(f"recipe: {Path(manifest.recipe_path).name}"),
         Text(f"detector version input: {manifest.observed_version or 'unknown'}"),
+        Text(f"recorder: {'enabled' if manifest.recorder_enabled else 'disabled'}"),
     ]
     if latest_state_payload is None:
-        lines.append(Text("state: waiting for recorded observations...", style="yellow"))
+        lines.append(Text("state: waiting for observations...", style="yellow"))
     else:
         lines.extend(
             [
@@ -763,10 +795,8 @@ def _recorded_observation_from_snapshot(
     *,
     snapshot_payload: dict[str, Any],
     runtime_rows: list[RuntimeObservation],
-) -> Any:
+) -> RecordedObservation:
     """Build one recorded observation aligned with the latest runtime sample."""
-
-    from houmao.shared_tui_tracking.models import RecordedObservation
 
     elapsed_seconds = float(snapshot_payload["elapsed_seconds"])
     matched_runtime: RuntimeObservation | None = None
@@ -784,12 +814,68 @@ def _recorded_observation_from_snapshot(
     )
 
 
+def _recorded_observation_from_visible_pane(
+    *,
+    pane_id: str,
+    runtime_observation: RuntimeObservation,
+    sample_index: int,
+) -> RecordedObservation:
+    """Build one synthetic observation from the current visible tmux pane."""
+
+    try:
+        output_text = capture_visible_pane_text(pane_id=pane_id)
+    except Exception:
+        output_text = ""
+    return RecordedObservation(
+        sample_id=f"s{sample_index:06d}",
+        elapsed_seconds=runtime_observation.elapsed_seconds,
+        ts_utc=runtime_observation.ts_utc,
+        output_text=output_text,
+        runtime=runtime_observation,
+    )
+
+
+def _persist_live_observation(
+    *,
+    observation: RecordedObservation,
+    reducer: StreamStateReducer,
+    paths: LiveWatchPaths,
+) -> dict[str, Any]:
+    """Reduce and persist one live observation row."""
+
+    state = reducer.process_observation(observation)
+    payload = {
+        "source": "observation",
+        "sample_id": observation.sample_id,
+        "elapsed_seconds": observation.elapsed_seconds,
+        "ts_utc": observation.ts_utc,
+        "diagnostics_availability": state.diagnostics_availability,
+        "surface_accepting_input": state.surface_accepting_input,
+        "surface_editing_input": state.surface_editing_input,
+        "surface_ready_posture": state.surface_ready_posture,
+        "turn_phase": state.turn_phase,
+        "last_turn_result": state.last_turn_result,
+        "last_turn_source": state.last_turn_source,
+        "detector_name": state.detector_name,
+        "detector_version": state.detector_version,
+        "active_reasons": list(state.active_reasons),
+        "notes": list(state.notes),
+        "transition_note": "observation_sample",
+    }
+    append_ndjson(paths.state_samples_path, payload)
+    save_json(paths.latest_state_path, payload)
+    return payload
+
+
 def _finalize_live_replay(
     *,
     paths: LiveWatchPaths,
     manifest: LiveWatchManifest,
 ) -> TimelineComparison | None:
     """Replay retained live evidence and compare when labels are available."""
+
+    if not manifest.recorder_enabled or manifest.terminal_record_run_root is None:
+        return None
 
     fixture_inputs = load_fixture_inputs(
         recording_root=Path(manifest.terminal_record_run_root),
@@ -828,3 +914,11 @@ def _finalize_live_replay(
     save_json(paths.comparison_json_path, comparison.to_payload())
     paths.comparison_markdown_path.write_text(comparison_markdown, encoding="utf-8")
     return comparison
+
+
+def _recorder_status_payload(manifest: LiveWatchManifest) -> dict[str, Any] | None:
+    """Return recorder status when the run retained recorder artifacts."""
+
+    if not manifest.recorder_enabled or manifest.terminal_record_run_root is None:
+        return None
+    return status_terminal_record(run_root=Path(manifest.terminal_record_run_root))

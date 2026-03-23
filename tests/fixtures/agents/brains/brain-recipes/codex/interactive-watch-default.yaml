@@ -7,4 +7,5 @@ skills:
   - openspec-apply-change
 config_profile: default
 credential_profile: personal-a-default
-
+launch_policy:
+  operator_prompt_mode: unattended

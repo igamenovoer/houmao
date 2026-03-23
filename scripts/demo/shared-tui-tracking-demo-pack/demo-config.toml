@@ -20,6 +20,7 @@ sample_interval_seconds = 0.2
 runtime_observer_interval_seconds = 0.2
 ready_timeout_seconds = 45.0
 cleanup_session = true
+live_watch_recorder_enabled = false
 
 [semantics]
 settle_seconds = 1.0

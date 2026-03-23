@@ -155,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                     sample_interval_seconds=args.sample_interval_seconds,
                     runtime_observer_interval_seconds=args.runtime_observer_interval_seconds,
                     settle_seconds=args.settle_seconds,
+                    live_watch_recorder_enabled=args.live_watch_recorder_enabled,
                 ),
             )
             live_result = start_live_watch(
@@ -283,6 +284,20 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--sample-interval-seconds", type=float, default=None)
     start.add_argument("--runtime-observer-interval-seconds", type=float, default=None)
     start.add_argument("--settle-seconds", type=float, default=None)
+    recorder_group = start.add_mutually_exclusive_group()
+    recorder_group.add_argument(
+        "--with-recorder",
+        dest="live_watch_recorder_enabled",
+        action="store_true",
+        help="Enable recorder-backed capture for replay debugging",
+    )
+    recorder_group.add_argument(
+        "--without-recorder",
+        dest="live_watch_recorder_enabled",
+        action="store_false",
+        help="Disable recorder-backed capture even if the selected config enables it",
+    )
+    start.set_defaults(live_watch_recorder_enabled=None)
     start.add_argument("--trace", action="store_true")
     start.add_argument("--json", action="store_true")
 
@@ -366,6 +381,7 @@ def _demo_config_cli_overrides(
     settle_seconds: float | None = None,
     ready_timeout_seconds: float | None = None,
     review_video_fps: float | None = None,
+    live_watch_recorder_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """Build a raw config-override mapping from CLI arguments."""
 
@@ -382,6 +398,10 @@ def _demo_config_cli_overrides(
         overrides.setdefault("semantics", {})["settle_seconds"] = settle_seconds
     if ready_timeout_seconds is not None:
         overrides.setdefault("evidence", {})["ready_timeout_seconds"] = ready_timeout_seconds
+    if live_watch_recorder_enabled is not None:
+        overrides.setdefault("evidence", {})["live_watch_recorder_enabled"] = (
+            live_watch_recorder_enabled
+        )
     if review_video_fps is not None:
         overrides.setdefault("presentation", {}).setdefault("review_video", {})[
             "match_capture_cadence"
