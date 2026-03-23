@@ -1,0 +1,7 @@
+interface:
+  display_name: "Launch Houmao Agents"
+  short_description: "Launch fixture-backed Claude/Codex agents"
+  default_prompt: "Use $houmao-launch-agents to choose either a brain-only manual launch path or the full Houmao pipeline for a fixture-backed Claude or Codex agent."
+
+policy:
+  allow_implicit_invocation: false

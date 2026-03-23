@@ -4,8 +4,16 @@ home_selector:
   env_var: CLAUDE_CONFIG_DIR
 launch:
   executable: claude
-  args:
-    - -p
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params:
+      include_partial_messages:
+        type: boolean
+        backends:
+          claude_headless:
+            args_when_true:
+              - --include-partial-messages
   env_injection:
     mode: export_from_env_file
 config_projection:
@@ -19,10 +27,12 @@ credential_projection:
     - source: claude_state.template.json
       destination: claude_state.template.json
       mode: copy
+      required: false
   env:
     source: env/vars.env
     allowlist:
       - ANTHROPIC_API_KEY
+      - ANTHROPIC_AUTH_TOKEN
       - ANTHROPIC_BASE_URL
       - ANTHROPIC_MODEL
       - ANTHROPIC_SMALL_FAST_MODEL

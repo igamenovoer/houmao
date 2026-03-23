@@ -2,24 +2,37 @@
 
 This page shows the shortest safe path to a working mailbox-enabled session and the three runtime-owned mailbox commands you will use first: `mail check`, `mail send`, and `mail reply`.
 
+## Choose Your Transport
+
+Choose the transport before you copy a startup example.
+
+| Transport | Use this when | Start here |
+| --- | --- | --- |
+| `filesystem` | you want the fully Houmao-owned mailbox transport with local rules, SQLite state, and projections | stay on this page |
+| `stalwart` | you want Stalwart to be the mailbox authority for delivery, unread state, and reply ancestry | [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md) |
+
+The rest of this page keeps the shortest inline filesystem example. The `mail check`, `mail send`, and `mail reply` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
+
 ## Mental Model
 
 You do not wire mailbox behavior into prompts by hand. The runtime does three jobs for you:
 
-1. Resolve one filesystem mailbox binding for the session.
-2. Bootstrap or validate the mailbox root and register the session address.
-3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding.
+1. Resolve one mailbox binding for the session.
+2. Bootstrap or validate the selected transport binding and register or provision the session address.
+3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding. The visible `skills/mailbox/...` subtree is the primary mailbox skill surface, and `skills/.system/mailbox/...` remains a compatibility mirror.
 
-After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill, and the session returns one structured result payload.
+After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill for the selected transport, and the session returns one structured result payload.
 
-## Enable Mailbox Support
+## Filesystem Quickstart
 
-You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the only implemented transport is `filesystem`.
+You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the implemented transports are `filesystem` and `stalwart`.
+
+Implicit filesystem mailbox state now defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one launch.
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport filesystem \
@@ -41,6 +54,8 @@ The `start-session` result includes a redacted mailbox payload in the session ma
   }
 }
 ```
+
+Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is a scratch area rather than the shared mailbox root and is a good candidate for ignore rules in local repos.
 
 ```mermaid
 sequenceDiagram
@@ -109,20 +124,26 @@ Important details:
 ```bash
 pixi run python -m houmao.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
-  --message-id msg-20260312T050000Z-parent \
+  --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
 
 Important details:
 
-- `--message-id` is required.
+- `--message-ref` is required.
+- `--message-id` remains accepted as a compatibility alias.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - Attachments are allowed on replies too.
-- Replies keep the original `thread_id`; they do not create a new thread because the subject changed.
+- Replies target the shared opaque `message_ref` contract; do not derive behavior from transport-prefixed values embedded inside the ref.
 
 ## What The Runtime Expects From The Session
 
-Every `mail` command uses the projected mailbox skill `.system/mailbox/email-via-filesystem` and expects exactly one sentinel-delimited JSON result payload back from the session.
+Every `mail` command uses the runtime-owned projected mailbox skill for the selected transport and expects exactly one sentinel-delimited JSON result payload back from the session.
+
+- Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-filesystem/SKILL.md` as a compatibility mirror.
+- Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-stalwart/SKILL.md` as a compatibility mirror.
+- When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
+- For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 
 ```mermaid
 sequenceDiagram
@@ -130,17 +151,18 @@ sequenceDiagram
     participant CLI as mail send<br/>or reply
     participant RT as Runtime
     participant Ses as Session
-    participant FS as Mailbox<br/>rules/scripts
+    participant MB as Gateway facade<br/>or transport
     Op->>CLI: run mail command
     CLI->>RT: resume session<br/>and build request
     RT->>Ses: prompt with mailbox skill<br/>plus JSON contract
-    Ses->>FS: inspect rules and use<br/>managed helpers if needed
+    Ses->>MB: use live gateway facade<br/>or direct transport path
     Ses-->>RT: one sentinel-delimited<br/>JSON result
     RT-->>CLI: parsed JSON stdout
 ```
 
 ## When To Leave Quickstart
 
+- If you are using the `stalwart` transport, continue with [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md).
 - If you need the exact message schema, go to [Canonical Model](contracts/canonical-model.md).
 - If you need the exact env vars or request/result envelopes, go to [Runtime Contracts](contracts/runtime-contracts.md).
 - If you need stepwise operational guidance, go to [Common Workflows](operations/common-workflows.md).
@@ -152,3 +174,4 @@ sequenceDiagram
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md)

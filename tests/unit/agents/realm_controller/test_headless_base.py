@@ -35,7 +35,7 @@ def _sample_gemini_launch_plan(tmp_path: Path) -> LaunchPlan:
         backend="gemini_headless",
         tool="gemini",
         executable="gemini",
-        args=["-p"],
+        args=[],
         working_directory=tmp_path,
         home_env_var="GEMINI_CLI_HOME",
         home_path=tmp_path / "home",
@@ -56,7 +56,7 @@ def _sample_claude_launch_plan(tmp_path: Path) -> LaunchPlan:
         backend="claude_headless",
         tool="claude",
         executable="claude",
-        args=["-p"],
+        args=[],
         working_directory=tmp_path,
         home_env_var="CLAUDE_CONFIG_DIR",
         home_path=tmp_path / "home",
@@ -108,19 +108,10 @@ def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
         session.send_prompt("hello")
 
 
-def test_claude_headless_runs_shared_bootstrap(
+def test_claude_headless_uses_launch_plan_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     captured: dict[str, object] = {}
-
-    def _fake_bootstrap(*, home_path: Path, env: dict[str, str]) -> None:
-        captured["home_path"] = home_path
-        captured["env"] = env
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.ensure_claude_home_bootstrap",
-        _fake_bootstrap,
-    )
 
     session = ClaudeHeadlessSession(
         launch_plan=_sample_claude_launch_plan(tmp_path),
@@ -144,6 +135,7 @@ def test_claude_headless_runs_shared_bootstrap(
             tmux_session_name,
             turn_artifacts_root,
         ) -> HeadlessRunResult:
+            captured["env"] = dict(env)
             return HeadlessRunResult(
                 events=[],
                 stderr="",
@@ -154,9 +146,110 @@ def test_claude_headless_runs_shared_bootstrap(
     session._runner = _FakeRunner()  # type: ignore[attr-defined]
 
     session.send_prompt("hello")
-    assert captured["home_path"] == tmp_path / "home"
     assert isinstance(captured["env"], dict)
     assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "home")
+    assert captured["env"]["ANTHROPIC_API_KEY"] == "sk-secret"
+
+
+def test_claude_headless_adds_verbose_for_stream_json_output(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = ClaudeHeadlessSession(
+        launch_plan=_sample_claude_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="AGENTSYS-claude",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        "claude",
+        "-p",
+        "--verbose",
+        "--append-system-prompt",
+        "role prompt",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
+def test_claude_headless_skips_verbose_for_json_output(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = ClaudeHeadlessSession(
+        launch_plan=_sample_claude_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="AGENTSYS-claude",
+        ),
+        output_format="json",
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert "--verbose" not in captured["command"]
+    assert captured["command"] == [
+        "claude",
+        "-p",
+        "--append-system-prompt",
+        "role prompt",
+        "hello",
+        "--output-format",
+        "json",
+    ]
 
 
 def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
@@ -165,13 +258,17 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     agent_def_dir = tmp_path / "agents"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
     captured_tmux_env: dict[str, object] = {}
+    prepared_sessions: list[str] = []
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base."
-        "set_tmux_session_environment_shared",
+        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: captured_tmux_env.update(
             {"session_name": session_name, "env_vars": dict(env_vars)}
         ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",
+        lambda *, session_name: prepared_sessions.append(session_name),
     )
 
     GeminiHeadlessSession(
@@ -186,6 +283,7 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     )
 
     assert captured_tmux_env["session_name"] == "AGENTSYS-gemini"
+    assert prepared_sessions == ["AGENTSYS-gemini"]
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -330,4 +428,8 @@ def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",
+        lambda *, session_name: None,
     )

@@ -1,3 +1,5 @@
+"""Brain builder for reusable tool homes and manifests."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,14 +12,29 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.launch_overrides import (
+    LaunchDefaults,
+    LaunchOverrides,
+    ToolLaunchMetadata,
+    helper_launch_args,
+    parse_launch_defaults,
+    parse_launch_overrides,
+    parse_tool_launch_metadata,
+)
+from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     project_runtime_mailbox_system_skills,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.realm_controller.agent_identity import (
+    derive_agent_id_from_name,
+    normalize_agent_identity_name,
+)
 
 _AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 _DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
@@ -40,7 +57,8 @@ class ToolAdapter:
     tool: str
     home_selector_env_var: str
     launch_executable: str
-    launch_args: list[str]
+    launch_defaults: LaunchDefaults
+    launch_metadata: ToolLaunchMetadata
     env_injection_mode: str
     env_file_in_home: str | None
     config_destination: str
@@ -59,6 +77,8 @@ class BrainRecipe:
     skills: list[str]
     config_profile: str
     credential_profile: str
+    launch_overrides: LaunchOverrides | None = None
+    operator_prompt_mode: OperatorPromptMode | None = None
     default_agent_name: str | None = None
     mailbox: MailboxDeclarativeConfig | None = None
 
@@ -66,14 +86,20 @@ class BrainRecipe:
 @dataclass(frozen=True)
 class BuildRequest:
     agent_def_dir: Path
-    runtime_root: Path
     tool: str
     skills: list[str]
     config_profile: str
     credential_profile: str
+    recipe_path: Path | None = None
+    recipe_launch_overrides: LaunchOverrides | None = None
+    runtime_root: Path | None = None
     mailbox: MailboxDeclarativeConfig | None = None
+    agent_name: str | None = None
+    agent_id: str | None = None
     home_id: str | None = None
     reuse_home: bool = False
+    launch_overrides: LaunchOverrides | None = None
+    operator_prompt_mode: OperatorPromptMode | None = None
 
 
 @dataclass(frozen=True)
@@ -157,6 +183,22 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
     credential_projection = _require_mapping(payload, "credential_projection", where=str(path))
     credential_env = _require_mapping(credential_projection, "env", where=str(path))
 
+    raw_launch_metadata = launch.get("metadata", {})
+    if raw_launch_metadata is not None and not isinstance(raw_launch_metadata, dict):
+        raise BuildError(f"{path}: launch.metadata must be a mapping when set")
+    raw_default_tool_params = launch.get("default_tool_params", {})
+    launch_defaults = parse_launch_defaults(
+        {
+            "args": _require_str_list(launch, "args", where=str(path)),
+            "tool_params": raw_default_tool_params,
+        },
+        source=f"{path}:launch.defaults",
+    )
+    launch_metadata = parse_tool_launch_metadata(
+        raw_launch_metadata if raw_launch_metadata is not None else {},
+        source=f"{path}:launch.metadata",
+    )
+
     env_injection = _require_mapping(launch, "env_injection", where=str(path))
     env_injection_mode = _require_str(env_injection, "mode", where=str(path))
     if env_injection_mode not in {"home_dotenv", "export_from_env_file"}:
@@ -200,7 +242,8 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
         tool=_require_str(payload, "tool", where=str(path)),
         home_selector_env_var=_require_str(home_selector, "env_var", where=str(path)),
         launch_executable=_require_str(launch, "executable", where=str(path)),
-        launch_args=_require_str_list(launch, "args", where=str(path)),
+        launch_defaults=launch_defaults,
+        launch_metadata=launch_metadata,
         env_injection_mode=env_injection_mode,
         env_file_in_home=env_file_in_home,
         config_destination=_require_str(config_projection, "destination", where=str(path)),
@@ -211,7 +254,34 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
         credential_env_source=_require_str(credential_env, "source", where=str(path)),
         credential_env_allowlist=_require_str_list(credential_env, "allowlist", where=str(path)),
     )
+    try:
+        adapter.launch_metadata.validate_requested_tool_params(
+            tool=adapter.tool,
+            tool_params=adapter.launch_defaults.tool_params,
+            source=f"{path}: launch.default_tool_params",
+        )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
     return adapter
+
+
+def _parse_operator_prompt_mode(
+    raw_value: object,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Parse one optional operator prompt mode value."""
+
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise BuildError(f"{source}: operator_prompt_mode must be a non-empty string when set")
+    value = raw_value.strip()
+    if value not in {"interactive", "unattended"}:
+        raise BuildError(
+            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, got {value!r}"
+        )
+    return cast(OperatorPromptMode, value)
 
 
 def load_brain_recipe(path: Path) -> BrainRecipe:
@@ -232,12 +302,30 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
         )
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
+    launch_overrides_payload = payload.get("launch_overrides")
+    launch_overrides: LaunchOverrides | None = None
+    if launch_overrides_payload is not None:
+        try:
+            launch_overrides = parse_launch_overrides(
+                launch_overrides_payload,
+                source=f"{path}:launch_overrides",
+            )
+        except ValueError as exc:
+            raise BuildError(str(exc)) from exc
+    launch_policy = payload.get("launch_policy")
+    if launch_policy is not None and not isinstance(launch_policy, dict):
+        raise BuildError(f"{path}: launch_policy must be a mapping when set")
     recipe = BrainRecipe(
         name=_require_str(payload, "name", where=str(path)),
         tool=_require_str(payload, "tool", where=str(path)),
         skills=skills,
         config_profile=_require_str(payload, "config_profile", where=str(path)),
         credential_profile=_require_str(payload, "credential_profile", where=str(path)),
+        launch_overrides=launch_overrides,
+        operator_prompt_mode=_parse_operator_prompt_mode(
+            launch_policy.get("operator_prompt_mode") if isinstance(launch_policy, dict) else None,
+            source=str(path),
+        ),
         default_agent_name=default_agent_name.strip()
         if isinstance(default_agent_name, str)
         else None,
@@ -327,10 +415,29 @@ def _build_launch_helper(
     home_path: Path,
     helper_path: Path,
     adapter: ToolAdapter,
-    env_file: Path,
+    launch_args: list[str],
+    env_exports: dict[str, str],
+    operator_prompt_mode: OperatorPromptMode | None,
 ) -> str:
+    """Build one runtime launch helper script.
+
+    Parameters
+    ----------
+    home_path:
+        Generated runtime home to launch.
+    helper_path:
+        Output shell helper path.
+    adapter:
+        Tool adapter contract for environment projection and bootstrap.
+    launch_args:
+        Effective tool launch arguments for this generated helper.
+    env_exports:
+        Parsed allowlisted environment variables that should be exported by the
+        launch helper.
+    """
+
     allowlist = adapter.credential_env_allowlist
-    args = " ".join(shlex.quote(arg) for arg in adapter.launch_args)
+    args = " ".join(shlex.quote(arg) for arg in launch_args)
     executable = shlex.quote(adapter.launch_executable)
     command_suffix = f" {args}" if args else ""
     project_root = Path(__file__).resolve().parents[3]
@@ -345,31 +452,13 @@ def _build_launch_helper(
         f"export {adapter.home_selector_env_var}={shlex.quote(str(home_path))}",
     ]
 
-    if allowlist:
-        script_lines.extend(
-            [
-                f"ENV_FILE={shlex.quote(str(env_file))}",
-                'if [[ -f "${ENV_FILE}" ]]; then',
-                '  while IFS= read -r line || [[ -n "${line}" ]]; do',
-                '    [[ -z "${line}" ]] && continue',
-                '    [[ "${line:0:1}" == "#" ]] && continue',
-                '    key="${line%%=*}"',
-                '    value="${line#*=}"',
-                '    case "${key}" in',
-            ]
-        )
-        for key in allowlist:
-            script_lines.append(f'      {key}) export "${{key}}=${{value}}" ;;')
-        script_lines.extend(
-            [
-                "      *) ;;",
-                "    esac",
-                '  done < "${ENV_FILE}"',
-                "fi",
-            ]
-        )
+    for key in allowlist:
+        value = env_exports.get(key)
+        if value is None:
+            continue
+        script_lines.append(f"export {key}={shlex.quote(value)}")
 
-    if adapter.tool in {"claude", "codex"}:
+    if operator_prompt_mode == "unattended":
         script_lines.extend(
             [
                 "BOOTSTRAP_PYTHON=()",
@@ -386,46 +475,30 @@ def _build_launch_helper(
                 "fi",
             ]
         )
-
-    if adapter.tool == "claude":
-        script_lines.extend(
-            [
-                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
-                "from pathlib import Path",
-                "import os",
-                "",
-                "from houmao.agents.realm_controller.backends.claude_bootstrap import (",
-                "    ensure_claude_home_bootstrap,",
-                ")",
-                "",
-                "ensure_claude_home_bootstrap(",
-                "    home_path=Path(os.environ['CLAUDE_CONFIG_DIR']),",
-                "    env=dict(os.environ),",
-                ")",
-                "PY",
-            ]
-        )
-    if adapter.tool == "codex":
-        script_lines.extend(
-            [
-                "\"${BOOTSTRAP_PYTHON[@]}\" - <<'PY'",
-                "from pathlib import Path",
-                "import os",
-                "",
-                "from houmao.agents.realm_controller.backends.codex_bootstrap import (",
-                "    ensure_codex_home_bootstrap,",
-                ")",
-                "",
-                "ensure_codex_home_bootstrap(",
-                "    home_path=Path(os.environ['CODEX_HOME']),",
-                "    env=dict(os.environ),",
-                "    working_directory=Path.cwd(),",
-                ")",
-                "PY",
-            ]
-        )
-
-    script_lines.append(f'exec {executable}{command_suffix} "$@"')
+        script_lines.append('EXTRA_ARGS=("$@")')
+        launch_policy_args = [
+            '"${BOOTSTRAP_PYTHON[@]}"',
+            "-m",
+            "houmao.agents.launch_policy.cli",
+            "--tool",
+            shlex.quote(adapter.tool),
+            "--backend",
+            "raw_launch",
+            "--executable",
+            executable,
+            "--working-directory",
+            '"$PWD"',
+            "--home-path",
+            shlex.quote(str(home_path)),
+            "--requested-operator-prompt-mode",
+            operator_prompt_mode,
+        ]
+        for arg in launch_args:
+            launch_policy_args.extend(["--launch-arg", shlex.quote(arg)])
+        launch_policy_args.extend(["--", '"${EXTRA_ARGS[@]}"'])
+        script_lines.append(f"exec {' '.join(launch_policy_args)}")
+    else:
+        script_lines.append(f'exec {executable}{command_suffix} "$@"')
 
     helper_path.parent.mkdir(parents=True, exist_ok=True)
     helper_path.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
@@ -435,7 +508,7 @@ def _build_launch_helper(
 
 def build_brain_home(request: BuildRequest) -> BuildResult:
     agent_def_dir = request.agent_def_dir.resolve()
-    runtime_root = request.runtime_root.resolve()
+    runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
 
     adapter_path = agent_def_dir / "brains" / "tool-adapters" / f"{request.tool}.yaml"
     if not adapter_path.is_file():
@@ -446,6 +519,36 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         raise BuildError(
             f"Adapter tool mismatch: requested `{request.tool}`, adapter says `{adapter.tool}`"
         )
+    try:
+        adapter.launch_metadata.validate_requested_tool_params(
+            tool=request.tool,
+            tool_params=adapter.launch_defaults.tool_params,
+            source=f"{adapter_path}: launch.default_tool_params",
+        )
+        if request.recipe_launch_overrides is not None:
+            adapter.launch_metadata.validate_requested_tool_params(
+                tool=request.tool,
+                tool_params=request.recipe_launch_overrides.tool_params,
+                source=(
+                    f"{request.recipe_path}: launch_overrides.tool_params"
+                    if request.recipe_path is not None
+                    else "recipe launch_overrides.tool_params"
+                ),
+            )
+        if request.launch_overrides is not None:
+            adapter.launch_metadata.validate_requested_tool_params(
+                tool=request.tool,
+                tool_params=request.launch_overrides.tool_params,
+                source="BuildRequest.launch_overrides.tool_params",
+            )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
+
+    launch_helper_args = helper_launch_args(
+        adapter_defaults=adapter.launch_defaults,
+        recipe_overrides=request.recipe_launch_overrides,
+        direct_overrides=request.launch_overrides,
+    )
 
     skills_root = agent_def_dir / "brains" / "skills"
     config_profile_dir = (
@@ -468,8 +571,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     if "/" in home_id or "\\" in home_id:
         raise BuildError(f"home_id must not contain path separators: {home_id!r}")
 
-    homes_dir = runtime_root / "homes" / request.tool
-    manifests_dir = runtime_root / "manifests" / request.tool
+    homes_dir = runtime_root / "homes"
+    manifests_dir = runtime_root / "manifests"
     home_path = homes_dir / home_id
 
     if home_path.exists() and not request.reuse_home:
@@ -534,16 +637,29 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         _validate_relative_path(env_file_in_home, field="launch.env_injection.env_file_in_home")
         _project_path(credential_env_file, home_path / env_file_in_home, mode="symlink")
 
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifests_dir / f"{home_id}.yaml"
     launch_helper_path = home_path / "launch.sh"
     launch_preview = _build_launch_helper(
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
-        env_file=credential_env_file,
+        launch_args=launch_helper_args,
+        env_exports={key: env_values[key] for key in selected_env_names},
+        operator_prompt_mode=request.operator_prompt_mode,
     )
 
+    construction_provenance: dict[str, object] = {
+        "adapter_path": str(adapter_path),
+        "recipe_path": str(request.recipe_path.resolve())
+        if request.recipe_path is not None
+        else None,
+        "recipe_overrides_present": request.recipe_launch_overrides is not None,
+        "direct_overrides_present": request.launch_overrides is not None,
+    }
+
     manifest: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "built_at_utc": datetime.now(UTC).isoformat(),
         "inputs": {
             "tool": request.tool,
@@ -551,6 +667,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "config_profile": request.config_profile,
             "credential_profile": request.credential_profile,
             "adapter_path": str(adapter_path),
+            "recipe_path": str(request.recipe_path.resolve())
+            if request.recipe_path is not None
+            else None,
+        },
+        "launch_policy": {
+            "operator_prompt_mode": request.operator_prompt_mode or "interactive",
         },
         "runtime": {
             "runtime_root": str(runtime_root),
@@ -562,7 +684,23 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 "value": str(home_path),
             },
             "launch_executable": adapter.launch_executable,
-            "launch_args": adapter.launch_args,
+            "launch_contract": {
+                "adapter_defaults": adapter.launch_defaults.to_payload(),
+                "requested_overrides": {
+                    "recipe": (
+                        request.recipe_launch_overrides.to_payload()
+                        if request.recipe_launch_overrides is not None
+                        else None
+                    ),
+                    "direct": (
+                        request.launch_overrides.to_payload()
+                        if request.launch_overrides is not None
+                        else None
+                    ),
+                },
+                "tool_metadata": adapter.launch_metadata.to_payload(),
+                "construction_provenance": construction_provenance,
+            },
         },
         "credentials": {
             "profile_path": str(credential_profile_dir),
@@ -577,8 +715,22 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     }
     if request.mailbox is not None:
         manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
+    if request.agent_name is not None or request.agent_id is not None:
+        canonical_agent_name = (
+            normalize_agent_identity_name(request.agent_name).canonical_name
+            if request.agent_name is not None
+            else None
+        )
+        manifest["identity"] = {
+            "canonical_agent_name": canonical_agent_name,
+            "agent_id": request.agent_id
+            or (
+                derive_agent_id_from_name(canonical_agent_name)
+                if canonical_agent_name is not None
+                else None
+            ),
+        }
 
-    manifest_path = manifests_dir / f"{home_id}.yaml"
     _write_mapping_file(manifest_path, manifest)
 
     return BuildResult(
@@ -606,7 +758,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--runtime-root",
-        default="tmp/agents-runtime",
+        default=None,
         help="Runtime root for generated homes/manifests",
     )
     parser.add_argument("--tool", help="Tool name (codex/claude/gemini)")
@@ -619,7 +771,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--config-profile", help="Tool config profile name")
     parser.add_argument("--cred-profile", help="Credential profile name")
+    parser.add_argument(
+        "--launch-overrides",
+        help="Path to launch-overrides YAML/JSON, or an inline JSON object",
+    )
     parser.add_argument("--home-id", help="Optional fixed home id")
+    parser.add_argument(
+        "--operator-prompt-mode",
+        choices=["interactive", "unattended"],
+        help="Requested startup operator prompt policy for the built brain",
+    )
     parser.add_argument(
         "--reuse-home",
         action="store_true",
@@ -635,22 +796,66 @@ def _normalize_path(value: str, *, base: Path) -> Path:
     return (base / path).resolve()
 
 
+def load_launch_overrides_input(
+    raw_value: str,
+    *,
+    base: Path,
+    source: str,
+) -> LaunchOverrides:
+    """Load launch overrides from a file path or inline JSON."""
+
+    candidate_path = _normalize_path(raw_value, base=base)
+    if candidate_path.is_file():
+        try:
+            return parse_launch_overrides(
+                _load_mapping_file(candidate_path),
+                source=str(candidate_path),
+            )
+        except ValueError as exc:
+            raise BuildError(str(exc)) from exc
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise BuildError(
+            f"{source}: expected an existing file path or inline JSON for launch overrides"
+        ) from exc
+    try:
+        return parse_launch_overrides(payload, source=source)
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     namespace = _parse_args(argv or sys.argv[1:])
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(namespace.agent_def_dir, cwd=cwd)
-    runtime_root = _normalize_path(namespace.runtime_root, base=cwd)
+    runtime_root = (
+        _normalize_path(namespace.runtime_root, base=cwd) if namespace.runtime_root else None
+    )
 
     recipe: BrainRecipe | None = None
+    recipe_path: Path | None = None
     if namespace.recipe:
         recipe_path = _normalize_path(namespace.recipe, base=agent_def_dir)
         recipe = load_brain_recipe(recipe_path)
+    direct_launch_overrides = (
+        load_launch_overrides_input(
+            namespace.launch_overrides,
+            base=cwd,
+            source="--launch-overrides",
+        )
+        if namespace.launch_overrides
+        else None
+    )
 
     tool_raw = namespace.tool or (recipe.tool if recipe else None)
     skills_raw = namespace.skills or (recipe.skills if recipe else [])
     config_profile_raw = namespace.config_profile or (recipe.config_profile if recipe else None)
     credential_profile_raw = namespace.cred_profile or (
         recipe.credential_profile if recipe else None
+    )
+    operator_prompt_mode = namespace.operator_prompt_mode or (
+        recipe.operator_prompt_mode if recipe else None
     )
 
     missing: list[str] = []
@@ -677,9 +882,14 @@ def main(argv: list[str] | None = None) -> int:
         skills=skills,
         config_profile=config_profile_raw,
         credential_profile=credential_profile_raw,
+        recipe_path=recipe_path,
+        recipe_launch_overrides=recipe.launch_overrides if recipe else None,
         mailbox=recipe.mailbox if recipe else None,
+        agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
+        launch_overrides=direct_launch_overrides,
+        operator_prompt_mode=operator_prompt_mode,
     )
 
     result = build_brain_home(request)

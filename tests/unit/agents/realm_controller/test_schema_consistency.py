@@ -8,20 +8,24 @@ import pytest
 
 from houmao.agents.realm_controller.boundary_models import (
     LaunchPlanPayloadV1,
-    SessionManifestPayloadV2,
+    SessionManifestPayloadV3,
 )
+from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
 
 
 @pytest.mark.parametrize(
     ("schema_name", "model"),
     [
         ("launch_plan.v1.schema.json", LaunchPlanPayloadV1),
-        ("session_manifest.v2.schema.json", SessionManifestPayloadV2),
+        ("session_manifest.v3.schema.json", SessionManifestPayloadV3),
+        ("live_agent_registry_record.v2.schema.json", LiveAgentRegistryRecordV2),
     ],
 )
 def test_packaged_schema_matches_pydantic_model(
     schema_name: str,
-    model: type[LaunchPlanPayloadV1] | type[SessionManifestPayloadV2],
+    model: (
+        type[LaunchPlanPayloadV1] | type[SessionManifestPayloadV3] | type[LiveAgentRegistryRecordV2]
+    ),
 ) -> None:
     packaged_schema = _load_packaged_schema(schema_name)
     model_schema = model.model_json_schema()
@@ -50,8 +54,8 @@ def _assert_schema_alignment(
     packaged = _resolve_refs(packaged_schema, packaged_root)
     model = _resolve_refs(model_schema, model_root)
 
-    packaged_types = _extract_types(packaged)
-    model_types = _extract_types(model)
+    packaged_types = _extract_types(packaged, root=packaged_root)
+    model_types = _extract_types(model, root=model_root)
     if packaged_types:
         assert packaged_types <= model_types, (
             f"{path}: packaged types {packaged_types} are not covered by model types {model_types}"
@@ -71,21 +75,23 @@ def _assert_schema_alignment(
         )
 
     if "object" in packaged_types:
-        packaged_props_raw = packaged.get("properties")
-        model_props_raw = model.get("properties")
+        packaged_object = _select_branch(packaged, packaged_root, target_type="object")
+        model_object = _select_branch(model, model_root, target_type="object")
+        packaged_props_raw = packaged_object.get("properties")
+        model_props_raw = model_object.get("properties")
         packaged_props = packaged_props_raw if isinstance(packaged_props_raw, dict) else {}
         model_props = model_props_raw if isinstance(model_props_raw, dict) else {}
 
         if isinstance(packaged_props_raw, dict) or isinstance(model_props_raw, dict):
-            packaged_required = set(_as_list(packaged.get("required")))
-            model_required = set(_as_list(model.get("required")))
+            packaged_required = set(_as_list(packaged_object.get("required")))
+            model_required = set(_as_list(model_object.get("required")))
             assert packaged_required == model_required, (
                 f"{path}: required fields mismatch "
                 f"(packaged={sorted(packaged_required)!r}, model={sorted(model_required)!r})"
             )
 
-        if packaged.get("additionalProperties") is False:
-            assert model.get("additionalProperties") is False, (
+        if packaged_object.get("additionalProperties") is False:
+            assert model_object.get("additionalProperties") is False, (
                 f"{path}: model must also forbid additionalProperties"
             )
 
@@ -100,9 +106,11 @@ def _assert_schema_alignment(
             )
 
     if "array" in packaged_types and "items" in packaged:
+        packaged_array = _select_branch(packaged, packaged_root, target_type="array")
+        model_array = _select_branch(model, model_root, target_type="array")
         _assert_schema_alignment(
-            packaged_schema=_as_dict(packaged["items"], path=f"{path}.items"),
-            model_schema=_as_dict(model["items"], path=f"{path}.items"),
+            packaged_schema=_as_dict(packaged_array["items"], path=f"{path}.items"),
+            model_schema=_as_dict(model_array["items"], path=f"{path}.items"),
             packaged_root=packaged_root,
             model_root=model_root,
             path=f"{path}[]",
@@ -122,20 +130,51 @@ def _resolve_refs(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any
     return current
 
 
-def _extract_types(schema: dict[str, Any]) -> set[str]:
-    schema_type = schema.get("type")
+def _extract_types(schema: dict[str, Any], *, root: dict[str, Any] | None = None) -> set[str]:
+    current = _resolve_refs(schema, root) if root is not None else schema
+    schema_type = current.get("type")
     if isinstance(schema_type, str):
         return {schema_type}
     if isinstance(schema_type, list):
         return {item for item in schema_type if isinstance(item, str)}
 
-    any_of = schema.get("anyOf")
+    any_of = current.get("anyOf")
     if isinstance(any_of, list):
         merged: set[str] = set()
         for candidate in any_of:
             if isinstance(candidate, dict):
-                merged |= _extract_types(candidate)
+                merged |= _extract_types(candidate, root=root)
         return merged
+    return set()
+
+
+def _select_branch(
+    schema: dict[str, Any], root: dict[str, Any], *, target_type: str
+) -> dict[str, Any]:
+    current = _resolve_refs(schema, root)
+
+    direct_types = _extract_direct_types(current)
+    if target_type in direct_types:
+        return current
+
+    any_of = current.get("anyOf")
+    if isinstance(any_of, list):
+        for candidate in any_of:
+            if not isinstance(candidate, dict):
+                continue
+            resolved = _resolve_refs(candidate, root)
+            if target_type in _extract_types(resolved, root=root):
+                return resolved
+
+    return current
+
+
+def _extract_direct_types(schema: dict[str, Any]) -> set[str]:
+    schema_type = schema.get("type")
+    if isinstance(schema_type, str):
+        return {schema_type}
+    if isinstance(schema_type, list):
+        return {item for item in schema_type if isinstance(item, str)}
     return set()
 
 

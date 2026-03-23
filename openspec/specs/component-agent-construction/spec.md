@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the expected structure and semantics for reusable agent components, declarative brain recipes, and runtime brain construction inputs.
-
 ## Requirements
-
 ### Requirement: Canonical component directories
 The system SHALL organize reusable agent “brain” components and brain-agnostic “roles” under a stable on-disk layout rooted at `agents/`.
 
@@ -32,6 +30,7 @@ Brain construction SHALL create a fresh runtime CLI home directory with no pre-e
 - **THEN** the constructed home SHALL NOT contain copied-in prior-run history/log/session artifacts
 - **AND THEN** any history/log/session artifacts SHALL only appear after the CLI tool is started and begins writing state
 - **AND THEN** any pre-seeded tool bootstrap configuration/state files present at creation time MUST NOT be copied from prior-run history/log/session artifacts
+
 ### Requirement: Configurable runtime root location
 The system SHALL support constructing runtime homes under a configurable runtime root directory. The runtime root directory MUST NOT be required to live under `agents/`.
 
@@ -281,3 +280,94 @@ Credential-profile env injection MUST NOT be gated by a tool-adapter allowlist; 
 - **WHEN** the system starts a tool session in tmux
 - **THEN** the tmux session environment SHALL inherit environment variables from the calling process
 - **AND THEN** the tmux session environment SHALL include all variables declared in the selected credential profile env file (overriding inherited values when names collide)
+
+### Requirement: Brain construction accepts operator prompt policy intent
+The system SHALL let callers declare an operator prompt policy when constructing a brain, including a mode that requests unattended launch behavior where startup operator prompts are forbidden.
+
+The selected policy SHALL be available through:
+
+- declarative recipe YAML at `launch_policy.operator_prompt_mode`
+- direct build inputs at `BuildRequest.operator_prompt_mode`
+
+Allowed values SHALL be `interactive` and `unattended`. Omitting the field SHALL preserve the normal interactive/default launch posture.
+
+#### Scenario: Developer constructs a brain with unattended prompt policy
+- **WHEN** a developer constructs a brain using direct inputs or a declarative recipe that requests `operator_prompt_mode = unattended`
+- **THEN** the construction input includes that requested launch policy alongside tool, skills, config profile, and credential profile
+- **AND THEN** the requested policy remains secret-free metadata that does not embed API keys, tokens, inline credential material, or credential file contents
+
+### Requirement: Brain manifest persists unresolved launch policy intent
+The system SHALL persist requested operator prompt policy in the resolved brain manifest as abstract launch intent rather than as pre-resolved provider-version-specific CLI flags or runtime state patches.
+
+The resolved manifest SHALL store that request at `launch_policy.operator_prompt_mode`.
+
+#### Scenario: Manifest records unattended intent without provider-specific patch details
+- **WHEN** a brain is constructed with `operator_prompt_mode = unattended`
+- **THEN** the resolved brain manifest records that requested policy at `launch_policy.operator_prompt_mode`
+- **AND THEN** the manifest does not treat version-resolved strategy ids, provider trust entries, or concrete injected CLI args as construction-time inputs
+
+### Requirement: Brain construction does not require tool-specific no-prompt config as input
+The system SHALL allow callers to request unattended launch without supplying user-authored per-tool config/state files whose only purpose is suppressing startup prompts.
+
+The resolved brain manifest SHALL continue to capture credential/profile references and abstract unattended intent, while leaving runtime-owned prompt-suppression config synthesis to launch-time strategy resolution.
+
+#### Scenario: Developer requests unattended launch with minimal credential inputs
+- **WHEN** a developer constructs a brain with `operator_prompt_mode = unattended`
+- **AND WHEN** they provide only the normal credential inputs for that tool family, such as API-key env vars, endpoint env vars, or `auth.json`
+- **THEN** brain construction succeeds without requiring extra user-authored no-prompt config files
+- **AND THEN** the manifest records abstract unattended intent rather than synthetic provider config contents
+
+### Requirement: Brain construction accepts a structured launch-overrides contract
+The system SHALL let callers declare secret-free launch-override intent as part of normal brain construction inputs instead of limiting recipe-backed builds to tool-adapter launch defaults.
+
+That construction input SHALL be available through:
+
+- declarative recipe YAML at `launch_overrides`
+- direct build inputs at `BuildRequest.launch_overrides`
+
+The supported construction-time launch-overrides model SHALL include at minimum:
+
+- an `args` section with explicit merge behavior against tool-adapter defaults
+- a `tool_params` section for typed, tool-specific launch settings
+
+#### Scenario: Recipe construction includes launch-overrides intent
+- **WHEN** a developer constructs a brain from a recipe that declares `launch_overrides`
+- **THEN** the selected tool, skills, config profile, credential profile, and launch-overrides request are all part of the construction input contract
+- **AND THEN** the recipe remains declarative and secret-free
+
+#### Scenario: Direct build input uses the same structured launch-overrides model
+- **WHEN** a developer constructs a brain without a recipe and supplies `BuildRequest.launch_overrides`
+- **THEN** the direct-build path accepts the same structured launch-overrides model used by recipes
+- **AND THEN** the system does not require a separate ad hoc launch-arg-only override path for parity
+
+### Requirement: Brain manifests persist adapter defaults and requested launch overrides separately
+The system SHALL persist launch-override state in the resolved brain manifest as structured data with separate fields for adapter-owned launch defaults and caller-requested launch overrides.
+
+The resolved brain manifest SHALL store enough non-secret information to explain:
+
+- which launch defaults came from the selected tool adapter
+- which launch overrides were requested by the recipe or direct build input
+- which parts of the launch contract still require runtime resolution because backend applicability is selected later
+
+The manifest MUST NOT embed credential material, inline secrets, backend-resolved effective args, or backend-reserved runtime continuity values as recipe-owned launch overrides.
+
+#### Scenario: Manifest records defaults and requested override without flattening them together
+- **WHEN** a brain is constructed from a recipe whose selected tool adapter has launch defaults and whose recipe also declares `launch_overrides`
+- **THEN** the resolved manifest records the adapter defaults snapshot separately from the requested launch-overrides payload
+- **AND THEN** audit or debugging consumers can distinguish reusable defaults from recipe-owned launch intent
+
+#### Scenario: Manifest keeps backend applicability unresolved at build time
+- **WHEN** a brain is constructed before a specific runtime backend has been chosen
+- **THEN** the resolved manifest stores the requested launch-overrides contract as unresolved launch intent
+- **AND THEN** the builder does not write backend-resolved effective args or mark every requested launch field as universally supported across later runtime backends
+
+### Requirement: New builder output uses manifest schema version 2 for launch overrides
+Brain construction that supports the launch-overrides contract SHALL write resolved brain manifests with `schema_version = 2`.
+
+New builder output for this contract SHALL NOT continue writing the legacy schema-version-1 manifest layout as though it were equivalent.
+
+#### Scenario: Builder writes schema version 2 manifest for launch-overrides-capable output
+- **WHEN** a developer constructs a brain using a builder that supports `launch_overrides`
+- **THEN** the resolved brain manifest is written with `schema_version = 2`
+- **AND THEN** the manifest carries the structured launch-overrides contract rather than relying on the old v1 launch-args-only layout
+

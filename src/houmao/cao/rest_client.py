@@ -14,6 +14,7 @@ from .models import (
     CaoHealthResponse,
     CaoInboxCreateResponse,
     CaoInboxMessage,
+    CaoSessionDetail,
     CaoSessionInfo,
     CaoSuccessResponse,
     CaoTerminal,
@@ -61,9 +62,16 @@ class CaoApiError(RuntimeError):
 class CaoRestClient:
     """HTTP client for CAO session and terminal APIs."""
 
-    def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = 15.0,
+        *,
+        path_prefix: str = "",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.path_prefix = _normalize_path_prefix(path_prefix)
 
     def health(self) -> CaoHealthResponse:
         """Call `GET /health`."""
@@ -106,6 +114,12 @@ class CaoRestClient:
 
         escaped = parse.quote(session_name, safe="")
         return self._request_model("DELETE", f"/sessions/{escaped}", CaoSuccessResponse)
+
+    def get_session_detail(self, session_name: str) -> CaoSessionDetail:
+        """Call `GET /sessions/{session_name}`."""
+
+        escaped = parse.quote(session_name, safe="")
+        return self._request_model("GET", f"/sessions/{escaped}", CaoSessionDetail)
 
     def list_session_terminals(self, session_name: str) -> list[CaoTerminal]:
         """Call `GET /sessions/{session_name}/terminals`."""
@@ -282,7 +296,7 @@ class CaoRestClient:
         *,
         params: dict[str, str] | None = None,
     ) -> tuple[object, int, str]:
-        url = f"{self.base_url}{path}"
+        url = f"{self.base_url}{self.path_prefix}{path}"
         if params:
             url = f"{url}?{parse.urlencode(params)}"
 
@@ -387,3 +401,12 @@ def _format_error_location(location: object) -> str:
             continue
         path += f".{item}"
     return path
+
+
+def _normalize_path_prefix(value: str) -> str:
+    """Normalize one optional API path prefix."""
+
+    stripped = value.strip().strip("/")
+    if not stripped:
+        return ""
+    return f"/{stripped}"

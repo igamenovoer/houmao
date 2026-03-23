@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
+import hashlib
 import json
 import os
 import socket
@@ -11,41 +13,67 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
+from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.gateway_mailbox import (
+    GatewayMailboxAdapter,
+    GatewayMailboxError,
+    build_gateway_mailbox_adapter,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
-    GatewayAttachContractV1,
     GatewayAttachBackendMetadataCaoV1,
+    GatewayAttachBackendMetadataHeadlessV1,
+    GatewayAttachContractV1,
+    GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayConnectivityState,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
     GatewayHealthResponseV1,
     GatewayHost,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
+    GatewayMailStatusV1,
     GatewayJsonObject,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
-    GatewayRequestKind,
+    GatewaySurfaceEligibilityState,
+    GatewayStoredRequestKind,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
+    append_gateway_notifier_audit_record,
+    build_gateway_mail_notifier_status,
     delete_gateway_current_instance,
     gateway_health_response,
     gateway_paths_from_session_root,
     generate_gateway_request_id,
     load_attach_contract,
     load_gateway_current_instance,
+    read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
+    write_gateway_mail_notifier_record,
     write_gateway_current_instance,
     write_gateway_status,
 )
@@ -53,9 +81,18 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.server.client import HoumaoServerClient
+from houmao.server.models import (
+    HoumaoManagedAgentInterruptRequest,
+    HoumaoManagedAgentSubmitPromptRequest,
+)
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
+_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
+_NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 
 
@@ -76,33 +113,102 @@ class _QueuedGatewayRequestRecord:
     """
 
     request_id: str
-    request_kind: GatewayRequestKind
+    request_kind: GatewayStoredRequestKind
     payload_json: str
     managed_agent_instance_epoch: int
 
 
-class CaoGatewayAdapter:
-    """Gateway adapter for runtime-owned `cao_rest` sessions."""
+@dataclass(frozen=True)
+class _UnreadMailboxMessage:
+    """Unread mailbox message summary used for notifier prompts."""
 
-    def __init__(self, *, attach_contract_path: Path) -> None:
+    message_ref: str
+    thread_ref: str | None
+    created_at_utc: str
+    sender_address: str
+    sender_display_name: str | None
+    subject: str
+
+
+@dataclass(frozen=True)
+class _GatewayTargetState:
+    """Execution posture for the currently addressed gateway target."""
+
+    instance_id: str
+    connectivity: GatewayConnectivityState
+    terminal_surface_eligibility: GatewaySurfaceEligibilityState
+    prompt_admission_open: bool
+
+
+def _sort_unread_messages(
+    unread_messages: list[_UnreadMailboxMessage],
+) -> list[_UnreadMailboxMessage]:
+    """Return unread messages in deterministic oldest-first nomination order."""
+
+    return sorted(
+        unread_messages,
+        key=lambda message: (_parse_gateway_timestamp(message.created_at_utc), message.message_ref),
+    )
+
+
+def _parse_gateway_timestamp(value: str) -> datetime:
+    """Parse one gateway timestamp into UTC for deterministic ordering."""
+
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+class GatewayExecutionAdapter(Protocol):
+    """Execution adapter boundary for one gateway-managed target."""
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current target posture for status and reconciliation."""
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt to the addressed managed target."""
+
+    def interrupt(self) -> None:
+        """Interrupt the addressed managed target."""
+
+
+class _RestBackedGatewayAdapter:
+    """Execution adapter for runtime-owned REST-backed tmux sessions."""
+
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
         """Load CAO-specific gateway attach metadata.
 
         Parameters
         ----------
-        attach_contract_path:
-            Path to the strict gateway attach contract for the managed session.
+        attach_contract:
+            Strict gateway attach contract for the managed session.
         """
 
-        self.m_attach_contract_path = attach_contract_path.resolve()
-        self.m_attach_contract = load_attach_contract(self.m_attach_contract_path)
-        metadata = self.m_attach_contract.backend_metadata
-        if self.m_attach_contract.backend != "cao_rest":
+        self.m_attach_contract = attach_contract
+        metadata = attach_contract.backend_metadata
+        if self.m_attach_contract.backend not in {"cao_rest", "houmao_server_rest"}:
             raise GatewayError(
-                f"Gateway adapter only supports backend='cao_rest' in v1, got "
+                "Gateway adapter only supports backend in "
+                "{'cao_rest', 'houmao_server_rest'} in v1, got "
                 f"{self.m_attach_contract.backend!r}."
             )
-        metadata = cast(GatewayAttachBackendMetadataCaoV1, metadata)
-        self.m_client = CaoRestClient(metadata.api_base_url)
+        if self.m_attach_contract.backend == "cao_rest":
+            cao_metadata = cast(GatewayAttachBackendMetadataCaoV1, metadata)
+            self.m_client = CaoRestClient(cao_metadata.api_base_url)
+        else:
+            houmao_metadata = cast(GatewayAttachBackendMetadataHoumaoServerV1, metadata)
+            self.m_client = CaoRestClient(
+                houmao_metadata.api_base_url,
+                path_prefix="/cao",
+            )
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -110,27 +216,69 @@ class CaoGatewayAdapter:
 
         return self.m_attach_contract
 
-    def read_current_terminal_id(self) -> str:
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the REST-backed target."""
+
+        terminal_id = self._read_current_terminal_id()
+        connectivity = self._inspect_connectivity(terminal_id)
+        return _GatewayTargetState(
+            instance_id=terminal_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility="ready" if connectivity == "connected" else "unknown",
+            prompt_admission_open=connectivity == "connected",
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt to the current runtime-owned terminal."""
+
+        terminal_id = self._read_current_terminal_id()
+        result = self.m_client.send_terminal_input(terminal_id, prompt)
+        if not result.success:
+            raise GatewayError("CAO prompt submission returned success=false.")
+
+    def interrupt(self) -> None:
+        """Interrupt the current runtime-owned terminal."""
+
+        terminal_id = self._read_current_terminal_id()
+        result = self.m_client.exit_terminal(terminal_id)
+        if not result.success:
+            raise GatewayError("CAO interrupt returned success=false.")
+
+    def _read_current_terminal_id(self) -> str:
         """Return the latest runtime-owned CAO terminal id."""
 
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
-            metadata = cast(
-                GatewayAttachBackendMetadataCaoV1,
+            if self.m_attach_contract.backend == "cao_rest":
+                cao_metadata = cast(
+                    GatewayAttachBackendMetadataCaoV1,
+                    self.m_attach_contract.backend_metadata,
+                )
+                return cao_metadata.terminal_id
+
+            houmao_metadata = cast(
+                GatewayAttachBackendMetadataHoumaoServerV1,
                 self.m_attach_contract.backend_metadata,
             )
-            return metadata.terminal_id
+            return houmao_metadata.terminal_id
 
         handle = load_session_manifest(Path(manifest_path))
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        if payload.cao is None:
+        if self.m_attach_contract.backend == "cao_rest":
+            if payload.cao is None:
+                raise GatewayError(
+                    "Runtime-owned CAO manifest is missing the `cao` payload required for "
+                    "gateway attach."
+                )
+            return payload.cao.terminal_id
+        if payload.houmao_server is None:
             raise GatewayError(
-                "Runtime-owned CAO manifest is missing the `cao` payload required for "
-                "gateway attach."
+                "Runtime-owned houmao-server manifest is missing the `houmao_server` payload "
+                "required for gateway attach."
             )
-        return payload.cao.terminal_id
+        return payload.houmao_server.terminal_id
 
-    def inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
+    def _inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
         """Return whether the addressed CAO terminal is reachable."""
 
         try:
@@ -139,19 +287,178 @@ class CaoGatewayAdapter:
             return "unavailable"
         return "connected"
 
-    def submit_prompt(self, *, terminal_id: str, prompt: str) -> None:
-        """Submit one prompt to the CAO terminal."""
 
-        result = self.m_client.send_terminal_input(terminal_id, prompt)
-        if not result.success:
-            raise GatewayError("CAO prompt submission returned success=false.")
+class _LocalHeadlessGatewayAdapter:
+    """Execution adapter for runtime-owned local headless sessions."""
 
-    def interrupt(self, *, terminal_id: str) -> None:
-        """Interrupt the CAO terminal."""
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
+        """Resume local runtime authority from the strict attach contract."""
 
-        result = self.m_client.exit_terminal(terminal_id)
-        if not result.success:
-            raise GatewayError("CAO interrupt returned success=false.")
+        self.m_attach_contract = attach_contract
+        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+            raise GatewayError(
+                "Local headless gateway adapter only supports native headless backends, got "
+                f"{attach_contract.backend!r}."
+            )
+        manifest_path_value = attach_contract.manifest_path
+        agent_def_dir_value = attach_contract.agent_def_dir
+        if manifest_path_value is None or agent_def_dir_value is None:
+            raise GatewayError(
+                "Headless gateway attach requires manifest_path and agent_def_dir in the attach contract."
+            )
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=Path(agent_def_dir_value).expanduser().resolve(),
+                session_manifest_path=Path(manifest_path_value).expanduser().resolve(),
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+        self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+        return self.m_attach_contract
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the local headless target."""
+
+        connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
+        connectivity: GatewayConnectivityState = "connected" if connected else "unavailable"
+        return _GatewayTargetState(
+            instance_id=self.m_instance_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility="ready" if connected else "unknown",
+            prompt_admission_open=connected,
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt through resumed local headless runtime control."""
+
+        self._require_live_tmux_session()
+        try:
+            self.m_controller.send_prompt(prompt)
+        except RuntimeError as exc:
+            raise GatewayError(f"Local headless prompt submission failed: {exc}") from exc
+
+    def interrupt(self) -> None:
+        """Interrupt one resumed local headless runtime."""
+
+        self._require_live_tmux_session()
+        result = self.m_controller.interrupt()
+        if result.status != "ok":
+            raise GatewayError(result.detail)
+
+    def _require_live_tmux_session(self) -> None:
+        """Require the headless tmux session to still be live."""
+
+        if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
+            raise GatewayError(
+                f"Headless tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
+            )
+
+
+class _ServerManagedHeadlessGatewayAdapter:
+    """Execution adapter for server-managed native headless agents."""
+
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
+        """Initialize the server-managed headless execution adapter."""
+
+        self.m_attach_contract = attach_contract
+        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+            raise GatewayError(
+                "Server-managed headless gateway adapter only supports native headless backends, "
+                f"got {attach_contract.backend!r}."
+            )
+        metadata = cast(
+            GatewayAttachBackendMetadataHeadlessV1,
+            attach_contract.backend_metadata,
+        )
+        if metadata.managed_api_base_url is None or metadata.managed_agent_ref is None:
+            raise GatewayError(
+                "Server-managed headless gateway adapter requires managed_api_base_url and "
+                "managed_agent_ref metadata."
+            )
+        self.m_managed_agent_ref = metadata.managed_agent_ref
+        self.m_client = HoumaoServerClient(metadata.managed_api_base_url)
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the strict attach contract."""
+
+        return self.m_attach_contract
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Return current execution posture for the server-managed target."""
+
+        try:
+            response = self.m_client.get_managed_agent_state_detail(self.m_managed_agent_ref)
+        except CaoApiError:
+            return _GatewayTargetState(
+                instance_id=self.m_managed_agent_ref,
+                connectivity="unavailable",
+                terminal_surface_eligibility="unknown",
+                prompt_admission_open=False,
+            )
+        detail = response.detail
+        if detail.transport != "headless":
+            raise GatewayError(
+                "Server-managed headless gateway adapter resolved a non-headless managed agent."
+            )
+        connectivity: GatewayConnectivityState = (
+            "connected" if response.summary_state.availability == "available" else "unavailable"
+        )
+        can_accept_prompt_now = detail.can_accept_prompt_now
+        return _GatewayTargetState(
+            instance_id=response.tracked_agent_id,
+            connectivity=connectivity,
+            terminal_surface_eligibility=(
+                "ready"
+                if can_accept_prompt_now
+                else ("not_ready" if connectivity == "connected" else "unknown")
+            ),
+            prompt_admission_open=can_accept_prompt_now,
+        )
+
+    def submit_prompt(self, *, prompt: str) -> None:
+        """Submit one prompt through the managed-agent server API."""
+
+        response = self.m_client.submit_managed_agent_request(
+            self.m_managed_agent_ref,
+            HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
+        )
+        if response.disposition != "accepted":
+            raise GatewayError(f"Managed-agent prompt request did not execute: {response.detail}")
+
+    def interrupt(self) -> None:
+        """Interrupt the managed-agent target through the server API."""
+
+        self.m_client.submit_managed_agent_request(
+            self.m_managed_agent_ref,
+            HoumaoManagedAgentInterruptRequest(),
+        )
+
+
+def _build_gateway_execution_adapter(
+    *,
+    attach_contract: GatewayAttachContractV1,
+) -> GatewayExecutionAdapter:
+    """Build the execution adapter for one gateway attach contract."""
+
+    if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
+        return _RestBackedGatewayAdapter(attach_contract=attach_contract)
+    if attach_contract.backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        metadata = cast(
+            GatewayAttachBackendMetadataHeadlessV1,
+            attach_contract.backend_metadata,
+        )
+        if metadata.managed_api_base_url is not None and metadata.managed_agent_ref is not None:
+            return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
+        return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
+    raise GatewayError(
+        f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."
+    )
 
 
 class GatewayServiceRuntime:
@@ -178,12 +485,19 @@ class GatewayServiceRuntime:
         self.m_host: GatewayHost = host
         self.m_port: int = port
         self.m_attach_contract = load_attach_contract(self.m_paths.attach_path)
-        self.m_adapter = CaoGatewayAdapter(attach_contract_path=self.m_paths.attach_path)
+        self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
+            attach_contract=self.m_attach_contract
+        )
         self.m_lock = threading.Lock()
+        self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
+        self.m_notifier_thread: threading.Thread | None = None
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
+        self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
+        self.m_mailbox_adapter: GatewayMailboxAdapter | None = None
+        self.m_mailbox_bindings_version: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -219,6 +533,9 @@ class GatewayServiceRuntime:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
             self._refresh_status_snapshot(active_execution="idle")
+            self._log(
+                f"gateway started host={self.m_host} port={self.m_port} attach_identity={self.m_attach_contract.attach_identity}"
+            )
 
         self.m_worker_thread = threading.Thread(
             target=self._worker_loop,
@@ -226,6 +543,12 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_worker_thread.start()
+        self.m_notifier_thread = threading.Thread(
+            target=self._notifier_loop,
+            name="gateway-mail-notifier",
+            daemon=True,
+        )
+        self.m_notifier_thread.start()
 
     def set_listener(self, *, host: GatewayHost, port: int) -> None:
         """Update the live listener bindings before runtime startup."""
@@ -241,7 +564,11 @@ class GatewayServiceRuntime:
         self.m_stop_event.set()
         if self.m_worker_thread is not None:
             self.m_worker_thread.join(timeout=2.0)
+        if self.m_notifier_thread is not None:
+            self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            self._flush_rate_limited_logs()
+            self._log("gateway stopping")
             delete_gateway_current_instance(self.m_paths)
 
     def health(self) -> GatewayHealthResponseV1:
@@ -306,6 +633,9 @@ class GatewayServiceRuntime:
                     "accepted_at_utc": accepted_at_utc,
                 },
             )
+            self._log(
+                f"accepted public gateway request request_id={request_id} kind={request_payload.kind}"
+            )
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             return GatewayAcceptedRequestV1(
                 request_id=request_id,
@@ -315,6 +645,591 @@ class GatewayServiceRuntime:
                 queue_depth=status.queue_depth,
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
+
+    def get_mail_status(self) -> GatewayMailStatusV1:
+        """Return shared mailbox availability for the attached session."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                return self._mailbox_adapter_locked().status()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def check_mail(self, request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
+        """Run one shared mailbox check request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                messages = adapter.check(
+                    unread_only=request_payload.unread_only,
+                    limit=request_payload.limit,
+                    since=request_payload.since,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            unread_count = sum(1 for message in messages if message.unread is True)
+            return GatewayMailCheckResponseV1(
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                unread_only=request_payload.unread_only,
+                message_count=len(messages),
+                unread_count=unread_count,
+                messages=messages,
+            )
+
+    def send_mail(self, request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox send request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                message = adapter.send(
+                    to_addresses=request_payload.to,
+                    cc_addresses=request_payload.cc,
+                    subject=request_payload.subject,
+                    body_content=request_payload.body_content,
+                    attachments=request_payload.attachments,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailActionResponseV1(
+                operation="send",
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
+            )
+
+    def reply_mail(self, request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox reply request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                message = adapter.reply(
+                    message_ref=request_payload.message_ref,
+                    body_content=request_payload.body_content,
+                    attachments=request_payload.attachments,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailActionResponseV1(
+                operation="reply",
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
+            )
+
+    def update_mail_state(
+        self,
+        request_payload: GatewayMailStateRequestV1,
+    ) -> GatewayMailStateResponseV1:
+        """Run one shared mailbox read-state update request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                return adapter.update_read_state(
+                    message_ref=request_payload.message_ref,
+                    read=request_payload.read,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Return the current notifier configuration and runtime status."""
+
+        with self.m_lock:
+            return self._mail_notifier_status_locked()
+
+    def put_mail_notifier(
+        self,
+        request_payload: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Enable or reconfigure the gateway mail notifier."""
+
+        with self.m_lock:
+            try:
+                self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                enabled=True,
+                interval_seconds=request_payload.interval_seconds,
+                last_error=None,
+            )
+            self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
+            return build_gateway_mail_notifier_status(
+                record=record,
+                supported=True,
+                support_error=None,
+            )
+
+    def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+        """Disable the gateway mail notifier explicitly."""
+
+        with self.m_lock:
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                enabled=False,
+                interval_seconds=None,
+                last_notified_digest=None,
+                last_error=None,
+            )
+            supported, support_error = self._notifier_support_status()
+            self._log("mail notifier disabled")
+            return build_gateway_mail_notifier_status(
+                record=record,
+                supported=supported,
+                support_error=support_error,
+            )
+
+    def _mail_notifier_status_locked(self) -> GatewayMailNotifierStatusV1:
+        """Return the notifier status while the runtime lock is held."""
+
+        record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+        supported, support_error = self._notifier_support_status()
+        return build_gateway_mail_notifier_status(
+            record=record,
+            supported=supported,
+            support_error=support_error,
+        )
+
+    def _notifier_support_status(self) -> tuple[bool, str | None]:
+        """Return whether notifier behavior is currently supported."""
+
+        try:
+            self._mailbox_adapter_locked()
+        except GatewayError as exc:
+            return False, str(exc)
+        return True, None
+
+    def _load_mailbox_config(self) -> MailboxResolvedConfig:
+        """Load the manifest-backed mailbox config required by mailbox routes."""
+
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is None:
+            raise GatewayError(
+                "Gateway attach contract is missing runtime-owned `manifest_path`; mailbox support is unavailable."
+            )
+        try:
+            handle = load_session_manifest(Path(manifest_path))
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except SessionManifestError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest is unreadable for mailbox support: {exc}"
+            ) from exc
+
+        try:
+            mailbox = resolved_mailbox_config_from_payload(
+                payload.launch_plan.mailbox,
+                manifest_path=handle.path,
+            )
+        except ValueError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
+            ) from exc
+        if mailbox is None:
+            raise GatewayError(
+                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
+            )
+        return mailbox
+
+    def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
+        """Return the cached mailbox adapter while the runtime lock is held."""
+
+        mailbox = self._load_mailbox_config()
+        if (
+            self.m_mailbox_adapter is not None
+            and self.m_mailbox_bindings_version == mailbox.bindings_version
+        ):
+            return self.m_mailbox_adapter
+        try:
+            adapter = build_gateway_mailbox_adapter(mailbox)
+        except GatewayMailboxError as exc:
+            raise GatewayError(str(exc)) from exc
+        self.m_mailbox_adapter = adapter
+        self.m_mailbox_bindings_version = mailbox.bindings_version
+        return adapter
+
+    def _require_loopback_mail_surface(self) -> None:
+        """Reject mailbox HTTP routes when the gateway is not loopback-bound."""
+
+        if self.m_host != "127.0.0.1":
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway mailbox routes are unavailable when the listener is bound to 0.0.0.0.",
+            )
+
+    def _notifier_loop(self) -> None:
+        """Poll mailbox-local unread state when the notifier is enabled."""
+
+        next_poll_monotonic: float | None = None
+        scheduled_interval_seconds: int | None = None
+        while not self.m_stop_event.is_set():
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                next_poll_monotonic = None
+                scheduled_interval_seconds = None
+                self.m_stop_event.wait(_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS)
+                continue
+
+            now_monotonic = time.monotonic()
+            if next_poll_monotonic is None or scheduled_interval_seconds != record.interval_seconds:
+                next_poll_monotonic = now_monotonic + record.interval_seconds
+                scheduled_interval_seconds = record.interval_seconds
+
+            remaining = next_poll_monotonic - now_monotonic
+            if remaining > 0:
+                self.m_stop_event.wait(min(remaining, _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS))
+                continue
+
+            self._run_notifier_cycle()
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                next_poll_monotonic = None
+                scheduled_interval_seconds = None
+            else:
+                scheduled_interval_seconds = record.interval_seconds
+                next_poll_monotonic = time.monotonic() + record.interval_seconds
+
+    def _run_notifier_cycle(self) -> None:
+        """Execute one notifier polling cycle."""
+
+        with self.m_lock:
+            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            if not record.enabled or record.interval_seconds is None:
+                return
+
+            poll_time_utc = now_utc_iso()
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=False,
+                    interval_seconds=None,
+                    last_error=str(exc),
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=None,
+                    unread_digest=None,
+                    outcome="poll_error",
+                    detail=str(exc),
+                )
+                self._log(f"mail notifier disabled: {exc}")
+                return
+
+            try:
+                unread_messages = _sort_unread_messages(
+                    [
+                        _UnreadMailboxMessage(
+                            message_ref=message.message_ref,
+                            thread_ref=message.thread_ref,
+                            created_at_utc=message.created_at_utc,
+                            sender_address=message.sender.address,
+                            sender_display_name=message.sender.display_name,
+                            subject=message.subject,
+                        )
+                        for message in adapter.check(unread_only=True, limit=None, since=None)
+                    ]
+                )
+            except GatewayMailboxError as exc:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=str(exc),
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=None,
+                    unread_digest=None,
+                    outcome="poll_error",
+                    detail=str(exc),
+                )
+                self._log_rate_limited(
+                    "mail_notifier_error",
+                    f"mail notifier poll error: {exc}",
+                )
+                return
+
+            if not unread_messages:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=[],
+                    unread_count=0,
+                    unread_digest=None,
+                    outcome="empty",
+                )
+                self._log_rate_limited("mail_notifier_empty", "mail notifier poll: no unread mail")
+                return
+
+            unread_digest = self._mail_notifier_digest(unread_messages)
+            if unread_digest == record.last_notified_digest:
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=None,
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=unread_messages,
+                    unread_count=len(unread_messages),
+                    unread_digest=unread_digest,
+                    outcome="dedup_skip",
+                    detail="Unread set matched the last delivered reminder digest.",
+                )
+                self._log_rate_limited(
+                    "mail_notifier_dedup",
+                    "mail notifier poll: unread mail unchanged; skipping duplicate reminder",
+                )
+                return
+
+            if (
+                status.request_admission != "open"
+                or status.active_execution != "idle"
+                or status.queue_depth > 0
+            ):
+                busy_detail = (
+                    "mail notifier poll deferred because the managed session is busy "
+                    f"(admission={status.request_admission}, "
+                    f"active_execution={status.active_execution}, "
+                    f"queue_depth={status.queue_depth})"
+                )
+                write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    last_poll_at_utc=poll_time_utc,
+                    last_error=None,
+                )
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=unread_messages,
+                    unread_count=len(unread_messages),
+                    unread_digest=unread_digest,
+                    outcome="busy_skip",
+                    detail=busy_detail,
+                )
+                self._log_rate_limited(
+                    "mail_notifier_busy",
+                    busy_detail,
+                )
+                return
+
+            prompt = self._build_mail_notifier_prompt(unread_messages)
+            request_id = self._enqueue_internal_prompt(prompt=prompt)
+            write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                last_poll_at_utc=poll_time_utc,
+                last_notification_at_utc=poll_time_utc,
+                last_notified_digest=unread_digest,
+                last_error=None,
+            )
+            self._append_notifier_audit_record(
+                poll_time_utc=poll_time_utc,
+                status=status,
+                unread_messages=unread_messages,
+                unread_count=len(unread_messages),
+                unread_digest=unread_digest,
+                outcome="enqueued",
+                enqueued_request_id=request_id,
+            )
+            self._log(
+                f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
+            )
+
+    def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+        """Build a stable digest for one unread-mail snapshot."""
+
+        digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
+        return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+
+    def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+        """Build the reminder prompt submitted through the internal notifier path."""
+
+        nominated = unread_messages[0]
+        remaining_unread_count = len(unread_messages) - 1
+        sender_label = (
+            f"{nominated.sender_display_name} <{nominated.sender_address}>"
+            if nominated.sender_display_name is not None
+            else nominated.sender_address
+        )
+        lines = [
+            "You have one bounded shared-mailbox task to process.",
+            (
+                "Use the runtime-owned mailbox skill document for this transport: "
+                "`email-via-filesystem` at `skills/mailbox/email-via-filesystem/SKILL.md` "
+                "when `AGENTSYS_MAILBOX_TRANSPORT=filesystem`, or `email-via-stalwart` at "
+                "`skills/mailbox/email-via-stalwart/SKILL.md` when "
+                "`AGENTSYS_MAILBOX_TRANSPORT=stalwart`."
+            ),
+            (
+                "The same documents may also be mirrored under `skills/.system/mailbox/...`, "
+                "but prefer the visible `skills/mailbox/...` paths and open them directly "
+                "instead of searching with `rg`, `find`, or slash-skill lookup. If the project "
+                "worktree truly does not expose those visible paths, fall back to the same "
+                "locations under the runtime home. Treat that mailbox skill as a runtime-owned "
+                "skill document to read and follow, not as a registered slash skill to invoke "
+                "by name."
+            ),
+            (
+                "Use shared mailbox operations through the live gateway facade for this turn: "
+                "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
+                "`POST /v1/mail/state`."
+            ),
+            (
+                "Do not inspect repo docs or OpenAPI to rediscover those routine request "
+                "shapes during this turn."
+            ),
+            ('`POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`'),
+            (
+                "`POST /v1/mail/send` -> "
+                '`{"schema_version":1,"to":["recipient@agents.localhost"],'
+                '"subject":"...","body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/reply` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>",'
+                '"body_content":"...","attachments":[]}`'
+            ),
+            (
+                "`POST /v1/mail/state` -> "
+                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
+            ),
+            "Process only the nominated target in this turn.",
+            "Mark the target read only after the mailbox action succeeds.",
+            "",
+            "Nominated unread target:",
+            f"- message_ref: {nominated.message_ref}",
+        ]
+        if nominated.thread_ref is not None:
+            lines.append(f"- thread_ref: {nominated.thread_ref}")
+        lines.extend(
+            [
+                f"- from: {sender_label}",
+                f"- subject: {nominated.subject}",
+                f"- created_at_utc: {nominated.created_at_utc}",
+                "",
+                f"Remaining unread after this target: {remaining_unread_count}.",
+            ]
+        )
+        if remaining_unread_count > 0:
+            lines.append("Leave the remaining unread messages queued for later turns.")
+        return "\n".join(lines)
+
+    def _enqueue_internal_prompt(self, *, prompt: str) -> str:
+        """Insert one internal notifier prompt into durable queue storage."""
+
+        request_id = generate_gateway_request_id()
+        accepted_at_utc = now_utc_iso()
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO gateway_requests (
+                    request_id,
+                    request_kind,
+                    payload_json,
+                    state,
+                    accepted_at_utc,
+                    managed_agent_instance_epoch
+                )
+                VALUES (?, ?, ?, 'accepted', ?, ?)
+                """,
+                (
+                    request_id,
+                    "mail_notifier_prompt",
+                    json.dumps({"prompt": prompt}, sort_keys=True),
+                    accepted_at_utc,
+                    self.m_current_epoch,
+                ),
+            )
+            connection.commit()
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "accepted_internal",
+                "request_id": request_id,
+                "request_kind": "mail_notifier_prompt",
+                "accepted_at_utc": accepted_at_utc,
+            },
+        )
+        self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        return request_id
+
+    def _append_notifier_audit_record(
+        self,
+        *,
+        poll_time_utc: str,
+        status: GatewayStatusV1,
+        unread_messages: list[_UnreadMailboxMessage],
+        unread_count: int | None,
+        unread_digest: str | None,
+        outcome: Literal["empty", "dedup_skip", "busy_skip", "enqueued", "poll_error"],
+        enqueued_request_id: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Persist one structured notifier audit row."""
+
+        append_gateway_notifier_audit_record(
+            self.m_paths.queue_path,
+            poll_time_utc=poll_time_utc,
+            unread_count=unread_count,
+            unread_digest=unread_digest,
+            unread_summary=tuple(
+                GatewayNotifierAuditUnreadMessage(
+                    message_ref=message.message_ref,
+                    thread_ref=message.thread_ref,
+                    created_at_utc=message.created_at_utc,
+                    subject=message.subject,
+                )
+                for message in unread_messages
+            ),
+            request_admission=status.request_admission,
+            active_execution=status.active_execution,
+            queue_depth=status.queue_depth,
+            outcome=outcome,
+            enqueued_request_id=enqueued_request_id,
+            detail=detail,
+        )
 
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
@@ -368,7 +1283,7 @@ class GatewayServiceRuntime:
             self._refresh_status_snapshot(active_execution="running")
             return _QueuedGatewayRequestRecord(
                 request_id=str(request_id),
-                request_kind=cast(GatewayRequestKind, request_kind),
+                request_kind=cast(GatewayStoredRequestKind, request_kind),
                 payload_json=str(payload_json),
                 managed_agent_instance_epoch=int(epoch),
             )
@@ -400,8 +1315,7 @@ class GatewayServiceRuntime:
                     result_json=None,
                 )
                 return
-            terminal_id = self.m_current_instance_id
-            if terminal_id is None:
+            if self.m_current_instance_id is None:
                 self._finish_request(
                     request_id=request_id,
                     state="failed",
@@ -409,14 +1323,15 @@ class GatewayServiceRuntime:
                     result_json=None,
                 )
                 return
+            self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
 
         try:
-            if request_kind == "submit_prompt":
+            if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(terminal_id=terminal_id, prompt=payload.prompt)
+                self.m_adapter.submit_prompt(prompt=payload.prompt)
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
-                self.m_adapter.interrupt(terminal_id=terminal_id)
+                self.m_adapter.interrupt()
             else:
                 raise GatewayError(f"Unsupported gateway request kind: {request_kind!r}.")
         except (GatewayError, CaoApiError, ValidationError) as exc:
@@ -470,6 +1385,12 @@ class GatewayServiceRuntime:
                     "result_json": result_json,
                 },
             )
+            if state == "completed":
+                self._log(f"completed gateway request request_id={request_id}")
+            else:
+                self._log(
+                    f"failed gateway request request_id={request_id} detail={error_detail or 'unknown error'}"
+                )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
 
     def _mark_running_requests_failed(self) -> None:
@@ -505,7 +1426,8 @@ class GatewayServiceRuntime:
             previous_epoch = previous.managed_agent_instance_epoch
             previous_instance_id = previous.managed_agent_instance_id
 
-        current_instance_id = self.m_adapter.read_current_terminal_id()
+        target_state = self.m_adapter.inspect_target()
+        current_instance_id = target_state.instance_id
         if previous_instance_id is None or previous_instance_id == current_instance_id:
             self.m_current_epoch = max(previous_epoch, 1)
         else:
@@ -530,16 +1452,19 @@ class GatewayServiceRuntime:
     ) -> GatewayStatusV1:
         """Refresh and persist the current gateway status snapshot."""
 
-        current_instance_id = self.m_adapter.read_current_terminal_id()
+        target_state = self.m_adapter.inspect_target()
+        current_instance_id = target_state.instance_id
         if self.m_current_instance_id is None:
             self.m_current_instance_id = current_instance_id
         elif current_instance_id != self.m_current_instance_id:
             self.m_current_epoch += 1
             self.m_current_instance_id = current_instance_id
 
-        connectivity = self.m_adapter.inspect_connectivity(current_instance_id)
+        connectivity = target_state.connectivity
         recovery: GatewayRecoveryState = "idle"
-        admission: GatewayAdmissionState = "open"
+        admission: GatewayAdmissionState = (
+            "open" if target_state.prompt_admission_open else "blocked_unavailable"
+        )
         if connectivity != "connected":
             recovery = "awaiting_rebind"
             admission = "blocked_unavailable"
@@ -555,7 +1480,7 @@ class GatewayServiceRuntime:
             managed_agent_connectivity=connectivity,
             managed_agent_recovery=recovery,
             request_admission=admission,
-            terminal_surface_eligibility="ready" if connectivity == "connected" else "unknown",
+            terminal_surface_eligibility=target_state.terminal_surface_eligibility,
             active_execution=active_execution,
             queue_depth=queue_depth_from_sqlite(self.m_paths.queue_path),
             gateway_host=self.m_host,
@@ -596,6 +1521,37 @@ class GatewayServiceRuntime:
 
         return os.getpid()
 
+    def _log(self, message: str) -> None:
+        """Emit one tail-friendly gateway log line to the stable gateway log."""
+
+        line = f"{now_utc_iso()} {message}"
+        with self.m_log_lock:
+            self.m_paths.logs_dir.mkdir(parents=True, exist_ok=True)
+            with self.m_paths.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        print(line, flush=True)
+
+    def _log_rate_limited(self, key: str, message: str) -> None:
+        """Emit one gateway log line with coarse repetition suppression."""
+
+        now_monotonic = time.monotonic()
+        last_logged_at, suppressed_count = self.m_rate_limited_logs.get(key, (0.0, 0))
+        if now_monotonic - last_logged_at >= _NOTIFIER_RATE_LIMIT_SECONDS:
+            suffix = f" (suppressed {suppressed_count} repeats)" if suppressed_count > 0 else ""
+            self._log(message + suffix)
+            self.m_rate_limited_logs[key] = (now_monotonic, 0)
+            return
+        self.m_rate_limited_logs[key] = (last_logged_at, suppressed_count + 1)
+
+    def _flush_rate_limited_logs(self) -> None:
+        """Flush any suppressed rate-limited notifier log counters."""
+
+        for key, (_, suppressed_count) in list(self.m_rate_limited_logs.items()):
+            if suppressed_count <= 0:
+                continue
+            self._log(f"{key}: suppressed {suppressed_count} repeated messages")
+            self.m_rate_limited_logs[key] = (time.monotonic(), 0)
+
 
 def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     """Create the FastAPI app bound to one gateway runtime.
@@ -630,6 +1586,56 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Accept one gateway-managed request."""
 
         return runtime.create_request(request_payload)
+
+    @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
+    def _mail_status() -> GatewayMailStatusV1:
+        """Serve shared mailbox availability for the attached session."""
+
+        return runtime.get_mail_status()
+
+    @app.post("/v1/mail/check", response_model=GatewayMailCheckResponseV1)
+    def _mail_check(request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
+        """Run one shared mailbox check request."""
+
+        return runtime.check_mail(request_payload)
+
+    @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
+    def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox send request."""
+
+        return runtime.send_mail(request_payload)
+
+    @app.post("/v1/mail/reply", response_model=GatewayMailActionResponseV1)
+    def _mail_reply(request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox reply request."""
+
+        return runtime.reply_mail(request_payload)
+
+    @app.post("/v1/mail/state", response_model=GatewayMailStateResponseV1)
+    def _mail_state(request_payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
+        """Run one shared mailbox state update request."""
+
+        return runtime.update_mail_state(request_payload)
+
+    @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _get_mail_notifier() -> GatewayMailNotifierStatusV1:
+        """Serve notifier configuration and runtime status."""
+
+        return runtime.get_mail_notifier()
+
+    @app.put("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _put_mail_notifier(
+        request_payload: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Enable or reconfigure the gateway mail notifier."""
+
+        return runtime.put_mail_notifier(request_payload)
+
+    @app.delete("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    def _delete_mail_notifier() -> GatewayMailNotifierStatusV1:
+        """Disable the gateway mail notifier."""
+
+        return runtime.delete_mail_notifier()
 
     return app
 

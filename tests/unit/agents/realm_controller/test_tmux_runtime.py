@@ -7,9 +7,14 @@ import pytest
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
+    TmuxPaneRecord,
+    capture_tmux_pane,
     create_tmux_session,
+    prepare_headless_agent_window,
     has_tmux_session,
+    list_tmux_panes,
     list_tmux_sessions,
+    read_tmux_session_environment_value,
     set_tmux_session_environment,
     show_tmux_environment,
 )
@@ -115,6 +120,33 @@ def test_create_tmux_session_surfaces_tmux_error(
         )
 
 
+def test_prepare_headless_agent_window_renames_and_selects_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        captured.append(cmd)
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    prepare_headless_agent_window(session_name="AGENTSYS-gpu")
+
+    assert captured == [
+        ["tmux", "rename-window", "-t", "AGENTSYS-gpu:0", "agent"],
+        ["tmux", "select-window", "-t", "AGENTSYS-gpu:0"],
+    ]
+
+
 def test_set_tmux_session_environment_surfaces_key_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -142,3 +174,83 @@ def test_set_tmux_session_environment_surfaces_key_context(
                 "AGENTSYS_MANIFEST_PATH": "/tmp/session.json",
             },
         )
+
+
+def test_read_tmux_session_environment_value_returns_none_for_unknown_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        return _completed(cmd, returncode=1, stderr="unknown variable: HOUMAO")
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    assert (
+        read_tmux_session_environment_value(
+            session_name="AGENTSYS-gpu",
+            variable_name="HOUMAO_TERMINAL_RECORD_LIVE_STATE",
+        )
+        is None
+    )
+
+
+def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        return _completed(
+            cmd,
+            stdout="%1\tAGENTSYS-gpu\t@2\tdeveloper-1\t0\t1\n%2\tAGENTSYS-gpu\t@2\tdeveloper-1\t1\t0\n",
+        )
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    assert list_tmux_panes(session_name="AGENTSYS-gpu") == (
+        TmuxPaneRecord(
+            pane_id="%1",
+            session_name="AGENTSYS-gpu",
+            window_id="@2",
+            window_name="developer-1",
+            pane_index="0",
+            pane_active=True,
+        ),
+        TmuxPaneRecord(
+            pane_id="%2",
+            session_name="AGENTSYS-gpu",
+            window_id="@2",
+            window_name="developer-1",
+            pane_index="1",
+            pane_active=False,
+        ),
+    )
+
+
+def test_capture_tmux_pane_surfaces_tmux_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        return _completed(cmd, returncode=1, stderr="can't find pane: %9")
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    with pytest.raises(TmuxCommandError, match="can't find pane"):
+        capture_tmux_pane(target="%9")

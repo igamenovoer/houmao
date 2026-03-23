@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
+import re
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     ValidationError,
     field_validator,
     model_validator,
 )
 
-from houmao.agents.mailbox_runtime_models import MailboxTransport
-
+from .agent_identity import normalize_agent_identity_name
+from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
+
+OperatorPromptModeV1: TypeAlias = Literal["interactive", "unattended"]
+LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
 JsonObject: TypeAlias = dict[str, JsonValue]
+_SAFE_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
+    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
+)
 
 
 class _StrictBoundaryModel(BaseModel):
@@ -55,10 +64,10 @@ class LaunchPlanRoleInjectionV1(_StrictBoundaryModel):
         return value
 
 
-class LaunchPlanMailboxV1(_StrictBoundaryModel):
-    """Persisted resolved mailbox binding for `launch_plan.v1`."""
+class LaunchPlanMailboxFilesystemV1(_StrictBoundaryModel):
+    """Persisted filesystem mailbox binding for `launch_plan.v1`."""
 
-    transport: MailboxTransport
+    transport: Literal["filesystem"]
     principal_id: str
     address: str
     bindings_version: str
@@ -77,6 +86,63 @@ class LaunchPlanMailboxV1(_StrictBoundaryModel):
         return value
 
 
+class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):
+    """Persisted Stalwart mailbox binding for `launch_plan.v1`."""
+
+    transport: Literal["stalwart"]
+    principal_id: str
+    address: str
+    bindings_version: str
+    jmap_url: str
+    management_url: str
+    login_identity: str
+    credential_ref: str
+
+    @field_validator(
+        "principal_id",
+        "address",
+        "bindings_version",
+        "jmap_url",
+        "management_url",
+        "login_identity",
+        "credential_ref",
+    )
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+LaunchPlanMailboxV1: TypeAlias = Annotated[
+    LaunchPlanMailboxFilesystemV1 | LaunchPlanMailboxStalwartV1,
+    Field(discriminator="transport"),
+]
+
+
+class LaunchPolicyProvenanceV1(_StrictBoundaryModel):
+    """Typed launch-policy provenance persisted in launch/session payloads."""
+
+    requested_operator_prompt_mode: OperatorPromptModeV1
+    detected_tool_version: str
+    selected_strategy_id: str
+    selection_source: LaunchPolicySelectionSourceV1
+    override_env_var_name: str | None = None
+
+    @field_validator(
+        "detected_tool_version",
+        "selected_strategy_id",
+        "override_env_var_name",
+    )
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class LaunchPlanPayloadV1(_StrictBoundaryModel):
     """Persisted `launch_plan.v1` payload."""
 
@@ -90,6 +156,7 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     role_injection: LaunchPlanRoleInjectionV1
     metadata: JsonObject
     mailbox: LaunchPlanMailboxV1 | None = None
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
 
     @field_validator("tool", "executable", "working_directory")
     @classmethod
@@ -149,6 +216,24 @@ class CaoSectionV2(_StrictBoundaryModel):
             raise ValueError("must not be empty")
         return value
 
+
+class HoumaoServerSectionV1(_StrictBoundaryModel):
+    """Persisted `houmao_server_rest` backend section."""
+
+    api_base_url: str
+    session_name: str
+    terminal_id: str
+    parsing_mode: CaoParsingMode
+    tmux_window_name: str | None = None
+    turn_index: int = 0
+
+    @field_validator("api_base_url", "session_name", "terminal_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
     @field_validator("tmux_window_name")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
@@ -169,11 +254,14 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
     created_at_utc: str
     working_directory: str
     brain_manifest_path: str
+    registry_generation_id: str | None = None
     launch_plan: LaunchPlanPayloadV1
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     backend_state: JsonObject
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None
     cao: CaoSectionV2 | None = None
+    houmao_server: HoumaoServerSectionV1 | None = None
 
     @field_validator(
         "tool",
@@ -181,9 +269,12 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
         "created_at_utc",
         "working_directory",
         "brain_manifest_path",
+        "registry_generation_id",
     )
     @classmethod
-    def _not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -200,8 +291,10 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
         if self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
-            if self.headless is not None or self.cao is not None:
-                raise ValueError("headless/cao must be omitted for backend=codex_app_server")
+            if self.headless is not None or self.cao is not None or self.houmao_server is not None:
+                raise ValueError(
+                    "headless/cao/houmao_server must be omitted for backend=codex_app_server"
+                )
         elif self.backend in {
             "codex_headless",
             "claude_headless",
@@ -212,16 +305,152 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
                     "headless is required for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
-            if self.codex is not None or self.cao is not None:
+            if self.codex is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
-                    "codex/cao must be omitted for backend=codex_headless/"
+                    "codex/cao/houmao_server must be omitted for backend=codex_headless/"
                     "claude_headless/gemini_headless"
                 )
         elif self.backend == "cao_rest":
             if self.cao is None:
                 raise ValueError("cao is required for backend=cao_rest")
-            if self.codex is not None or self.headless is not None:
-                raise ValueError("codex/headless must be omitted for backend=cao_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "codex/headless/houmao_server must be omitted for backend=cao_rest"
+                )
+        elif self.backend == "houmao_server_rest":
+            if self.houmao_server is None:
+                raise ValueError("houmao_server is required for backend=houmao_server_rest")
+            if self.codex is not None or self.headless is not None or self.cao is not None:
+                raise ValueError(
+                    "codex/headless/cao must be omitted for backend=houmao_server_rest"
+                )
+        return self
+
+
+class SessionManifestPayloadV3(_StrictBoundaryModel):
+    """Persisted ``session_manifest.v3`` payload."""
+
+    schema_version: int
+    backend: BackendKind
+    tool: str
+    role_name: str
+    created_at_utc: str
+    working_directory: str
+    brain_manifest_path: str
+    agent_name: str | None = None
+    agent_id: str | None = None
+    tmux_session_name: str | None = None
+    job_dir: str | None = None
+    registry_generation_id: str | None = None
+    launch_plan: LaunchPlanPayloadV1
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
+    backend_state: JsonObject
+    codex: CodexSectionV1 | None = None
+    headless: HeadlessSectionV1 | None = None
+    cao: CaoSectionV2 | None = None
+    houmao_server: HoumaoServerSectionV1 | None = None
+
+    @field_validator(
+        "tool",
+        "role_name",
+        "created_at_utc",
+        "working_directory",
+        "brain_manifest_path",
+        "agent_name",
+        "agent_id",
+        "tmux_session_name",
+        "job_dir",
+        "registry_generation_id",
+    )
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_backend_sections_and_identity(self) -> "SessionManifestPayloadV3":
+        if self.schema_version != 3:
+            raise ValueError("schema_version must be 3")
+        if self.launch_plan.backend != self.backend:
+            raise ValueError("launch_plan.backend must match manifest backend")
+        if self.launch_plan.tool != self.tool:
+            raise ValueError("launch_plan.tool must match manifest tool")
+
+        if self.agent_name is not None:
+            try:
+                canonical_agent_name = normalize_agent_identity_name(self.agent_name).canonical_name
+            except SessionManifestError as exc:
+                raise ValueError(str(exc)) from exc
+            if canonical_agent_name != self.agent_name:
+                raise ValueError("agent_name must use canonical `AGENTSYS-...` form")
+
+        if self.agent_id is not None and not _SAFE_AGENT_ID_RE.fullmatch(self.agent_id):
+            raise ValueError(
+                "agent_id must use a safe filesystem component form ([A-Za-z0-9][A-Za-z0-9._-]*)"
+            )
+
+        expects_tmux_identity = self.backend in _TMUX_BACKED_BACKENDS
+        identity_fields = (
+            self.agent_name is not None,
+            self.agent_id is not None,
+            self.tmux_session_name is not None,
+        )
+        if expects_tmux_identity and not all(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name are required for tmux-backed backends"
+            )
+        if not expects_tmux_identity and any(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name must be omitted for non-tmux backends"
+            )
+
+        if self.backend == "codex_app_server":
+            if self.codex is None:
+                raise ValueError("codex is required for backend=codex_app_server")
+            if self.headless is not None or self.cao is not None or self.houmao_server is not None:
+                raise ValueError(
+                    "headless/cao/houmao_server must be omitted for backend=codex_app_server"
+                )
+        elif self.backend in {
+            "codex_headless",
+            "claude_headless",
+            "gemini_headless",
+        }:
+            if self.headless is None:
+                raise ValueError(
+                    "headless is required for backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+            if self.codex is not None or self.cao is not None or self.houmao_server is not None:
+                raise ValueError(
+                    "codex/cao/houmao_server must be omitted for backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+        elif self.backend == "cao_rest":
+            if self.cao is None:
+                raise ValueError("cao is required for backend=cao_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "codex/headless/houmao_server must be omitted for backend=cao_rest"
+                )
+        elif self.backend == "houmao_server_rest":
+            if self.houmao_server is None:
+                raise ValueError("houmao_server is required for backend=houmao_server_rest")
+            if self.codex is not None or self.headless is not None or self.cao is not None:
+                raise ValueError(
+                    "codex/headless/cao must be omitted for backend=houmao_server_rest"
+                )
         return self
 
 
@@ -250,3 +479,8 @@ def _format_error_location(location: object) -> str:
             continue
         path += f".{item}"
     return path
+
+
+LaunchPlanPayloadV1.model_rebuild()
+SessionManifestPayloadV2.model_rebuild()
+SessionManifestPayloadV3.model_rebuild()

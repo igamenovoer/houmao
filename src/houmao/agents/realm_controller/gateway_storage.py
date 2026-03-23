@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping, Protocol, cast
+from typing import Literal, Mapping, Protocol, Sequence, cast
 
 from pydantic import ValidationError
 
@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GATEWAY_PROTOCOL_VERSION,
     BlueprintGatewayDefaults,
     GatewayAttachBackendMetadataCaoV1,
+    GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayAttachBackendMetadataHeadlessV1,
     GatewayAttachContractV1,
     GatewayCurrentInstanceV1,
@@ -26,8 +27,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHost,
     GatewayJsonObject,
     GatewayJsonValue,
+    GatewayAdmissionState,
+    GatewayMailNotifierStatusV1,
     GatewayProtocolVersion,
     GatewayStatusV1,
+    GatewayExecutionState,
     format_gateway_validation_error,
 )
 from houmao.agents.realm_controller.manifest import (
@@ -49,6 +53,7 @@ _LIVE_GATEWAY_ENV_VARS: tuple[str, ...] = (
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
 )
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,54 @@ class GatewayLiveBindings:
     port: int
     state_path: Path
     protocol_version: GatewayProtocolVersion
+
+
+@dataclass(frozen=True)
+class GatewayMailNotifierRecord:
+    """Durable gateway-owned notifier configuration and runtime state."""
+
+    enabled: bool
+    interval_seconds: int | None
+    last_poll_at_utc: str | None
+    last_notification_at_utc: str | None
+    last_notified_digest: str | None
+    last_error: str | None
+
+
+GatewayNotifierAuditOutcome = Literal[
+    "empty",
+    "dedup_skip",
+    "busy_skip",
+    "enqueued",
+    "poll_error",
+]
+
+
+@dataclass(frozen=True)
+class GatewayNotifierAuditUnreadMessage:
+    """Compact unread-message summary stored in notifier audit history."""
+
+    message_ref: str
+    thread_ref: str | None
+    created_at_utc: str
+    subject: str
+
+
+@dataclass(frozen=True)
+class GatewayNotifierAuditRecord:
+    """Durable per-poll gateway notifier audit record."""
+
+    audit_id: int
+    poll_time_utc: str
+    unread_count: int | None
+    unread_digest: str | None
+    unread_summary: tuple[GatewayNotifierAuditUnreadMessage, ...]
+    request_admission: GatewayAdmissionState | None
+    active_execution: GatewayExecutionState | None
+    queue_depth: int | None
+    outcome: GatewayNotifierAuditOutcome
+    enqueued_request_id: str | None
+    detail: str | None
 
 
 class _TmuxEnvSetter(Protocol):
@@ -161,6 +214,10 @@ def ensure_gateway_capability(
         _write_text(paths.events_path, "")
 
     attach_contract = build_attach_contract(request=request)
+    attach_contract = _preserve_existing_headless_managed_metadata(
+        paths=paths,
+        attach_contract=attach_contract,
+    )
     write_attach_contract(paths.attach_path, attach_contract)
 
     desired_defaults = GatewayDesiredConfigV1(
@@ -187,6 +244,46 @@ def ensure_gateway_capability(
     if status is not None:
         write_gateway_status(paths.state_path, status)
     return paths
+
+
+def _preserve_existing_headless_managed_metadata(
+    *,
+    paths: GatewayPaths,
+    attach_contract: GatewayAttachContractV1,
+) -> GatewayAttachContractV1:
+    """Preserve server-managed headless routing metadata across capability refresh."""
+
+    if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        return attach_contract
+    if not paths.attach_path.is_file():
+        return attach_contract
+    try:
+        existing_contract = load_attach_contract(paths.attach_path)
+    except SessionManifestError:
+        return attach_contract
+    if existing_contract.backend != attach_contract.backend:
+        return attach_contract
+    existing_metadata = existing_contract.backend_metadata
+    next_metadata = attach_contract.backend_metadata
+    if not isinstance(existing_metadata, GatewayAttachBackendMetadataHeadlessV1):
+        return attach_contract
+    if not isinstance(next_metadata, GatewayAttachBackendMetadataHeadlessV1):
+        return attach_contract
+    if (
+        existing_metadata.managed_api_base_url is None
+        or existing_metadata.managed_agent_ref is None
+    ):
+        return attach_contract
+    return attach_contract.model_copy(
+        update={
+            "backend_metadata": next_metadata.model_copy(
+                update={
+                    "managed_api_base_url": existing_metadata.managed_api_base_url,
+                    "managed_agent_ref": existing_metadata.managed_agent_ref,
+                }
+            )
+        }
+    )
 
 
 def publish_stable_gateway_env(
@@ -238,7 +335,11 @@ def build_attach_contract(
 ) -> GatewayAttachContractV1:
     """Build a strict attach contract from runtime-owned session state."""
 
-    backend_metadata: GatewayAttachBackendMetadataHeadlessV1 | GatewayAttachBackendMetadataCaoV1
+    backend_metadata: (
+        GatewayAttachBackendMetadataHeadlessV1
+        | GatewayAttachBackendMetadataCaoV1
+        | GatewayAttachBackendMetadataHoumaoServerV1
+    )
     if request.backend == "cao_rest":
         backend_metadata = GatewayAttachBackendMetadataCaoV1(
             api_base_url=_require_backend_state_string(
@@ -256,6 +357,32 @@ def build_attach_contract(
             profile_path=_require_backend_state_string(
                 request.backend_state,
                 key="profile_path",
+            ),
+            parsing_mode=cast(
+                CaoParsingMode,
+                _require_backend_state_string(
+                    request.backend_state,
+                    key="parsing_mode",
+                ),
+            ),
+            tmux_window_name=_optional_backend_state_string(
+                request.backend_state,
+                key="tmux_window_name",
+            ),
+        )
+    elif request.backend == "houmao_server_rest":
+        backend_metadata = GatewayAttachBackendMetadataHoumaoServerV1(
+            api_base_url=_require_backend_state_string(
+                request.backend_state,
+                key="api_base_url",
+            ),
+            session_name=_require_backend_state_string(
+                request.backend_state,
+                key="session_name",
+            ),
+            terminal_id=_require_backend_state_string(
+                request.backend_state,
+                key="terminal_id",
             ),
             parsing_mode=cast(
                 CaoParsingMode,
@@ -405,6 +532,184 @@ def delete_gateway_current_instance(paths: GatewayPaths) -> None:
             candidate.unlink()
         except FileNotFoundError:
             continue
+
+
+def read_gateway_mail_notifier_record(sqlite_path: Path) -> GatewayMailNotifierRecord:
+    """Load the durable gateway notifier record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        return _read_gateway_mail_notifier_record(connection)
+
+
+def write_gateway_mail_notifier_record(
+    sqlite_path: Path,
+    *,
+    enabled: bool | object = _UNSET,
+    interval_seconds: int | None | object = _UNSET,
+    last_poll_at_utc: str | None | object = _UNSET,
+    last_notification_at_utc: str | None | object = _UNSET,
+    last_notified_digest: str | None | object = _UNSET,
+    last_error: str | None | object = _UNSET,
+) -> GatewayMailNotifierRecord:
+    """Persist selected notifier fields and return the resulting durable record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        record = _read_gateway_mail_notifier_record(connection)
+        updated = GatewayMailNotifierRecord(
+            enabled=record.enabled if enabled is _UNSET else bool(enabled),
+            interval_seconds=(
+                record.interval_seconds
+                if interval_seconds is _UNSET
+                else cast(int | None, interval_seconds)
+            ),
+            last_poll_at_utc=(
+                record.last_poll_at_utc
+                if last_poll_at_utc is _UNSET
+                else cast(str | None, last_poll_at_utc)
+            ),
+            last_notification_at_utc=(
+                record.last_notification_at_utc
+                if last_notification_at_utc is _UNSET
+                else cast(str | None, last_notification_at_utc)
+            ),
+            last_notified_digest=(
+                record.last_notified_digest
+                if last_notified_digest is _UNSET
+                else cast(str | None, last_notified_digest)
+            ),
+            last_error=record.last_error if last_error is _UNSET else cast(str | None, last_error),
+        )
+        _write_gateway_mail_notifier_record(connection, updated)
+        connection.commit()
+        return updated
+
+
+def build_gateway_mail_notifier_status(
+    *,
+    record: GatewayMailNotifierRecord,
+    supported: bool,
+    support_error: str | None,
+) -> GatewayMailNotifierStatusV1:
+    """Build the structured HTTP status payload for the gateway notifier."""
+
+    return GatewayMailNotifierStatusV1(
+        enabled=record.enabled,
+        interval_seconds=record.interval_seconds,
+        supported=supported,
+        support_error=support_error,
+        last_poll_at_utc=record.last_poll_at_utc,
+        last_notification_at_utc=record.last_notification_at_utc,
+        last_error=record.last_error,
+    )
+
+
+def append_gateway_notifier_audit_record(
+    sqlite_path: Path,
+    *,
+    poll_time_utc: str,
+    unread_count: int | None,
+    unread_digest: str | None,
+    unread_summary: Sequence[GatewayNotifierAuditUnreadMessage],
+    request_admission: GatewayAdmissionState | None,
+    active_execution: GatewayExecutionState | None,
+    queue_depth: int | None,
+    outcome: GatewayNotifierAuditOutcome,
+    enqueued_request_id: str | None = None,
+    detail: str | None = None,
+) -> GatewayNotifierAuditRecord:
+    """Append one notifier audit row and return the persisted record."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        _ensure_queue_schema(connection)
+        connection.execute(
+            """
+            INSERT INTO gateway_notifier_audit (
+                poll_time_utc,
+                unread_count,
+                unread_digest,
+                unread_summary_json,
+                request_admission,
+                active_execution,
+                queue_depth,
+                outcome,
+                enqueued_request_id,
+                detail
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                poll_time_utc,
+                unread_count,
+                unread_digest,
+                _serialize_gateway_notifier_unread_summary(unread_summary),
+                request_admission,
+                active_execution,
+                queue_depth,
+                outcome,
+                enqueued_request_id,
+                detail,
+            ),
+        )
+        row = connection.execute("SELECT last_insert_rowid()").fetchone()
+        connection.commit()
+    if row is None:
+        raise SessionManifestError(
+            "Gateway notifier audit insert did not return a persistent audit row id."
+        )
+    return GatewayNotifierAuditRecord(
+        audit_id=int(row[0]),
+        poll_time_utc=poll_time_utc,
+        unread_count=unread_count,
+        unread_digest=unread_digest,
+        unread_summary=tuple(unread_summary),
+        request_admission=request_admission,
+        active_execution=active_execution,
+        queue_depth=queue_depth,
+        outcome=outcome,
+        enqueued_request_id=enqueued_request_id,
+        detail=detail,
+    )
+
+
+def read_gateway_notifier_audit_records(
+    sqlite_path: Path,
+    *,
+    limit: int | None = None,
+) -> list[GatewayNotifierAuditRecord]:
+    """Load notifier audit history in chronological order."""
+
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive when provided")
+    if not sqlite_path.is_file():
+        return []
+
+    query = """
+        SELECT
+            audit_id,
+            poll_time_utc,
+            unread_count,
+            unread_digest,
+            unread_summary_json,
+            request_admission,
+            active_execution,
+            queue_depth,
+            outcome,
+            enqueued_request_id,
+            detail
+        FROM gateway_notifier_audit
+        ORDER BY audit_id DESC
+    """
+    parameters: tuple[int, ...] | tuple[()] = ()
+    if limit is not None:
+        query += " LIMIT ?"
+        parameters = (limit,)
+
+    with sqlite3.connect(sqlite_path) as connection:
+        _ensure_queue_schema(connection)
+        rows = connection.execute(query, parameters).fetchall()
+
+    rows.reverse()
+    return [_row_to_gateway_notifier_audit_record(row) for row in rows]
 
 
 def build_offline_gateway_status(
@@ -570,23 +875,255 @@ def _ensure_queue_database(sqlite_path: Path) -> None:
 
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gateway_requests (
-                request_id TEXT PRIMARY KEY,
-                request_kind TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                state TEXT NOT NULL,
-                accepted_at_utc TEXT NOT NULL,
-                started_at_utc TEXT,
-                finished_at_utc TEXT,
-                managed_agent_instance_epoch INTEGER NOT NULL,
-                error_detail TEXT,
-                result_json TEXT
-            )
-            """
-        )
+        _ensure_queue_schema(connection)
         connection.commit()
+
+
+def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
+    """Create or upgrade the durable gateway queue schema."""
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_requests (
+            request_id TEXT PRIMARY KEY,
+            request_kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            state TEXT NOT NULL,
+            accepted_at_utc TEXT NOT NULL,
+            started_at_utc TEXT,
+            finished_at_utc TEXT,
+            managed_agent_instance_epoch INTEGER NOT NULL,
+            error_detail TEXT,
+            result_json TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_mail_notifier (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            interval_seconds INTEGER,
+            last_poll_at_utc TEXT,
+            last_notification_at_utc TEXT,
+            last_notified_digest TEXT,
+            last_error TEXT,
+            updated_at_utc TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gateway_notifier_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_time_utc TEXT NOT NULL,
+            unread_count INTEGER,
+            unread_digest TEXT,
+            unread_summary_json TEXT NOT NULL DEFAULT '[]',
+            request_admission TEXT,
+            active_execution TEXT,
+            queue_depth INTEGER,
+            outcome TEXT NOT NULL CHECK (
+                outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
+            ),
+            enqueued_request_id TEXT,
+            detail TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO gateway_mail_notifier (
+            singleton,
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error,
+            updated_at_utc
+        )
+        VALUES (1, 0, NULL, NULL, NULL, NULL, NULL, ?)
+        """,
+        (now_utc_iso(),),
+    )
+
+
+def _serialize_gateway_notifier_unread_summary(
+    unread_summary: Sequence[GatewayNotifierAuditUnreadMessage],
+) -> str:
+    """Serialize unread-summary rows for SQLite persistence."""
+
+    payload = [
+        {
+            "message_ref": item.message_ref,
+            "thread_ref": item.thread_ref,
+            "created_at_utc": item.created_at_utc,
+            "subject": item.subject,
+        }
+        for item in unread_summary
+    ]
+    return json.dumps(payload, sort_keys=True)
+
+
+def _row_to_gateway_notifier_audit_record(
+    row: sqlite3.Row | tuple[object, ...],
+) -> GatewayNotifierAuditRecord:
+    """Convert one SQLite row into a notifier audit record."""
+
+    payload = json.loads(str(row[4]))
+    if not isinstance(payload, list):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must decode to a list."
+        )
+    unread_summary = tuple(
+        GatewayNotifierAuditUnreadMessage(
+            message_ref=_require_json_string(item, key="message_ref"),
+            thread_ref=_optional_json_string(item, key="thread_ref"),
+            created_at_utc=_require_json_string(item, key="created_at_utc"),
+            subject=_require_json_string(item, key="subject"),
+        )
+        for item in payload
+    )
+    audit_id = _require_sqlite_int(row[0], field_name="audit_id")
+    unread_count = (
+        None if row[2] is None else _require_sqlite_int(row[2], field_name="unread_count")
+    )
+    queue_depth = None if row[7] is None else _require_sqlite_int(row[7], field_name="queue_depth")
+    return GatewayNotifierAuditRecord(
+        audit_id=audit_id,
+        poll_time_utc=str(row[1]),
+        unread_count=unread_count,
+        unread_digest=None if row[3] is None else str(row[3]),
+        unread_summary=unread_summary,
+        request_admission=None if row[5] is None else cast(GatewayAdmissionState, str(row[5])),
+        active_execution=None if row[6] is None else cast(GatewayExecutionState, str(row[6])),
+        queue_depth=queue_depth,
+        outcome=cast(GatewayNotifierAuditOutcome, str(row[8])),
+        enqueued_request_id=None if row[9] is None else str(row[9]),
+        detail=None if row[10] is None else str(row[10]),
+    )
+
+
+def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> GatewayMailNotifierRecord:
+    """Load the singleton gateway notifier row from durable storage."""
+
+    _ensure_queue_schema(connection)
+    row = connection.execute(
+        """
+        SELECT
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error
+        FROM gateway_mail_notifier
+        WHERE singleton = 1
+        """
+    ).fetchone()
+    if row is None:
+        record = GatewayMailNotifierRecord(
+            enabled=False,
+            interval_seconds=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_notified_digest=None,
+            last_error=None,
+        )
+        _write_gateway_mail_notifier_record(connection, record)
+        return record
+    return GatewayMailNotifierRecord(
+        enabled=bool(int(row[0])),
+        interval_seconds=None if row[1] is None else int(row[1]),
+        last_poll_at_utc=None if row[2] is None else str(row[2]),
+        last_notification_at_utc=None if row[3] is None else str(row[3]),
+        last_notified_digest=None if row[4] is None else str(row[4]),
+        last_error=None if row[5] is None else str(row[5]),
+    )
+
+
+def _write_gateway_mail_notifier_record(
+    connection: sqlite3.Connection,
+    record: GatewayMailNotifierRecord,
+) -> None:
+    """Persist the singleton gateway notifier row."""
+
+    _ensure_queue_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO gateway_mail_notifier (
+            singleton,
+            enabled,
+            interval_seconds,
+            last_poll_at_utc,
+            last_notification_at_utc,
+            last_notified_digest,
+            last_error,
+            updated_at_utc
+        )
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET
+            enabled = excluded.enabled,
+            interval_seconds = excluded.interval_seconds,
+            last_poll_at_utc = excluded.last_poll_at_utc,
+            last_notification_at_utc = excluded.last_notification_at_utc,
+            last_notified_digest = excluded.last_notified_digest,
+            last_error = excluded.last_error,
+            updated_at_utc = excluded.updated_at_utc
+        """,
+        (
+            int(record.enabled),
+            record.interval_seconds,
+            record.last_poll_at_utc,
+            record.last_notification_at_utc,
+            record.last_notified_digest,
+            record.last_error,
+            now_utc_iso(),
+        ),
+    )
+
+
+def _require_json_string(value: object, *, key: str) -> str:
+    """Return one required JSON object string field."""
+
+    if not isinstance(value, dict):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must contain JSON objects."
+        )
+    field_value = value.get(key)
+    if not isinstance(field_value, str):
+        raise SessionManifestError(
+            f"Gateway notifier audit unread_summary_json is missing string field {key!r}."
+        )
+    return field_value
+
+
+def _optional_json_string(value: object, *, key: str) -> str | None:
+    """Return one optional JSON object string field."""
+
+    if not isinstance(value, dict):
+        raise SessionManifestError(
+            "Gateway notifier audit unread_summary_json must contain JSON objects."
+        )
+    field_value = value.get(key)
+    if field_value is None:
+        return None
+    if not isinstance(field_value, str):
+        raise SessionManifestError(
+            f"Gateway notifier audit unread_summary_json has non-string field {key!r}."
+        )
+    return field_value
+
+
+def _require_sqlite_int(value: object, *, field_name: str) -> int:
+    """Return one SQLite integer field with strict runtime validation."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SessionManifestError(
+            f"Gateway notifier audit field {field_name!r} must be stored as an integer."
+        )
+    return value
 
 
 def _load_json_mapping(path: Path, *, missing_prefix: str) -> GatewayJsonObject:

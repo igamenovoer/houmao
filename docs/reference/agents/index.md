@@ -22,11 +22,14 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 - `queued control`: Gateway-routed work that is accepted first and executed later through the sidecar queue.
 - `runtime-owned state`: Artifacts the runtime persists and validates itself, such as session manifests, gateway attachability, and gateway status snapshots.
 
+For the canonical filesystem map behind these terms, use [System Files Reference](../system-files/index.md) and [Agents And Runtime](../system-files/agents-and-runtime.md).
+
 ## Read By Goal
 
 ### Start here
 
 - [Session And Message Flows](operations/session-and-message-flows.md): Start, resume, stop, and choose between prompt turns, control input, mailbox, and gateway paths.
+- [Troubleshooting Codex CAO Approval Prompts](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a CAO-backed Codex prompt turn stops on an approval menu and verify the selected unattended launch-policy strategy.
 
 ### Contracts
 
@@ -38,6 +41,7 @@ A runtime-managed agent session is the runtime's durable handle around one live 
 
 ## Related References
 
+- [System Files Reference](../system-files/index.md): Canonical Houmao filesystem map for runtime homes, session roots, registry roots, and operator preparation.
 - [Gateway Reference](../gateway/index.md): The optional sidecar control plane for gateway-capable sessions.
 - [Mailbox Reference](../mailbox/index.md): Filesystem mailbox contracts and runtime-owned mailbox flows.
 - [Realm Controller](../realm_controller.md): Broad overview plus backend-specific notes.

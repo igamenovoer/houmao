@@ -7,9 +7,14 @@ import json
 import os
 import sys
 from dataclasses import asdict
+from datetime import timedelta
 from pathlib import Path
 
-from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.brain_builder import (
+    BuildRequest,
+    build_brain_home,
+    load_launch_overrides_input,
+)
 from houmao.mailbox.protocol import mailbox_address_path_segment
 
 from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
@@ -23,6 +28,7 @@ from .mail_commands import (
     validate_attachment_paths,
 )
 from .models import BackendKind
+from .registry_storage import cleanup_stale_live_agent_records
 from .runtime import (
     AgentIdentityResolution,
     resolve_agent_identity,
@@ -81,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_detach_gateway(args)
         if args.command == "gateway-status":
             return _cmd_gateway_status(args)
+        if args.command == "cleanup-registry":
+            return _cmd_cleanup_registry(args)
         if args.command == "mail":
             return _cmd_mail(args)
     except BrainLaunchRuntimeError as exc:
@@ -92,9 +100,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Realm controller CLI (build/start/prompt/stop)."
-    )
+    parser = argparse.ArgumentParser(description="Realm controller CLI (build/start/prompt/stop).")
     subparsers = parser.add_subparsers(dest="command")
 
     build = subparsers.add_parser("build-brain", help="Build a brain home")
@@ -103,13 +109,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
-    build.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
+    build.add_argument("--runtime-root", default=None, help="Runtime root")
     build.add_argument("--recipe", help="Path to brain recipe")
     build.add_argument("--blueprint", help="Path to blueprint")
     build.add_argument("--tool", help="Tool name")
     build.add_argument("--skill", dest="skills", action="append", default=[])
     build.add_argument("--config-profile", help="Config profile")
     build.add_argument("--cred-profile", help="Credential profile")
+    build.add_argument(
+        "--launch-overrides",
+        help="Path to launch-overrides YAML/JSON, or an inline JSON object",
+    )
     build.add_argument("--home-id", help="Optional home id")
     build.add_argument("--reuse-home", action="store_true", help="Allow reusing home id")
 
@@ -119,7 +129,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
-    start.add_argument("--runtime-root", default="tmp/agents-runtime", help="Runtime root")
+    start.add_argument("--runtime-root", default=None, help="Runtime root")
     start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
     start.add_argument("--role", help="Role name")
     start.add_argument("--blueprint", help="Optional blueprint to source role from")
@@ -131,11 +141,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "claude_headless",
             "gemini_headless",
             "cao_rest",
+            "houmao_server_rest",
         ],
         help="Backend override",
     )
     start.add_argument("--workdir", default=".", help="Working directory")
     start.add_argument("--cao-base-url", default="http://localhost:9889")
+    start.add_argument("--houmao-base-url", default="http://127.0.0.1:9889")
     start.add_argument("--cao-profile-store", help="CAO profile store override")
     start.add_argument(
         "--cao-parsing-mode",
@@ -147,8 +159,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional tmux-backed agent name",
     )
     start.add_argument(
+        "--agent-id",
+        help="Optional authoritative agent id override for tmux-backed sessions.",
+    )
+    start.add_argument(
         "--mailbox-transport",
-        choices=["filesystem", "none"],
+        choices=["filesystem", "stalwart", "none"],
         help="Optional mailbox transport override",
     )
     start.add_argument(
@@ -162,6 +178,22 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--mailbox-address",
         help="Optional mailbox address override",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-base-url",
+        help="Optional Stalwart base URL override used to derive JMAP and management URLs.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-jmap-url",
+        help="Optional Stalwart JMAP URL override.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-management-url",
+        help="Optional Stalwart management API URL override.",
+    )
+    start.add_argument(
+        "--mailbox-stalwart-login-identity",
+        help="Optional Stalwart login identity override.",
     )
     start.add_argument(
         "--gateway-auto-attach",
@@ -190,6 +222,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(prompt)
     prompt.add_argument("--prompt", required=True, help="Prompt text")
 
     gateway_prompt = subparsers.add_parser(
@@ -206,6 +239,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_prompt)
     gateway_prompt.add_argument("--prompt", required=True, help="Prompt text")
 
     send_keys = subparsers.add_parser(
@@ -222,6 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(send_keys)
     send_keys.add_argument(
         "--sequence",
         required=True,
@@ -247,6 +282,18 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_interrupt)
+
+    cleanup_registry = subparsers.add_parser(
+        "cleanup-registry",
+        help="Remove stale shared-registry live-agent directories",
+    )
+    cleanup_registry.add_argument(
+        "--grace-seconds",
+        type=int,
+        default=300,
+        help="Extra grace period after lease expiry before removing stale directories.",
+    )
 
     stop = subparsers.add_parser("stop-session", help="Stop a session")
     stop.add_argument(
@@ -259,6 +306,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(stop)
     stop.add_argument(
         "--force-cleanup",
         action="store_true",
@@ -279,6 +327,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(attach_gateway)
     attach_gateway.add_argument(
         "--gateway-host",
         choices=["127.0.0.1", "0.0.0.0"],
@@ -304,6 +353,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(detach_gateway)
 
     gateway_status = subparsers.add_parser(
         "gateway-status",
@@ -319,6 +369,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(gateway_status)
 
     mail = subparsers.add_parser("mail", help="Run mailbox operations against a resumed session")
     mail_subparsers = mail.add_subparsers(dest="mail_command")
@@ -343,7 +394,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Ask a session to reply to an existing mailbox message",
     )
     _add_mail_common_args(mail_reply)
-    mail_reply.add_argument("--message-id", required=True)
+    reply_target_group = mail_reply.add_mutually_exclusive_group(required=True)
+    reply_target_group.add_argument(
+        "--message-ref",
+        dest="message_ref",
+        help="Opaque message reference from shared mailbox check results",
+    )
+    reply_target_group.add_argument(
+        "--message-id",
+        dest="message_ref",
+        help=argparse.SUPPRESS,
+    )
     mail_reply.add_argument("--body-file")
     mail_reply.add_argument("--body-content")
     mail_reply.add_argument("--attach", action="append", default=[], dest="attachments")
@@ -354,14 +415,27 @@ def _build_parser() -> argparse.ArgumentParser:
 def _cmd_build_brain(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
-    runtime_root = _resolve_path(args.runtime_root, base=cwd)
+    runtime_root = _optional_path(args.runtime_root, base=cwd)
 
     recipe = None
+    recipe_path: Path | None = None
     if args.recipe:
-        recipe = load_brain_recipe_from_path(_resolve_path(args.recipe, base=agent_def_dir))
+        recipe_path = _resolve_path(args.recipe, base=agent_def_dir)
+        recipe = load_brain_recipe_from_path(recipe_path)
     elif args.blueprint:
         blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))
-        recipe = load_brain_recipe_from_path(blueprint.brain_recipe_path)
+        recipe_path = blueprint.brain_recipe_path
+        recipe = load_brain_recipe_from_path(recipe_path)
+
+    direct_launch_overrides = (
+        load_launch_overrides_input(
+            args.launch_overrides,
+            base=cwd,
+            source="--launch-overrides",
+        )
+        if args.launch_overrides
+        else None
+    )
 
     tool = args.tool or (recipe.tool if recipe else None)
     skills = list(args.skills) if args.skills else (recipe.skills if recipe else [])
@@ -388,9 +462,13 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             skills=[str(skill) for skill in skills],
             config_profile=str(config_profile),
             credential_profile=str(credential_profile),
+            recipe_path=recipe_path,
+            recipe_launch_overrides=recipe.launch_overrides if recipe else None,
             mailbox=recipe.mailbox if recipe else None,
+            agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
+            launch_overrides=direct_launch_overrides,
         )
     )
 
@@ -423,17 +501,24 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         agent_def_dir=agent_def_dir,
         brain_manifest_path=_resolve_path(args.brain_manifest, base=cwd),
         role_name=role_name,
-        runtime_root=_resolve_path(args.runtime_root, base=cwd),
+        runtime_root=_optional_path(args.runtime_root, base=cwd),
         backend=backend,
         working_directory=_resolve_path(args.workdir, base=cwd),
-        api_base_url=args.cao_base_url,
+        api_base_url=(
+            args.houmao_base_url if backend == "houmao_server_rest" else args.cao_base_url
+        ),
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),
         agent_identity=args.agent_identity,
+        agent_id=args.agent_id,
         cao_parsing_mode=args.cao_parsing_mode,
         mailbox_transport=args.mailbox_transport,
         mailbox_root=_optional_path(args.mailbox_root, base=cwd),
         mailbox_principal_id=args.mailbox_principal_id,
         mailbox_address=args.mailbox_address,
+        mailbox_stalwart_base_url=args.mailbox_stalwart_base_url,
+        mailbox_stalwart_jmap_url=args.mailbox_stalwart_jmap_url,
+        mailbox_stalwart_management_url=args.mailbox_stalwart_management_url,
+        mailbox_stalwart_login_identity=args.mailbox_stalwart_login_identity,
         blueprint_gateway_defaults=blueprint.gateway if blueprint is not None else None,
         gateway_auto_attach=bool(args.gateway_auto_attach),
         gateway_host=args.gateway_host,
@@ -445,15 +530,27 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     for warning in controller.startup_warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
-    payload = {
+    payload: dict[str, object] = {
         "session_manifest": str(controller.manifest_path),
         "backend": controller.launch_plan.backend,
         "tool": controller.launch_plan.tool,
     }
-    if controller.agent_identity is not None:
-        payload["agent_identity"] = controller.agent_identity
-    if controller.parsing_mode is not None:
-        payload["parsing_mode"] = controller.parsing_mode
+    agent_identity = getattr(controller, "agent_identity", None)
+    if agent_identity is not None:
+        payload["agent_identity"] = agent_identity
+        payload["agent_name"] = agent_identity
+    agent_id = getattr(controller, "agent_id", None)
+    if agent_id is not None:
+        payload["agent_id"] = agent_id
+    tmux_session_name = getattr(controller, "tmux_session_name", None)
+    if tmux_session_name is not None:
+        payload["tmux_session_name"] = tmux_session_name
+    job_dir = getattr(controller, "job_dir", None)
+    if job_dir is not None:
+        payload["job_dir"] = str(job_dir)
+    parsing_mode = getattr(controller, "parsing_mode", None)
+    if parsing_mode is not None:
+        payload["parsing_mode"] = parsing_mode
     gateway_root = getattr(controller, "gateway_root", None)
     if gateway_root is not None:
         payload["gateway_root"] = str(gateway_root)
@@ -472,6 +569,17 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     mailbox = getattr(controller.launch_plan, "mailbox", None)
     if mailbox is not None:
         payload["mailbox"] = mailbox.redacted_payload()
+    launch_policy_provenance = getattr(controller.launch_plan, "launch_policy_provenance", None)
+    if launch_policy_provenance is not None:
+        payload["launch_policy_provenance"] = launch_policy_provenance.to_payload()
+    launch_plan_metadata = getattr(controller.launch_plan, "metadata", None)
+    launch_policy_metadata = (
+        launch_plan_metadata.get("launch_policy")
+        if isinstance(launch_plan_metadata, dict)
+        else None
+    )
+    if isinstance(launch_policy_metadata, dict):
+        payload["launch_policy"] = launch_policy_metadata
 
     print(json.dumps(payload, indent=2))
     return 2 if gateway_auto_attach_error is not None else 0
@@ -490,11 +598,13 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     events = controller.send_prompt(args.prompt)
     for event in events:
         print(json.dumps(asdict(event), sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0
 
 
@@ -511,6 +621,7 @@ def _cmd_gateway_send_prompt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.send_prompt_via_gateway(args.prompt)
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
@@ -530,6 +641,7 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     result = controller.send_input_ex(
@@ -537,6 +649,7 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
         escape_special_keys=bool(args.escape_special_keys),
     )
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0 if result.status == "ok" else 2
 
 
@@ -553,6 +666,7 @@ def _cmd_gateway_interrupt(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.interrupt_via_gateway()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
@@ -572,10 +686,12 @@ def _cmd_stop_session(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
 
     result = controller.stop(force_cleanup=bool(args.force_cleanup))
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0 if result.status == "ok" else 2
 
 
@@ -592,6 +708,7 @@ def _cmd_attach_gateway(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     result = controller.attach_gateway(
         host_override=args.gateway_host,
@@ -614,6 +731,7 @@ def _cmd_detach_gateway(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     result = controller.detach_gateway()
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
@@ -633,9 +751,41 @@ def _cmd_gateway_status(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     payload = controller.gateway_status()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_cleanup_registry(args: argparse.Namespace) -> int:
+    grace_seconds = int(args.grace_seconds)
+    if grace_seconds < 0:
+        raise BrainLaunchRuntimeError("--grace-seconds must be >= 0.")
+
+    result = cleanup_stale_live_agent_records(
+        grace_period=timedelta(seconds=grace_seconds),
+    )
+    removed_agent_ids = tuple(
+        getattr(result, "removed_agent_ids", getattr(result, "removed_agent_keys", ()))
+    )
+    preserved_agent_ids = tuple(
+        getattr(result, "preserved_agent_ids", getattr(result, "preserved_agent_keys", ()))
+    )
+    failed_agent_ids = tuple(
+        getattr(result, "failed_agent_ids", getattr(result, "failed_agent_keys", ()))
+    )
+    payload = {
+        "registry_root": str(result.registry_root),
+        "grace_seconds": grace_seconds,
+        "removed_agent_ids": list(removed_agent_ids),
+        "preserved_agent_ids": list(preserved_agent_ids),
+        "failed_agent_ids": list(failed_agent_ids),
+        "removed_count": len(removed_agent_ids),
+        "preserved_count": len(preserved_agent_ids),
+        "failed_count": len(failed_agent_ids),
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -655,20 +805,47 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     controller = resume_runtime_session(
         agent_def_dir=agent_def_dir,
         session_manifest_path=resolved.session_manifest_path,
+        cao_parsing_mode=args.cao_parsing_mode,
     )
     mailbox = ensure_mailbox_command_ready(controller.launch_plan)
+    prefer_live_gateway = False
+    try:
+        gateway_status = controller.gateway_status()
+        prefer_live_gateway = (
+            gateway_status.gateway_health == "healthy"
+            and gateway_status.gateway_host == "127.0.0.1"
+        )
+    except Exception:
+        prefer_live_gateway = False
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
         operation=args.mail_command,
         args=_mail_args_from_cli(args, cwd=cwd),
+        prefer_live_gateway=prefer_live_gateway,
     )
     result = run_mail_prompt(
         send_prompt=controller.send_prompt,
+        send_mail_prompt=(
+            controller.send_mail_prompt
+            if callable(getattr(controller, "send_mail_prompt", None))
+            else None
+        ),
         prompt_request=prompt_request,
         mailbox=mailbox,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
+    _emit_controller_operation_warnings(controller)
     return 0
+
+
+def _emit_controller_operation_warnings(controller: object) -> None:
+    """Print non-fatal controller warnings for the just-finished operation."""
+
+    consume = getattr(controller, "consume_operation_warnings", None)
+    if not callable(consume):
+        return
+    for warning in consume():
+        print(f"warning: {warning}", file=sys.stderr)
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:
@@ -752,6 +929,21 @@ def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="Agent name or manifest path",
     )
+    _add_cao_parsing_mode_arg(parser)
+
+
+def _add_cao_parsing_mode_arg(parser: argparse.ArgumentParser) -> None:
+    """Add one optional CAO parsing-mode override for resumed session control."""
+
+    parser.add_argument(
+        "--cao-parsing-mode",
+        choices=["cao_only", "shadow_only"],
+        help=(
+            "CAO parsing mode override for resumed control commands. "
+            "Default posture is shadow_only; use cao_only only for advanced debugging "
+            "or native CAO-path validation."
+        ),
+    )
 
 
 def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, object]:
@@ -792,7 +984,7 @@ def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, obj
         }
     if args.mail_command == "reply":
         return {
-            "message_id": str(args.message_id),
+            "message_ref": str(args.message_ref),
             "body_content": body_markdown,
             "attachments": attachments,
         }

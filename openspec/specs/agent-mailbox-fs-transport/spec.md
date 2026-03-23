@@ -2,10 +2,13 @@
 Define the filesystem-backed mailbox transport layout, bootstrap rules, delivery model, locking model, and recovery guarantees for mailbox-enabled sessions.
 
 ## Requirements
+
 ### Requirement: Filesystem mailbox transport uses an env-configurable mailbox content root with deterministic internal layout
 The filesystem mailbox transport SHALL persist mailbox artifacts under a mailbox content root that is configurable through runtime-managed env bindings.
 
-When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to a deterministic path under the configured runtime root.
+When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to the Houmao mailbox root `~/.houmao/mailbox` rather than deriving it from the runtime root.
+
+When no explicit mailbox content root is configured and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the effective Houmao mailbox root SHALL be derived from that env-var override before runtime publishes the mailbox content root through env bindings such as `AGENTSYS_MAILBOX_FS_ROOT`.
 
 The filesystem mailbox transport SHALL require a symlink-capable local filesystem for address-based mailbox registration and mailbox projection writes.
 
@@ -24,10 +27,16 @@ That mailbox subtree SHALL include at minimum:
 - **THEN** the system creates or validates the mailbox subtree under that effective mailbox content root
 - **AND THEN** the mailbox subtree contains `protocol-version.txt` plus the required directories and index path for canonical messages, mailbox projections, locks, and staging
 
-#### Scenario: Creating a filesystem mailbox falls back to runtime-root default
+#### Scenario: Creating a filesystem mailbox falls back to the Houmao mailbox root
 - **WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root binding
-- **THEN** the system derives the effective mailbox content root from the configured runtime root
+- **THEN** the system derives the effective filesystem mailbox content root from the Houmao mailbox root default
 - **AND THEN** the resulting mailbox subtree uses that derived default location while preserving the same internal layout
+
+#### Scenario: Mailbox-root env-var override redirects the default mailbox root
+- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **AND WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root binding
+- **THEN** the system derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
+- **AND THEN** the resulting mailbox subtree uses that env-var-selected location while preserving the same internal layout
 
 #### Scenario: Unsupported symlink capability fails explicitly
 - **WHEN** the effective mailbox filesystem cannot create or resolve the symlinks required for mailbox registration or inbox and sent projections
@@ -206,27 +215,34 @@ The filesystem mailbox transport SHALL configure its shared SQLite index to use 
 - **AND THEN** the transport does not require `index.sqlite-wal` or `index.sqlite-shm` sidecar files for correct operation
 
 ### Requirement: SQLite indexes mailbox metadata and mutable recipient state
-The filesystem mailbox transport SHALL maintain a SQLite index for mailbox metadata and mutable per-recipient state.
+The filesystem mailbox transport SHALL maintain a shared mailbox-root SQLite index for mailbox metadata and structural mailbox state, while storing mailbox-view state that can differ per mailbox in mailbox-local SQLite databases.
 
-That index SHALL record at minimum:
+The shared mailbox-root SQLite index SHALL record at minimum:
 
 - messages and their canonical ids
 - recipient associations
 - attachment metadata
 - message-to-attachment associations
 - mailbox folder projections
-- per-recipient mailbox state
-- thread summary metadata
 
-#### Scenario: Marking a message read updates SQLite state without rewriting Markdown
+The shared mailbox-root SQLite index SHALL NOT be the authoritative store for per-mailbox read, starred, archived, deleted, or unread thread-summary state once mailbox-local SQLite is available.
+
+If the shared mailbox-root SQLite index retains thread-summary rows for structural query support, those rows SHALL be structural-only and SHALL NOT remain authoritative for per-mailbox `unread_count` once mailbox-local SQLite is available.
+
+#### Scenario: Marking a message read updates mailbox-local SQLite state without rewriting Markdown
 - **WHEN** a recipient marks a delivered filesystem mailbox message as read
-- **THEN** the system updates the recipient's mailbox state in SQLite
+- **THEN** the system updates that recipient mailbox's local mailbox-state SQLite database
 - **AND THEN** the canonical Markdown message file is not rewritten for that mailbox-state change
 
-#### Scenario: Thread view is queryable from the filesystem mailbox index
+#### Scenario: Thread view is queryable without reparsing every mailbox file on each request
 - **WHEN** a mailbox contains multiple related messages in one thread
-- **THEN** the SQLite index records those thread relationships
+- **THEN** the transport records thread relationships and summary inputs in durable SQLite state
 - **AND THEN** the system can query thread-oriented mailbox views without reparsing every mailbox file on each request
+
+#### Scenario: Per-mailbox unread thread counts are rebuilt locally
+- **WHEN** the transport migrates or repairs mailbox-local state for one mailbox
+- **THEN** unread thread counts are rebuilt from that mailbox's local message-state rows
+- **AND THEN** any shared-root thread-summary data is treated as structural-only rather than as authoritative unread state
 
 ### Requirement: Filesystem transport supports recovery from the message corpus
 The filesystem mailbox transport SHALL treat canonical Markdown message files as durable recovery artifacts and SHALL support rebuilding structural mailbox indexes from the message corpus when the SQLite index is missing or unusable.
@@ -247,3 +263,43 @@ Interrupted deliveries SHALL leave only staging artifacts that can be cleaned or
 - **WHEN** a delivery attempt terminates after writing staging artifacts but before committing the canonical message and SQLite transaction
 - **THEN** repair or cleanup logic removes or quarantines those orphaned staging artifacts without treating them as delivered mail
 - **AND THEN** subsequent delivery or reindex flows can proceed without confusing orphaned staging files for committed mailbox messages
+
+### Requirement: Each resolved mailbox directory maintains local mailbox-view SQLite state
+The filesystem mailbox transport SHALL maintain a mailbox-local SQLite database under each resolved mailbox directory.
+
+That local mailbox-state database SHALL be stored at a stable path under the resolved mailbox directory and SHALL act as the authority for mailbox-view state that can vary per mailbox, including:
+
+- read or unread,
+- starred,
+- archived,
+- deleted,
+- mailbox-local unread thread summaries.
+
+For an in-root mailbox directory, the local mailbox-state database SHALL live under `mailboxes/<address>/...`. For a symlink-registered mailbox, the local mailbox-state database SHALL live under the symlink-resolved mailbox directory rather than under the shared root entry path only.
+
+Within each mailbox-local database, mutable message-view rows SHALL be keyed by `message_id`, and mailbox-local thread summary rows SHALL be keyed by `thread_id`. Because the database already scopes to one resolved mailbox, those local tables SHALL NOT require `registration_id` as part of their row identity.
+
+#### Scenario: In-root mailbox gets a local mailbox-state database
+- **WHEN** the runtime initializes or validates an in-root filesystem mailbox directory for one mailbox address
+- **THEN** that mailbox directory contains a stable local mailbox-state SQLite database
+- **AND THEN** mailbox-view state for that mailbox is stored there rather than only in shared-root SQLite state
+
+#### Scenario: Symlink-registered mailbox keeps local state at the resolved mailbox target
+- **WHEN** a mailbox address is registered through a symlink to a private mailbox directory outside the shared root
+- **THEN** the mailbox-local SQLite state lives under that resolved private mailbox directory
+- **AND THEN** recipient-local mailbox-view state follows the mailbox directory that owns that view
+
+#### Scenario: Mailbox-local SQLite uses mailbox-scoped row identities
+- **WHEN** the transport initializes or migrates one mailbox-local database
+- **THEN** mutable message-view rows are identified by `message_id` and mailbox-local thread summary rows are identified by `thread_id`
+- **AND THEN** the local database does not repeat shared-root `registration_id` as part of those primary identities
+
+### Requirement: Per-mailbox state is not mirrored into shared aggregate recipient-status tables
+The filesystem mailbox transport SHALL NOT require an authoritative shared-root aggregate recipient-status mirror for mailbox-view state such as read or unread.
+
+If a caller needs to answer a cross-recipient question such as whether any recipient has read one message, that caller SHALL derive the answer by inspecting the relevant recipients' mailbox-local state rather than by relying on a shared aggregate read-state table.
+
+#### Scenario: Cross-recipient read inspection fans out to mailbox-local state
+- **WHEN** a tool needs to know whether any recipient of one message has marked it read
+- **THEN** the tool inspects the relevant recipients' mailbox-local state records
+- **AND THEN** the filesystem mailbox transport does not require a separate shared aggregate "anyone has read this" table to answer that question

@@ -30,7 +30,7 @@ Common error/anomaly signals:
 - `baseline_invalidated`: the visible scrollback shrank below the recorded pre-submit baseline offset.
 - `unknown_version_floor_used`: detected tool version is newer than known parser presets.
 
-Inspect `done.payload.parser_metadata`:
+Inspect `done.payload.parser_metadata` for parser selection/anomaly fields:
 
 - `shadow_parser_preset`
 - `shadow_parser_version`
@@ -39,9 +39,19 @@ Inspect `done.payload.parser_metadata`:
 - `shadow_parser_anomalies`
 - `baseline_invalidated`
 - `unknown_to_stalled_timeout_seconds`
+- `completion_stability_seconds`
 - `stalled_is_terminal`
 
+Inspect `done.payload.mode_diagnostics` for the runtime monitor view:
+
+- `unknown_to_stalled_timeout_seconds`
+- `completion_stability_seconds`
+- `stalled_is_terminal`
+- `baseline_invalidated`
+
 Inspect `done.payload.surface_assessment` and `done.payload.dialog_projection` when you need to reason about state vs visible transcript separately.
+
+If downstream automation needs the reply text itself, do not treat `dialog_projection.dialog_text` as an exact answer API. Prefer schema-shaped prompting plus explicit sentinels, then search the available text surfaces (`normalized_text`, `raw_text`, `output_text`, or `done.message`) for that contract.
 
 `shadow_parser_anomalies` entries for stalled lifecycle include:
 
@@ -56,7 +66,7 @@ The runtime pre-creates a bootstrap tmux window during CAO session startup and t
 Quick checks:
 
 - `start-session` prints window-hygiene problems as stderr `warning:` lines and keeps JSON stdout unchanged.
-- Success path: `tmux attach -t AGENTSYS-...` lands on the agent terminal, and `tmux list-windows -t AGENTSYS-...` shows only the agent window.
+- Success path: attach using the returned `tmux_session_name` (for example `tmux attach -t AGENTSYS-gpu-270b87`), and `tmux list-windows -t <tmux_session_name>` shows only the agent window.
 - Warning path: attach may land on the bootstrap shell window and/or a second window may remain (bootstrap pruning skipped/failed). Shadow parsing is unaffected; this is window selection/pruning hygiene only.
 
 See: [Realm Controller window-hygiene checklist](./realm_controller.md#manual-verification-checklist-cao-startup-window-hygiene).
@@ -64,8 +74,9 @@ See: [Realm Controller window-hygiene checklist](./realm_controller.md#manual-ve
 ## Unknown vs Stalled
 
 - `unknown` is parser-owned and means the output format is recognized, but no safe classification (`idle`, `working`, or `awaiting_operator`) was found.
-- `stalled` is runtime-owned and means `unknown` stayed continuous for at least `unknown_to_stalled_timeout_seconds`.
+- `stalled` is runtime-owned and means the full classified-state stream stayed continuously unknown long enough to cross `unknown_to_stalled_timeout_seconds`.
 - `input_mode = unknown` by itself keeps the surface non-ready, but does not enter `stalled` while `business_state` remains known.
+- Any known observation cancels a pending unknown-to-stalled timer and clears stalled tracking before the recovered state is handled.
 - `stalled_is_terminal=true`: fail immediately at stalled entry.
 - `stalled_is_terminal=false`: keep polling and allow recovery.
 
@@ -76,12 +87,13 @@ runtime:
   cao:
     shadow:
       unknown_to_stalled_timeout_seconds: 30
+      completion_stability_seconds: 1.0
       stalled_is_terminal: false
 ```
 
 ## Known Failure Patterns
 
-### 1) CAO rejects workdir outside home
+### 1) Installed CAO build still rejects workdir outside home
 
 Symptom:
 
@@ -91,15 +103,14 @@ Working directory not allowed ... outside home directory /home/<user>
 
 Cause:
 
-- CAO tmux working-directory validation only permits paths under the user home tree.
-- Repo-local paths like `/data/.../tmp/...` are rejected.
+- Current Houmao launcher/runtime code no longer imposes a repo-owned rule that CAO workdirs must live under `home_dir` or the user home tree.
+- This symptom usually means the installed `cao-server` build is older than the supported upstream sync and is still enforcing the historical home-tree validation internally.
 
 Fix:
 
-- Use `--workdir "$HOME/tmp/<subdir>"` (or any home-subdirectory path).
-- Demo scripts now default to:
-  - `DEMO_WORKSPACE_PARENT="${HOME}/tmp"`
-  - `DEMO_WORKSPACE_SUBDIR="agent-system-dissect"`
+- Upgrade `cao-server` from the supported fork/version taught in the launcher docs.
+- Treat launcher `home_dir` as the CAO state/profile-store anchor, not as a required parent directory for repo worktrees.
+- As a temporary compatibility workaround, use a workdir under `home_dir` or keep the demo's default `<launcher-home>/wktree` worktree layout.
 
 ### 2) Codex trust prompt blocks readiness
 
@@ -133,7 +144,7 @@ into the generated Codex home `config.toml`.
 Symptom:
 
 ```text
-Timed out waiting for shadow turn completion ... shadow_status=idle
+Timed out waiting for shadow turn completion ... shadow_status=idle+freeform
 ```
 
 Tail excerpt already includes a real assistant answer, for example:
@@ -146,16 +157,19 @@ Tail excerpt already includes a real assistant answer, for example:
 Cause:
 
 - The runtime no longer uses parser-owned answer extraction as the completion contract.
-- Completion now requires a return to `submit_ready` plus either:
-  - observed projected-dialog change after submit, or
+- Completion now requires a return to `submit_ready` plus previously-seen post-submit activity:
+  - observed normalized shadow-text change after submit, or
   - observed post-submit `working`.
-- A visible transcript fragment may exist without yet satisfying that lifecycle rule.
+- That candidate-complete surface must then remain stable for `completion_stability_seconds`.
+- Any later state-signature change, including a return to `working` or another normalized shadow-text change, resets the pending completion window.
+- A visible transcript fragment may exist without yet surviving that lifecycle rule.
 
 Fixes in runtime/parser:
 
 - Baseline capture anchors readiness/completion monitoring and `baseline_invalidated` diagnostics.
-- Runtime terminality is driven by `TurnMonitor`, not parser-owned answer extraction.
+- Runtime terminality is driven by the readiness/completion monitor pipelines in `cao_rx_monitor.py`, not parser-owned answer extraction.
 - The caller should read `dialog_projection` as projected visible transcript, not as an authoritative prompt answer.
+- Exact downstream extraction should be caller-owned and contract-shaped, for example by requiring one sentinel-delimited payload in the prompt.
 
 ### 4) Stalled terminal mode fails fast
 
@@ -224,7 +238,7 @@ Example:
 ```bash
 AGENTSYS_CAO_CODEX_VERSION=0.98.0 \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url http://localhost:9889 \

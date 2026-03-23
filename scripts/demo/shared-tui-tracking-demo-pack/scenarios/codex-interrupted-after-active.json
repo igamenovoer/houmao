@@ -1,0 +1,37 @@
+{
+  "id": "codex_interrupted_after_active",
+  "tool": "codex",
+  "description": "Interrupt an active Codex turn and keep the final interrupted posture visible.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-active-surface",
+      "pattern": "esc to interrupt",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "interrupt_turn",
+      "name": "interrupt"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-interrupted-surface",
+      "seconds": 1.0
+    }
+  ]
+}

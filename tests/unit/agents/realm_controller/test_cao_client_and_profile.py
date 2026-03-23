@@ -3,15 +3,18 @@ from __future__ import annotations
 import io
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from urllib import error
 
 import pytest
 
+from houmao.agents.realm_controller.backends import cao_rest as cao_rest_backend
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
+    derive_agent_id_from_name,
 )
 from houmao.agents.realm_controller.backends.cao_rest import (
     CaoRestSession,
@@ -25,17 +28,26 @@ from houmao.agents.realm_controller.backends.cao_rest import (
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
 )
+from houmao.agents.realm_controller.mail_commands import (
+    parse_mail_result,
+    prepare_mail_prompt,
+)
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_STALLED_ENTERED,
     ANOMALY_STALLED_RECOVERED,
 )
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.cao.models import (
     CaoHealthResponse,
-    CaoProvider,
+    CaoSessionDetail,
+    CaoSessionInfo,
+    CaoSessionTerminalSummary,
     CaoSuccessResponse,
     CaoTerminal,
     CaoTerminalOutputResponse,
@@ -114,15 +126,42 @@ def _sample_launch_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     )
 
 
+def _sample_mailbox_launch_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
+    plan = _sample_launch_plan(tmp_path, tool=tool)
+    mailbox_root = tmp_path / "mailbox"
+    principal_id = "AGENTSYS-research"
+    address = "AGENTSYS-research@agents.localhost"
+    bootstrap_filesystem_mailbox(
+        mailbox_root,
+        principal=MailboxPrincipal(principal_id=principal_id, address=address),
+    )
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id=principal_id,
+        address=address,
+        filesystem_root=mailbox_root.resolve(),
+        bindings_version="2026-03-12T05:00:00.000001Z",
+    )
+    bindings = mailbox_env_bindings(mailbox)
+    return replace(
+        plan,
+        env={**plan.env, **bindings},
+        env_var_names=sorted({*plan.env_var_names, *bindings.keys()}),
+        mailbox=mailbox,
+    )
+
+
 def _sample_shadow_policy_launch_plan(
     tmp_path: Path,
     *,
     unknown_timeout_seconds: float,
+    completion_stability_seconds: float = 1.0,
     stalled_is_terminal: bool,
 ) -> LaunchPlan:
     plan = _sample_launch_plan(tmp_path, tool="codex")
     plan.metadata["cao_shadow_policy_config"] = {
         "unknown_to_stalled_timeout_seconds": unknown_timeout_seconds,
+        "completion_stability_seconds": completion_stability_seconds,
         "stalled_is_terminal": stalled_is_terminal,
     }
     return plan
@@ -227,6 +266,20 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
         payload: object = {"success": True}
         if req.full_url.endswith("/health"):
             payload = {"status": "ok", "service": "cli-agent-orchestrator"}
+        if req.full_url.endswith("/sessions/s1"):
+            payload = {
+                "session": {"id": "s1", "name": "s1", "status": "attached"},
+                "terminals": [
+                    {
+                        "id": "a1b2c3d4",
+                        "tmux_session": "s1",
+                        "tmux_window": "developer-1",
+                        "provider": "codex",
+                        "agent_profile": "role_profile",
+                        "last_active": None,
+                    }
+                ],
+            }
         if "/sessions/s1/terminals" in req.full_url:
             payload = {
                 "id": "a1b2c3d4",
@@ -253,6 +306,7 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
 
     client = CaoRestClient("http://127.0.0.1:9991")
     health = client.health()
+    session_detail = client.get_session_detail("s1")
     terminal = client.create_terminal(
         "s1",
         provider="codex",
@@ -264,7 +318,20 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     fetched = client.get_terminal("a1b2c3d4")
 
     assert health == CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
-    assert terminal.provider == CaoProvider.CODEX
+    assert session_detail == CaoSessionDetail(
+        session=CaoSessionInfo(id="s1", name="s1", status="attached"),
+        terminals=[
+            CaoSessionTerminalSummary(
+                id="a1b2c3d4",
+                tmux_session="s1",
+                tmux_window="developer-1",
+                provider="codex",
+                agent_profile="role_profile",
+                last_active=None,
+            )
+        ],
+    )
+    assert terminal.provider == "codex"
     assert sent == CaoSuccessResponse(success=True)
     assert output == CaoTerminalOutputResponse(output="hello", mode="last")
     assert fetched.status == CaoTerminalStatus.IDLE
@@ -273,16 +340,17 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     urls = [item[1] for item in captured]
     payloads = [item[2] for item in captured]
 
-    assert methods == ["GET", "POST", "POST", "GET", "GET"]
+    assert methods == ["GET", "GET", "POST", "POST", "GET", "GET"]
     assert urls[0].endswith("/health")
+    assert urls[1].endswith("/sessions/s1")
     assert (
-        urls[1]
+        urls[2]
         == "http://127.0.0.1:9991/sessions/s1/terminals?provider=codex&agent_profile=role_profile&working_directory=%2Ftmp%2Fwork"
     )
-    assert urls[2].endswith("/terminals/a1b2c3d4/input?message=hello")
-    assert urls[3].endswith("/terminals/a1b2c3d4/output?mode=last")
-    assert urls[4].endswith("/terminals/a1b2c3d4")
-    assert payloads == [None, None, None, None, None]
+    assert urls[3].endswith("/terminals/a1b2c3d4/input?message=hello")
+    assert urls[4].endswith("/terminals/a1b2c3d4/output?mode=last")
+    assert urls[5].endswith("/terminals/a1b2c3d4")
+    assert payloads == [None, None, None, None, None, None]
 
 
 def test_cao_rest_client_injects_loopback_no_proxy_by_default(
@@ -317,6 +385,69 @@ def test_cao_rest_client_injects_loopback_no_proxy_by_default(
     assert captured["no_proxy"] == captured["NO_PROXY"]
     assert os.environ.get("NO_PROXY") == "corp.internal"
     assert os.environ.get("no_proxy") is None
+
+
+def test_cao_rest_client_parses_unknown_provider_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        del timeout
+        if req.full_url.endswith("/terminals/term-1"):
+            return _FakeResponse(
+                status=200,
+                payload={
+                    "id": "term-1",
+                    "name": "developer-1",
+                    "provider": "kimi_cli",
+                    "session_name": "s1",
+                    "agent_profile": "role_profile",
+                    "status": "idle",
+                },
+            )
+        raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+    terminal = client.get_terminal("term-1")
+
+    assert terminal.provider == "kimi_cli"
+    assert terminal.status == CaoTerminalStatus.IDLE
+
+
+def test_parsed_unknown_provider_does_not_enable_runtime_launch_support(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        del timeout
+        if req.full_url.endswith("/terminals/term-1"):
+            return _FakeResponse(
+                status=200,
+                payload={
+                    "id": "term-1",
+                    "name": "developer-1",
+                    "provider": "kimi_cli",
+                    "session_name": "s1",
+                    "agent_profile": "role_profile",
+                    "status": "idle",
+                },
+            )
+        raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+    terminal = client.get_terminal("term-1")
+
+    assert terminal.provider == "kimi_cli"
+
+    with pytest.raises(BackendExecutionError, match="Unsupported CAO provider mapping"):
+        CaoRestSession(
+            launch_plan=_sample_launch_plan(tmp_path, tool="kimi"),
+            api_base_url="http://localhost:9889",
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            parsing_mode="cao_only",
+        )
 
 
 def test_cao_rest_client_preserve_mode_leaves_no_proxy_untouched(
@@ -450,6 +581,22 @@ def test_cao_backend_rejects_unsupported_tool(tmp_path: Path) -> None:
         )
 
 
+def test_cao_backend_rejects_shadow_only_without_runtime_shadow_parser_support(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setitem(cao_rest_backend._CAO_PROVIDER_BY_TOOL, "gemini", "gemini_cli")
+
+    with pytest.raises(BackendExecutionError, match="no runtime shadow parser is available"):
+        CaoRestSession(
+            launch_plan=_sample_launch_plan(tmp_path, tool="gemini"),
+            api_base_url="http://localhost:9889",
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            parsing_mode="shadow_only",
+        )
+
+
 @pytest.mark.parametrize("parsing_mode", ["cao_only", "shadow_only"])
 def test_cao_backend_uses_tmux_env_and_query_contract(
     monkeypatch: pytest.MonkeyPatch,
@@ -458,7 +605,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
 ) -> None:
     captured_tmux: dict[str, object] = {}
     captured_create_terminal: dict[str, object] = {}
-    captured_codex_bootstrap: dict[str, object] = {}
     selected_window_ids: list[str] = []
     killed_window_ids: list[str] = []
     list_window_calls = {"count": 0}
@@ -598,11 +744,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
         "houmao.agents.realm_controller.backends.cao_rest._kill_tmux_window",
         _fake_kill_tmux_window,
     )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
-        lambda **kwargs: captured_codex_bootstrap.update(kwargs),
-    )
-
     plan = _sample_launch_plan(tmp_path, tool="codex")
     session = CaoRestSession(
         launch_plan=plan,
@@ -626,9 +767,6 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     assert env_vars["INHERITED_CALLER_ENV"] == "caller-value"
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str(tmp_path / "session.json")
     assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(tmp_path.resolve())
-    assert captured_codex_bootstrap["home_path"] == tmp_path / "home"
-    assert captured_codex_bootstrap["env"]["OPENAI_API_KEY"] == "secret"
-    assert captured_codex_bootstrap["working_directory"] == tmp_path
     assert captured_create_terminal["session_name"] == captured_tmux["session_name"]
     assert captured_create_terminal["provider"] == "codex"
     assert captured_create_terminal["working_directory"] == str(tmp_path)
@@ -1796,6 +1934,8 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
     assert parser_metadata["shadow_output_format"] == "codex_shadow_v1"
     assert parser_metadata["shadow_output_variant"] == "codex_label_v1"
     assert parser_metadata["shadow_output_format_match"] is True
+    assert parser_metadata["completion_stability_seconds"] == pytest.approx(1.0)
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(1.0)
     assert done_payload["surface_assessment"]["business_state"] == "idle"
     assert done_payload["surface_assessment"]["input_mode"] == "freeform"
     assert done_payload["dialog_projection"]["dialog_text"] == "hello\nfinal answer"
@@ -1803,6 +1943,302 @@ def test_cao_codex_shadow_backend_uses_runtime_shadow_parser(
         "head": "hello\nfinal answer",
         "tail": "hello\nfinal answer",
     }
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
+def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    launch_plan = _sample_mailbox_launch_plan(tmp_path, tool="codex")
+    prompt_request = prepare_mail_prompt(
+        launch_plan=launch_plan,
+        operation="send",
+        args={
+            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "cc": [],
+            "subject": "Investigate parser drift",
+            "body_content": "Hello from shadow mode",
+            "attachments": [],
+        },
+    )
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self.output_calls = 0
+            self.submitted_request_id: str | None = None
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="codex",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError("shadow_only mode must not call terminal status API")
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_request_id = message.split('"request_id": "', 1)[1].split('"', 1)[0]
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self,
+            terminal_id: str,
+            mode: str = "full",
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            payload = json.dumps(
+                {
+                    "ok": True,
+                    "request_id": self.submitted_request_id,
+                    "operation": "send",
+                    "transport": "filesystem",
+                    "principal_id": "AGENTSYS-research",
+                    "message_ref": "filesystem:msg-20260318T120000Z-shadow",
+                }
+            )
+            output_sequence = [
+                "Codex CLI v0.1.0\n> \n",
+                "Codex CLI v0.1.0\n> mail send request\nassistant> drafting message\n> \n",
+                (
+                    "Codex CLI v0.1.0\n"
+                    "> mail send request\n"
+                    "assistant> drafting message\n"
+                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    f"{payload}\n"
+                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "> \n"
+                ),
+            ]
+            index = min(self.output_calls, len(output_sequence) - 1)
+            self.output_calls += 1
+            return CaoTerminalOutputResponse(output=output_sequence[index], mode="full")
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=launch_plan,
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        poll_interval_seconds=0.0,
+        session_manifest_path=tmp_path / "session-codex-shadow-mail.json",
+    )
+
+    events = session.send_mail_prompt(prompt_request)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+    payload = parse_mail_result(
+        events,
+        request_id=prompt_request.request_id,
+        operation=prompt_request.operation,
+        mailbox=mailbox,
+    )
+    done_payload = events[-1].payload or {}
+
+    assert payload["message_ref"] == "filesystem:msg-20260318T120000Z-shadow"
+    assert done_payload["canonical_runtime_status"] == "completed"
+    assert "mail_result_surfaces" in done_payload
+    assert session._client.output_calls == 3  # noqa: SLF001
+    assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
+def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    launch_plan = _sample_mailbox_launch_plan(tmp_path, tool="codex")
+    prompt_request = prepare_mail_prompt(
+        launch_plan=launch_plan,
+        operation="send",
+        args={
+            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "cc": [],
+            "subject": "Investigate parser drift",
+            "body_content": "Hello from shadow mode",
+            "attachments": [],
+        },
+    )
+
+    class _FakeClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.requested_modes: list[str] = []
+            self.output_calls = 0
+            self.submitted_request_id: str | None = None
+
+        def health(self) -> CaoHealthResponse:
+            return CaoHealthResponse(status="ok", service="cli-agent-orchestrator")
+
+        def create_terminal(
+            self,
+            session_name: str,
+            *,
+            provider: str,
+            agent_profile: str,
+            working_directory: str | None = None,
+        ) -> CaoTerminal:
+            return CaoTerminal(
+                id="a1b2c3d4",
+                name="developer-1",
+                provider="codex",
+                session_name=session_name,
+                agent_profile=agent_profile,
+                status="idle",
+            )
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            raise AssertionError("mail result observation should not need terminal status polling")
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_request_id = message.split('"request_id": "', 1)[1].split('"', 1)[0]
+            return CaoSuccessResponse(success=True)
+
+        def get_terminal_output(
+            self,
+            terminal_id: str,
+            mode: str = "full",
+        ) -> CaoTerminalOutputResponse:
+            self.requested_modes.append(mode)
+            assert mode == "full"
+            payload = json.dumps(
+                {
+                    "ok": True,
+                    "request_id": self.submitted_request_id,
+                    "operation": "send",
+                    "transport": "filesystem",
+                    "principal_id": "AGENTSYS-research",
+                    "message_ref": "filesystem:msg-20260318T120000Z-shadow",
+                }
+            )
+            output_sequence = [
+                "Codex CLI v0.1.0\n> \n",
+                "Codex CLI v0.1.0\nprocessing send request\nassistant> drafting message\n> \n",
+                (
+                    "Codex CLI v0.1.0\n"
+                    "processing send request\n"
+                    "assistant> drafting message\n"
+                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    f"{payload}\n"
+                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "> \n"
+                ),
+            ]
+            index = min(self.output_calls, len(output_sequence) - 1)
+            self.output_calls += 1
+            return CaoTerminalOutputResponse(output=output_sequence[index], mode="full")
+
+        def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+        def delete_session(self, session_name: str) -> CaoSuccessResponse:
+            return CaoSuccessResponse(success=True)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._create_tmux_session",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._set_tmux_session_environment",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.ensure_codex_home_bootstrap",
+        lambda **_: None,
+    )
+
+    session = CaoRestSession(
+        launch_plan=launch_plan,
+        api_base_url="http://localhost:9889",
+        role_name="gpu-kernel-coder",
+        role_prompt="role prompt",
+        parsing_mode="shadow_only",
+        poll_interval_seconds=0.0,
+        session_manifest_path=tmp_path / "session-codex-shadow-mail-ready.json",
+    )
+
+    events = session.send_mail_prompt(prompt_request)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+    payload = parse_mail_result(
+        events,
+        request_id=prompt_request.request_id,
+        operation=prompt_request.operation,
+        mailbox=mailbox,
+    )
+    done_payload = events[-1].payload or {}
+
+    assert payload["message_ref"] == "filesystem:msg-20260318T120000Z-shadow"
+    assert done_payload["canonical_runtime_status"] == "completed"
+    assert "mail_result_surfaces" in done_payload
+    assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
 
@@ -1999,6 +2435,7 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=False,
         ),
         api_base_url="http://localhost:9889",
@@ -2015,6 +2452,8 @@ def test_cao_codex_shadow_reports_readiness_stalled_entry_and_recovery(
     anomaly_codes = {item["code"] for item in anomalies}
 
     assert done_payload["canonical_runtime_status"] == "completed"
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(0.06)
+    assert done_payload["parser_metadata"]["completion_stability_seconds"] == pytest.approx(0.06)
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(
@@ -2115,6 +2554,7 @@ def test_cao_codex_shadow_terminal_stalled_fails_without_cross_mode_fallback(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=True,
         ),
         api_base_url="http://localhost:9889",
@@ -2222,6 +2662,7 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
         launch_plan=_sample_shadow_policy_launch_plan(
             tmp_path,
             unknown_timeout_seconds=0.02,
+            completion_stability_seconds=0.06,
             stalled_is_terminal=False,
         ),
         api_base_url="http://localhost:9889",
@@ -2238,6 +2679,8 @@ def test_cao_codex_shadow_non_terminal_stalled_recovers_and_completes(
     anomaly_codes = {item["code"] for item in anomalies}
 
     assert done_payload["canonical_runtime_status"] == "completed"
+    assert done_payload["mode_diagnostics"]["completion_stability_seconds"] == pytest.approx(0.06)
+    assert done_payload["parser_metadata"]["completion_stability_seconds"] == pytest.approx(0.06)
     assert ANOMALY_STALLED_ENTERED in anomaly_codes
     assert ANOMALY_STALLED_RECOVERED in anomaly_codes
     assert any(
@@ -2462,7 +2905,8 @@ def test_generate_cao_session_name_adds_conflict_suffix() -> None:
         role_name="gpu-kernel-coder",
         existing_sessions=occupied,
     )
-    assert generated == "AGENTSYS-codex-gpu-kernel-coder-2"
+    expected_agent_id = derive_agent_id_from_name("AGENTSYS-codex-gpu-kernel-coder")
+    assert generated == f"AGENTSYS-codex-gpu-kernel-coder-{expected_agent_id[:6]}"
 
 
 def test_cao_backend_rejects_conflicting_explicit_agent_identity(

@@ -18,6 +18,7 @@ from houmao.mailbox.protocol import (
 
 _PROTOCOL_VERSION_FILENAME = "protocol-version.txt"
 _SQLITE_JOURNAL_MODE = "DELETE"
+_LOCAL_SQLITE_FILENAME = "mailbox.sqlite"
 _MAILBOX_PLACEHOLDER_DIRS = ("inbox", "sent", "archive", "drafts")
 _STASHED_ENTRY_SUFFIX_LENGTH = 32
 
@@ -147,6 +148,31 @@ _REGISTRATION_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_state_registration_id ON mailbox_state(registration_id)",
 )
 
+_LOCAL_STATE_SCHEMA_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS message_state (
+        message_id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        is_starred INTEGER NOT NULL DEFAULT 0,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        is_deleted INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS thread_summaries (
+        thread_id TEXT PRIMARY KEY,
+        normalized_subject TEXT NOT NULL,
+        latest_message_id TEXT,
+        latest_message_created_at_utc TEXT,
+        unread_count INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_message_state_thread_id ON message_state(thread_id)",
+)
+
 
 @dataclass(frozen=True)
 class MailboxRegistration:
@@ -165,6 +191,12 @@ class MailboxRegistration:
     created_at_utc: str
     deactivated_at_utc: str | None
     replaced_by_registration_id: str | None
+
+    @property
+    def local_sqlite_path(self) -> Path:
+        """Return the mailbox-local SQLite path for this registration."""
+
+        return mailbox_local_sqlite_path(self.mailbox_path)
 
 
 @dataclass(frozen=True)
@@ -199,6 +231,12 @@ class FilesystemMailboxPaths:
         """Return the shared address-scoped lock path."""
 
         return self.address_locks_dir / f"{mailbox_address_path_segment(address)}.lock"
+
+
+def mailbox_local_sqlite_path(mailbox_dir: Path) -> Path:
+    """Return the stable mailbox-local SQLite path for one mailbox directory."""
+
+    return mailbox_dir.resolve() / _LOCAL_SQLITE_FILENAME
 
 
 def resolve_filesystem_mailbox_paths(mailbox_root: Path) -> FilesystemMailboxPaths:
@@ -257,6 +295,10 @@ def bootstrap_filesystem_mailbox(
             ),
         )
 
+    from houmao.mailbox.managed import ensure_mailbox_local_state
+
+    ensure_mailbox_local_state(paths.root)
+
     return paths
 
 
@@ -286,6 +328,17 @@ def initialize_sqlite_schema(sqlite_path: Path) -> None:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(f"PRAGMA journal_mode={_SQLITE_JOURNAL_MODE}")
         for statement in _REGISTRATION_SCHEMA_STATEMENTS:
+            connection.execute(statement)
+        connection.commit()
+
+
+def initialize_mailbox_local_sqlite_schema(sqlite_path: Path) -> None:
+    """Create or validate the mailbox-local SQLite schema."""
+
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(f"PRAGMA journal_mode={_SQLITE_JOURNAL_MODE}")
+        for statement in _LOCAL_STATE_SCHEMA_STATEMENTS:
             connection.execute(statement)
         connection.commit()
 
@@ -401,6 +454,28 @@ def resolve_active_mailbox_inbox_dir(mailbox_root: Path, *, address: str) -> Pat
 
     registration = load_active_mailbox_registration(paths.root, address=normalized_address)
     return registration.mailbox_path / "inbox"
+
+
+def resolve_active_mailbox_dir(mailbox_root: Path, *, address: str) -> Path:
+    """Resolve the concrete mailbox directory for an active mailbox registration."""
+
+    normalized_address = mailbox_address_path_segment(address)
+    paths = resolve_filesystem_mailbox_paths(mailbox_root)
+    reason = unsupported_mailbox_root_reason(paths.root)
+    if reason is not None:
+        raise MailboxBootstrapError(reason)
+
+    if not paths.protocol_version_file.exists() or not paths.sqlite_path.exists():
+        return paths.mailbox_entry_path(normalized_address)
+
+    registration = load_active_mailbox_registration(paths.root, address=normalized_address)
+    return registration.mailbox_path
+
+
+def resolve_active_mailbox_local_sqlite_path(mailbox_root: Path, *, address: str) -> Path:
+    """Resolve the concrete mailbox-local SQLite path for an active registration."""
+
+    return mailbox_local_sqlite_path(resolve_active_mailbox_dir(mailbox_root, address=address))
 
 
 def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:

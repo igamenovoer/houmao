@@ -1,0 +1,850 @@
+{
+  "$defs": {
+    "DemoConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment used by profiles, scenario overrides, and CLI overrides.",
+      "properties": {
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoEvidenceConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "paths": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoPathsConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "presentation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoPresentationConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoSemanticsConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sweeps": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/DemoSweepDefinitionConfigV1"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sweeps"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoToolsConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "DemoConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoEvidenceConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the evidence section.",
+      "properties": {
+        "cleanup_session": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cleanup Session"
+        },
+        "live_watch_recorder_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Watch Recorder Enabled"
+        },
+        "ready_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ready Timeout Seconds"
+        },
+        "runtime_observer_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Observer Interval Seconds"
+        },
+        "sample_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Interval Seconds"
+        }
+      },
+      "title": "DemoEvidenceConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoEvidenceConfigV1": {
+      "additionalProperties": false,
+      "description": "Full evidence section for the demo config.",
+      "properties": {
+        "cleanup_session": {
+          "default": true,
+          "title": "Cleanup Session",
+          "type": "boolean"
+        },
+        "live_watch_recorder_enabled": {
+          "default": false,
+          "title": "Live Watch Recorder Enabled",
+          "type": "boolean"
+        },
+        "ready_timeout_seconds": {
+          "default": 45.0,
+          "title": "Ready Timeout Seconds",
+          "type": "number"
+        },
+        "runtime_observer_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Observer Interval Seconds"
+        },
+        "sample_interval_seconds": {
+          "default": 0.2,
+          "title": "Sample Interval Seconds",
+          "type": "number"
+        }
+      },
+      "title": "DemoEvidenceConfigV1",
+      "type": "object"
+    },
+    "DemoPathsConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the path section.",
+      "properties": {
+        "fixtures_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fixtures Root"
+        },
+        "live_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Root"
+        },
+        "recorded_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Root"
+        },
+        "sweeps_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sweeps Root"
+        }
+      },
+      "title": "DemoPathsConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoPathsConfigV1": {
+      "additionalProperties": false,
+      "description": "Full path section for the demo config.",
+      "properties": {
+        "fixtures_root": {
+          "default": "tests/fixtures/shared_tui_tracking/recorded",
+          "title": "Fixtures Root",
+          "type": "string"
+        },
+        "live_root": {
+          "default": "tmp/demo/shared-tui-tracking-demo-pack/live",
+          "title": "Live Root",
+          "type": "string"
+        },
+        "recorded_root": {
+          "default": "tmp/demo/shared-tui-tracking-demo-pack/recorded",
+          "title": "Recorded Root",
+          "type": "string"
+        },
+        "sweeps_root": {
+          "default": "tmp/demo/shared-tui-tracking-demo-pack/sweeps",
+          "title": "Sweeps Root",
+          "type": "string"
+        }
+      },
+      "title": "DemoPathsConfigV1",
+      "type": "object"
+    },
+    "DemoPresentationConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the presentation section.",
+      "properties": {
+        "review_video": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoReviewVideoConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "DemoPresentationConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoPresentationConfigV1": {
+      "additionalProperties": false,
+      "description": "Full presentation section for the demo config.",
+      "properties": {
+        "review_video": {
+          "$ref": "#/$defs/DemoReviewVideoConfigV1"
+        }
+      },
+      "required": [
+        "review_video"
+      ],
+      "title": "DemoPresentationConfigV1",
+      "type": "object"
+    },
+    "DemoReviewVideoConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the review-video config.",
+      "properties": {
+        "codec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Codec"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fps"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "keep_frames": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keep Frames"
+        },
+        "match_capture_cadence": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Capture Cadence"
+        },
+        "pixel_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pixel Format"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        }
+      },
+      "title": "DemoReviewVideoConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoReviewVideoConfigV1": {
+      "additionalProperties": false,
+      "description": "Full review-video config for the demo config.",
+      "properties": {
+        "codec": {
+          "default": "libx264",
+          "title": "Codec",
+          "type": "string"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fps"
+        },
+        "height": {
+          "default": 1080,
+          "title": "Height",
+          "type": "integer"
+        },
+        "keep_frames": {
+          "default": true,
+          "title": "Keep Frames",
+          "type": "boolean"
+        },
+        "match_capture_cadence": {
+          "default": true,
+          "title": "Match Capture Cadence",
+          "type": "boolean"
+        },
+        "pixel_format": {
+          "default": "yuv420p",
+          "title": "Pixel Format",
+          "type": "string"
+        },
+        "width": {
+          "default": 1920,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "title": "DemoReviewVideoConfigV1",
+      "type": "object"
+    },
+    "DemoSemanticsConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the semantics section.",
+      "properties": {
+        "settle_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settle Seconds"
+        }
+      },
+      "title": "DemoSemanticsConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoSemanticsConfigV1": {
+      "additionalProperties": false,
+      "description": "Full semantics section for the demo config.",
+      "properties": {
+        "settle_seconds": {
+          "default": 1.0,
+          "title": "Settle Seconds",
+          "type": "number"
+        }
+      },
+      "title": "DemoSemanticsConfigV1",
+      "type": "object"
+    },
+    "DemoSweepContractConfigV1": {
+      "additionalProperties": false,
+      "description": "One sweep contract in the full config.",
+      "properties": {
+        "forbidden_terminal_results": {
+          "items": {
+            "enum": [
+              "success",
+              "interrupted",
+              "known_failure",
+              "none"
+            ],
+            "type": "string"
+          },
+          "title": "Forbidden Terminal Results",
+          "type": "array"
+        },
+        "max_first_occurrence_drift_seconds": {
+          "default": 2.0,
+          "title": "Max First Occurrence Drift Seconds",
+          "type": "number"
+        },
+        "required_labels": {
+          "items": {
+            "enum": [
+              "ready",
+              "active",
+              "ready_success",
+              "ready_interrupted",
+              "ready_known_failure",
+              "tui_down",
+              "unavailable",
+              "error",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "title": "Required Labels",
+          "type": "array"
+        },
+        "required_sequence": {
+          "items": {
+            "enum": [
+              "ready",
+              "active",
+              "ready_success",
+              "ready_interrupted",
+              "ready_known_failure",
+              "tui_down",
+              "unavailable",
+              "error",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "title": "Required Sequence",
+          "type": "array"
+        },
+        "required_terminal_result": {
+          "anyOf": [
+            {
+              "enum": [
+                "success",
+                "interrupted",
+                "known_failure",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Terminal Result"
+        }
+      },
+      "title": "DemoSweepContractConfigV1",
+      "type": "object"
+    },
+    "DemoSweepDefinitionConfigV1": {
+      "additionalProperties": false,
+      "description": "One named sweep definition in the full config.",
+      "properties": {
+        "baseline_variant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Variant"
+        },
+        "contracts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DemoSweepContractConfigV1"
+          },
+          "title": "Contracts",
+          "type": "object"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "variants": {
+          "items": {
+            "$ref": "#/$defs/DemoSweepVariantConfigV1"
+          },
+          "title": "Variants",
+          "type": "array"
+        }
+      },
+      "required": [
+        "variants",
+        "contracts"
+      ],
+      "title": "DemoSweepDefinitionConfigV1",
+      "type": "object"
+    },
+    "DemoSweepVariantConfigV1": {
+      "additionalProperties": false,
+      "description": "One sweep variant in the full config.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "runtime_observer_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Observer Interval Seconds"
+        },
+        "sample_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Interval Seconds"
+        },
+        "use_source_cadence": {
+          "default": false,
+          "title": "Use Source Cadence",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DemoSweepVariantConfigV1",
+      "type": "object"
+    },
+    "DemoToolConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for one tool config.",
+      "properties": {
+        "launch_overrides": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Overrides"
+        },
+        "operator_prompt_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "interactive",
+                "unattended"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator Prompt Mode"
+        },
+        "recipe_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recipe Path"
+        }
+      },
+      "title": "DemoToolConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoToolConfigV1": {
+      "additionalProperties": false,
+      "description": "Full tool config for one supported tool.",
+      "properties": {
+        "launch_overrides": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Overrides"
+        },
+        "operator_prompt_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "interactive",
+                "unattended"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator Prompt Mode"
+        },
+        "recipe_path": {
+          "title": "Recipe Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipe_path"
+      ],
+      "title": "DemoToolConfigV1",
+      "type": "object"
+    },
+    "DemoToolsConfigOverrideV1": {
+      "additionalProperties": false,
+      "description": "Override fragment for the tool section.",
+      "properties": {
+        "claude": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoToolConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "codex": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoToolConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "DemoToolsConfigOverrideV1",
+      "type": "object"
+    },
+    "DemoToolsConfigV1": {
+      "additionalProperties": false,
+      "description": "Full tool section for the demo config.",
+      "properties": {
+        "claude": {
+          "$ref": "#/$defs/DemoToolConfigV1"
+        },
+        "codex": {
+          "$ref": "#/$defs/DemoToolConfigV1"
+        }
+      },
+      "required": [
+        "claude",
+        "codex"
+      ],
+      "title": "DemoToolsConfigV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Full demo-config document.",
+  "properties": {
+    "demo_id": {
+      "default": "shared-tui-tracking-demo-pack",
+      "title": "Demo Id",
+      "type": "string"
+    },
+    "evidence": {
+      "$ref": "#/$defs/DemoEvidenceConfigV1"
+    },
+    "paths": {
+      "$ref": "#/$defs/DemoPathsConfigV1"
+    },
+    "presentation": {
+      "$ref": "#/$defs/DemoPresentationConfigV1"
+    },
+    "profiles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DemoConfigOverrideV1"
+      },
+      "title": "Profiles",
+      "type": "object"
+    },
+    "scenario_overrides": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DemoConfigOverrideV1"
+      },
+      "title": "Scenario Overrides",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "semantics": {
+      "$ref": "#/$defs/DemoSemanticsConfigV1"
+    },
+    "sweeps": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DemoSweepDefinitionConfigV1"
+      },
+      "title": "Sweeps",
+      "type": "object"
+    },
+    "tools": {
+      "$ref": "#/$defs/DemoToolsConfigV1"
+    }
+  },
+  "required": [
+    "paths",
+    "tools",
+    "evidence",
+    "semantics",
+    "presentation"
+  ],
+  "title": "DemoConfigDocumentV1",
+  "type": "object"
+}

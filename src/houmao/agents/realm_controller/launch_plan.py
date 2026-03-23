@@ -6,31 +6,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
+from houmao.agents.launch_policy import apply_launch_policy
+from houmao.agents.launch_policy.models import (
+    LaunchPolicyError,
+    LaunchPolicyRequest,
+    OperatorPromptMode,
+)
+from houmao.agents.launch_overrides import (
+    LaunchDefaults,
+    LaunchOverrides,
+    ResolvedLaunchBehavior,
+    ToolLaunchMetadata,
+    parse_launch_defaults,
+    parse_launch_overrides,
+    parse_tool_launch_metadata,
+    resolve_launch_behavior,
+)
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from .errors import LaunchPlanError
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 
-_CLAUDE_HEADLESS_RESERVED_ARGS: Final[tuple[str, ...]] = (
-    "--resume",
-    "--output-format",
-    "--append-system-prompt",
-)
-_CODEX_HEADLESS_RESERVED_ARGS: Final[tuple[str, ...]] = (
-    "app-server",
-    "exec",
-    "resume",
-    "--json",
-)
+_BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 2
 _CAO_PARSING_MODE_DEFAULT_BY_TOOL: Final[dict[str, CaoParsingMode]] = {
     "claude": "shadow_only",
     "codex": "shadow_only",
 }
+_CAO_SHADOW_PARSER_SUPPORTED_TOOLS: Final[frozenset[str]] = frozenset({"claude", "codex"})
 _CAO_PARSING_MODE_VALUES: Final[set[str]] = {"cao_only", "shadow_only"}
 _CAO_PARSING_MODE_METADATA_KEY: Final[str] = "cao_parsing_mode_config"
 _CAO_SHADOW_POLICY_METADATA_KEY: Final[str] = "cao_shadow_policy_config"
 _CAO_SHADOW_UNKNOWN_TIMEOUT_KEY: Final[str] = "unknown_to_stalled_timeout_seconds"
+_CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds"
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 
 
@@ -60,16 +68,17 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     """
 
     manifest = request.brain_manifest
+    _validate_manifest_schema_version(manifest)
 
     inputs = _require_mapping(manifest, "inputs")
     runtime = _require_mapping(manifest, "runtime")
     credentials = _require_mapping(manifest, "credentials")
     env_contract = _require_mapping(credentials, "env_contract")
     home_selector = _require_mapping(runtime, "launch_home_selector")
+    launch_contract = _require_mapping(runtime, "launch_contract")
 
     tool = _require_str(inputs, "tool")
     executable = _require_str(runtime, "launch_executable")
-    launch_args = _require_str_list(runtime, "launch_args")
     home_env_var = _require_str(home_selector, "env_var")
     home_path = Path(_require_str(home_selector, "value")).resolve()
 
@@ -89,11 +98,26 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         role_prompt=request.role_package.system_prompt,
     )
 
-    args = list(launch_args)
     metadata: dict[str, Any] = {
         "env_source_file": str(env_source),
         "selected_env_vars": selected_env_names,
     }
+    resolved_launch_behavior = _resolve_launch_behavior_from_contract(
+        tool=tool,
+        backend=request.backend,
+        launch_contract=launch_contract,
+    )
+    metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
+        adapter_defaults=_parse_adapter_defaults(launch_contract),
+        recipe_overrides=_parse_requested_launch_overrides(launch_contract, layer="recipe"),
+        direct_overrides=_parse_requested_launch_overrides(launch_contract, layer="direct"),
+        construction_provenance=_optional_mapping(
+            launch_contract.get("construction_provenance"),
+            key="runtime.launch_contract.construction_provenance",
+        ),
+        backend=request.backend,
+    )
+    args = list(resolved_launch_behavior.args_before_policy)
     configured_cao_parsing_mode = _extract_configured_cao_parsing_mode(runtime=runtime)
     if configured_cao_parsing_mode is not None:
         metadata[_CAO_PARSING_MODE_METADATA_KEY] = configured_cao_parsing_mode
@@ -101,44 +125,39 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     if configured_cao_shadow_policy is not None:
         metadata[_CAO_SHADOW_POLICY_METADATA_KEY] = configured_cao_shadow_policy
 
-    if request.backend == "claude_headless":
-        conflicts = _find_reserved_arg_conflicts(
-            args=args,
-            reserved_args=_CLAUDE_HEADLESS_RESERVED_ARGS,
-        )
-        if conflicts:
-            joined = ", ".join(conflicts)
-            raise LaunchPlanError(
-                "Claude launch.args contains backend-reserved argument(s): "
-                f"{joined}. Remove these from tool-adapter `launch.args`; "
-                "the backend injects them automatically."
-            )
-        metadata["headless_reserved_args"] = list(_CLAUDE_HEADLESS_RESERVED_ARGS)
-    elif request.backend == "codex_headless":
-        conflicts = _find_reserved_arg_conflicts(
-            args=args,
-            reserved_args=_CODEX_HEADLESS_RESERVED_ARGS,
-        )
-        if conflicts:
-            joined = ", ".join(conflicts)
-            raise LaunchPlanError(
-                "Codex launch.args contains backend-reserved argument(s): "
-                f"{joined}. Remove these from tool-adapter `launch.args`; "
-                "the backend injects them automatically."
-            )
-        metadata["headless_reserved_args"] = list(_CODEX_HEADLESS_RESERVED_ARGS)
+    if request.backend == "codex_headless":
+        metadata["codex_headless_cli_mode"] = "exec_json_resume"
+    if request.backend in {"claude_headless", "gemini_headless", "codex_headless"}:
         metadata["headless_output_format"] = "stream-json"
 
-    if request.backend == "codex_app_server":
-        args = [*args, "app-server"]
-    elif request.backend == "codex_headless":
-        metadata["codex_headless_cli_mode"] = "exec_json_resume"
-    elif request.backend == "gemini_headless":
-        args = [*args, "-p"]
-        metadata["headless_reserved_args"] = ["--resume", "--output-format"]
-        metadata["headless_output_format"] = "stream-json"
-    elif request.backend == "claude_headless":
-        metadata["headless_output_format"] = "stream-json"
+    requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
+    try:
+        launch_policy_result = apply_launch_policy(
+            LaunchPolicyRequest(
+                tool=tool,
+                backend=request.backend,
+                executable=executable,
+                base_args=tuple(args),
+                requested_operator_prompt_mode=requested_operator_prompt_mode,
+                working_directory=request.working_directory.resolve(),
+                home_path=home_path,
+                env=env_values,
+            )
+        )
+    except LaunchPolicyError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+    args = list(launch_policy_result.args)
+    if launch_policy_result.strategy is not None:
+        metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
+    metadata["launch_policy_request"] = {
+        "operator_prompt_mode": requested_operator_prompt_mode or "interactive",
+    }
+    launch_overrides_metadata = metadata.get("launch_overrides")
+    if isinstance(launch_overrides_metadata, dict):
+        backend_resolution = launch_overrides_metadata.get("backend_resolution")
+        if isinstance(backend_resolution, dict):
+            backend_resolution["args_after_launch_policy"] = list(args)
 
     return LaunchPlan(
         backend=request.backend,
@@ -153,6 +172,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         role_injection=role_injection,
         metadata=metadata,
         mailbox=request.mailbox,
+        launch_policy_provenance=launch_policy_result.provenance,
     )
 
 
@@ -202,7 +222,7 @@ def plan_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend == "cao_rest":
+    if backend in {"cao_rest", "houmao_server_rest"}:
         return RoleInjectionPlan(
             method="cao_profile",
             role_name=role_name,
@@ -239,6 +259,41 @@ def backend_for_tool(tool: str, prefer_cao: bool = False) -> BackendKind:
     raise LaunchPlanError(f"No default backend for tool {tool!r}")
 
 
+def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptMode | None:
+    """Return the requested operator prompt mode from one brain manifest."""
+
+    launch_policy = manifest.get("launch_policy")
+    if launch_policy is None:
+        return None
+    if not isinstance(launch_policy, dict):
+        raise LaunchPlanError("Manifest `launch_policy` must be a mapping when set.")
+    value = launch_policy.get("operator_prompt_mode")
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in {"interactive", "unattended"}:
+        raise LaunchPlanError(
+            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` or `unattended`."
+        )
+    return cast(OperatorPromptMode, value)
+
+
+def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
+    """Require schema-version-2 brain manifests."""
+
+    schema_version = manifest.get("schema_version")
+    if schema_version == _BRAIN_MANIFEST_SCHEMA_VERSION:
+        return
+    if schema_version == 1:
+        raise LaunchPlanError(
+            "Brain manifest uses legacy schema_version=1. Rebuild the affected brain home "
+            "with the current builder to get schema_version=2 launch-overrides support."
+        )
+    raise LaunchPlanError(
+        f"Brain manifest must use schema_version={_BRAIN_MANIFEST_SCHEMA_VERSION}, "
+        f"got {schema_version!r}."
+    )
+
+
 def configured_cao_parsing_mode(launch_plan: LaunchPlan) -> str | None:
     """Return an optional configured CAO parsing mode from launch metadata."""
 
@@ -247,6 +302,12 @@ def configured_cao_parsing_mode(launch_plan: LaunchPlan) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def tool_supports_cao_shadow_parser(tool: str) -> bool:
+    """Return whether the runtime owns a CAO shadow parser for the tool."""
+
+    return tool in _CAO_SHADOW_PARSER_SUPPORTED_TOOLS
 
 
 def configured_cao_shadow_policy(
@@ -262,6 +323,11 @@ def configured_cao_shadow_policy(
     timeout = value.get(_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY)
     if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
         normalized[_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY] = float(timeout)
+    completion_stability = value.get(_CAO_SHADOW_COMPLETION_STABILITY_KEY)
+    if isinstance(completion_stability, (int, float)) and not isinstance(
+        completion_stability, bool
+    ):
+        normalized[_CAO_SHADOW_COMPLETION_STABILITY_KEY] = float(completion_stability)
     stalled_terminal = value.get(_CAO_SHADOW_STALLED_TERMINAL_KEY)
     if isinstance(stalled_terminal, bool):
         normalized[_CAO_SHADOW_STALLED_TERMINAL_KEY] = stalled_terminal
@@ -281,6 +347,11 @@ def resolve_cao_parsing_mode(
             continue
         value = candidate.strip()
         if value in _CAO_PARSING_MODE_VALUES:
+            if value == "shadow_only" and not tool_supports_cao_shadow_parser(tool):
+                raise LaunchPlanError(
+                    "Unsupported CAO parsing mode "
+                    f"{candidate!r} for tool {tool!r}; no runtime shadow parser is available."
+                )
             return cast(CaoParsingMode, value)
         raise LaunchPlanError(
             "Unsupported CAO parsing mode "
@@ -293,16 +364,12 @@ def resolve_cao_parsing_mode(
             "CAO parsing mode could not be resolved for tool "
             f"{tool!r}; provide an explicit mode in config or request."
         )
+    if default == "shadow_only" and not tool_supports_cao_shadow_parser(tool):
+        raise LaunchPlanError(
+            "Internal CAO parsing-mode default misconfiguration for tool "
+            f"{tool!r}; `shadow_only` requires a runtime shadow parser."
+        )
     return default
-
-
-def _find_reserved_arg_conflicts(*, args: list[str], reserved_args: tuple[str, ...]) -> list[str]:
-    conflicts: set[str] = set()
-    for arg in args:
-        for reserved in reserved_args:
-            if arg == reserved or arg.startswith(f"{reserved}="):
-                conflicts.add(reserved)
-    return sorted(conflicts)
 
 
 def _extract_configured_cao_parsing_mode(*, runtime: dict[str, Any]) -> str | None:
@@ -358,6 +425,22 @@ def _extract_configured_cao_shadow_policy(
             )
         policy[_CAO_SHADOW_UNKNOWN_TIMEOUT_KEY] = normalized_timeout
 
+    completion_stability = shadow.get(_CAO_SHADOW_COMPLETION_STABILITY_KEY)
+    if completion_stability is not None:
+        if not isinstance(completion_stability, (int, float)) or isinstance(
+            completion_stability, bool
+        ):
+            raise LaunchPlanError(
+                "Expected number `runtime.cao.shadow."
+                f"{_CAO_SHADOW_COMPLETION_STABILITY_KEY}` in manifest"
+            )
+        normalized_completion_stability = float(completion_stability)
+        if normalized_completion_stability <= 0:
+            raise LaunchPlanError(
+                f"`runtime.cao.shadow.{_CAO_SHADOW_COMPLETION_STABILITY_KEY}` must be > 0"
+            )
+        policy[_CAO_SHADOW_COMPLETION_STABILITY_KEY] = normalized_completion_stability
+
     stalled_terminal = shadow.get(_CAO_SHADOW_STALLED_TERMINAL_KEY)
     if stalled_terminal is not None:
         if not isinstance(stalled_terminal, bool):
@@ -411,3 +494,84 @@ def _require_str_list(payload: dict[str, Any], key: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise LaunchPlanError(f"Expected list[str] for `{key}` in manifest")
     return value
+
+
+def _optional_mapping(value: object, *, key: str) -> dict[str, object] | None:
+    """Return an optional mapping from the manifest."""
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise LaunchPlanError(f"Expected mapping `{key}` in manifest")
+    return cast(dict[str, object], value)
+
+
+def _parse_adapter_defaults(launch_contract: dict[str, Any]) -> LaunchDefaults:
+    """Parse adapter defaults from the manifest launch contract."""
+
+    try:
+        return parse_launch_defaults(
+            launch_contract.get("adapter_defaults"),
+            source="runtime.launch_contract.adapter_defaults",
+        )
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+
+def _parse_requested_launch_overrides(
+    launch_contract: dict[str, Any],
+    *,
+    layer: str,
+) -> LaunchOverrides | None:
+    """Parse one requested overrides layer from the manifest."""
+
+    requested = _require_mapping(launch_contract, "requested_overrides")
+    payload = requested.get(layer)
+    if payload is None:
+        return None
+    try:
+        return parse_launch_overrides(
+            payload,
+            source=f"runtime.launch_contract.requested_overrides.{layer}",
+        )
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+
+def _parse_tool_launch_metadata(launch_contract: dict[str, Any]) -> ToolLaunchMetadata:
+    """Parse tool-launch metadata from the manifest."""
+
+    try:
+        return parse_tool_launch_metadata(
+            launch_contract.get("tool_metadata"),
+            source="runtime.launch_contract.tool_metadata",
+        )
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+
+def _resolve_launch_behavior_from_contract(
+    *,
+    tool: str,
+    backend: BackendKind,
+    launch_contract: dict[str, Any],
+) -> ResolvedLaunchBehavior:
+    """Resolve backend-aware launch behavior from the manifest contract."""
+
+    try:
+        return resolve_launch_behavior(
+            tool=tool,
+            backend=backend,
+            adapter_defaults=_parse_adapter_defaults(launch_contract),
+            recipe_overrides=_parse_requested_launch_overrides(
+                launch_contract,
+                layer="recipe",
+            ),
+            direct_overrides=_parse_requested_launch_overrides(
+                launch_contract,
+                layer="direct",
+            ),
+            metadata=_parse_tool_launch_metadata(launch_contract),
+        )
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc

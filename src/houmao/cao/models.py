@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
@@ -16,15 +16,6 @@ class _CaoModel(BaseModel):
     """Base model for CAO payload parsing."""
 
     model_config = ConfigDict(extra="ignore")
-
-
-class CaoProvider(str, Enum):
-    """Provider enum exposed by CAO."""
-
-    Q_CLI = "q_cli"
-    KIRO_CLI = "kiro_cli"
-    CLAUDE_CODE = "claude_code"
-    CODEX = "codex"
 
 
 class CaoTerminalStatus(str, Enum):
@@ -72,16 +63,66 @@ class CaoSessionInfo(_CaoModel):
     status: str
 
 
+class CaoSessionTerminalSummary(_CaoModel):
+    """Terminal summary returned from `GET /sessions/{session_name}`."""
+
+    id: str
+    tmux_session: str
+    tmux_window: str | None = None
+    provider: str
+    agent_profile: str | None = None
+    last_active: datetime | None = None
+
+    @field_validator("tmux_session", "provider")
+    @classmethod
+    def _validate_non_empty_string(cls, value: str) -> str:
+        """Require non-empty tmux-session and provider identifiers."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+    @field_validator("tmux_window", "agent_profile")
+    @classmethod
+    def _validate_optional_non_empty_string(cls, value: str | None) -> str | None:
+        """Require optional summary strings to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class CaoSessionDetail(_CaoModel):
+    """`GET /sessions/{session_name}` response."""
+
+    session: CaoSessionInfo
+    terminals: list[CaoSessionTerminalSummary]
+
+
 class CaoTerminal(_CaoModel):
     """Terminal response model."""
 
     id: str
     name: str
-    provider: CaoProvider
+    provider: str
     session_name: str
     agent_profile: str | None = None
     status: CaoTerminalStatus | None = None
     last_active: datetime | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def _validate_provider(cls, value: str) -> str:
+        """Require a non-empty provider identifier."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
 
 
 class CaoTerminalOutputResponse(_CaoModel):

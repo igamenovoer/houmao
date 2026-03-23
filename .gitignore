@@ -31,6 +31,7 @@ MANIFEST
 .DS_Store
 .idea/
 .vscode/
+/.vsfavorite
 *.swp
 *.swo
 
@@ -46,6 +47,7 @@ coverage.xml
 tmp/
 .shadow-repo/
 *.log
+.agent-run-logs/
 .agentsys/
 tmp/agents-runtime/
 tmp/cao-home/
@@ -61,3 +63,15 @@ tmp/brains/
 
 # Generated docs
 site/
+
+# Houmao jobs dir
+.houmao/
+/dockers/email-system/.data/
+/dockers/dev-helpers/filestash/.data/
+!/dockers/dev-helpers/filestash/.env
+
+.agent-automation/hacktest/
+
+.agent-automation/impl-branches/
+.git/
+scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/

@@ -35,6 +35,7 @@ def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_director
     assert (paths.rules_scripts_dir / "update_mailbox_state.py").is_file()
     assert (paths.rules_scripts_dir / "repair_index.py").is_file()
     assert mailbox_entry.is_dir()
+    assert (mailbox_entry / "mailbox.sqlite").is_file()
     assert (mailbox_entry / "archive").is_dir()
     assert (mailbox_entry / "drafts").is_dir()
     assert os.access(paths.rules_scripts_dir / "deliver_message.py", os.X_OK)
@@ -66,6 +67,16 @@ def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_director
         str(mailbox_entry),
         str(mailbox_entry),
     )
+
+    with sqlite3.connect(mailbox_entry / "mailbox.sqlite") as connection:
+        local_tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+
+    assert {"message_state", "thread_summaries"} <= local_tables
 
 
 def test_bootstrap_rejects_unsupported_protocol_version(tmp_path: Path) -> None:

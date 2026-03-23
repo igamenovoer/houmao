@@ -1,0 +1,24 @@
+{
+  "attach_command": "env -u TMUX tmux attach-session -t HMREC-recording",
+  "input_capture_level": "authoritative_managed",
+  "mode": "active",
+  "recorder_session_name": "HMREC-recording",
+  "repo_root": "/data1/huangzhe/code/houmao",
+  "run_id": "recording",
+  "run_root": "/data1/huangzhe/code/houmao/tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_explicit_success/capture-20260322T090609Z/recording",
+  "run_tainted": false,
+  "sample_interval_seconds": 0.2,
+  "schema_version": 1,
+  "started_at_utc": "2026-03-22T09:06:54+00:00",
+  "stop_reason": "stop_requested",
+  "stopped_at_utc": "2026-03-22T09:07:06+00:00",
+  "taint_reasons": [],
+  "target": {
+    "pane_id": "%415",
+    "session_name": "shared-tui-claude-capture-20260322T090609Z",
+    "window_id": "@414",
+    "window_name": "bash"
+  },
+  "tool": "claude",
+  "visual_recording_kind": "interactive_client"
+}

@@ -9,9 +9,12 @@
 
 For the new detailed reference trees, use:
 
+- [System Files Reference](./system-files/index.md) for the canonical Houmao-owned filesystem map, root overrides, and operator preparation guidance.
 - [Runtime-Managed Agents Reference](./agents/index.md) for session targeting, interaction-path comparison, runtime-owned state, and recovery boundaries.
+- [Shared Registry Reference](./registry/index.md) for cross-runtime-root discovery, record contracts, cleanup behavior, and runtime publication hooks.
 - [Agent Gateway Reference](./gateway/index.md) for gateway attachability, HTTP and status contracts, queue behavior, and lifecycle handling.
 - [Mailbox Reference](./mailbox/index.md) for filesystem mailbox behavior and managed mailbox flows.
+- [Mailbox Roundtrip Tutorial Pack](../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md) for the explicit two-agent CAO-backed walkthrough that ties `build-brain`, `start-session`, `mail send/check/reply`, and `stop-session` together.
 
 ## CLI Entry Point
 
@@ -32,6 +35,7 @@ Supported commands:
 - `detach-gateway`
 - `gateway-status`
 - `gateway-interrupt`
+- `cleanup-registry`
 - `mail`
 - `stop-session`
 
@@ -41,17 +45,26 @@ Command intent:
 - Use `gateway-send-prompt` and `gateway-interrupt` only after a live gateway is already attached; they do not auto-attach a gateway implicitly.
 - Use `send-keys` for low-level CAO tmux control input such as slash-command menus, partial typing, arrow-key navigation, or explicit `Escape`/`Ctrl-*` delivery that must not auto-submit with `Enter`.
 - Use `mail` for runtime-owned mailbox operations (`check`, `send`, `reply`) against resumed mailbox-enabled sessions.
+- Use `cleanup-registry` to remove stale shared-registry `live_agents/` directories left behind by crashes or expired soft leases.
 - For the detailed `send-keys` contract, grammar, and examples, see [Realm Controller Send-Keys](./realm_controller_send_keys.md).
+
+## Shared Agent Registry
+
+Runtime-owned tmux-backed sessions publish a secret-free shared discovery record under one per-user registry root. That registry is a locator layer for cross-runtime-root recovery, not a replacement source of truth for `manifest.json`, tmux discovery, gateway state, or mailbox state.
+
+For the dedicated registry subtree, start at [Shared Registry Reference](./registry/index.md).
+
+- [Discovery And Cleanup](./registry/operations/discovery-and-cleanup.md): Name-based fallback from tmux-local discovery to the registry, plus `cleanup-registry` behavior and result buckets.
+- [Record And Layout](./registry/contracts/record-and-layout.md): Effective root resolution, `agent_id`-keyed on-disk layout, and the strict v2 `record.json` shape.
+- [Resolution And Ownership](./registry/contracts/resolution-and-ownership.md): Canonical naming, authoritative `agent_id`, `generation_id`, freshness, conflicts, and stale-versus-hard-invalid outcomes.
+- [Runtime Integration](./registry/internals/runtime-integration.md): Publication hooks, persisted generation behavior, and the warning boundary for non-fatal registry refresh failures.
 
 ## Gateway-Capable Sessions
 
 New runtime-owned tmux-backed sessions now publish gateway capability by default even when no live gateway process is attached yet.
 
-Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. This page keeps the gateway overview short so those details live in one place.
+Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical session-root, nested `gateway/`, and `job_dir` filesystem map. This page keeps the gateway overview short so those details live in one place.
 
-- Runtime-owned session state now lives under `<runtime_root>/sessions/<backend>/<session-id>/`.
-- The session manifest lives at `<session-root>/manifest.json`.
-- Gateway-owned durable state lives under `<session-root>/gateway/`.
 - The tmux session environment publishes stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
 - When a live gateway is attached, tmux also publishes `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`.
 - `state.json` is seeded under the gateway root before the first live attach and returns to the offline or not-attached state on graceful detach.
@@ -63,7 +76,7 @@ Launch-time auto-attach is optional:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --gateway-auto-attach
@@ -103,9 +116,10 @@ Build/start and manifest-path control (`--agent-identity /abs/.../manifest.json`
 Name-based tmux-backed control (`send-prompt`, `send-keys`, `mail`, and `stop-session` with `--agent-identity AGENTSYS-...` or an unprefixed name) uses a different default:
 
 1. explicit CLI `--agent-def-dir` override, otherwise
-2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`
+2. the addressed tmux session's published `AGENTSYS_AGENT_DEF_DIR`, or
+3. the fresh shared-registry record's stored `runtime.agent_def_dir` when tmux-local discovery is unavailable
 
-Name-based tmux control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` or cwd-derived default when the tmux session pointer is missing or stale.
+Name-based tmux control still does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` or cwd-derived default when the live session pointer is missing or stale.
 
 The resolved directory must contain `brains/`, `roles/`, and optionally `blueprints/`.
 
@@ -117,6 +131,22 @@ pixi run python -m houmao.agents.realm_controller build-brain \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 ```
 
+Direct build overrides can use the same structured launch contract that recipes use:
+
+```bash
+pixi run python -m houmao.agents.realm_controller build-brain \
+  --agent-def-dir tests/fixtures/agents \
+  --recipe brains/brain-recipes/claude/researcher.yaml \
+  --launch-overrides '{"tool_params":{"include_partial_messages":true}}'
+```
+
+Notes:
+
+- `--launch-overrides` accepts either a YAML/JSON file path or one inline JSON object.
+- The builder writes `schema_version=2` manifests with `runtime.launch_contract`, which preserves adapter defaults, requested recipe/direct overrides, declarative tool metadata, and construction provenance separately.
+- The build manifest stays secret-free and intentionally does not persist backend-resolved effective args.
+- Old `schema_version=1` brain manifests are rejected by the current runtime loader; rebuild the affected brain home with the current builder before start or resume.
+
 ## Mailbox-Enabled Sessions
 
 Mailbox support can come from declarative brain config or from `start-session` overrides. The implemented v1 transport is `filesystem`.
@@ -124,7 +154,7 @@ Mailbox support can come from declarative brain config or from `start-session` o
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport filesystem \
@@ -135,10 +165,10 @@ pixi run python -m houmao.agents.realm_controller start-session \
 
 Runtime behavior for mailbox-enabled sessions:
 
-- bootstrap or validate the filesystem mailbox root before the session begins,
-- safely register the active mailbox for the session address,
-- project the runtime-owned skill `.system/mailbox/email-via-filesystem`,
-- expose `AGENTSYS_MAILBOX_*` and `AGENTSYS_MAILBOX_FS_*` bindings to the launched session,
+- bootstrap or validate the selected mailbox transport before the session begins,
+- safely register the active mailbox for filesystem sessions or provision the active mailbox for `stalwart` sessions,
+- project the runtime-owned mailbox skill for the selected transport,
+- expose `AGENTSYS_MAILBOX_*` plus transport-specific `AGENTSYS_MAILBOX_FS_*` or `AGENTSYS_MAILBOX_EMAIL_*` bindings to the launched session,
 - persist the resolved mailbox binding in the session manifest so resume uses the same mailbox configuration.
 
 `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration path for the session's full mailbox address, so it may resolve through a symlink-backed `mailboxes/<address>` entry into a private mailbox directory.
@@ -155,7 +185,8 @@ Notes:
 
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require explicit body content through `--body-file` or `--body-content`.
-- `mail` currently supports the filesystem mailbox transport only.
+- `mail reply` now prefers shared opaque `message_ref` values and accepts the legacy `--message-id` flag only as a compatibility alias.
+- `mail` supports both the filesystem mailbox transport and the `stalwart` transport, and shared mailbox operations prefer the live gateway `/v1/mail/*` facade when it is attached.
 - For the mailbox quickstart, contracts, managed helper rules, lifecycle modes, repair expectations, and internals, see [Mailbox Reference](./mailbox/index.md).
 
 ## Local Codex Session (Default: `codex_headless`)
@@ -165,7 +196,7 @@ Start a session from an existing brain manifest:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder
 ```
 
@@ -179,6 +210,13 @@ Notes:
 - Role injection uses Codex config override:
   `-c developer_instructions=<role-prompt>`.
 
+Launch-overrides ownership rule across backends:
+
+- Optional provider behavior comes from adapter defaults plus recipe/direct `launch_overrides`.
+- Runtime launch-plan construction resolves those overrides for the selected backend and records typed provenance in session metadata.
+- Protocol-required args remain backend-owned implementation details. For example, `claude_headless` and `gemini_headless` add `-p`, `codex_headless` owns `exec --json` and `resume`, and `codex_app_server` owns `app-server`.
+- Unsupported backends such as `cao_rest` and `houmao_server_rest` fail closed when a launch override requests behavior they cannot honor.
+
 ## Legacy Codex App-Server Override (Deprecation Window)
 
 `codex_app_server` remains available as an explicit override during a bounded
@@ -186,7 +224,7 @@ deprecation window:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend codex_app_server
 ```
@@ -197,34 +235,51 @@ Sunset criteria for removal in follow-up change:
 - Unit/integration/manual test parity with prior non-CAO Codex behavior.
 - Docs parity for start/resume/stop/identity workflows.
 
-## Codex Bootstrap Contract
+## Versioned Unattended Launch Policy
 
-For Codex launches (`codex_headless`, `codex_app_server`, and Codex `cao_rest`),
-runtime startup enforces a shared non-interactive bootstrap contract on
-`CODEX_HOME/config.toml`:
+Unattended startup is now a first-class runtime policy, not an implicit provider-specific bootstrap side effect.
 
-- always set `[notice].hide_full_access_warning = true`,
-- always seed trust for launch context under
-  `[projects."<resolved-path>"].trust_level = "trusted"`,
-- resolve trust target to agent-definition root when `.git` is discoverable from launch
-  workdir, otherwise use the explicit launch workdir,
-- only re-assert `approval_policy` / `sandbox_mode` when those keys are
-  explicitly present in the selected Codex config profile.
+Request unattended mode by setting `launch_policy.operator_prompt_mode: unattended` in the brain recipe or by passing `--operator-prompt-mode unattended` to `build-brain`. The resulting build manifest stays secret-free and records only the requested mode. The actual strategy is resolved later, at launch-plan time, against the real installed CLI version from `<tool> --version`.
 
-Bootstrap is idempotent and preserves unrelated config settings.
+Shared behavior across `raw_launch`, `headless`, `cao_rest`, and `houmao_server_rest`:
+
+- runtime resolves the strategy against the actual executable and fails closed on unsupported versions,
+- `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` exists for transient debugging when you need to force one known strategy id,
+- resolved metadata is persisted as typed `launch_policy_provenance` and mirrored in launch diagnostics,
+- runtime-managed backends no longer run separate per-backend bootstrap logic after launch-plan construction.
+
+As of 2026-03-23 in this workspace, the validated installed versions are:
+
+- Codex: `codex-cli 0.116.0` -> strategy `codex-unattended-0.116.x`
+- Claude Code: `2.1.81` -> strategy `claude-unattended-2.1.81`
+
+Codex unattended details for the current validated version:
+
+- supported backends: `raw_launch`, `codex_headless`, `codex_app_server`, `cao_rest`, `houmao_server_rest`,
+- minimal input contract: non-empty `auth.json`, `OPENAI_API_KEY`, or a config-backed env-only provider with `requires_openai_auth = false` and `wire_api = "responses"`,
+- runtime-owned `config.toml` synthesis seeds `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `notice.hide_full_access_warning = true`, `projects."<resolved-workdir>".trust_level = "trusted"`, and the `gpt-5.3-codex -> gpt-5.4` migration state.
+
+Claude unattended details for the current validated version:
+
+- supported backends: `raw_launch`, `claude_headless`, `cao_rest`, `houmao_server_rest`,
+- minimal input contract: environment-backed Claude credentials such as `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`; user-prepared prompt-suppression state is not required,
+- runtime-owned state can create or patch `settings.json` and `.claude.json`, seed `skipDangerousModePermissionPrompt`, onboarding markers, custom API-key approval memory, and per-workspace trust under the resolved workdir,
+- optional `claude_state.template.json` input is preserved when present, but it is no longer required for unattended startup.
+
+For the detailed validation record tied to the installed CLIs, see `openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md`.
 
 ## Claude Headless Resume (tmux-backed `claude -p --resume`)
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Summarize the current plan"
 ```
 
@@ -243,21 +298,6 @@ Backend code reserves and injects only:
 - `--append-system-prompt <text>` (when native role injection is used)
 
 If adapter `launch.args` contains any reserved arg, launch-plan construction fails fast with a configuration error.
-
-## Claude Bootstrap Contract
-
-For Claude launches (`claude_headless` and `cao_rest`), runtime startup enforces a shared non-interactive bootstrap contract on `CLAUDE_CONFIG_DIR`:
-
-- `settings.json` must exist and set `skipDangerousModePermissionPrompt: true`.
-- `claude_state.template.json` must exist (projected from credential profile input).
-- runtime `.claude.json` is materialized only when missing (create-only), by applying launcher-enforced keys onto the template:
-  - `hasCompletedOnboarding: true`
-  - `numStartups: 1`
-  - `customApiKeyResponses` based on `ANTHROPIC_API_KEY` suffix when set
-
-Rationale: Claude Code first-run behavior may show interactive onboarding/approval prompts and may contact `api.anthropic.com` for feature flags even when `ANTHROPIC_BASE_URL` is configured. This bootstrap keeps orchestrated launches non-interactive in isolated homes.
-
-Verified against Claude Code `v2.1.62` on `2026-02-27`.
 
 ## Model selection (Claude Code)
 
@@ -286,13 +326,13 @@ Examples:
 ```bash
 ANTHROPIC_MODEL=opus ANTHROPIC_SMALL_FAST_MODEL=claude-3-5-haiku-latest \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless
 
 ANTHROPIC_MODEL=opus CLAUDE_CODE_SUBAGENT_MODEL=sonnet \
 pixi run python -m houmao.agents.realm_controller start-session \
-  --brain-manifest tmp/agents-runtime/manifests/claude/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --cao-base-url http://localhost:<port>
@@ -305,17 +345,19 @@ Use the same loopback port configured for the CAO launcher. `9889` is the defaul
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/gemini/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend gemini_headless
 
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-def-dir tests/fixtures/agents \
-  --agent-identity tmp/agents-runtime/sessions/gemini_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/gemini_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
 
 Gemini resume requires the same working directory/project context captured in the session manifest.
+
+Gemini does not currently have a registered unattended launch-policy strategy. If a build requests `launch_policy.operator_prompt_mode: unattended` for Gemini, launch-plan construction fails closed until a versioned Gemini strategy is added.
 
 ## Headless Stop/Cleanup Semantics
 
@@ -345,7 +387,7 @@ pixi run python -m houmao.cao.tools.cao_server_launcher start \
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu \
@@ -397,6 +439,7 @@ Behavior:
   3) per-tool default (`claude -> shadow_only`, `codex -> shadow_only`)
 - Shadow stall policy config (for `parsing_mode=shadow_only`):
   - `runtime.cao.shadow.unknown_to_stalled_timeout_seconds` (default `30`)
+  - `runtime.cao.shadow.completion_stability_seconds` (default `1.0`)
   - `runtime.cao.shadow.stalled_is_terminal` (default `false`)
 - `start-session` JSON output for `backend=cao_rest` includes the resolved
   `parsing_mode` alongside `agent_identity`.
@@ -409,8 +452,9 @@ Behavior:
 - Strict no-fallback policy:
   - `cao_only`: readiness/completion from CAO terminal status, answer extraction
     from `output?mode=last`.
-  - `shadow_only`: readiness/completion from runtime `TurnMonitor` over
-    `output?mode=full`, with parser-owned `surface_assessment` and
+  - `shadow_only`: readiness/completion from the runtime monitor over
+    `output?mode=full`, with current-thread CAO polling in `cao_rest.py`
+    feeding readiness/completion pipelines in `cao_rx_monitor.py`, and with parser-owned `surface_assessment` and
     `dialog_projection` artifacts instead of parser-owned final-answer extraction.
     Readiness follows the currently active input surface, not any historical
     slash-command or model-switch line still visible in scrollback. A recovered
@@ -418,7 +462,7 @@ Behavior:
     waiting-user surface keeps submission blocked.
   - Runtime never mixes parser families in a single turn, and never auto-retries
     under the other parsing mode after mode-specific failure.
-- CAO tmux session names use the canonical `AGENTSYS-<name>` namespace.
+- Canonical agent names still use the `AGENTSYS-<name>` namespace, but persisted `tmux_session_name` is now the actual tmux handle and must be learned from manifest or shared-registry metadata rather than inferred from canonical name alone.
 - `AGENTSYS` is reserved and cannot be used as the name portion.
 - `start-session --agent-identity <name>` accepts name inputs for tmux-backed
   backends (`cao_rest`, `codex_headless`, `claude_headless`, `gemini_headless`)
@@ -436,13 +480,16 @@ when they are missing from `PATH`.
   verify `command -v cao-server`.
 - Missing tool executable (`codex`, `claude`, `gemini`): install the tool CLI and
   verify with `command -v <tool>`.
-- If no tmux-backed name is provided, runtime auto-generates a short
-  `AGENTSYS-<tool-role>` identity and adds a suffix on conflicts.
+- If no tmux-backed name is provided, runtime auto-generates a canonical
+  `AGENTSYS-<tool-role>` identity and derives the live tmux handle as
+  `<canonical-agent-name>-<agent-id-prefix>`, extending the prefix one
+  character at a time on collisions.
 - For tmux-backed sessions runtime sets
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
   `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
-- To discover active agent identities, run `tmux ls` and use returned
-  `AGENTSYS-...` names with `send-prompt` / `send-keys` / `mail` / `stop-session`.
+- To discover the live tmux handle, inspect the returned `tmux_session_name`,
+  the persisted manifest, or shared-registry metadata. Name-addressed runtime
+  control still uses the canonical `AGENTSYS-<name>` identity.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:
@@ -468,13 +515,20 @@ when they are missing from `PATH`.
 - Uses direct terminal input only (no inbox).
 - Shadow parsers (when `parsing_mode=shadow_only`) produce frozen
   `surface_assessment` and `dialog_projection` value objects.
+- `dialog_projection.normalized_text` remains closer to the captured TUI surface.
+- `dialog_projection.dialog_text` is a best-effort heuristic projection for operator inspection and caller-owned extraction patterns; it is not an exact recovered transcript.
+- Current runtime lifecycle evidence keys off normalized shadow text after pipeline normalization rather than `dialog_text`.
+- Provider parsers own version-aware projector selection, and `projection_metadata.projector_id` identifies the selected projector instance.
 - Shared surface assessment facets are:
   - `availability`: `supported`, `unsupported`, `disconnected`, `unknown`
   - `business_state`: `idle`, `working`, `awaiting_operator`, `unknown`
   - `input_mode`: `freeform`, `modal`, `closed`, `unknown`
   - `ui_context`: shared base plus provider-specific extensions
 - Runtime success terminality in `shadow_only` requires `submit_ready` plus
-  either post-submit projected-dialog change or observed post-submit `working`.
+  previously-seen post-submit activity (`working` or normalized shadow-text change)
+  that then remains stable for `completion_stability_seconds`.
+- Caller-owned completion observers may bypass the generic stability window when
+  they detect a definitive result payload.
 - Runtime shadow parsing for both Claude and Codex is versioned and preset-driven.
   Preset resolution order is:
   1) provider-specific env override,
@@ -488,8 +542,11 @@ when they are missing from `PATH`.
   `unknown_version_floor_used`.
 - Unknown/drifted output variants fail fast with
   `unsupported_output_format` (no fallback to `cao_only` in-turn).
-- Runtime promotes continuous `unknown` status to `stalled` after
+- Runtime promotes continuous `unknown` status to `stalled` after the
+  configured inter-observation-gap threshold
   `unknown_to_stalled_timeout_seconds`.
+- Any known observation cancels the pending unknown-to-stalled timer and clears
+  stalled tracking before the recovered classification is handled.
 - `stalled_is_terminal=true` fails immediately with stalled diagnostics; when
   `false`, runtime continues polling and can recover to known statuses.
 - `parser_metadata` now includes:
@@ -498,6 +555,9 @@ when they are missing from `PATH`.
   - version detection/selection source, and
   - anomaly list (for example `baseline_invalidated`,
     `stalled_entered`, `stalled_recovered`).
+- Shadow policy values such as `unknown_to_stalled_timeout_seconds`,
+  `completion_stability_seconds`, and `stalled_is_terminal` are surfaced in
+  both `parser_metadata` and `mode_diagnostics`.
 - `shadow_only` done payloads surface:
   - `surface_assessment`
   - `dialog_projection`
@@ -525,14 +585,15 @@ headless-only. Follow-up design work is tracked in
 ### Manual Verification Checklist (CAO Startup Window Hygiene)
 
 1. Start a CAO-backed session (`backend=cao_rest`) and capture returned
-   `agent_identity` (for example `AGENTSYS-gpu`).
+   `agent_identity` plus `tmux_session_name` (for example `AGENTSYS-gpu` and
+   `AGENTSYS-gpu-270b87`).
 2. Verify tmux windows:
-   `tmux list-windows -t AGENTSYS-gpu -F '#{window_id} #{window_index} #{window_name}'`.
+   `tmux list-windows -t <tmux_session_name> -F '#{window_id} #{window_index} #{window_name}'`.
 3. Expected success path:
    only the CAO terminal window is listed (bootstrap shell window is not
    expected after startup completes).
 4. Attach and confirm first view:
-   `tmux attach -t AGENTSYS-gpu` should land on the agent terminal window.
+   `tmux attach -t <tmux_session_name>` should land on the agent terminal window.
 5. Warning-path expectation:
    if cleanup cannot resolve/select/prune windows, `start-session` still returns
    success JSON and stderr includes one or more `warning:` lines describing the
@@ -551,24 +612,13 @@ egress and injects loopback entries into `NO_PROXY`/`no_proxy` by default.
 
 ## Session Manifest
 
-For the broader runtime-owned storage model, discovery pointers, and gateway nesting under the same session root, see [Runtime-Managed State And Recovery](./agents/internals/state-and-recovery.md) and [Gateway Protocol And State Contracts](./gateway/contracts/protocol-and-state.md).
-
-Session manifests are written under:
-
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/manifest.json`
-
-Gateway-capable runtime-owned tmux sessions also write:
-
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/attach.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/state.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/desired-config.json`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/queue.sqlite`
-- `tmp/agents-runtime/sessions/<backend>/<session-id>/gateway/events.jsonl`
+Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical runtime-owned filesystem inventory covering generated homes, generated manifests, runtime session roots, nested gateway files, and workspace-local `job_dir` placement.
 
 Manifests are validated against in-package JSON Schemas before write and on load/resume.
 
 Notes:
 
-- CAO session manifests use `schema_version=2` and require `cao.parsing_mode`.
+- Session manifests now use `schema_version=3` and persist first-class top-level `agent_name`, `agent_id`, `tmux_session_name`, and `job_dir` fields.
+- CAO session manifests still require `cao.parsing_mode`.
 - Legacy CAO manifests (`schema_version=1`) are rejected to avoid mixed-mode resumes.
 - Resume/start enforces parsing-mode consistency between persisted manifest and runtime session state.

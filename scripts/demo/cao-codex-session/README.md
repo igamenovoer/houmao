@@ -1,6 +1,6 @@
 # Codex CAO Runtime Demo
 
-This tutorial pack demonstrates a real CAO-backed Codex session: build a brain home, start a CAO runtime session, send one prompt, and verify that a non-empty response is returned.
+This tutorial pack demonstrates a real CAO-backed Codex session: build a brain home, start a CAO runtime session, send one prompt, and verify one schema-shaped reply extracted from shadow-aware runtime event payloads.
 
 ## Prerequisites
 
@@ -40,9 +40,12 @@ scripts/demo/cao-codex-session/run_demo.sh --snapshot-report
 - Verification is done by [`scripts/verify_report.py`](scripts/verify_report.py).
 - The verifier enforces:
   - non-empty `response_text`,
+  - non-empty `response_text_source`,
   - `backend == "cao_rest"`,
   - `tool == "codex"`,
   - sanitized shape matches `expected_report/report.json`.
+
+The prompt now asks Codex to place its one-sentence reply between explicit sentinel lines. The demo extracts that reply from shadow-aware runtime payload surfaces before falling back to clearly labeled best-effort text.
 
 ## SKIP Behavior
 

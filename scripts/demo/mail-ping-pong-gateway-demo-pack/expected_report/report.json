@@ -1,0 +1,107 @@
+{
+  "artifact_refs": {
+    "demo_state_path": "<DEMO_STATE_PATH>",
+    "events_path": "<EVENTS_PATH>",
+    "inspect_path": "<INSPECT_PATH>",
+    "report_path": "<REPORT_PATH>",
+    "sanitized_report_path": "<SANITIZED_REPORT_PATH>"
+  },
+  "config": {
+    "api_base_url": "<API_BASE_URL>",
+    "demo_id": "mail-ping-pong-gateway-demo-pack",
+    "roles": {
+      "initiator": "mail-ping-pong-initiator",
+      "responder": "mail-ping-pong-responder"
+    },
+    "round_limit": 5,
+    "tools": {
+      "initiator": "claude",
+      "responder": "codex"
+    }
+  },
+  "counts": {
+    "completed_turns": 11,
+    "expected_messages": 10,
+    "expected_turns": 11,
+    "messages": 10
+  },
+  "failures": [],
+  "gateway_evidence": {
+    "direct_request_count": 1,
+    "kickoff_request_id": "<REQUEST_ID>",
+    "later_turn_count": 10,
+    "notifier_enqueued_by_role": {
+      "initiator": true,
+      "responder": true
+    }
+  },
+  "mailbox_evidence": {
+    "subjects": [
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>",
+      "<THREAD_SUBJECT>"
+    ],
+    "thread_ids": [
+      "<THREAD_ID>"
+    ],
+    "thread_key": "<THREAD_KEY>",
+    "total_messages": 10,
+    "unread_by_role": {
+      "initiator": 0,
+      "responder": 0
+    }
+  },
+  "observed_at_utc": "<TIMESTAMP>",
+  "outcome": {
+    "incomplete_reason": null,
+    "success": true,
+    "thread_key": "<THREAD_KEY>"
+  },
+  "per_role": {
+    "initiator": {
+      "completed_turn_count": 6,
+      "gateway_enqueued": true,
+      "gateway_health": "healthy",
+      "last_turn_result": "success",
+      "launch_posture": {
+        "built_brain_manifest_operator_prompt_mode": "unattended",
+        "launch_policy_applied": true,
+        "live_launch_request_operator_prompt_mode": "unattended",
+        "tracked_recipe_operator_prompt_mode": "unattended"
+      },
+      "message_count": 5,
+      "notifier_enabled": true,
+      "role_name": "mail-ping-pong-initiator",
+      "tool": "claude",
+      "tracked_agent_id": "<TRACKED_AGENT_ID>",
+      "unread_count": 0
+    },
+    "responder": {
+      "completed_turn_count": 5,
+      "gateway_enqueued": true,
+      "gateway_health": "healthy",
+      "last_turn_result": "success",
+      "launch_posture": {
+        "built_brain_manifest_operator_prompt_mode": "unattended",
+        "launch_policy_applied": true,
+        "live_launch_request_operator_prompt_mode": "unattended",
+        "tracked_recipe_operator_prompt_mode": "unattended"
+      },
+      "message_count": 5,
+      "notifier_enabled": true,
+      "role_name": "mail-ping-pong-responder",
+      "tool": "codex",
+      "tracked_agent_id": "<TRACKED_AGENT_ID>",
+      "unread_count": 0
+    }
+  },
+  "schema_version": 1,
+  "status": "complete"
+}

@@ -2,6 +2,8 @@
 
 Codex-specific parsing lives in `backends/codex_shadow.py`. The parser is responsible for one-snapshot interpretation of CAO `mode=full` output and returns `CodexSurfaceAssessment` plus `CodexDialogProjection`.
 
+For the concrete on-screen cues currently used by the maintained tracked-TUI workflow, see [Codex Signals](codex-signals.md).
+
 ## Codex-Specific Surface Vocabulary
 
 Codex extends the shared `ui_context` vocabulary with these provider-specific values:
@@ -94,7 +96,7 @@ stateDiagram-v2
     Unknown --> Disconnected: evt_surface_disconnected
 ```
 
-The graph shows parser-state transitions only. It does not mean a turn is complete when Codex returns to `idle + freeform`; completion remains a runtime `TurnMonitor` concern.
+The graph shows parser-state transitions only. It does not mean a turn is complete when Codex returns to `idle + freeform`; completion remains a runtime monitor concern described in [Runtime Lifecycle](runtime-lifecycle.md).
 
 ## Codex State Meanings
 
@@ -123,9 +125,9 @@ Codex uses the same high-level business-state priority as Claude, but the concre
 | `evt_operator_blocked` | `business_state` changes to `awaiting_operator` | selection menu, approval prompt, or login/setup block appears |
 | `evt_unknown_entered` | `business_state` changes to `unknown` while `availability=supported` | Codex surface is still recognized but no safe stronger state matches |
 | `evt_context_changed` | `ui_context` changes across snapshots | for example `normal_prompt` to `approval_prompt` or `slash_command` |
-| `evt_projection_changed` | `DialogProjection.dialog_text` changes across snapshots | visible projected Codex dialog changed |
+| `evt_normalized_text_changed` | `DialogProjection.normalized_text` changes across snapshots | the closer-to-source visible Codex snapshot text changed |
 
-These events describe parser observations, not runtime lifecycle decisions. Runtime uses them as inputs to `TurnMonitor`.
+These events describe parser observations, not runtime lifecycle decisions. The runtime monitor consumes the shared parser outputs from this page; current completion evidence keys off normalized shadow text after pipeline normalization rather than `dialog_text`.
 
 ## Preset And Version Selection
 
@@ -173,6 +175,8 @@ Projection preserves visible dialog content such as:
 - approval/menu text when Codex is blocked on user input
 
 The result is still projected visible dialog, not authoritative answer association.
+
+The current runtime lifecycle monitor does not use `dialog_text` as its post-submit diff surface. It keys change evidence off normalized shadow text and keeps `dialog_text` for human-facing transcript views and caller-owned extraction patterns.
 
 ## Codex-Specific Blocking And Drift Cases
 

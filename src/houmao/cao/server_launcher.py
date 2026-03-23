@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from urllib import error, request
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from houmao.owned_paths import resolve_runtime_root
 
 from .no_proxy import (
     SUPPORTED_LOOPBACK_CAO_BASE_URLS,
@@ -60,7 +61,7 @@ class _LauncherConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_url: str
-    runtime_root: str
+    runtime_root: str | None = None
     home_dir: str | None = None
     proxy_policy: ProxyPolicy = ProxyPolicy.CLEAR
     startup_timeout_seconds: float = 15.0
@@ -76,7 +77,9 @@ class _LauncherConfigModel(BaseModel):
 
     @field_validator("runtime_root")
     @classmethod
-    def _validate_runtime_root(cls, value: str) -> str:
+    def _validate_runtime_root(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value.strip()
@@ -87,7 +90,7 @@ class _LauncherConfigModel(BaseModel):
         if value is None:
             return None
         if not value.strip():
-            raise ValueError("must not be empty when provided")
+            return None
         return value.strip()
 
     @field_validator("startup_timeout_seconds")
@@ -179,7 +182,9 @@ class CaoServerLauncherConfigOverrides:
 class CaoServerRuntimeArtifacts:
     """Filesystem layout for CAO server runtime artifacts."""
 
+    server_root: Path
     artifact_dir: Path
+    home_dir: Path
     pid_file: Path
     log_file: Path
     launcher_result_file: Path
@@ -343,13 +348,20 @@ def load_cao_server_launcher_config(
             )
         ) from exc
 
-    runtime_root = _resolve_runtime_root(
-        parsed.runtime_root,
-        base=resolved_config_path.parent,
-    )
+    try:
+        runtime_root = resolve_runtime_root(
+            explicit_root=parsed.runtime_root,
+            base=resolved_config_path.parent,
+        )
+    except ValueError as exc:
+        raise CaoServerLauncherError(
+            f"Invalid launcher config `{resolved_config_path}`: {exc}"
+        ) from exc
     home_dir = _resolve_home_dir(
         parsed.home_dir,
         config_path=resolved_config_path,
+        runtime_root=runtime_root,
+        base_url=parsed.base_url,
     )
 
     return CaoServerLauncherConfig(
@@ -375,7 +387,7 @@ def resolve_cao_server_runtime_artifacts(
     Returns
     -------
     CaoServerRuntimeArtifacts
-        Paths under `runtime_root/cao-server/<host>-<port>/`.
+        Paths under `runtime_root/cao_servers/<host>-<port>/launcher/`.
     """
 
     try:
@@ -385,9 +397,12 @@ def resolve_cao_server_runtime_artifacts(
             f"Invalid base_url `{config.base_url}`: missing host or port."
         ) from exc
 
-    artifact_dir = config.runtime_root / "cao-server" / f"{host}-{port}"
+    server_root = _cao_server_root(config.runtime_root, config.base_url)
+    artifact_dir = server_root / "launcher"
     return CaoServerRuntimeArtifacts(
+        server_root=server_root,
         artifact_dir=artifact_dir,
+        home_dir=(config.home_dir or (server_root / "home")).resolve(),
         pid_file=artifact_dir / "cao-server.pid",
         log_file=artifact_dir / "cao-server.log",
         launcher_result_file=artifact_dir / "launcher_result.json",
@@ -658,7 +673,7 @@ def start_cao_server(
     """
 
     _ensure_supported_base_url(config.base_url)
-    _validate_home_dir_or_raise(config.home_dir, config_path=config.config_path)
+    _ensure_home_dir_or_raise(config.home_dir, config_path=config.config_path)
 
     artifacts = resolve_cao_server_runtime_artifacts(config)
     artifacts.artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -1054,30 +1069,28 @@ def _normalize_base_url(value: str) -> str:
     return normalize_cao_base_url(value)
 
 
-def _resolve_runtime_root(value: str, *, base: Path) -> Path:
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = base / path
-    return path.resolve()
-
-
-def _resolve_home_dir(value: str | None, *, config_path: Path) -> Path | None:
+def _resolve_home_dir(
+    value: str | None,
+    *,
+    config_path: Path,
+    runtime_root: Path,
+    base_url: str,
+) -> Path:
     if value is None:
-        return None
+        return (_cao_server_root(runtime_root, base_url) / "home").resolve()
 
     path = Path(value).expanduser()
     if not path.is_absolute():
         raise CaoServerLauncherError(
             f"Invalid launcher config `{config_path}`: $.home_dir must be an absolute path."
         )
-    resolved = path.resolve()
-    _validate_home_dir_or_raise(resolved, config_path=config_path)
-    return resolved
+    return path.resolve()
 
 
-def _validate_home_dir_or_raise(home_dir: Path | None, *, config_path: Path) -> None:
+def _ensure_home_dir_or_raise(home_dir: Path | None, *, config_path: Path) -> None:
     if home_dir is None:
         return
+    home_dir.mkdir(parents=True, exist_ok=True)
     if not home_dir.exists():
         raise CaoServerLauncherError(
             f"Invalid launcher config `{config_path}`: home_dir does not exist: `{home_dir}`."
@@ -1092,6 +1105,18 @@ def _validate_home_dir_or_raise(home_dir: Path | None, *, config_path: Path) -> 
             f"`{config_path}`: home_dir must be writable because CAO writes state under "
             f"`HOME/.aws/cli-agent-orchestrator/` (home_dir=`{home_dir}`)."
         )
+
+
+def _cao_server_root(runtime_root: Path, base_url: str) -> Path:
+    """Return the per-server runtime subtree for one base URL."""
+
+    try:
+        host, port = extract_cao_base_url_host_port(base_url)
+    except ValueError as exc:
+        raise CaoServerLauncherError(
+            f"Invalid base_url `{base_url}`: missing host or port."
+        ) from exc
+    return (runtime_root / "cao_servers" / f"{host}-{port}").resolve()
 
 
 def _format_pydantic_error(prefix: str, exc: ValidationError) -> str:

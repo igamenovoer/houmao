@@ -516,8 +516,7 @@ def test_demo_wrapper_lifecycle_uses_per_run_defaults_from_arbitrary_cwd(
     send_prompt_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "houmao.agents.realm_controller"
-        and entry["args"][4] == "send-prompt"
+        if entry["module"] == "houmao.agents.realm_controller" and entry["args"][4] == "send-prompt"
     ]
     assert len(send_prompt_calls) == 2
     assert all("--agent-def-dir" not in entry["args"] for entry in send_prompt_calls)
@@ -683,8 +682,7 @@ def test_demo_send_keys_wrapper_and_cli_record_controls_without_affecting_verify
     send_keys_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "houmao.agents.realm_controller"
-        and entry["args"][4] == "send-keys"
+        if entry["module"] == "houmao.agents.realm_controller" and entry["args"][4] == "send-keys"
     ]
     assert len(send_keys_calls) == 2
 
@@ -773,8 +771,7 @@ def test_demo_wrapper_verified_cao_replacement_retries_older_known_config_after_
     stop_calls = [
         entry
         for entry in command_log
-        if entry["module"] == "houmao.cao.tools.cao_server_launcher"
-        and entry["args"][4] == "stop"
+        if entry["module"] == "houmao.cao.tools.cao_server_launcher" and entry["args"][4] == "stop"
     ]
 
     assert state["active"] is True

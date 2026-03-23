@@ -1,0 +1,4 @@
+interface:
+  display_name: "Terminal Recorder"
+  short_description: "Record tmux agent sessions for replay"
+  default_prompt: "Use $terminal-recorder-workflow to capture, inspect, analyze, or label a tmux-backed agent session with the repo terminal recorder."

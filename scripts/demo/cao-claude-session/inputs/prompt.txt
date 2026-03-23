@@ -1,1 +1,4 @@
-Reply with a single short sentence about test coverage.
+Reply with exactly one short sentence about test coverage.
+Put only that sentence between these exact sentinel lines:
+AGENTSYS_DEMO_RESPONSE_BEGIN
+AGENTSYS_DEMO_RESPONSE_END

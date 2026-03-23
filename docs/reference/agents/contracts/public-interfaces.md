@@ -2,6 +2,8 @@
 
 This page explains the runtime-managed surfaces that operators and developers actually call: how sessions are targeted, which CLI commands exist for which job, and which runtime-owned artifacts back those commands.
 
+For the canonical filesystem layout behind generated homes, runtime session roots, nested gateway files, and workspace-local job directories, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
+
 ## Mental Model
 
 The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or CAO-backed.
@@ -21,7 +23,7 @@ Pass a manifest path as `--agent-identity` when you already know the exact sessi
 
 ```bash
 pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity tmp/agents-runtime/sessions/claude_headless/<session-id>/manifest.json \
+  --agent-identity <runtime-root>/sessions/claude_headless/<session-id>/manifest.json \
   --prompt "Continue from the prior answer"
 ```
 
@@ -46,7 +48,7 @@ Rules:
 - Runtime resolves the manifest path from `AGENTSYS_MANIFEST_PATH`.
 - For name-based control, the effective agent-definition directory is either explicit `--agent-def-dir` or the addressed tmux session's `AGENTSYS_AGENT_DEF_DIR`.
 - Name-based control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` when the tmux pointer is stale or missing.
-- Tmux-backed names are normalized into the `AGENTSYS-<name>` namespace.
+- Canonical agent identities are normalized into the `AGENTSYS-<name>` namespace, while live tmux session handles persist separately as `tmux_session_name`.
 
 ## Control Surface Intent
 
@@ -57,7 +59,7 @@ The main runtime-managed commands are intentionally different:
 | `send-prompt` | Runs the normal prompt-turn path against the resumed backend session | Yes | Advances persisted backend state after the turn |
 | `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | CAO-only in the current implementation |
 | `mail check/send/reply` | Prepares a structured prompt and sends it through the normal prompt-turn path | Yes | Mailbox transport is `filesystem` only in v1 |
-| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Live attach is implemented first for `backend=cao_rest` |
+| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends with implemented adapters |
 | `gateway-status` | Reads live gateway status or seeded offline state | No | Falls back to `state.json` when no live gateway is attached |
 | `gateway-send-prompt` | Queues a prompt through the live gateway | No | Returns an accepted queue record instead of waiting for turn completion |
 | `gateway-interrupt` | Queues an interrupt through the live gateway | No | Requires a live attached gateway |
@@ -65,18 +67,7 @@ The main runtime-managed commands are intentionally different:
 
 ## Runtime-Owned Artifacts
 
-Runtime-managed sessions persist state under:
-
-```text
-<runtime_root>/sessions/<backend>/<session-id>/
-  manifest.json
-  gateway/
-    attach.json
-    state.json
-    desired-config.json
-    queue.sqlite
-    events.jsonl
-```
+Runtime-managed sessions persist a durable manifest under `<runtime_root>/sessions/<backend>/<session-id>/manifest.json` and may materialize a nested `gateway/` subtree plus a workspace-local `job_dir`. Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the canonical tree, contract levels, and cleanup guidance.
 
 Publicly relevant details:
 
@@ -89,13 +80,17 @@ Representative `start-session` output for a gateway-capable session:
 
 ```json
 {
-  "session_manifest": "/abs/path/tmp/agents-runtime/sessions/cao_rest/cao-rest-1/manifest.json",
+  "session_manifest": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
   "backend": "cao_rest",
   "tool": "codex",
   "agent_identity": "AGENTSYS-gpu",
+  "agent_name": "AGENTSYS-gpu",
+  "agent_id": "270b8738f2f97092e572b73d19e6f923",
+  "tmux_session_name": "AGENTSYS-gpu-270b87",
+  "job_dir": "/abs/path/workspace/.houmao/jobs/cao-rest-1",
   "parsing_mode": "shadow_only",
-  "gateway_root": "/abs/path/tmp/agents-runtime/sessions/cao_rest/cao-rest-1/gateway",
-  "gateway_attach_path": "/abs/path/tmp/agents-runtime/sessions/cao_rest/cao-rest-1/gateway/attach.json"
+  "gateway_root": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway",
+  "gateway_attach_path": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway/attach.json"
 }
 ```
 
@@ -113,10 +108,10 @@ The runtime keeps these paths separate because they promise different things.
 These docs intentionally describe the implemented behavior, not the full design space.
 
 - Gateway capability publication exists for runtime-owned tmux-backed sessions.
-- Live gateway attach is implemented first for `backend=cao_rest`.
+- Live gateway attach supports runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
 - `send-keys` is implemented only for resumed `cao_rest` sessions.
 - Mailbox control currently supports the filesystem transport only.
-- Broader backend-extensible gateway intent exists in the models and specs, but the live adapter boundary in v1 is narrower than the attachability contract.
+- The public managed-agent server surface for TUI-backed and server-managed headless agents lives under `/houmao/agents/*`; use [Managed-Agent API](../../managed_agent_api.md) for the server-owned request, detail-state, and gateway-route contracts.
 
 ## Source References
 
@@ -124,4 +119,5 @@ These docs intentionally describe the implemented behavior, not the full design 
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/realm_controller/agent_identity.py`](../../../../src/houmao/agents/realm_controller/agent_identity.py)
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../../src/houmao/agents/realm_controller/manifest.py)
+- [`docs/reference/system-files/agents-and-runtime.md`](../../system-files/agents-and-runtime.md)
 - [`docs/reference/realm_controller_send_keys.md`](../../realm_controller_send_keys.md)

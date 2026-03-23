@@ -16,7 +16,7 @@ The mailbox root mixes shared artifacts with per-address projections.
 ```text
 <mailbox_root>/
   protocol-version.txt              # On-disk protocol marker; must match v1
-  index.sqlite                      # Registrations, mutable state, projections, summaries
+  index.sqlite                      # Shared catalog, registrations, projections, and structural summaries
   rules/
     README.md                       # Mailbox-local operating notes
     protocols/
@@ -47,6 +47,7 @@ The mailbox root mixes shared artifacts with per-address projections.
       sent/
       archive/
       drafts/
+      mailbox.sqlite                # Mailbox-view state keyed by message_id and thread_id
     <other-address> -> /abs/path/private-mailboxes/<other-address>
   staging/                          # Pre-delivery temporary work area
 ```
@@ -68,9 +69,18 @@ The mailbox root mixes shared artifacts with per-address projections.
 
 ### Shared state
 
-- `index.sqlite` stores registrations, delivery history, attachment metadata, projections, mailbox state, and thread summaries.
+- `index.sqlite` stores registrations, delivery history, attachment metadata, projections, and shared structural metadata for the mailbox root.
 - The current transport intentionally uses SQLite `DELETE` journal mode rather than WAL sidecar files.
 - `locks/index.lock` and `locks/addresses/<address>.lock` serialize sensitive writes.
+- Shared-root unread counters and other mailbox-view state are not authoritative once mailbox-local SQLite is available.
+
+### Mailbox-local state
+
+- Each resolved mailbox directory owns one stable `mailbox.sqlite`.
+- That mailbox-local database stores mailbox-view state that can vary by mailbox, including read or unread, starred, archived, deleted, and mailbox-local thread summaries.
+- `message_state` rows are keyed by `message_id`.
+- `thread_summaries` rows are keyed by `thread_id`.
+- Because the database already scopes to one mailbox directory, mailbox-local tables do not need `registration_id` in their row identity.
 
 ### Registration entries
 
@@ -82,7 +92,8 @@ The mailbox root mixes shared artifacts with per-address projections.
 
 - The Markdown file under `messages/` is the immutable content authority.
 - The symlink under `inbox/` or `sent/` is a mailbox view of that authority.
-- SQLite is the mutable view: read flags, archive flags, thread summaries, and projection catalog data.
+- The shared `index.sqlite` is the mutable structural catalog for the mailbox root.
+- The mailbox-local `mailbox.sqlite` is the mutable mailbox-view store for read flags, archive flags, deleted or starred state, and thread unread summaries.
 
 If you need the exact message schema, pair this page with [Canonical Model](canonical-model.md). If you need the mutation boundary, pair it with [Managed Scripts](managed-scripts.md).
 

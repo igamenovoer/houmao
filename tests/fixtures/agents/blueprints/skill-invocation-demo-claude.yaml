@@ -1,0 +1,4 @@
+schema_version: 1
+name: skill-invocation-demo-claude
+brain_recipe: ../brains/brain-recipes/claude/skill-invocation-demo-default.yaml
+role: skill-invocation-demo

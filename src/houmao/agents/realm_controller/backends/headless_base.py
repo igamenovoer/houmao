@@ -13,8 +13,8 @@ from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
 from ..errors import BackendExecutionError
 from ..models import BackendKind, LaunchPlan, SessionControlResult, SessionEvent
-from .claude_bootstrap import ensure_claude_home_bootstrap
-from .codex_bootstrap import ensure_codex_home_bootstrap
+from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
+from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
 from .headless_runner import HeadlessCliRunner
 from .tmux_runtime import (
     TmuxCommandError,
@@ -23,9 +23,15 @@ from .tmux_runtime import (
     generate_tmux_session_name as generate_tmux_session_name_shared,
     has_tmux_session as has_tmux_session_shared,
     kill_tmux_session as kill_tmux_session_shared,
+    prepare_headless_agent_window as prepare_headless_agent_window_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
 )
+
+# Legacy module aliases kept for tests and external monkeypatch hooks. Runtime launch
+# policy is resolved before backend execution and no longer invokes these directly.
+ensure_claude_home_bootstrap = _ensure_claude_home_bootstrap_legacy
+ensure_codex_home_bootstrap = _ensure_codex_home_bootstrap_legacy
 
 
 @dataclass
@@ -90,7 +96,12 @@ class HeadlessInteractiveSession:
 
         self._force_cleanup_on_terminate = force_cleanup
 
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+    ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
 
         if not prompt.strip():
@@ -103,23 +114,21 @@ class HeadlessInteractiveSession:
         env.update(self._plan.env)
         env[self._plan.home_env_var] = str(self._plan.home_path)
         inject_loopback_no_proxy_env(env)
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=env)
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=env,
-                working_directory=self._plan.working_directory,
-            )
+
+        run_kwargs: dict[str, Any] = {
+            "command": command,
+            "env": env,
+            "cwd": self._plan.working_directory,
+            "turn_index": turn_index,
+            "output_format": self._output_format,
+            "tmux_session_name": session_name,
+            "turn_artifacts_root": self._turn_artifacts_root,
+        }
+        if turn_artifact_dir_name is not None:
+            run_kwargs["turn_artifact_dir_name"] = turn_artifact_dir_name
 
         run_result = self._runner.run(
-            command=command,
-            env=env,
-            cwd=self._plan.working_directory,
-            turn_index=turn_index,
-            output_format=self._output_format,
-            tmux_session_name=session_name,
-            turn_artifacts_root=self._turn_artifacts_root,
+            **run_kwargs,
         )
 
         if run_result.returncode != 0:
@@ -213,7 +222,7 @@ class HeadlessInteractiveSession:
         self._publish_tmux_session_environment()
 
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
-        command = [self._plan.executable, *self._plan.args]
+        command = [self._plan.executable, *self._plan.args, *self._base_command_args()]
         effective_prompt = prompt
 
         if self._state.session_id:
@@ -237,6 +246,9 @@ class HeadlessInteractiveSession:
     def _bootstrap_args(self) -> list[str]:
         return []
 
+    def _base_command_args(self) -> list[str]:
+        return []
+
     def _resume_args(self, session_id: str) -> list[str]:
         return ["--resume", session_id]
 
@@ -258,6 +270,12 @@ class HeadlessInteractiveSession:
                     "Headless resume requires existing tmux session "
                     f"`{persisted}` but it is unavailable: {detail}"
                 )
+            try:
+                prepare_headless_agent_window_shared(session_name=persisted)
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare headless tmux agent surface in `{persisted}`: {exc}"
+                ) from exc
             self._state.tmux_session_name = persisted
             self._publish_tmux_session_environment()
             return
@@ -283,12 +301,20 @@ class HeadlessInteractiveSession:
             detail = tmux_error_detail_shared(has) or "unknown tmux error"
             raise BackendExecutionError(f"Failed to query tmux session `{session_name}`: {detail}")
 
+        created_session = False
         try:
             create_tmux_session_shared(
                 session_name=session_name,
                 working_directory=self._plan.working_directory,
             )
+            created_session = True
+            prepare_headless_agent_window_shared(session_name=session_name)
         except TmuxCommandError as exc:
+            if created_session:
+                try:
+                    kill_tmux_session_shared(session_name=session_name)
+                except TmuxCommandError:
+                    pass
             raise BackendExecutionError(str(exc)) from exc
 
         self._state.tmux_session_name = session_name
@@ -308,15 +334,6 @@ class HeadlessInteractiveSession:
         launch_env["AGENTSYS_TOOL"] = self._plan.tool
         if self._state.session_id:
             launch_env["AGENTSYS_RESUME_ID"] = self._state.session_id
-
-        if self._plan.tool == "claude":
-            ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=launch_env)
-        if self._plan.tool == "codex":
-            ensure_codex_home_bootstrap(
-                home_path=self._plan.home_path,
-                env=launch_env,
-                working_directory=self._plan.working_directory,
-            )
 
         try:
             set_tmux_session_environment_shared(

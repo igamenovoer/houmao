@@ -1,6 +1,27 @@
 # Houmao
 > A framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents.
 
+## Current Status
+
+Houmao is under active development, and the operator-facing workflow is still stabilizing. Expect rough edges, incomplete coverage, and interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
+
+The current end-to-end proof-of-concept is the headless ping-pong demo pack at `scripts/demo/mail-ping-pong-gateway-demo-pack/`. It launches one headless Claude agent and one headless Codex agent, lets them coordinate through the shared mailbox and gateway surfaces, and verifies the resulting conversation from demo-owned artifacts.
+
+Current limitations of that proof-of-concept:
+
+- it is fully headless, so the operator does not get an in-band interactive user surface during the run
+- its primary outputs are raw JSON inspect/report artifacts, which are good for verification but not yet a polished human-facing viewing experience
+
+If you want to try Houmao today, start by following that demo instead of assembling a custom workflow from scratch. Treat its practice as the current recommended path:
+
+- use a tracked agent-definition directory with recipes, roles, and projected runtime-owned skills
+- keep generated runtime, mailbox, project, and server state under one dedicated output root
+- drive the system through the managed `start -> kickoff -> wait/inspect -> verify -> stop` flow
+- use the persisted inspect and report artifacts as the source of truth for what happened
+- prefer the gateway-first shared mailbox workflow demonstrated there for multi-agent coordination
+
+Once that demo works in your environment, use it as the baseline pattern for adapting Houmao to your own agents and tasks.
+
 ## Project Introduction
 
 ### What It Is
@@ -25,7 +46,7 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 - **Construction**: build agent runtimes from tool specs + skills + roles (and optional blueprints).
 - **Management**: start/resume/prompt/stop agents with `houmao-cli` (typically tmux-backed so you can inspect and interact).
-- **Team communication**: a shared control/communication plane for groups of terminals (currently via CAO, optional).
+- **Team communication**: a shared control/communication plane for groups of terminals (currently built on CAO internally, optional).
 
 ### Why This Is Useful (Benefits)
 
@@ -73,10 +94,14 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is only needed if you want to use the `cao_rest` backend or the `houmao-cao-server` commands. Install it from our forked `hz-release` branch, which is the supported source for `Houmao` and may include features beyond upstream `main`:
+CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend, `houmao-cao-server`, or the `houmao-server + houmao-srv-ctrl` replacement pair.
+
+In normal operator workflows, prefer the Houmao utilities over invoking raw `cao` or `cao-server` directly. Houmao still depends on CAO internally for the `cao_rest` backend and CAO-compatible control surfaces.
+
+Install CAO from the pinned compatibility commit used by this repository:
 
 ```bash
-uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
+uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6
 ```
 
 Verify the required executables are available:
@@ -92,10 +117,16 @@ command -v tmux
 
 - `houmao-cli`: build/start/prompt/stop lifecycle
 - `houmao-cao-server`: local `cao-server` start/status/stop (optional)
+- `houmao-server`: Houmao-owned CAO-compatible server with Houmao extension routes
+- `houmao-srv-ctrl`: CAO-compatible wrapper CLI paired with `houmao-server`
+
+Prefer these Houmao entry points for normal use. Raw `cao` and `cao-server` are still part of the underlying dependency stack, but they are not the recommended primary interface for Houmao workflows.
 
 ```bash
 houmao-cli --help
 houmao-cao-server --help
+houmao-server --help
+houmao-srv-ctrl --help
 ```
 
 ### 1. Create / Choose An Agent Definition Directory
@@ -301,7 +332,7 @@ houmao-cli start-session \
 
 ### 5. CAO-Backed Sessions (Optional)
 
-Start a local CAO server:
+Prefer the Houmao launcher wrapper when you need a local CAO-compatible control plane:
 
 ```bash
 houmao-cao-server start  --config config/cao-server-launcher/local.toml
@@ -426,13 +457,15 @@ pixi run test-runtime
 
 ### CAO
 
-CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used by the `cao_rest` backend and the local `houmao-cao-server` launcher flow.
+CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used internally by the `cao_rest` backend and by Houmao's CAO-compatible launcher or server flows.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
-Install CAO from our forked `hz-release` branch and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
+For normal Houmao usage, prefer `houmao-cao-server`, `houmao-server`, and `houmao-srv-ctrl` instead of invoking raw `cao` or `cao-server` directly. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's wrappers.
+
+Install CAO from the supported fork / pinned compatibility commit and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
 
 ```bash
-uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release
+uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6
 command -v cao-server
 command -v tmux
 ```

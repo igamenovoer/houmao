@@ -118,7 +118,7 @@ Start a tmux-backed session:
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
-  --brain-manifest tmp/agents-runtime/manifests/codex/<home-id>.yaml \
+  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend cao_rest \
   --agent-identity gpu
@@ -154,6 +154,10 @@ pixi run python -m houmao.agents.realm_controller gateway-send-prompt \
 - If no live gateway is attached, `gateway-status` falls back to seeded offline state instead of pretending the session is not gateway-capable.
 - Tmux-backed stop flows try to detach a live gateway before terminating the backend session.
 - The runtime-managed session model persists regardless of whether a gateway is attached.
+
+## Troubleshooting
+
+- [Troubleshooting Codex CAO Approval Prompts](../troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Use this when a CAO-backed Codex session starts normally but a later prompt turn stops on an approval or sandbox menu instead of completing the requested work.
 
 ## Source References
 

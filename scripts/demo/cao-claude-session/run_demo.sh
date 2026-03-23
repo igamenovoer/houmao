@@ -20,6 +20,8 @@ CAO_SERVER_STARTED=0
 SESSION_MANIFEST=""
 SESSION_STOPPED=0
 SNAPSHOT=0
+RESPONSE_SENTINEL_BEGIN="AGENTSYS_DEMO_RESPONSE_BEGIN"
+RESPONSE_SENTINEL_END="AGENTSYS_DEMO_RESPONSE_END"
 if [[ "${1:-}" == "--snapshot-report" ]]; then
   SNAPSHOT=1
 fi
@@ -340,20 +342,28 @@ print(payload[sys.argv[2]])
 PY
 }
 
-extract_response_text() {
+extract_response_payload() {
   local events_path="$1"
-  pixi run python - "$events_path" <<'PY'
+  pixi run python - "$events_path" "$RESPONSE_SENTINEL_BEGIN" "$RESPONSE_SENTINEL_END" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-lines = [line.strip() for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
-response = ""
-for line in lines:
-    event = json.loads(line)
-    if event.get("kind") == "done":
-        response = str(event.get("message", ""))
-print(response)
+from houmao.demo.cao_response_extraction import load_response_text_from_jsonl
+
+result = load_response_text_from_jsonl(
+    Path(sys.argv[1]),
+    sentinel_begin=sys.argv[2],
+    sentinel_end=sys.argv[3],
+)
+print(
+    json.dumps(
+        {
+            "response_text": result.response_text,
+            "response_text_source": result.response_text_source,
+        }
+    )
+)
 PY
 }
 
@@ -405,9 +415,11 @@ run_cmd prompt pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity "$SESSION_MANIFEST" \
   --prompt "$PROMPT"
 
-RESPONSE_TEXT="$(extract_response_text "$WORKSPACE_DIR/prompt.log")"
+extract_response_payload "$WORKSPACE_DIR/prompt.log" >"$WORKSPACE_DIR/response.json"
+RESPONSE_TEXT="$(extract_json_field "$WORKSPACE_DIR/response.json" response_text)"
+RESPONSE_TEXT_SOURCE="$(extract_json_field "$WORKSPACE_DIR/response.json" response_text_source)"
 if [[ -z "${RESPONSE_TEXT// }" ]]; then
-  fail "prompt response was empty"
+  fail "prompt response extraction was empty (source=$RESPONSE_TEXT_SOURCE)"
 fi
 
 if pixi run python -m houmao.agents.realm_controller stop-session \
@@ -416,7 +428,7 @@ if pixi run python -m houmao.agents.realm_controller stop-session \
   SESSION_STOPPED=1
 fi
 
-pixi run python - "$REPORT_PATH" "$SESSION_MANIFEST" "$WORKSPACE_DIR" "$RESPONSE_TEXT" <<'PY'
+pixi run python - "$REPORT_PATH" "$SESSION_MANIFEST" "$WORKSPACE_DIR" "$RESPONSE_TEXT" "$RESPONSE_TEXT_SOURCE" <<'PY'
 import json
 import sys
 from datetime import UTC, datetime
@@ -426,11 +438,13 @@ report_path = Path(sys.argv[1])
 session_manifest = sys.argv[2]
 workspace = sys.argv[3]
 response_text = sys.argv[4]
+response_text_source = sys.argv[5]
 payload = {
     "status": "ok",
     "backend": "cao_rest",
     "tool": "claude",
     "response_text": response_text,
+    "response_text_source": response_text_source,
     "session_manifest": session_manifest,
     "workspace": workspace,
     "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),

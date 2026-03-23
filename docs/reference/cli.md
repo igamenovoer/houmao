@@ -12,6 +12,8 @@ pixi install
 
 - Runtime CLI: `houmao-cli`
 - CAO launcher CLI: `houmao-cao-server`
+- Houmao server CLI: `houmao-server`
+- Houmao pair CLI: `houmao-srv-ctrl`
 
 Runtime subcommands:
 
@@ -27,6 +29,8 @@ Module equivalents:
 ```bash
 pixi run python -m houmao.agents.realm_controller --help
 pixi run python -m houmao.cao.tools.cao_server_launcher --help
+houmao-server --help
+houmao-srv-ctrl --help
 ```
 
 ## Common Runtime Flags
@@ -34,12 +38,26 @@ pixi run python -m houmao.cao.tools.cao_server_launcher --help
 Useful `start-session` overrides:
 
 - `--cao-base-url http://localhost:<port>` or `http://127.0.0.1:<port>` for a supported launcher-managed loopback CAO endpoint
+- `--houmao-base-url http://127.0.0.1:<port>` for the `houmao_server_rest` runtime backend
 - `--mailbox-transport filesystem`
 - `--mailbox-root <path>`
 - `--mailbox-principal-id <principal-id>`
 - `--mailbox-address <full-address>`
 
+Useful `build-brain` override:
+
+- `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain instead of the default interactive posture
+
+The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctrl`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
+
+Within that pair, `houmao-srv-ctrl` is split deliberately: top-level `launch` and `install` are Houmao-owned pair commands, while `houmao-srv-ctrl cao ...` is the explicit CAO-compatible namespace.
+
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
+
+When `start-session` is used with `--json`, unattended sessions may also return:
+
+- `launch_policy_provenance` with the requested mode, detected CLI version, selected strategy id, and whether resolution came from the registry or the transient override env var
+- `launch_policy` with the resolved strategy metadata that was attached to the launch plan
 
 Command reminders:
 

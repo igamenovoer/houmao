@@ -20,14 +20,27 @@ The system SHALL support a non-CAO interactive mode where callers can send multi
 ### Requirement: Headless Claude/Gemini/Codex sessions are tmux-backed and inspectable
 For headless sessions of tmux-backed CLI tools (at minimum Claude Code, Gemini, and Codex), the runtime SHALL create and own a tmux session per started session.
 
-The tmux session name SHALL follow the `AGENTSYS-...` agent identity rules.
+The runtime SHALL choose and persist one tmux session name per started session as a unique live-session handle rather than assuming the canonical agent identity is the tmux session name.
+
+The runtime SHALL reserve tmux window 0 as the primary agent surface for that session and SHALL keep the headless agent itself on that primary surface across runtime-controlled turns.
+
+The runtime SHALL name that stable primary window `agent`.
 
 The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` into the tmux session environment so that name-based `--agent-identity` resolution can locate the persisted session manifest.
 
-#### Scenario: Start a headless session creates a tmux identity with manifest pointer
+Auxiliary windows MAY exist later in the same tmux session for gateway, logs, or operator diagnostics, but they SHALL NOT displace the agent from window 0 and SHALL NOT redefine the primary headless attach surface.
+
+#### Scenario: Start a headless session creates a tmux identity with manifest pointer and primary agent window
 - **WHEN** a developer starts a headless Codex, Claude, or Gemini session without CAO
-- **THEN** the runtime creates a tmux session whose name is in the `AGENTSYS-` namespace
+- **THEN** the runtime creates a tmux-backed live session and persists its actual tmux session name as metadata for that live session
 - **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH` pointing at the persisted session manifest JSON
+- **AND THEN** window 0 is reserved as the primary agent surface for that session
+- **AND THEN** that primary window is named `agent`
+
+#### Scenario: Auxiliary windows do not replace the primary agent surface
+- **WHEN** a tmux-backed headless session later creates another window for gateway, logs, or operator diagnostics
+- **THEN** the headless agent remains anchored to window 0
+- **AND THEN** callers can continue treating window 0 as the canonical attach surface for that headless agent
 
 ### Requirement: Codex headless backend uses `codex exec --json` and resumes via thread id
 For Codex, the runtime SHALL support a non-CAO interactive backend using repeated Codex CLI invocations that emit machine-readable JSONL output and provide a stable resume identifier.
@@ -127,9 +140,11 @@ When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
 or `no_proxy` and will respect caller-provided values (for example, to enable
 traffic-watching development proxies).
 
+When starting a CAO-backed session, the runtime SHALL pass the resolved working directory through to CAO as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or the launcher home.
+
 #### Scenario: CAO-backed session launch and messaging
 - **WHEN** a developer starts a CAO-backed session and provides a CAO API base URL at session start
-- **THEN** the system creates a CAO session/terminal, sends prompts, and fetches replies using CAO REST endpoints
+- **THEN** the system creates a CAO session/terminal using the resolved working directory, sends prompts, and fetches replies using CAO REST endpoints
 - **AND THEN** the system persists the CAO API base URL and terminal identity in the session manifest
 - **AND THEN** subsequent prompt and stop operations target the CAO terminal using only the persisted session manifest fields (no CAO base URL override)
 
@@ -144,28 +159,64 @@ traffic-watching development proxies).
 - **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
 - **THEN** runtime-owned CAO HTTP communication uses caller-provided proxy and `NO_PROXY` settings
 
+#### Scenario: CAO-backed launch does not reject a workdir outside launcher home
+- **WHEN** a developer starts a CAO-backed session whose resolved workdir is outside the launcher home or user home tree
+- **AND WHEN** the installed CAO server accepts that workdir
+- **THEN** the runtime passes the resolved workdir through to CAO
+- **AND THEN** the runtime does not fail solely because that workdir is outside those home paths
+
 ### Requirement: Mailbox enablement is resolved before session start and persisted for resume
-The runtime SHALL enable filesystem mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
+The runtime SHALL enable mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
 
 The runtime SHALL resolve one effective mailbox configuration before building the launch plan, SHALL persist that resolved mailbox configuration in the session manifest, and SHALL restore it when resuming the session.
 
-#### Scenario: Recipe configuration enables mailbox support
+The resolved mailbox configuration SHALL preserve transport-specific binding data appropriate to the selected transport, and it SHALL use transport-specific binding shapes rather than one filesystem-shaped mailbox record with optional extras.
+
+For filesystem sessions, that resolved configuration MAY include a filesystem mailbox root and registration-derived filesystem bindings.
+
+For `stalwart` sessions, that resolved configuration SHALL include the mailbox transport identity, mailbox principal identity, mailbox address, and a transport-safe JMAP endpoint plus secret-free `credential_ref` metadata needed to restore the same mailbox binding and construct the same gateway mailbox adapter later without persisting inline secrets in the manifest payload.
+
+#### Scenario: Recipe configuration enables filesystem mailbox support
 - **WHEN** a developer starts an agent session whose resolved recipe enables filesystem mailbox support
 - **THEN** the runtime resolves that mailbox configuration before building the launch plan
 - **AND THEN** the resolved session uses that mailbox transport and principal binding for subsequent mailbox-aware runtime work
 
-#### Scenario: Start session CLI overrides mailbox transport or root
-- **WHEN** a developer starts an agent session with explicit mailbox CLI overrides such as transport or filesystem root
-- **THEN** the runtime applies those overrides to the effective mailbox configuration for that session
-- **AND THEN** the resulting session manifest records the overridden mailbox transport and bindings rather than forcing resume to re-derive them from recipe defaults
+#### Scenario: Recipe configuration enables Stalwart mailbox support
+- **WHEN** a developer starts an agent session whose resolved recipe enables `stalwart` mailbox support
+- **THEN** the runtime resolves that mailbox configuration before building the launch plan
+- **AND THEN** the resolved session uses that mailbox transport and principal binding for subsequent mailbox-aware runtime work
 
-#### Scenario: Resume restores persisted mailbox bindings
+#### Scenario: Start session CLI overrides mailbox transport-specific settings
+- **WHEN** a developer starts an agent session with explicit mailbox CLI overrides such as transport or transport-specific mailbox location or endpoint settings
+- **THEN** the runtime applies those overrides to the effective mailbox configuration for that session
+- **AND THEN** the resulting session manifest records the overridden mailbox transport and transport-safe mailbox bindings rather than forcing resume to re-derive them from recipe defaults
+
+#### Scenario: Resume restores persisted filesystem mailbox bindings
 - **WHEN** a developer resumes a previously started mailbox-enabled session
 - **THEN** the runtime restores the mailbox transport, principal binding, and transport-specific mailbox bindings from the persisted session manifest
 - **AND THEN** runtime mailbox commands for that resumed session preserve the same sender principal and mailbox root unless an explicit refresh changes them later
 
+#### Scenario: Resume restores persisted Stalwart mailbox bindings
+- **WHEN** a developer resumes a previously started `stalwart` mailbox-enabled session
+- **THEN** the runtime restores the mailbox transport, principal binding, mailbox address, and transport-safe mailbox binding metadata from the persisted session manifest
+- **AND THEN** runtime mailbox commands for that resumed session preserve the same sender principal and Stalwart mailbox identity unless an explicit refresh changes them later
+
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
-When filesystem mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the filesystem mailbox binding env contract before mailbox-related work is expected from the agent.
+When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the transport-specific mailbox binding env contract before mailbox-related work is expected from the agent.
+
+When the selected transport is `filesystem`, the runtime SHALL continue to derive and publish the filesystem mailbox content root and registration-dependent filesystem mailbox bindings for that session.
+
+When the selected transport is `stalwart`, the runtime SHALL publish the real-mail mailbox binding env vars for that session and SHALL NOT synthesize filesystem path bindings that do not belong to that transport.
+
+Those Stalwart runtime bindings SHALL expose a runtime-managed authentication reference derived from the secret-free persisted `credential_ref` rather than embedding mailbox secrets directly into the persisted manifest payload.
+
+When no explicit filesystem mailbox content root override is supplied, the runtime SHALL derive the effective filesystem mailbox content root from the independent Houmao mailbox root rather than from the effective runtime root.
+
+When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before publishing `AGENTSYS_MAILBOX_FS_ROOT`.
+
+When active filesystem mailbox env bindings depend on the current session address having an active mailbox registration, the runtime SHALL bootstrap or confirm that session's mailbox registration before deriving those env bindings for `start-session`.
+
+The runtime SHALL satisfy that registration-dependent env-binding contract through bootstrap ordering rather than by synthesizing fallback mailbox paths when the active registration is missing.
 
 #### Scenario: Start session projects mailbox system skills with filesystem bindings
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
@@ -173,10 +224,28 @@ When filesystem mailbox support is enabled for a started session, the runtime SH
 - **AND THEN** the runtime starts the session with the filesystem mailbox binding env vars needed by those mailbox system skills
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to the effective mailbox content root for that session
 
-#### Scenario: Start session defaults filesystem mailbox root from runtime root
+#### Scenario: Start session projects mailbox system skills with Stalwart bindings
+- **WHEN** a developer starts an agent session with `stalwart` mailbox support enabled
+- **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
+- **AND THEN** the runtime starts the session with the email mailbox binding env vars needed by those mailbox system skills
+- **AND THEN** the runtime does not populate filesystem mailbox root or mailbox-path bindings for that Stalwart session
+
+#### Scenario: Start session defaults filesystem mailbox root from the Houmao mailbox root
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
-- **THEN** the runtime derives the effective filesystem mailbox content root from the configured runtime root
+- **THEN** the runtime derives the effective filesystem mailbox content root from the Houmao mailbox root default
 - **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived default path
+
+#### Scenario: Mailbox-root env-var override redirects the effective mailbox root
+- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
+- **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
+- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived path
+
+#### Scenario: Second mailbox-enabled session joins an initialized shared mailbox root without manual pre-registration
+- **WHEN** one mailbox-enabled session has already initialized and registered itself into a shared filesystem mailbox root
+- **AND WHEN** a second mailbox-enabled session starts against that same shared mailbox root with its own mailbox address
+- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before deriving registration-dependent filesystem mailbox env bindings
+- **AND THEN** the second `start-session` succeeds without requiring manual mailbox pre-registration outside the runtime startup path
 
 ### Requirement: Runtime sessions support filesystem mailbox binding refresh
 The runtime SHALL support an explicit control path that refreshes filesystem mailbox binding env vars for an active session without requiring regeneration of the mailbox system skill templates.
@@ -207,28 +276,82 @@ That `mail` command surface SHALL support at minimum the operations `check`, `se
 - **THEN** the runtime asks that live agent session to reply through the mailbox protocol rather than starting an unrelated new root message
 - **AND THEN** the reply preserves the existing `thread_id`, `in_reply_to`, and `references` semantics for that thread
 
-### Requirement: Runtime mail commands use skill-directed prompts with appended mailbox metadata and validate a sentinel-delimited result contract
+### Requirement: Runtime mail commands keep one operator surface while allowing gateway-backed shared mailbox interaction
+The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface and structured mailbox result shape across filesystem and `stalwart` sessions.
+
 The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
 
-That mailbox prompt SHALL explicitly tell the agent which projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+That mailbox prompt SHALL explicitly tell the agent which discoverable projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+
+For the current mailbox skill contract, that prompt SHALL identify the stable transport-specific mailbox skill name together with the primary visible mailbox skill path under the active skill destination.
+
+The runtime MAY mention a hidden compatibility mirror for the same mailbox skill, but it SHALL NOT use a hidden `.system/mailbox/...` path as the sole primary mailbox skill reference in that prompt.
+
+The mailbox prompt and projected mailbox system skill SHALL prefer a live gateway mailbox facade when that facade is available for the addressed session.
+
+When no live gateway mailbox facade is available, the runtime MAY continue to rely on the direct session-mediated mailbox path appropriate to the selected transport.
+
+The mailbox prompt SHALL follow gateway-aware transport expectations:
+
+- filesystem prompts SHALL continue to instruct the agent to follow filesystem mailbox rules and helper boundaries when those are required for that transport,
+- `stalwart` prompts SHALL direct the agent to use the shared gateway mailbox facade when available or Stalwart-backed mailbox bindings when not, without inheriting filesystem-only `rules/` or managed-script instructions.
+
+The runtime-owned prompt-construction path SHALL dispatch by transport and gateway availability rather than assuming filesystem-only mailbox instructions for every mailbox-enabled session.
 
 The `mail` command handler SHALL validate exactly one structured mailbox result payload returned between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` sentinels in the agent output and SHALL surface that result to the operator in a parseable form.
 
-#### Scenario: Mail command uses skill-directed prompt with appended mailbox metadata
-- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session
+That sentinel-delimited structured result contract SHALL be the correctness boundary for mailbox result parsing. The runtime SHALL NOT rely on generic shadow dialog projection fidelity as the guarantee that mailbox result text was recovered exactly.
+
+For `shadow_only` mailbox commands, the runtime SHALL continue polling post-submit shadow text for the active request after generic lifecycle completion becomes provisionally satisfied until exactly one sentinel-delimited mailbox result payload for that request is visible or an existing timeout, stall, blocked-surface, unsupported-surface, or disconnect failure ends the command.
+
+For `shadow_only` mailbox commands, a submit-ready surface without a complete sentinel-delimited mailbox result for the active request SHALL be treated as provisional only. The runtime SHALL NOT return mailbox success or a missing-sentinel parse failure solely because the generic shadow lifecycle gate became satisfied before the sentinel contract was observed.
+
+For `shadow_only` mailbox commands, prompt-echo mentions of `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT satisfy mailbox completion gating or mailbox result validation by themselves.
+
+For `shadow_only` mailbox commands, mailbox completion gating and mailbox result validation SHALL use the same active-request result-selection contract so that surfaces ignored as prompt-echo noise during provisional completion are not later treated as malformed mailbox results.
+
+#### Scenario: Filesystem mail command prompt includes filesystem-specific mailbox guidance
+- **WHEN** a developer invokes a runtime `mail` command for a filesystem mailbox-enabled session
 - **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the projected mailbox system skill the agent should use
+- **AND THEN** that prompt explicitly names the discoverable filesystem mailbox system skill the agent should use
+- **AND THEN** that prompt points at the primary visible filesystem mailbox skill path instead of relying only on a hidden `.system` mailbox path
 - **AND THEN** that prompt tells the agent to inspect the shared mailbox `rules/` directory before interacting with shared mailbox state
 - **AND THEN** that prompt tells the agent to use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`
-- **AND THEN** that prompt appends structured mailbox metadata for the mailbox operation and result contract
+
+#### Scenario: Gateway-aware mail command prompt prefers the shared gateway facade
+- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session with a live gateway mailbox facade
+- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
+- **AND THEN** that prompt explicitly names the discoverable projected mailbox system skill the agent should use
+- **AND THEN** that prompt tells the agent to prefer the live gateway mailbox facade for the shared mailbox operation rather than reasoning about transport details directly
+
+#### Scenario: Stalwart mail command prompt excludes filesystem-only mailbox guidance when direct transport fallback is used
+- **WHEN** a developer invokes a runtime `mail` command for a `stalwart` mailbox-enabled session with no live gateway mailbox facade
+- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
+- **AND THEN** that prompt explicitly names the discoverable Stalwart mailbox system skill the agent should use
+- **AND THEN** that prompt does not direct the agent to use filesystem mailbox `rules/`, lock files, or managed scripts that are not part of the Stalwart transport
 
 #### Scenario: Mail command returns structured mailbox result
 - **WHEN** a mailbox-enabled agent completes a runtime `mail` request
 - **THEN** the agent returns one structured mailbox result payload describing the mailbox operation outcome between the required sentinels
 - **AND THEN** the runtime validates and prints that result in a parseable form for the operator
 
+#### Scenario: Shadow-mode mailbox parsing relies on the schema contract rather than exact projection cleanup
+- **WHEN** a mailbox-enabled shadow-mode session returns one sentinel-delimited JSON result together with surrounding TUI noise or imperfect projection cleanup
+- **THEN** the runtime still treats the sentinel-delimited structured payload as the reliability boundary
+- **AND THEN** mailbox correctness does not depend on `dialog_projection.dialog_text` being an exact recovered reply transcript
+
+#### Scenario: Shadow-mode mailbox waits past transient submit-ready rebound for sentinel result
+- **WHEN** a mailbox-enabled `shadow_only` session returns to a submit-ready surface before the sentinel-delimited mailbox result for the active request is visible
+- **THEN** the runtime keeps polling post-submit shadow text instead of returning mailbox success or a missing-sentinel parse failure
+- **AND THEN** the runtime surfaces the mailbox result only after exactly one sentinel-delimited payload for that request is observed or the existing bounded turn failure policy fires
+
+#### Scenario: Shadow-mode mailbox ignores echoed request sentinel names
+- **WHEN** a mailbox-enabled `shadow_only` session echoes the runtime-owned mailbox prompt or response-contract metadata so that the sentinel names appear in projected text before any real mailbox result block is emitted
+- **THEN** the runtime treats those echoed sentinel mentions as provisional noise rather than mailbox-result evidence
+- **AND THEN** the runtime keeps polling until a real active-request mailbox result payload is observed or the existing bounded turn failure policy fires
+
 #### Scenario: Mail command fails on malformed sentinel payload
-- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON, or returns more than one sentinel-delimited mailbox result payload
+- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON inside a real sentinel-delimited result block, or returns more than one sentinel-delimited mailbox result payload for the active request
 - **THEN** the runtime returns an explicit mailbox-result parsing error for that `mail` command
 - **AND THEN** the runtime does not send an automatic retry prompt in v1
 
@@ -387,6 +510,151 @@ The system SHALL persist a session manifest JSON (session handle) alongside the 
 - **AND THEN** if required CAO manifest fields are missing/blank or internally inconsistent (for example `cao.api_base_url` != `backend_state.api_base_url`), the system fails fast with `SessionManifestError`
 - **AND THEN** if CAO network/HTTP requests fail, the system reports the failure as `BackendExecutionError`
 
+### Requirement: Runtime defaults new build and session state to the Houmao runtime root
+When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
+
+When no explicit runtime-root override is supplied and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
+
+At minimum, this default SHALL apply to:
+- generated brain homes under `~/.houmao/runtime/homes/<home-id>/`,
+- generated manifests under `~/.houmao/runtime/manifests/<home-id>.yaml`,
+- runtime-owned session roots for started sessions,
+- other durable runtime-owned session artifacts that are derived from the effective runtime root.
+
+Explicit runtime-root overrides SHALL continue to take precedence over the default.
+
+The default build-state layout SHALL NOT require tool- or family-based directory bucketing in order to associate a generated home or manifest with an agent.
+
+When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name, authoritative `agent_id`, persisted terminal metadata, and other explicit runtime metadata rather than on bucket names in the directory hierarchy.
+
+Whenever runtime-owned directory naming needs one path component that stands for one agent rather than one session, backend, or service instance, the runtime SHALL use authoritative `agent_id` for that directory name instead of canonical agent name.
+
+#### Scenario: Build flow defaults generated homes and manifests to the Houmao runtime root
+- **WHEN** a developer runs a build flow without an explicit runtime-root override
+- **THEN** the generated brain home and manifest are written under `~/.houmao/runtime`
+
+#### Scenario: Build flow does not require tool-family buckets in the default layout
+- **WHEN** a developer runs a build flow without an explicit runtime-root override
+- **THEN** the generated home path is rooted under `~/.houmao/runtime/homes/<home-id>/`
+- **AND THEN** the generated manifest path is rooted under `~/.houmao/runtime/manifests/<home-id>.yaml`
+- **AND THEN** those default paths do not require an intermediate tool- or family-grouping bucket
+
+#### Scenario: Start-session defaults durable session state to the Houmao runtime root
+- **WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
+- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `~/.houmao/runtime`
+
+#### Scenario: Runtime-root env-var override redirects durable runtime state
+- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **AND WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
+- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `/tmp/houmao-runtime`
+
+### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
+For runtime-owned sessions, the runtime SHALL persist canonical agent name as a strong human-facing metadata field for normal operator use, but it SHALL NOT treat canonical agent name as the authoritative writable-state key.
+
+The runtime SHALL materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session, and that `agent_id` SHALL replace registry-specific `agent_key` for cross-module identity association.
+
+The session-manifest schema for this capability SHALL expose canonical agent name and authoritative `agent_id` as first-class top-level manifest fields rather than burying them inside `backend_state`.
+
+When the caller does not provide an explicit `agent_id`, the runtime SHALL first reuse a previously persisted `agent_id` for the same built or resumed agent when one exists in manifest metadata, build metadata, or equivalent runtime-owned metadata.
+
+Only when no explicit `agent_id` and no previously persisted `agent_id` exist SHALL the runtime bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+
+When runtime-controlled start, resume, or publication logic encounters an existing association for the same `agent_id` but a different canonical agent name, the runtime SHALL emit a warning and continue treating that `agent_id` as authoritative for system-owned writable association.
+
+When runtime-controlled lookup encounters more than one live or persisted association for the same canonical agent name but different authoritative `agent_id` values, the runtime SHALL surface ambiguity rather than silently treating those associations as one agent.
+
+#### Scenario: Start-session bootstraps a default agent id from the canonical agent name when no persisted id exists
+- **WHEN** a developer starts a runtime-owned session with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the caller does not provide an explicit `agent_id`
+- **AND WHEN** no previously persisted `agent_id` exists for that same built or resumed agent
+- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's initial authoritative `agent_id`
+- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the bootstrapped `agent_id`
+
+#### Scenario: Start-session reuses a previously persisted agent id
+- **WHEN** a developer starts or resumes a runtime-owned session for an agent whose existing persisted metadata already carries `agent_id=abc123`
+- **AND WHEN** the caller does not provide an explicit replacement `agent_id`
+- **THEN** the runtime reuses `agent_id=abc123`
+- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical agent name
+
+#### Scenario: Agent-keyed runtime-owned directories use agent id rather than canonical agent name
+- **WHEN** runtime-owned directory derivation needs one path component that stands for one agent
+- **THEN** the runtime uses that agent's authoritative `agent_id` for the directory name
+- **AND THEN** canonical agent name remains an operator-facing metadata field rather than the writable directory key
+
+#### Scenario: Explicit agent id reused with a different canonical name triggers a warning
+- **WHEN** runtime-owned metadata or shared-registry publication already associates `agent_id=abc123` with canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** a later runtime-controlled start or publication explicitly uses `agent_id=abc123` with canonical agent name `AGENTSYS-editor`
+- **THEN** the runtime emits a warning about the different-name same-id association
+- **AND THEN** the runtime still treats `agent_id=abc123` as the authoritative writable-state identity
+
+#### Scenario: Same canonical name with different agent ids is reported as ambiguous
+- **WHEN** runtime-controlled lookup sees more than one live or persisted session metadata surface for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** those metadata surfaces carry different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
+- **THEN** the runtime reports that canonical-name lookup is ambiguous
+- **AND THEN** it requires disambiguation by `agent_id`, manifest path, or another explicit metadata surface
+
+### Requirement: Tmux session names are unique live-session handles rather than authoritative agent names
+For tmux-backed runtime sessions, the runtime SHALL treat the tmux session name as a unique handle for one live session rather than as the source of truth for canonical agent name or authoritative `agent_id`.
+
+The runtime SHALL choose and persist the tmux session name explicitly for each started tmux-backed session rather than relying on tmux collision auto-renaming as an identity mechanism.
+
+Persisted runtime metadata for a tmux-backed session SHALL record at minimum:
+- canonical agent name,
+- authoritative `agent_id`,
+- the actual tmux session name used for that live session.
+
+The session-manifest schema for this capability SHALL also expose that actual tmux session name as a first-class top-level manifest field rather than only as backend-specific state.
+
+When runtime-controlled logic needs to recover the true canonical agent name or authoritative `agent_id` for a tmux-backed live session, it SHALL read persisted manifest metadata or shared-registry publication rather than inferring that identity from the tmux session name alone.
+
+#### Scenario: Tmux-backed start persists the actual tmux session name separately from canonical agent name
+- **WHEN** the runtime starts a tmux-backed session for canonical agent name `AGENTSYS-gpu`
+- **AND WHEN** the runtime chooses live tmux session name `houmao-session-abc123`
+- **THEN** persisted runtime metadata records canonical agent name `AGENTSYS-gpu`
+- **AND THEN** that same metadata also records tmux session name `houmao-session-abc123` as a distinct live-session handle
+
+#### Scenario: Runtime learns true agent identity from manifest or registry rather than from tmux session name
+- **WHEN** runtime-controlled logic needs to inspect tmux-backed live session `houmao-session-abc123`
+- **THEN** it reads persisted manifest metadata or shared-registry publication to recover canonical agent name and authoritative `agent_id`
+- **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
+
+### Requirement: Runtime creates and reuses a per-agent job dir for each started session
+For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.
+
+When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as:
+- `<AGENTSYS_LOCAL_JOBS_DIR>/<session-id>/`
+
+The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `AGENTSYS_JOB_DIR`.
+
+The per-agent job dir SHALL be intended for session-local logs, temporary outputs, and destructive scratch work, and SHALL NOT replace the durable runtime-owned session root under the effective runtime root.
+
+Resume and later runtime-controlled work for the same persisted session SHALL continue to use the same derived per-agent job dir rather than allocating a replacement directory for that same session id.
+
+For this capability, runtime-controlled stop behavior SHALL NOT automatically remove the job dir.
+
+#### Scenario: Start-session creates the job dir and publishes its binding
+- **WHEN** a developer starts a runtime-owned session with working directory `/repo/app`
+- **AND WHEN** the generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the runtime creates `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
+#### Scenario: Resume reuses the same job dir for the same session
+- **WHEN** the runtime resumes control of a previously started session whose working directory and session id already determine one per-agent job dir
+- **THEN** resumed runtime-controlled work continues to use that same per-agent job dir
+- **AND THEN** the runtime does not allocate a different destructive-scratch directory for that same logical session
+
+#### Scenario: Local-jobs-dir env-var override relocates the effective job dir
+- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a runtime-owned session whose generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the runtime creates `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
+
+#### Scenario: Stop-session does not auto-clean the job dir in this version
+- **WHEN** a runtime-owned session has created a job dir for one session id
+- **AND WHEN** a developer later stops that session through runtime-controlled stop behavior
+- **THEN** the runtime leaves the job dir in place in this version
+- **AND THEN** later cleanup of that scratch directory remains manual
+
 ### Requirement: Runtime-generated manifests/configs are schema-validated
 The system SHALL schema-validate all runtime-generated structured manifest/config artifacts on write and on read/load.
 
@@ -401,11 +669,11 @@ The system SHALL schema-validate all runtime-generated structured manifest/confi
 - **THEN** the runtime rejects the operation with an explicit schema-validation error instead of proceeding with undefined behavior
 
 ### Requirement: JSON Schema assets live in `src/` runtime package
-The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/gig_agents/.../schemas/`.
+The system SHALL keep JSON Schema files for runtime-generated structured artifacts inside the runtime package under `src/houmao/.../schemas/`.
 
 #### Scenario: Session manifest schema is versioned and discoverable
 - **WHEN** developers inspect the runtime package source
-- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v1.schema.json`) under the runtime package `schemas/` directory
+- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v3.schema.json`) under the runtime package `schemas/` directory
 - **AND THEN** generated artifacts include schema version information that selects the matching schema for validation
 
 ### Requirement: CAO parsing mode is explicit and constrained
@@ -416,6 +684,10 @@ Allowed values are exactly:
 - `shadow_only`
 
 The selected mode SHALL be persisted in session runtime state so resumed operations use the same parsing mode.
+
+`cao_only` SHALL remain the generic CAO-native mode for CAO-backed sessions.
+`shadow_only` SHALL be used only for tools that have a runtime-owned shadow parser family.
+The runtime SHALL define one explicit shadow-parser-support capability contract for this purpose, and that contract SHALL be shared by parsing-mode validation and backend parser-stack selection rather than inferred indirectly from unrelated defaults.
 
 Default mapping SHALL be:
 - `tool=claude` -> `shadow_only`
@@ -431,6 +703,10 @@ Default mapping SHALL be:
 - **AND WHEN** the tool is `codex`
 - **THEN** the resolved parsing mode is `shadow_only`
 
+#### Scenario: Session start accepts explicit `cao_only`
+- **WHEN** a caller starts a CAO-backed session and explicitly specifies `parsing_mode=cao_only`
+- **THEN** the resolved parsing mode is `cao_only`
+
 #### Scenario: Session start fails when parsing mode cannot be resolved
 - **WHEN** a caller starts a CAO-backed session and configuration does not provide an explicit parsing mode or a valid tool default
 - **THEN** the system rejects the start request with an explicit validation error
@@ -438,6 +714,32 @@ Default mapping SHALL be:
 #### Scenario: Unknown parsing mode is rejected
 - **WHEN** a caller requests a parsing mode other than `cao_only` or `shadow_only`
 - **THEN** the system rejects the request with an explicit unsupported-mode error
+
+#### Scenario: `shadow_only` is rejected when no runtime shadow parser exists
+- **WHEN** a caller requests `parsing_mode=shadow_only` for a CAO-backed tool that does not have a runtime-owned shadow parser family
+- **THEN** the system rejects the request with an explicit unsupported-mode error
+
+### Requirement: Repo-owned CAO workflows for supported shadow tools follow the shadow-first contract
+For CAO-backed tools that have a runtime-owned shadow parser family, repo-owned workflows, demos, and maintainer-facing helper surfaces SHALL treat `shadow_only` as the normal parsing posture.
+
+Such surfaces MAY rely on the existing per-tool parsing-mode default or request `shadow_only` explicitly, but SHALL NOT pin `cao_only` as their normal default unless the workflow exists specifically to exercise or debug the CAO-native path.
+
+When one such shadow-first workflow needs text beyond completion status, it SHALL use structured shadow payloads, explicit schema/sentinel outputs, side-effect verification, or clearly labeled best-effort shadow extraction rather than assuming the final runtime `done.message` contains the exact agent reply text.
+
+#### Scenario: Repo-owned CAO helper workflow relies on the supported tool default
+- **WHEN** a repo-owned workflow starts a CAO-backed Claude or Codex session without an explicit parsing-mode override
+- **THEN** the workflow runs under the runtime-resolved `shadow_only` default for that supported tool
+- **AND THEN** the workflow does not introduce an unnecessary `cao_only` override just to preserve older answer-text assumptions
+
+#### Scenario: Shadow-first workflow needs text evidence beyond neutral completion message
+- **WHEN** a repo-owned CAO workflow for Claude or Codex needs text evidence from a successful `shadow_only` turn
+- **THEN** it does not treat the final runtime `done.message` as the authoritative reply text
+- **AND THEN** it uses structured shadow payloads, explicit schema/sentinel outputs, side-effect checks, or clearly labeled best-effort shadow extraction instead
+
+#### Scenario: CAO-native troubleshooting remains an explicit exception
+- **WHEN** a maintainer runs a dedicated troubleshooting or CAO-native coverage path for a supported tool
+- **THEN** that path may still request `parsing_mode=cao_only`
+- **AND THEN** the exception is explicit rather than being presented as the normal default posture
 
 ### Requirement: Codex runtime launch applies non-interactive home bootstrap
 For Codex launches, the runtime SHALL apply a runtime-owned bootstrap step to the generated Codex home configuration before starting the tool for:
@@ -476,9 +778,13 @@ For the corrected two-axis shadow surface model, the unknown-to-stalled timer SH
 
 `input_mode = unknown` by itself SHALL keep the surface non-ready, but SHALL NOT trigger the unknown-to-stalled timer when `business_state` remains known.
 
+The unknown-to-stalled timeout SHALL measure inter-observation gaps rather than wall-clock elapsed time from a fixed start timestamp. When polling intervals vary (slow network, slow CAO), the effective timeout SHALL scale proportionally to the number of actual observations rather than firing after a fixed wall-clock duration that may contain fewer observations than intended.
+
+Any known observation SHALL cancel a pending unknown-to-stalled timeout and reset unknown/stalled tracking. The runtime SHALL NOT enter `stalled` unless the current continuous unknown run reaches the configured threshold.
+
 #### Scenario: Unknown business state reaches stalled threshold
 - **WHEN** shadow polling remains on a supported surface with `business_state = unknown`
-- **AND WHEN** elapsed unknown duration reaches `unknown_to_stalled_timeout_seconds`
+- **AND WHEN** the continuous inter-observation gap on unknown surfaces reaches `unknown_to_stalled_timeout_seconds`
 - **THEN** runtime marks the shadow lifecycle state as `stalled`
 
 #### Scenario: Unknown input mode alone does not enter stalled
@@ -486,6 +792,18 @@ For the corrected two-axis shadow surface model, the unknown-to-stalled timer SH
 - **AND WHEN** only `input_mode = unknown`
 - **THEN** runtime keeps the surface non-ready
 - **AND THEN** it does not enter `stalled` solely because the input mode is unknown
+
+#### Scenario: Slow polling extends effective stall wait
+- **WHEN** shadow polling intervals are slower than normal (e.g., due to network latency or CAO load)
+- **AND WHEN** the surface remains unknown across those slow polls
+- **THEN** the stall timeout fires after the configured duration of continuous unknown observations
+- **AND THEN** the effective wall-clock wait is longer than it would be under normal polling intervals
+
+#### Scenario: Known observation cancels pending stall timeout
+- **WHEN** shadow polling emits unknown-for-stall observations
+- **AND WHEN** a later observation returns to a known surface before the stall threshold is reached
+- **THEN** runtime cancels the pending unknown-to-stalled timeout
+- **AND THEN** it does not emit `stalled` unless a later continuous unknown run reaches the threshold
 
 ### Requirement: Runtime emits stalled lifecycle anomaly codes
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL emit dedicated anomaly codes for stalled lifecycle transitions:
@@ -525,7 +843,7 @@ When using the CAO backend, the system SHALL only send terminal input when the t
 
 Mode-specific readiness and completion behavior SHALL be:
 - `cao_only`: readiness and completion from CAO terminal status (`idle|completed`) and answer retrieval from CAO `output?mode=last`.
-- `shadow_only`: readiness and completion from runtime shadow surface assessment derived from CAO `output?mode=full`, with prompt submission and completion determined by runtime predicates over `availability`, `business_state`, `input_mode`, and post-submit progress evidence.
+- `shadow_only`: readiness from runtime shadow surface assessment derived from CAO `output?mode=full`, with generic lifecycle completion determined by runtime predicates over `availability`, `business_state`, `input_mode`, and post-submit progress evidence. Runtime-owned commands with explicit machine-critical output contracts MAY require additional caller-owned terminal evidence over post-submit shadow text before the turn result is surfaced.
 
 For `shadow_only`, the runtime SHALL treat a surface as submit-ready only when all of the following are true:
 
@@ -534,12 +852,15 @@ For `shadow_only`, the runtime SHALL treat a surface as submit-ready only when a
 - `input_mode = freeform`
 
 For `shadow_only`, the runtime SHALL surface projected dialog data derived from `output?mode=full` and SHALL NOT require parser-owned prompt-associated answer extraction to complete the turn.
-For `shadow_only`, success terminality SHALL require a return to the submit-ready surface plus either:
-- projected-dialog change observed after submit, or
+For `shadow_only`, generic success terminality SHALL require a return to the submit-ready surface plus previously-seen post-submit activity from either:
+- normalized shadow-text change observed after submit, or
 - post-submit observation of `business_state = working`.
 
-This completion gate intentionally uses full `submit_ready`, not merely "the surface looks typeable again." A `shadow_only` turn SHALL NOT complete while `business_state = working`, even when `input_mode = freeform`.
+That candidate-complete surface SHALL then remain stable for `completion_stability_seconds` before generic shadow completion is emitted. State changes during that stability window SHALL reset the pending completion window.
 
+This generic completion gate intentionally uses full `submit_ready`, not merely "the surface looks typeable again." A `shadow_only` turn SHALL NOT complete while `business_state = working`, even when `input_mode = freeform`.
+
+For `shadow_only`, runtime-owned mailbox commands that require sentinel-delimited results SHALL treat that generic success terminality as provisional only. Those commands SHALL continue polling post-submit shadow text until the mailbox contract is satisfied or the bounded turn failure policy fires.
 For `shadow_only`, readiness SHALL follow the currently active input surface rather than any historical slash-command line still visible in earlier scrollback. Completed slash-command or model-switch output that remains in the projected dialog SHALL NOT keep a later recovered normal prompt in a non-ready state.
 For `shadow_only`, an active modal surface such as slash-command SHALL remain non-ready until the provider returns to a freeform prompt, but SHALL NOT be treated as an operator-blocked failure solely because it is modal.
 For `shadow_only`, a surface with `business_state = awaiting_operator` SHALL be treated as blocked and SHALL fail the active turn with explicit blocked-surface diagnostics.
@@ -559,6 +880,12 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 - **THEN** the system polls `output?mode=full` and computes runtime shadow readiness and completion from provider surface assessment plus runtime turn-monitor logic
 - **AND THEN** the system sends direct terminal input only after the derived submit-ready surface is observed
 - **AND THEN** after turn completion the system surfaces projected dialog data and state or provenance metadata derived from `mode=full`
+
+#### Scenario: `shadow_only` mailbox commands wait for stronger command-owned terminal evidence
+- **WHEN** a `shadow_only` CAO-backed mailbox turn returns to the submit-ready surface with post-submit progress evidence
+- **AND WHEN** the required mailbox sentinel-delimited result for the active request is not yet visible in post-submit shadow text
+- **THEN** the runtime treats generic shadow completion as provisional and keeps polling
+- **AND THEN** the command does not surface success or a missing-sentinel parse failure until the mailbox contract is satisfied or the turn fails under the existing bounded policy
 
 #### Scenario: Historical slash-command output does not block recovered shadow readiness
 - **WHEN** a developer previously used a slash command or manual model switch in a CAO-backed session
@@ -586,7 +913,7 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 #### Scenario: `shadow_only` does not complete on submit-ready surface alone when no post-submit evidence exists
 - **WHEN** a `shadow_only` turn returns to the derived submit-ready surface
 - **AND WHEN** the runtime has not observed post-submit `business_state = working`
-- **AND WHEN** projected dialog has not changed since submit
+- **AND WHEN** normalized shadow text has not changed since submit
 - **THEN** the runtime does not mark the turn complete yet
 - **AND THEN** it continues monitoring or fails according to turn-monitor timeout or stall policy
 
@@ -612,13 +939,16 @@ At minimum, the readiness path SHALL evaluate each observation in this priority 
 
 At minimum, the completion path SHALL evaluate each observation in this priority order:
 
-1. update progress evidence from projected-dialog change and `business_state = working`
+1. update progress evidence from normalized shadow text change derived from `DialogProjection.normalized_text` and `business_state = working`
 2. `availability in {unsupported, disconnected}` -> fail
 3. `business_state = awaiting_operator` -> blocked outcome
 4. unknown-for-stall surface -> unknown or stalled path
 5. `business_state = working` -> keep `in_progress` regardless of `input_mode`
-6. `submit_ready` plus previously-seen progress evidence -> complete
+6. `submit_ready` plus previously-seen progress evidence plus completion stability window elapsed -> complete
 7. otherwise remain in a post-submit waiting state
+
+The turn monitor SHALL be implemented as ReactiveX pipelines using `reactivex` operators for temporal logic rather than hand-rolled mutable fields and manual timestamp arithmetic.
+The turn monitor's temporal operators SHALL consume the full classified-state stream so non-target observations can cancel pending stall and completion timers instead of being hidden behind filtered sub-streams.
 
 #### Scenario: Working modal surface remains in progress during completion
 - **WHEN** a post-submit `shadow_only` observation shows `availability = supported`, `business_state = working`, and `input_mode = modal`
@@ -629,6 +959,50 @@ At minimum, the completion path SHALL evaluate each observation in this priority
 - **WHEN** a `shadow_only` observation shows `business_state = awaiting_operator`
 - **THEN** the runtime routes the observation to a blocked-surface outcome before considering ready or completion gating
 - **AND THEN** it does not treat that observation as submit-ready or completed
+
+### Requirement: Shadow completion requires stability window before declaring turn complete
+For CAO sessions in `parsing_mode=shadow_only`, the runtime SHALL accept a configurable stability window (`completion_stability_seconds`) from the CAO shadow policy config surface and SHALL NOT declare a turn complete on a single idle observation after post-submit activity. Instead, the runtime SHALL require `completion_stability_seconds` of continuous idle observations with no state changes before emitting a completion event.
+
+When unset, `completion_stability_seconds` SHALL default to 1.0 second.
+
+Each new state change (`DialogProjection.normalized_text` change after pipeline normalization, `business_state` transition) observed during the stability window SHALL reset the stability timer.
+
+The stability window applies only to generic shadow completion. Caller-owned completion observers (e.g., mailbox sentinel detection) that find a definitive result MAY bypass the stability window and complete immediately.
+
+#### Scenario: Transient idle flicker does not trigger false completion
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** a subsequent observation within `completion_stability_seconds` shows `business_state = working` again
+- **THEN** the runtime resets the stability timer and does not declare the turn complete
+- **AND THEN** the runtime continues monitoring for sustained idle
+
+#### Scenario: Sustained idle after activity triggers completion
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** no further state changes occur for `completion_stability_seconds`
+- **THEN** the runtime declares the turn complete
+
+#### Scenario: Normalized shadow text change resets stability window
+- **WHEN** a post-submit `shadow_only` observation shows `submit_ready` after previously observing `working`
+- **AND WHEN** the normalized shadow text changes again before `completion_stability_seconds` elapses
+- **THEN** the runtime resets the stability timer
+- **AND THEN** it continues monitoring for a fresh sustained-idle window
+
+#### Scenario: Mailbox observer bypasses stability window on definitive result
+- **WHEN** a `shadow_only` mailbox turn's completion observer detects a valid sentinel-delimited result in post-submit shadow text
+- **THEN** the runtime completes the turn immediately with that result
+- **AND THEN** the generic stability window does not delay the mailbox result
+
+### Requirement: Shadow turn monitor supports deterministic time-based testing
+The shadow turn monitor's temporal logic SHALL be testable with deterministic virtual-time scheduling. Unit tests SHALL be able to advance time precisely, verify debounce windows, timeout thresholds, and observation sequences without real sleeps or wall-clock timing dependencies.
+
+#### Scenario: Unit test verifies debounce window with virtual time
+- **WHEN** a test creates a shadow completion pipeline with a `TestScheduler`
+- **AND WHEN** the test advances virtual time past the stability window after emitting an idle observation
+- **THEN** the pipeline emits a completion event at the expected virtual timestamp
+
+#### Scenario: Unit test verifies stall timeout with virtual time
+- **WHEN** a test creates a shadow readiness pipeline with a `TestScheduler`
+- **AND WHEN** the test emits unknown observations and advances virtual time past the stall threshold
+- **THEN** the pipeline emits a stalled event at the expected virtual timestamp
 
 ### Requirement: Shadow runtime distinguishes operator-blocked surfaces from modal non-ready surfaces
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL distinguish between surfaces that are blocked on operator action and surfaces that are merely modal or otherwise not yet freeform-ready.
@@ -655,6 +1029,8 @@ For CAO-backed turns in both `parsing_mode=cao_only` and `parsing_mode=shadow_on
 This shared post-processing step SHALL NOT sanitize/rewrite `cao_only` extracted answer text. It SHALL canonicalize status/provenance into runtime-stable values for downstream consumers and record/log raw backend values for diagnostics.
 
 For `shadow_only`, shared post-processing SHALL distinguish projected dialog content from any caller-owned answer association logic, SHALL expose first-class `dialog_projection` and `surface_assessment` payload fields, and SHALL NOT label projected dialog as the authoritative final answer for the current prompt by default.
+For `shadow_only`, the surfaced `dialog_projection` SHALL remain a best-effort text projection that is suitable for operator inspection and caller-owned best-effort extraction. Lifecycle change evidence MAY instead use normalized shadow text derived from the same parser output, and projected dialog SHALL NOT be represented as an exact recovered reply transcript.
+For `shadow_only`, downstream machine-critical parsing SHALL rely on explicit schema-shaped output contracts or caller-owned extraction rules over the available text surfaces rather than on projection fidelity alone.
 For `shadow_only`, shared post-processing SHALL NOT preserve `output_text` as a compatibility alias to projected dialog.
 If raw CAO `tail` text is retained for debugging, it SHALL remain in diagnostics or internal-only fields and SHALL NOT become a first-class caller-facing shadow result field.
 
@@ -667,7 +1043,12 @@ If raw CAO `tail` text is retained for debugging, it SHALL remain in diagnostics
 - **THEN** the surfaced runtime payload includes projected dialog/provenance data and surface-assessment data as first-class fields
 - **AND THEN** the payload does not include a shadow-mode `output_text` compatibility alias
 - **AND THEN** any retained raw tail debugging data remains outside the primary caller-facing result surface
-- **AND THEN** the runtime does not represent that projection as the authoritative final answer for the submitted prompt by default
+- **AND THEN** the runtime does not represent that projection as the authoritative final answer or as an exact recovered reply transcript for the submitted prompt
+
+#### Scenario: Machine-critical shadow consumer uses explicit extraction contract
+- **WHEN** a downstream caller needs reliable machine-readable data from a `shadow_only` result
+- **THEN** the runtime exposes the best-effort projection surfaces without claiming exact reply extraction
+- **AND THEN** the caller uses an explicit schema-shaped contract or caller-owned extractor to recover the needed payload
 
 ### Requirement: CAO profiles are unique per session
 When using CAO, the system SHALL generate an agent profile file that is unique per session (append-only) and does not overwrite a stable per-role profile file.
@@ -693,27 +1074,29 @@ The system SHALL NOT accept `--session-manifest` on those commands.
 - **WHEN** a developer invokes `send-prompt` or `stop-session` with `--session-manifest`
 - **THEN** the CLI rejects the invocation with an explicit argument validation error
 
-### Requirement: CAO session start supports a human agent identity name and uses it as the tmux session name
+### Requirement: CAO session start supports a human agent identity name and persists the actual tmux session name
 When starting a CAO-backed session, the system SHALL allow the caller to provide an agent identity name via `start-session --agent-identity <name>` (name-only for CAO in this change).
-For CAO-backed sessions, the system SHALL use the canonical `AGENTSYS-...` identity as the tmux session name.
+For CAO-backed sessions, the system SHALL persist the canonical `AGENTSYS-...` identity separately from the actual tmux session name used for the live session.
 
 If the caller does not provide a name, the system SHALL generate a short, easy-to-type name derived from the tool and role/blueprint identity, and SHALL add a conflict-avoiding suffix when needed.
 
-#### Scenario: Start CAO session with an explicit name uses the canonical tmux session name
+#### Scenario: Start CAO session with an explicit name persists the canonical identity
 - **WHEN** a developer starts a CAO-backed session with `start-session --agent-identity gpu`
-- **THEN** the tmux session name used for the session is `AGENTSYS-gpu`
+- **THEN** the persisted canonical agent identity for the session is `AGENTSYS-gpu`
+- **AND THEN** the actual tmux session name is persisted separately as the live-session handle
 
 #### Scenario: Start CAO session without a name auto-generates a short identity
 - **WHEN** a developer starts a CAO-backed session without providing `--agent-identity`
-- **THEN** the runtime selects a short `AGENTSYS-...` tmux session name derived from tool + role/blueprint
-- **AND THEN** the selected name is unique among existing tmux sessions
+- **THEN** the runtime selects a short canonical `AGENTSYS-...` identity derived from tool + role/blueprint
+- **AND THEN** the selected identity remains distinct from the actual tmux session name used for the live session
 
-### Requirement: CAO session start returns the selected agent identity
-For CAO-backed sessions, the `start-session` CLI output SHALL include the selected canonical agent identity so callers can reuse it for subsequent prompt/stop operations.
+### Requirement: CAO session start returns the selected agent identity and tmux session handle
+For CAO-backed sessions, the `start-session` CLI output SHALL include the selected canonical agent identity and the persisted actual tmux session name so callers can reuse the identity while retaining the true live-session handle in diagnostics.
 
-#### Scenario: `start-session` output includes the canonical identity
+#### Scenario: `start-session` output includes the canonical identity and tmux session name
 - **WHEN** a developer starts a CAO-backed session
 - **THEN** the `start-session` CLI output includes the selected canonical agent identity (for example `AGENTSYS-gpu`)
+- **AND THEN** the same output includes the actual persisted tmux session name for that live session
 
 ### Requirement: CAO `start-session` output includes resolved parsing mode
 For CAO-backed sessions, the `start-session` CLI output SHALL include the resolved `parsing_mode` alongside the canonical agent identity.
@@ -727,7 +1110,8 @@ For CAO-backed sessions, parsing mode selection (`cao_only` or `shadow_only`) SH
 
 #### Scenario: Start-session still publishes AGENTSYS identity and manifest pointer in both modes
 - **WHEN** a developer starts a CAO-backed session with `parsing_mode=cao_only` or `parsing_mode=shadow_only`
-- **THEN** the tmux session identity follows canonical `AGENTSYS-...` naming rules
+- **THEN** the runtime still persists canonical `AGENTSYS-...` identity metadata and the manifest pointer for the session
+- **AND THEN** the tmux session name remains a distinct live-session handle rather than the authoritative agent identity
 - **AND THEN** tmux session env includes `AGENTSYS_MANIFEST_PATH` pointing to the absolute persisted session manifest path
 
 #### Scenario: Name-based prompt/stop addressing remains mode-independent
@@ -742,12 +1126,14 @@ For tmux-backed session-control commands that accept `--agent-identity` (`send-p
 When `--agent-identity` is name-based and `--agent-def-dir` is omitted, the
 system SHALL:
 - resolve the addressed tmux session by canonical agent identity,
-- recover the session manifest path from `AGENTSYS_MANIFEST_PATH`,
-- recover the agent-definition root from `AGENTSYS_AGENT_DEF_DIR`, and
-- use that recovered absolute agents root for resume/control operations.
+- prefer the tmux-published `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values when they are present and valid,
+- fall back to fresh shared-registry discovery metadata when tmux-local discovery pointers are missing, blank, or stale, and
+- use the recovered absolute agents root for resume or control operations.
+
+The shared-registry fallback SHALL apply only to discovery-pointer unavailability. Hard validation mismatches such as a manifest whose persisted tmux session identity does not match the addressed agent name SHALL still fail fast.
 
 When `--agent-def-dir` is provided explicitly, the system SHALL use the
-explicit CLI value instead of the tmux-published fallback.
+explicit CLI value instead of the tmux-published or registry-published fallback.
 
 Manifest-path control flows are unchanged by this requirement.
 
@@ -774,12 +1160,25 @@ Manifest-path control flows are unchanged by this requirement.
 - **AND WHEN** tmux session `AGENTSYS-chris` publishes a different `AGENTSYS_AGENT_DEF_DIR`
 - **THEN** the runtime uses `/abs/custom/agents` as the effective agent-definition root
 
-#### Scenario: Name-based fallback fails on missing tmux agent-def-dir pointer
+#### Scenario: Registry fallback covers missing tmux manifest pointer
 - **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
 - **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is missing or blank in that tmux session environment
-- **THEN** the runtime rejects the operation with an explicit resolution error
-- **AND THEN** it does not silently fall back to cwd-derived agent-definition defaults
+- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that tmux session environment
+- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
+- **THEN** the runtime resolves the session through the shared-registry record instead of failing immediately on the tmux-local pointer problem
+
+#### Scenario: Registry fallback covers missing tmux agent-def-dir pointer
+- **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
+- **AND WHEN** tmux session `AGENTSYS-chris` exists
+- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is missing, blank, or stale in that tmux session environment
+- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
+- **THEN** the runtime resolves the effective agent-definition root through the shared-registry record instead of failing immediately on the tmux-local pointer problem
+
+#### Scenario: Identity mismatch still fails fast instead of falling back
+- **WHEN** a developer runs a tmux-backed name-based control command for `AGENTSYS-chris`
+- **AND WHEN** a candidate tmux-local or shared-registry manifest resolves to persisted tmux session identity other than `AGENTSYS-chris`
+- **THEN** the runtime rejects the operation with an explicit mismatch error
+- **AND THEN** it does not silently recover by targeting a different live session
 
 #### Scenario: Manifest-path control does not depend on tmux fallback
 - **WHEN** a developer runs `stop-session --agent-identity /abs/runtime/sessions/cao_rest/session.json`
@@ -818,7 +1217,8 @@ The control-input command SHALL:
 - support the global `--escape-special-keys` flag and the existing optional `--agent-def-dir` override pattern,
 - accept the mixed sequence grammar defined by `runtime-tmux-control-input`,
 - deliver the requested input without automatically pressing `Enter`, and
-- return a single `SessionControlResult` with `action="control_input"` after delivery without waiting for prompt completion or advancing prompt-turn state.
+- return a single `SessionControlResult` with `action="control_input"` after delivery without waiting for prompt completion or advancing prompt-turn state, and
+- append one recorder-managed control-input event to the addressed recorder artifacts when an `active` terminal recorder is live for the same tmux-backed session.
 
 #### Scenario: Prompt submission path remains unchanged
 - **WHEN** a developer uses `send-prompt` against a resumed CAO-backed session
@@ -834,6 +1234,11 @@ The control-input command SHALL:
 - **WHEN** a developer invokes `send-keys --agent-identity my-agent --sequence '/model<[Enter]>'`
 - **THEN** the runtime accepts the request without requiring a positional sequence argument
 - **AND THEN** it returns one JSON control-action result object rather than streaming prompt-turn events
+
+#### Scenario: Active recorder receives managed control-input events
+- **WHEN** a developer invokes `send-keys` for a tmux-backed CAO session that is currently targeted by a live `active` terminal recorder
+- **THEN** the runtime still delivers the requested control-input sequence to the live terminal
+- **AND THEN** it appends a structured managed control-input event to that recorder's input-event artifacts before returning
 
 ### Requirement: CAO raw control input uses manifest-driven tmux target resolution
 For CAO-backed sessions resumed by `agent_identity`, the runtime SHALL resolve the tmux target for raw control input from persisted runtime session state and CAO terminal metadata as needed.
@@ -868,22 +1273,12 @@ If a caller invokes the control-input command for a different backend, the runti
 - **THEN** the runtime rejects the request with an explicit unsupported-backend error
 - **AND THEN** it does not attempt to translate the request into `send-prompt` or another fallback path
 
-
 ### Requirement: CAO session startup fixes "shell-first attach" and prunes the bootstrap window when safe
-For CAO-backed session startup (`backend=cao_rest`), when the runtime pre-creates
-one bootstrap tmux window for env setup and CAO subsequently creates the real
-agent terminal window, the runtime SHALL (best-effort) make the CAO terminal
-window the session's current tmux window and SHALL prune the bootstrap window
-when it can be safely identified as distinct from the CAO terminal window.
+For CAO-backed session startup (`backend=cao_rest`), when the runtime pre-creates one bootstrap tmux window for env setup and CAO subsequently creates the real agent terminal window, the runtime SHALL best-effort make the CAO terminal window the session's current tmux window and SHALL prune the bootstrap window when it can be safely identified as distinct from the CAO terminal window.
 
-The runtime SHALL record the bootstrap tmux `window_id` immediately after
-session creation and SHALL use `window_id` targeting (not index assumptions) for
-window selection and pruning.
+The runtime SHALL record the bootstrap tmux `window_id` immediately after session creation and SHALL use `window_id` targeting, rather than index assumptions, for window selection and pruning.
 
-The runtime SHALL resolve the CAO terminal window id from `terminal.name` using
-bounded retry (to tolerate transient tmux visibility races). If the CAO window
-cannot be resolved within the bound, startup still succeeds and the runtime
-emits a warning diagnostic.
+The runtime SHALL resolve the CAO terminal window id from `terminal.name` using bounded retry to tolerate transient tmux visibility races. If the CAO window cannot be resolved within the bound, startup SHALL still succeed and the runtime SHALL emit a warning diagnostic.
 
 The runtime SHOULD use the `create_terminal(...)` response `terminal.name` as
 the CAO tmux window name (no extra `GET /terminals/{id}` is required solely to
@@ -926,25 +1321,37 @@ That attachability publication SHALL be additive and SHALL NOT make legacy non-g
 
 Blueprint `gateway.host` and `gateway.port` values SHALL act only as defaults after gateway attach is requested and SHALL NOT make a session gateway-capable or gateway-running by themselves.
 
-In v1, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL support live gateway attach for runtime-owned `backend=cao_rest` sessions first.
+In this change, the runtime SHALL publish attach metadata by default for newly started runtime-owned tmux-backed sessions and SHALL re-publish attach metadata on resume whenever attachability can be reconstructed from persisted session state. It SHALL support live gateway attach for every runtime-owned tmux-backed backend whose gateway execution adapter is implemented, including the runtime-owned REST-backed sessions and runtime-owned native headless sessions.
 
-Supplying gateway listener overrides without either launch-time auto-attach or an explicit attach lifecycle action SHALL fail with an explicit error.
+Gateway attach MAY happen later against the already-running tmux-backed session by using the published attach metadata, tmux session environment, and persisted manifest pointer for that session rather than by requiring gateway lifecycle decisions to be baked into the original launch command.
+
+Supplying gateway listener overrides during session startup without a separate attach lifecycle action SHALL fail with an explicit error.
 
 If a caller requests live gateway attach for any backend whose gateway adapter is not yet implemented, the runtime SHALL fail with an explicit unsupported-backend error rather than silently falling back to implicit direct control.
 
 #### Scenario: Blueprint gateway defaults do not auto-attach the gateway by themselves
 - **WHEN** a developer starts a session from a blueprint that declares `gateway.host` or `gateway.port`
-- **AND WHEN** the developer does not request launch-time gateway attach
+- **AND WHEN** the developer does not invoke a separate gateway attach lifecycle action
 - **THEN** the runtime publishes attachability metadata for that session
 - **AND THEN** the blueprint listener defaults do not cause a live gateway instance to start by themselves
 
 #### Scenario: Gateway host or port overrides require an attach action
-- **WHEN** a developer supplies gateway host or port overrides without requesting launch-time attach or an explicit attach lifecycle action
+- **WHEN** a developer supplies gateway host or port overrides during session startup without an explicit attach lifecycle action
 - **THEN** the runtime fails with an explicit gateway-lifecycle error
 - **AND THEN** the session is not treated as having a live gateway instance implicitly
 
-#### Scenario: Unsupported backend rejects live gateway attach in v1
-- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed backend other than the currently supported adapter set
+#### Scenario: Later gateway attach reuses tmux session env and manifest-backed authority
+- **WHEN** a developer starts a runtime-owned tmux-backed session and later invokes gateway attach from the same tmux session or another attach-aware control path
+- **THEN** the runtime resolves that live session through the published attach metadata and tmux session environment for that session
+- **AND THEN** the developer does not need to have coupled gateway startup to the original launch command
+
+#### Scenario: Runtime-owned headless backend can attach a live gateway when its adapter exists
+- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed native headless session whose gateway execution adapter is implemented
+- **THEN** the runtime attaches a live gateway for that headless session
+- **AND THEN** the runtime does not reject that attach request merely because the session is not REST-backed
+
+#### Scenario: Unsupported backend still rejects live gateway attach explicitly
+- **WHEN** a developer requests live gateway attach for a runtime-owned tmux-backed backend whose gateway execution adapter is not implemented
 - **THEN** the runtime fails that attach request with an explicit unsupported-backend error
 - **AND THEN** the runtime does not silently convert that attach request into legacy direct control
 
@@ -1277,3 +1684,435 @@ Supporting files such as `state.json` or run-state metadata MAY be used to impro
 - **WHEN** an operator or tool asks the runtime for gateway status on a session with a live gateway instance attached
 - **THEN** the runtime reads validated gateway state for that session
 - **AND THEN** the status read does not require the runtime to consume the gateway's terminal-mutation slot
+
+### Requirement: Runtime-managed session control uses the `realm_controller` module surface
+The repo-owned runtime SHALL expose its direct module entrypoint, canonical source-path references, and canonical runtime documentation under the `gig_agents.agents.realm_controller` / `realm_controller` name rather than `brain_launch_runtime`.
+
+This rename SHALL preserve the existing runtime subcommands and their current session-control behavior.
+
+#### Scenario: Module-form runtime invocation uses `realm_controller`
+- **WHEN** a developer invokes the runtime through its documented module form
+- **THEN** the canonical module path is `gig_agents.agents.realm_controller`
+- **AND THEN** the runtime continues to expose the existing subcommands `build-brain`, `start-session`, `send-prompt`, `send-keys`, `mail`, and `stop-session`
+
+#### Scenario: Canonical runtime docs and source mappings use `realm_controller`
+- **WHEN** a reader navigates active runtime docs or repo-owned source mappings for the runtime
+- **THEN** those docs and mappings use `realm_controller` as the canonical runtime name
+- **AND THEN** active guidance does not present `brain_launch_runtime` as the preferred runtime surface
+
+### Requirement: Runtime-owned tmux-backed sessions publish shared-registry discovery records
+When the runtime starts or resumes control of a runtime-owned tmux-backed session, it SHALL publish or refresh a shared-registry record for that live session under the effective shared-registry root's `live_agents/` directory.
+
+By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
+
+When `AGENTSYS_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
+
+For runtime-owned tmux-backed sessions, the published shared-registry record SHALL persist the canonical `AGENTSYS-...` agent identity together with the authoritative `agent_id` and the actual tmux session name for that live session.
+
+When runtime publication code receives an agent name in namespace-free form, it SHALL canonicalize that name to the exact `AGENTSYS-...` form before publishing the shared-registry record.
+
+For a given live runtime-owned tmux-backed session, the runtime SHALL persist and reuse the same shared-registry `generation_id` across later refreshes and resume-driven republishes of that same session.
+
+That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
+
+The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, authoritative `agent_id`, actual tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
+
+#### Scenario: Session start publishes a shared-registry record alongside tmux pointers
+- **WHEN** the runtime starts a runtime-owned tmux-backed session with canonical identity `AGENTSYS-gpu`
+- **THEN** the runtime publishes the normal tmux session environment discovery pointers for that session
+- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/<agent-id>/record.json` that stores canonical agent name `AGENTSYS-gpu`
+
+#### Scenario: Runtime publication canonicalizes namespace-free agent input
+- **WHEN** runtime publication logic receives agent input `gpu` for a tmux-backed session
+- **THEN** it canonicalizes that input to `AGENTSYS-gpu` before publishing the shared-registry record
+- **AND THEN** the published record stores canonical agent name `AGENTSYS-gpu`
+
+#### Scenario: CI override redirects runtime publication
+- **WHEN** the runtime starts a runtime-owned tmux-backed session
+- **AND WHEN** `AGENTSYS_GLOBAL_REGISTRY_DIR` is set for that process
+- **THEN** the runtime publishes the shared-registry record for that session under the override path
+- **AND THEN** the runtime does not publish that record under the default home-relative root for that process
+
+#### Scenario: Resume refreshes the shared-registry record from persisted session state
+- **WHEN** the runtime resumes control of a runtime-owned tmux-backed session whose manifest and gateway metadata can be determined
+- **THEN** the runtime refreshes that session's shared-registry record
+- **AND THEN** later discovery flows can locate the same live session without depending on a shared runtime-root layout
+
+#### Scenario: Resume reuses the same shared-registry generation for the same live session
+- **WHEN** the runtime resumes control of a runtime-owned tmux-backed session that already published a shared-registry record generation
+- **THEN** the resumed publication reuses that same `generation_id`
+- **AND THEN** resume does not create a replacement generation for the same still-live session
+
+### Requirement: Runtime refreshes shared-registry records when runtime-owned publication state changes
+When the runtime materializes or refreshes stable gateway capability for a session, attaches or detaches a live gateway, refreshes mailbox bindings, or persists updated runtime-owned session state after prompt or control actions, it SHALL refresh the corresponding shared-registry record for that same logical session.
+
+When no live gateway is attached, the shared-registry record SHALL continue to publish stable gateway pointers when they exist, but SHALL omit live gateway connect metadata.
+
+When mailbox bindings are available, the shared-registry record SHALL reflect the active mailbox principal id and full mailbox address for that session.
+
+These refreshes SHALL keep the same `generation_id` for the same live session rather than manufacturing a replacement generation on each publication event.
+
+#### Scenario: Live gateway attach adds connect metadata to the shared-registry record
+- **WHEN** the runtime attaches a live gateway to a gateway-capable runtime-owned session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record publishes the exact live gateway connect metadata for the running listener
+
+#### Scenario: Gateway detach preserves stable pointers but removes live connect metadata
+- **WHEN** the runtime detaches a live gateway from a gateway-capable runtime-owned session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record keeps stable gateway pointers such as the attach-contract path when available
+- **AND THEN** the record no longer advertises live gateway connect metadata
+
+#### Scenario: Mailbox binding refresh updates mailbox identity in the shared-registry record
+- **WHEN** the runtime refreshes mailbox bindings for a mailbox-enabled session
+- **THEN** the runtime refreshes the shared-registry record for that session
+- **AND THEN** the record reflects the active mailbox principal id and full mailbox address for the refreshed binding
+
+#### Scenario: Prompt or control action refreshes the shared-registry lease for the same live session
+- **WHEN** the runtime sends a prompt or persists updated state after another runtime-owned control action for a tmux-backed session that already published a shared-registry record
+- **THEN** the runtime refreshes that session's shared-registry record
+- **AND THEN** the refreshed record keeps the same `generation_id` while extending the lease for that still-live session
+
+### Requirement: Runtime-owned teardown clears shared-registry discoverability for stopped sessions
+When the runtime completes authoritative `stop-session` teardown for a runtime-owned tmux-backed session that has a shared-registry record, the runtime SHALL remove that record or rewrite it so that shared-registry readers treat it as expired.
+
+Unexpected failure MAY leave stale `live_agents/` directories behind, but runtime-owned graceful teardown SHALL clear discoverability for the stopped session.
+
+#### Scenario: Stop-session clears shared-registry discoverability
+- **WHEN** an operator stops a runtime-owned tmux-backed session that previously published a shared-registry record
+- **THEN** the runtime removes the record or expires it as part of teardown
+- **AND THEN** later shared-registry readers do not treat that stopped session as live
+
+### Requirement: Registry refresh failures do not overturn already-successful runtime control actions
+When a tmux-backed runtime action has already completed its primary control work successfully and later manifest persistence attempts to refresh shared-registry discovery metadata, the system SHALL preserve the successful primary action result even if the registry refresh fails.
+
+This applies at minimum to prompt delivery, interrupt, raw control input, mailbox-binding refresh, and other manifest-persisting runtime control flows that reuse the same live session.
+
+The system SHALL still surface the registry refresh problem through an explicit warning, diagnostic, or equivalent operator-visible reporting path.
+
+#### Scenario: Successful prompt delivery remains successful when registry refresh fails
+- **WHEN** a tmux-backed runtime session successfully processes a prompt submission
+- **AND WHEN** manifest persistence later encounters a shared-registry refresh failure
+- **THEN** the prompt operation still reports success for the completed primary action
+- **AND THEN** the registry failure is surfaced separately as a warning or diagnostic rather than replacing the prompt result
+
+#### Scenario: Successful mailbox binding refresh remains successful when registry refresh fails
+- **WHEN** a tmux-backed mailbox-enabled runtime session successfully refreshes its mailbox bindings
+- **AND WHEN** the follow-on shared-registry refresh fails
+- **THEN** the mailbox-binding refresh still reports success for the completed primary action
+- **AND THEN** the registry refresh problem is surfaced separately from the mailbox result
+
+### Requirement: Stop-session success is preserved when shared-registry cleanup fails after termination
+When authoritative `stop-session` teardown has already terminated the addressed runtime-owned tmux-backed session successfully, a later shared-registry cleanup failure SHALL NOT change that stop result into a failed stop outcome.
+
+The runtime SHALL still surface the registry cleanup failure separately so operators know cleanup did not finish cleanly.
+
+#### Scenario: Registry cleanup failure does not negate a successful stop
+- **WHEN** the runtime successfully terminates a runtime-owned tmux-backed session through `stop-session`
+- **AND WHEN** later shared-registry record removal fails because of a filesystem or permission problem
+- **THEN** the stop operation still reports the successful termination result
+- **AND THEN** the registry cleanup problem is surfaced separately for operator follow-up
+
+### Requirement: Runtime can start sessions through an optional `houmao-server` REST backend
+The runtime SHALL support an optional `houmao-server` REST-backed mode for live interactive sessions.
+
+When that mode is selected, the runtime SHALL:
+
+- create or attach the live session through `houmao-server`
+- persist the `houmao-server` base URL plus session and terminal identity in the session manifest
+- treat `houmao-server` as the server authority for later control operations
+- keep any `houmao-server` upstream-adapter details out of the public runtime backend identity
+- treat `houmao-server` as part of the supported `houmao-server + houmao-srv-ctrl` pair rather than as a mixed-pair bridge to raw `cao`
+
+For supported loopback `houmao-server` base URLs, runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
+
+When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
+
+#### Scenario: Starting a `houmao-server` session persists server identity
+- **WHEN** a developer starts a new interactive session using the `houmao-server` REST-backed mode
+- **THEN** the runtime persists a session manifest that records the `houmao-server` base URL and terminal identity needed for resume and later control
+- **AND THEN** subsequent runtime control does not need a separate CAO base URL override for that session
+
+#### Scenario: Runtime does not promise mixed-pair bridging through `houmao-server`
+- **WHEN** a developer uses the `houmao-server` REST-backed mode
+- **THEN** the runtime treats that session as part of the `houmao-server` Houmao-managed path
+- **AND THEN** it does not claim support for mixing that path with raw `cao` client workflows behind the scenes
+
+#### Scenario: Loopback `houmao-server` communication bypasses ambient proxy env by default
+- **WHEN** a developer starts or resumes a `houmao-server`-backed session using loopback base URL `http://127.0.0.1:9890`
+- **AND WHEN** caller environment includes `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`
+- **THEN** runtime-owned HTTP communication to that loopback `houmao-server` endpoint bypasses those proxy endpoints by default
+
+### Requirement: `houmao-server` runtime sessions use a first-class persisted backend identity
+Runtime-owned sessions that use the `houmao-server` REST-backed mode SHALL persist a first-class backend identity named `houmao_server_rest`.
+
+Those persisted sessions SHALL use dedicated `houmao-server`-specific persisted sections rather than reusing `cao_rest`-specific sections for their public contract.
+
+At minimum, the persisted `houmao-server` section SHALL carry the public `houmao-server` transport identity needed for resume and follow-up control, including:
+
+- `api_base_url`
+- server session identity
+- terminal identity
+
+The persisted public contract for `houmao_server_rest` SHALL keep child-CAO adapter details out of the runtime-owned manifest.
+
+#### Scenario: Session manifest records `houmao_server_rest` rather than `cao_rest`
+- **WHEN** a developer starts a runtime-owned session through the `houmao-server` REST-backed mode
+- **THEN** the persisted session manifest records `backend = "houmao_server_rest"`
+- **AND THEN** the manifest uses a dedicated `houmao-server` persisted section instead of overloading `cao` metadata
+
+### Requirement: Runtime-owned artifacts remain authoritative for `houmao-server` sessions
+For `houmao_server_rest` sessions, the runtime-owned session root and manifest SHALL remain the authoritative durable artifacts for later discovery and follow-up control.
+
+When transitional shared-registry publication is used for a `houmao_server_rest` session, the registry runtime pointers SHALL point back to that runtime-owned manifest and session root.
+
+Gateway and mailbox follow-up behavior that still depends on manifest-backed authority in v1 SHALL use those same runtime-owned artifacts for `houmao_server_rest` sessions.
+
+#### Scenario: Registry and follow-up flows point back to the runtime-owned `houmao-server` manifest
+- **WHEN** a `houmao_server_rest` session is published into the transitional shared registry
+- **THEN** the registry runtime pointers reference the Houmao-owned session manifest and session root for that session
+- **AND THEN** later resolution, gateway attach, and mailbox follow-up flows can keep using manifest-backed authority without reinterpreting the session as `cao_rest`
+
+### Requirement: Runtime control of `houmao-server` sessions routes through `houmao-server`
+For `houmao-server`-backed sessions, runtime control operations that inspect or mutate the live session SHALL route through `houmao-server` rather than bypassing it with direct CAO calls.
+
+At minimum, `houmao-server`-routed operations in this change SHALL include:
+
+- status inspection
+- prompt submission
+- control-input submission
+- interrupt
+- stop-session
+
+When the runtime cannot reach the configured `houmao-server` for a `houmao-server`-backed session, runtime control SHALL fail explicitly. It SHALL NOT silently fall back to mutating the underlying CAO terminal directly behind `houmao-server`'s back.
+
+Stopping a `houmao-server`-backed session through the runtime SHALL stop the live session through `houmao-server` and SHALL leave the persisted session in a stopped or unavailable condition consistent with the server response.
+
+#### Scenario: Prompt submission for a `houmao-server` session goes through `houmao-server`
+- **WHEN** a developer submits a prompt to a `houmao-server`-backed session
+- **THEN** the runtime routes that request through the configured `houmao-server` endpoint
+- **AND THEN** the runtime does not inject the prompt directly into CAO or another upstream backend outside `houmao-server`
+
+#### Scenario: Stop-session for a `houmao-server` session does not bypass the server authority
+- **WHEN** a developer stops a `houmao-server`-backed session through the runtime
+- **THEN** the runtime routes that stop request through `houmao-server`
+- **AND THEN** it does not bypass the server by directly deleting or interrupting the underlying CAO terminal
+
+### Requirement: Runtime-owned headless sessions publish attach metadata sufficient for local headless gateway execution
+For runtime-owned native headless sessions, the published gateway attach contract SHALL include the headless backend metadata needed by the local headless gateway execution adapter.
+
+That published metadata SHALL remain secret-free and SHALL be sufficient for later runtime-owned gateway attach and resume flows affecting the same live headless session.
+
+#### Scenario: Runtime-owned Codex headless session publishes headless attach metadata
+- **WHEN** the runtime starts a gateway-capable runtime-owned Codex headless session
+- **THEN** the published attach contract includes headless backend metadata for that session
+- **AND THEN** a later runtime-owned gateway attach flow can use that contract to target the same live headless session
+
+#### Scenario: Resume preserves headless attach authority
+- **WHEN** the runtime resumes a gateway-capable runtime-owned native headless session
+- **THEN** the runtime re-publishes the stable attach metadata for that headless session
+- **AND THEN** later gateway-aware control paths do not need to rediscover the headless session from unrelated state
+
+### Requirement: Runtime launch resolves operator prompt policy from the actual tool version
+When a resolved brain manifest requests an operator prompt policy that forbids startup operator prompts, the runtime SHALL resolve that policy against the actual installed CLI tool version and backend before starting the provider process.
+
+Tool-version detection SHALL probe the actual launch executable with a subprocess `--version` call and SHALL fail unattended launch before provider start if the executable is missing or the version output cannot be parsed for that tool family.
+
+#### Scenario: Runtime detects tool version and selects a compatible unattended strategy
+- **WHEN** a session starts from a brain manifest that requests `operator_prompt_mode = unattended`
+- **AND WHEN** the detected tool version and backend match a compatible launch policy strategy
+- **THEN** the runtime selects exactly one compatible strategy before starting the provider process
+- **AND THEN** the runtime applies that strategy's launch actions for the resolved working directory and runtime home
+
+#### Scenario: Missing or unparseable tool version blocks unattended launch
+- **WHEN** a session requests `operator_prompt_mode = unattended`
+- **AND WHEN** the runtime cannot execute or parse `<tool> --version` for the selected executable
+- **THEN** the runtime fails the launch before provider start
+- **AND THEN** the error reports the executable probe failure as the reason unattended resolution could not proceed
+
+### Requirement: Runtime unattended launch can synthesize provider startup state from minimal credentials
+When unattended launch is requested, the runtime SHALL allow the selected strategy to synthesize or patch runtime-owned provider config/state from minimal credential inputs and minimal caller launch args.
+
+The runtime SHALL NOT require pre-existing user-owned tool config files solely to suppress startup prompts.
+
+#### Scenario: Fresh runtime home launches unattended from minimal provider credentials
+- **WHEN** a session starts from a brain manifest that requests `operator_prompt_mode = unattended`
+- **AND WHEN** the runtime home is fresh and only normal credential inputs are available for the selected tool, such as `auth.json`, API-key env vars, or an env-only custom-provider configuration that disables built-in login
+- **THEN** the selected strategy may create or patch runtime-owned provider config/state before process start
+- **AND THEN** unattended launch does not depend on pre-existing user-authored no-prompt config files
+
+### Requirement: Runtime launch records launch policy provenance
+The system SHALL persist and surface launch policy provenance for startup-prompt-forbidden launches using a typed `launch_policy_provenance` structure rather than only untyped backend metadata.
+
+That typed provenance SHALL include at minimum:
+
+- requested `operator_prompt_mode`
+- detected tool version
+- selected strategy identifier
+- selection source
+- override env var name when an override is active
+
+#### Scenario: Session metadata records resolved unattended strategy
+- **WHEN** the runtime starts a session using a resolved unattended launch strategy
+- **THEN** persisted launch metadata includes a typed `launch_policy_provenance` structure with the requested policy mode, detected tool version, selected strategy identifier, and selection source
+- **AND THEN** redacted session-facing metadata omits secret values while preserving strategy provenance for debugging
+
+### Requirement: Runtime supports a transient strategy override for controlled experiments
+The runtime SHALL support `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY=<strategy-id>` as a transient strategy-selection override for controlled unattended-launch experiments.
+
+The runtime SHALL NOT persist that override into brain recipes or resolved brain manifests.
+
+#### Scenario: Environment override selects a specific unattended strategy
+- **WHEN** a session requests `operator_prompt_mode = unattended`
+- **AND WHEN** `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` is set to a known compatible strategy id
+- **THEN** the runtime selects that strategy instead of normal version-based lookup
+- **AND THEN** `launch_policy_provenance` records that selection source was an environment override
+- **AND THEN** the resolved brain manifest remains unchanged
+
+### Requirement: Runtime refuses startup-prompt-forbidden launch when policy cannot be satisfied
+The system SHALL fail before provider process start when a requested startup-prompt-forbidden launch policy cannot be satisfied for the detected tool version, backend, or launch context.
+
+#### Scenario: Unsupported version blocks unattended launch before provider start
+- **WHEN** a session requests `operator_prompt_mode = unattended`
+- **AND WHEN** no compatible strategy exists for the detected tool version and backend
+- **THEN** the runtime fails the launch before starting the provider process
+- **AND THEN** the error identifies the requested policy, tool, backend, and detected version
+
+#### Scenario: Unsupported unattended backend fails closed
+- **WHEN** a session requests `operator_prompt_mode = unattended`
+- **AND WHEN** the selected backend is `gemini_headless` and no unattended strategy family exists for that backend
+- **THEN** the runtime fails the launch before starting the provider process
+- **AND THEN** the error identifies that unattended Gemini support is not part of this change
+
+### Requirement: Runtime unattended launch covers startup operator prompts beyond classic permission dialogs
+For `operator_prompt_mode = unattended`, the runtime SHALL treat version-supported startup operator prompts that block provider readiness as part of the launch policy surface, even when those prompts are not labeled as permission prompts by the provider.
+
+#### Scenario: Codex startup prompt is suppressed even when it is a model migration notice
+- **WHEN** a supported Codex version would otherwise stop at a startup model migration notice after trust and approval defaults are already satisfied
+- **AND WHEN** `operator_prompt_mode = unattended`
+- **THEN** the selected strategy treats that startup notice as part of unattended launch compatibility
+- **AND THEN** the session either starts without that prompt or fails before provider start if no compatible suppression strategy exists
+
+### Requirement: Shared launch-policy application is used across raw and runtime-managed launches
+The system SHALL apply unattended launch policy through one shared Python launch-policy entrypoint across generated raw launch helpers and runtime-managed session backends.
+
+Generated `launch.sh` helpers SHALL remain shell wrappers that invoke that shared Python entrypoint before the final tool `exec`.
+
+#### Scenario: Raw launch helper uses the shared Python launch-policy entrypoint
+- **WHEN** a generated brain `launch.sh` helper launches a brain with `operator_prompt_mode = unattended`
+- **THEN** the shell helper invokes the shared Python launch-policy entrypoint before the final tool `exec`
+- **AND THEN** raw helper launches resolve and apply the same unattended strategy family as runtime-managed launches
+
+#### Scenario: CAO-backed sessions use the same local launch-policy engine
+- **WHEN** a runtime-managed unattended launch starts through `cao_rest` or `houmao_server_rest`
+- **THEN** the local runtime resolves and applies the same launch-policy engine before CAO-compatible terminal startup
+- **AND THEN** CAO-backed sessions do not bypass version detection, override handling, or fail-closed unattended checks
+
+### Requirement: Strategy-owned launch args are not silently overridden
+When unattended launch is requested, the selected strategy SHALL own the no-prompt CLI args it requires.
+
+The runtime SHALL normalize exact duplicate strategy-owned args but SHALL reject contradictory `launch_args_override` input before provider start.
+
+#### Scenario: Conflicting launch override blocks unattended launch
+- **WHEN** a session requests `operator_prompt_mode = unattended`
+- **AND WHEN** caller-supplied `launch_args_override` conflicts with a strategy-owned no-prompt arg or removes required strategy behavior
+- **THEN** the runtime fails the launch before provider start
+- **AND THEN** the error identifies the conflicting override and selected strategy
+
+### Requirement: Runtime resolves the effective launch overrides for the selected backend before provider start
+The system SHALL resolve the effective launch overrides during launch-plan composition using the resolved brain manifest, the selected backend, runtime launch policy, and backend-reserved protocol controls.
+
+That resolution SHALL apply launch-override precedence in this order:
+
+1. adapter-owned launch defaults persisted in the brain manifest
+2. recipe-requested launch overrides persisted in the brain manifest
+3. direct-build launch overrides when present in the manifest for that built brain
+4. backend-aware launch-override translation and validation
+5. runtime-owned launch policy application
+6. backend-reserved protocol args and runtime continuity controls
+
+#### Scenario: Runtime resolves a Claude headless launch override with a supported typed param
+- **WHEN** a Claude brain manifest requests `launch_overrides.tool_params.include_partial_messages = true`
+- **AND WHEN** the selected backend is `claude_headless`
+- **THEN** launch-plan composition resolves that request into effective Claude headless launch behavior before provider start
+- **AND THEN** the resulting launch plan preserves runtime-owned continuity and machine-readable output controls
+
+### Requirement: Headless backend code owns only protocol-required launch args
+For headless backends, runtime backend code SHALL own only the launch args and controls required by the headless protocol itself.
+
+Optional provider launch behavior SHALL be resolved from declarative tool-launch metadata plus the requested `launch_overrides`, not invented as backend-only policy in headless `.py` code.
+
+#### Scenario: Headless backend appends protocol-required args after optional launch resolution
+- **WHEN** a headless launch uses optional provider behavior from tool-adapter defaults or `launch_overrides`
+- **THEN** runtime resolution applies that optional behavior before final backend command assembly
+- **AND THEN** the backend appends only the protocol-required headless args such as resume, machine-readable output mode, or provider-required subcommands
+
+### Requirement: Runtime records effective launch-override provenance
+The system SHALL persist and surface typed launch-override provenance for started sessions rather than exposing only one flattened executable-plus-args snapshot.
+
+That provenance SHALL identify at minimum:
+
+- the adapter-default launch snapshot used for the build
+- the requested recipe or direct-build launch overrides
+- the selected backend used for resolution
+- the effective translated launch behavior after runtime resolution
+- whether runtime launch policy or backend-reserved controls changed the final launch shape
+
+#### Scenario: Session metadata explains why effective launch args differ from recipe intent
+- **WHEN** a started session uses resolved launch behavior that differs from the raw requested override because runtime policy or backend-owned controls changed the final launch shape
+- **THEN** persisted launch metadata records both the requested launch-overrides intent and the effective resolved launch behavior
+- **AND THEN** debugging consumers can identify which layer changed the final launch plan
+
+### Requirement: Runtime fails closed when the selected backend cannot honor a requested launch override
+The system SHALL reject launch-override requests before provider start when the selected backend cannot honor the requested launch-overrides contract or when the request conflicts with backend-reserved controls.
+
+The runtime SHALL NOT silently ignore unsupported launch-override requests as though they were effective.
+
+#### Scenario: REST-backed launch rejects a launch override it cannot honor
+- **WHEN** a resolved brain manifest requests a launch override that the selected `cao_rest` or `houmao_server_rest` backend does not support end to end
+- **THEN** launch-plan composition fails before provider start
+- **AND THEN** the error identifies that the rejected launch-override field is unsupported for that backend
+
+#### Scenario: Runtime rejects a conflicting reserved protocol override
+- **WHEN** a launch-overrides request attempts to remove, replace, or contradict a backend-reserved protocol control such as resume or machine-readable output mode
+- **THEN** the runtime fails before provider start
+- **AND THEN** the error identifies the request as conflicting with runtime-owned backend behavior
+
+### Requirement: Runtime requires schema-version-2 brain manifests for the launch-overrides contract
+Runtime launch planning for this contract SHALL require resolved brain manifests written with `schema_version = 2`.
+
+The runtime SHALL NOT provide a compatibility reader that synthesizes the new launch-overrides contract from schema-version-1 manifests.
+
+#### Scenario: Legacy schema-version-1 brain manifest is rejected with rebuild guidance
+- **WHEN** a developer attempts to launch a brain home whose resolved brain manifest still uses `schema_version = 1`
+- **THEN** launch-plan construction fails before provider start
+- **AND THEN** the error directs the developer to rebuild the affected brain home with the current builder
+
+### Requirement: Tmux-backed headless turns reuse the primary agent window
+For one tmux-backed headless session, runtime-controlled prompt execution SHALL be serialized and SHALL NOT overlap.
+
+The runtime SHALL execute each runtime-controlled headless turn on the stable primary agent surface in window 0 and SHALL NOT create a separate per-turn tmux window for normal turn execution.
+
+The runtime SHALL launch each runtime-controlled headless turn through a same-pane fresh-process execution primitive on the stable primary surface rather than typing the command into a long-lived interactive shell.
+
+After a runtime-controlled headless turn reaches terminal state, the runtime SHALL leave the stable primary surface attachable as the idle `agent` window for the next controlled turn.
+
+Turn identity, stdout, stderr, exit status, and process metadata SHALL remain per-turn durable artifacts on disk rather than being encoded through tmux window allocation.
+
+#### Scenario: Active headless turn runs on the primary agent surface
+- **WHEN** the runtime starts a controlled turn for a tmux-backed headless session
+- **THEN** that turn executes on the stable window-0 agent surface
+- **AND THEN** rolling output remains visible on that same primary surface
+- **AND THEN** the runtime does not create a separate per-turn tmux window for that turn
+
+#### Scenario: Primary agent surface remains reusable after a controlled turn completes
+- **WHEN** a runtime-controlled headless turn completes on the stable primary surface
+- **THEN** the runtime leaves window 0 attachable as the `agent` surface
+- **AND THEN** the next controlled turn can reuse that same primary surface without allocating a new tmux window
+
+#### Scenario: Runtime-controlled headless turns do not overlap in one session
+- **WHEN** one runtime-controlled headless turn is already active for a tmux-backed session
+- **AND WHEN** another runtime-controlled prompt is addressed to that same live session before the first turn reaches terminal state
+- **THEN** the runtime does not start a second overlapping CLI execution for that session
+- **AND THEN** window 0 remains the only runtime-controlled execution surface for that headless agent
+

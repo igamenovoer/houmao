@@ -1,47 +1,30 @@
 ## Purpose
-Describe the future-email compatibility guarantees preserved by the canonical mailbox protocol without requiring a true-email transport in the current implementation.
+Describe the compatibility guarantees that let shared mailbox operations map onto standard email semantics across filesystem and real email-backed transports.
 
 ## Requirements
-### Requirement: Canonical mailbox protocol maps cleanly to standard email semantics
-The canonical mailbox protocol SHALL preserve semantics that can be mapped onto standard email surfaces in a follow-up true-email adapter without changing canonical message meaning.
+### Requirement: Shared mailbox operations map cleanly to standard email semantics
+The shared mailbox operation contract SHALL preserve semantics that can be mapped onto standard email surfaces, and the `stalwart` transport SHALL implement that mapping through real email-backed mailbox behavior for the mailbox functions shared with the filesystem transport.
 
-At minimum, the compatibility mapping SHALL preserve:
+At minimum, the implemented mapping SHALL preserve:
 
-- `message_id`
-- `in_reply_to`
-- `references`
 - sender and recipient identities
 - `subject`
-- `thread_id`
-- Markdown body semantics
-- attachment reference metadata
+- reply ancestry through standard email reply headers
+- opaque message references suitable for later `reply` targeting
+- body semantics needed for `check`, `send`, and `reply`
+- attachment metadata needed to compose and retrieve delivered attachments.
 
-#### Scenario: Reply ancestry maps to standard email headers
-- **WHEN** a canonical mailbox reply message is adapted to a future true-email transport
-- **THEN** the adapter can map reply ancestry onto standard email threading headers such as `Message-ID`, `In-Reply-To`, and `References`
-- **AND THEN** the canonical thread meaning remains unchanged by that adaptation
+#### Scenario: Mail check maps onto a real email-backed transport
+- **WHEN** a mailbox-enabled session performs `check` through the `stalwart` transport
+- **THEN** the transport returns normalized mailbox message metadata derived from real email-backed Stalwart mailbox behavior
+- **AND THEN** the resulting check preserves sender, recipient, subject, body-preview, and reply-target meaning without requiring a filesystem canonical-message corpus
 
-#### Scenario: Canonical thread id remains representable in email-compatible metadata
-- **WHEN** a canonical mailbox thread is adapted to a future true-email transport
-- **THEN** the adapter can preserve the canonical `thread_id` in compatible protocol metadata
-- **AND THEN** subject text alone is not required to reconstruct canonical thread identity
+#### Scenario: Reply ancestry maps onto standard email reply headers
+- **WHEN** a sender replies to an existing mailbox message through the `stalwart` transport
+- **THEN** the transport preserves reply ancestry through standard email-compatible reply headers such as `Message-ID`, `In-Reply-To`, and `References`
+- **AND THEN** the mailbox workflow keeps the same logical conversation meaning without relying on subject-only heuristics
 
-### Requirement: True-email transport implementation is out of scope for this change
-This change SHALL NOT require implementation of a localhost mail server, SMTP/IMAP runtime adapter, or true-email mailbox runtime operations.
-
-This change SHALL NOT require multi-transport coexistence for one live session, in-place migration from the filesystem transport to a future true-email transport, or mid-session switching of `AGENTSYS_MAILBOX_TRANSPORT`.
-
-#### Scenario: Filesystem implementation does not require a mail service
-- **WHEN** the filesystem mailbox transport is implemented for this change
-- **THEN** the implementation succeeds without starting or depending on a localhost mail service
-- **AND THEN** the change still preserves documented compatibility with future true-email adaptation
-
-#### Scenario: Compatibility documentation does not imply runtime support
-- **WHEN** this change documents email-compatible headers or reserved mail-system env names
-- **THEN** those compatibility documents do not require the current runtime to populate or use a true-email transport
-- **AND THEN** a follow-up change can implement that transport without changing the canonical mailbox protocol
-
-#### Scenario: Compatibility documentation does not imply transport switching support
-- **WHEN** this change documents reserved future true-email mappings and env namespaces
-- **THEN** that documentation does not require one live session to switch between filesystem and true-email transports in place
-- **AND THEN** a follow-up change may define transport migration or coexistence semantics explicitly
+#### Scenario: Shared conversation identity remains representable in transport-compatible metadata
+- **WHEN** a shared mailbox conversation is exposed through filesystem or real email-backed transport metadata
+- **THEN** the transport can preserve the logical conversation identity in compatible protocol metadata or reply-target references
+- **AND THEN** subject text alone is not required to reconstruct that logical conversation

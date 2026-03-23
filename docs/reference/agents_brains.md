@@ -9,8 +9,8 @@ For the runtime-managed session model layered on top of these built homes, use [
 
 The canonical on-disk sources live under an **agent definition directory** that
 contains `brains/`, `roles/`, and `blueprints/`. The generated runtime homes
-live under a runtime root (default: `tmp/agents-runtime/`) and are safe to
-delete/rebuild.
+live under the effective runtime root (default: `~/.houmao/runtime`) and are
+safe to delete or rebuild. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical generated-home, manifest, and session-root filesystem map.
 
 ## Canonical Layout
 
@@ -79,12 +79,35 @@ pixi run python scripts/agents/build_brain_home.py \
 
 Outputs:
 
-- Runtime home: `tmp/agents-runtime/homes/<tool>/<home-id>/`
-- Manifest: `tmp/agents-runtime/manifests/<tool>/<home-id>.yaml`
-- Launch helper: `tmp/agents-runtime/homes/<tool>/<home-id>/launch.sh`
+- Runtime home: `<runtime-root>/homes/<home-id>/`
+- Manifest: `<runtime-root>/manifests/<home-id>.yaml`
+- Launch helper: `<runtime-root>/homes/<home-id>/launch.sh`
 
 The manifest is **secret-free** (it records env var names and local paths, but
 not secret values).
+
+Both recipe-driven and explicit builds can also declare the operator-prompt posture. Use `launch_policy.operator_prompt_mode` in the recipe or pass `--operator-prompt-mode unattended` to `build-brain` when you want Houmao to resolve a versioned unattended launch strategy at runtime. The default remains `interactive`.
+
+Both recipe-driven and explicit builds also share the same secret-free `launch_overrides` contract for optional launch behavior. Recipes can declare:
+
+```yaml
+launch_overrides:
+  args:
+    mode: append
+    values:
+      - --example-flag
+  tool_params:
+    include_partial_messages: true
+```
+
+Explicit builds can pass the same shape through `build-brain --launch-overrides <path-or-inline-json>`.
+
+Ownership rules:
+
+- Tool adapters still own `launch.executable`, adapter default args, and declarative optional-launch metadata.
+- Recipes and direct builds only request secret-free overrides on top of those defaults.
+- Backend-owned protocol args such as `claude -p`, `gemini -p`, `codex exec --json`, `resume`, and `app-server` stay in runtime backend code and are not recipe-overridable.
+- The builder persists unresolved launch intent only; backend-specific applicability and effective args are resolved later when a session is launched.
 
 ## Credential Profiles (Local-Only)
 
@@ -116,11 +139,11 @@ Tool notes (current adapters):
     Placeholder `{}` files do not satisfy that requirement on their own.
 - `claude`
   - Home selector: `CLAUDE_CONFIG_DIR=<runtime-home>`
-  - Local-only template input: `files/claude_state.template.json` projected to
-    `<runtime-home>/claude_state.template.json` for launch-time materialization
-    of `<runtime-home>/.claude.json`.
-  - Config profile should include `settings.json` with
-    `skipDangerousModePermissionPrompt: true`.
+  - Optional seed state: `files/claude_state.template.json` may be projected to
+    `<runtime-home>/claude_state.template.json` when you want to preserve or extend existing Claude state, but unattended launches no longer require the template up front.
+  - For supported unattended versions, Houmao can synthesize or patch
+    `settings.json` and `.claude.json` from runtime-owned launch policy instead
+    of requiring user-prepared prompt-suppression files.
   - Credentials: use env vars (`ANTHROPIC_API_KEY`, etc) in `env/vars.env`, or
     use `claude auth login` outside this system if you prefer first-party auth.
   - Model selection: set `ANTHROPIC_MODEL` (plus optional vars like
@@ -139,13 +162,13 @@ Tool notes (current adapters):
 After building, start the tool using the generated helper:
 
 ```bash
-tmp/agents-runtime/homes/<tool>/<home-id>/launch.sh
+<runtime-root>/homes/<home-id>/launch.sh
 ```
 
 Example live Codex smoke test for the Yunwu-backed profile:
 
 ```bash
-tmp/agents-runtime/homes/codex/<home-id>/launch.sh exec --skip-git-repo-check \
+<runtime-root>/homes/<home-id>/launch.sh exec --skip-git-repo-check \
   'Respond with exactly this text and nothing else: YUNWU_CODEX_SMOKE_OK'
 ```
 
@@ -156,10 +179,19 @@ The helper:
 
 - exports the tool home selector env var (from the tool adapter), and
 - applies only allowlisted credential env vars (from the tool adapter + `vars.env`).
-- for Codex homes, runs shared Codex bootstrap validation/trust setup before
-  executing `codex`.
-- for Claude homes, runs shared Claude bootstrap validation/materialization
-  before executing `claude`.
+- if the manifest sets `launch_policy.operator_prompt_mode: unattended`, invokes
+  `python -m houmao.agents.launch_policy.cli` to resolve a versioned strategy
+  for the detected CLI version before the final tool exec.
+- if the manifest leaves operator prompt mode unset or `interactive`, execs the
+  tool directly without unattended-policy synthesis.
+
+Important launch-policy notes:
+
+- unknown or unsupported CLI versions fail closed for unattended mode instead
+  of guessing,
+- `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` exists for transient debugging only,
+- current supported unattended strategy details live in
+  [Realm Controller](realm_controller.md#versioned-unattended-launch-policy).
 
 Once you want repo-owned lifecycle control instead of raw helper execution, the next references are:
 
@@ -188,7 +220,7 @@ from houmao.agents import BuildRequest, build_brain_home
 result = build_brain_home(
     BuildRequest(
         agent_def_dir=Path("."),
-        runtime_root=Path("tmp/agents-runtime"),
+        runtime_root=Path("/abs/path/houmao-runtime"),
         tool="codex",
         skills=["openspec-apply-change"],
         config_profile="default",

@@ -1,0 +1,29 @@
+{
+  "id": "codex_explicit_success",
+  "tool": "codex",
+  "description": "Drive Codex through one simple explicit-input success turn.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-prompt",
+      "text": "Reply with the single word READY and stop.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-ready-token",
+      "pattern": "(?m)^\\s*(?:[●•]\\s*)?READY\\s*$",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "wait_seconds",
+      "name": "settle-success",
+      "seconds": 2.0
+    }
+  ]
+}

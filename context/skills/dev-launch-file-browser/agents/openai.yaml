@@ -1,0 +1,7 @@
+interface:
+  display_name: "Launch Repo File Browser"
+  short_description: "Launch and verify repo Filestash browser"
+  default_prompt: "Use $dev-launch-file-browser to start or verify the in-repo Filestash file browser and report the login details."
+
+policy:
+  allow_implicit_invocation: false

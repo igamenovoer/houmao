@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -16,8 +19,9 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.mailbox.filesystem import MailboxBootstrapError
 
 
 def _write(path: Path, text: str) -> None:
@@ -47,15 +51,23 @@ def _seed_brain_manifest(
     manifest_path = tmp_path / f"{tool}-brain.yaml"
 
     lines = [
-        "schema_version: 1",
+        "schema_version: 2",
         "inputs:",
         f"  tool: {tool}",
         "runtime:",
         f"  launch_executable: {tool}",
-        "  launch_args: []",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
         f"    value: {tmp_path / 'home'}",
+        "  launch_contract:",
+        "    adapter_defaults:",
+        "      args: []",
+        "      tool_params: {}",
+        "    requested_overrides:",
+        "      recipe: null",
+        "      direct: null",
+        "    tool_metadata:",
+        "      tool_params: {}",
         "credentials:",
         "  env_contract:",
         f"    source_file: {env_file}",
@@ -109,6 +121,12 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     assert (mailbox.filesystem_root / "index.sqlite").is_file()
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
     assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/inbox").is_dir()
+    assert (
+        mailbox.filesystem_root
+        / "mailboxes"
+        / "AGENTSYS-research@agents.localhost"
+        / "mailbox.sqlite"
+    ).is_file()
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["principal_id"] == "AGENTSYS-research"
@@ -153,6 +171,73 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
     assert not (runtime_root / "shared-mail" / "protocol-version.txt").exists()
 
 
+def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    runtime_root = tmp_path / "runtime"
+    shared_root = tmp_path / "shared-mail"
+    (tmp_path / "sender").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "receiver").mkdir(parents=True, exist_ok=True)
+    sender_manifest = _seed_brain_manifest(
+        tmp_path / "sender",
+        mailbox_block="\n".join(
+            [
+                "  transport: filesystem",
+                "  principal_id: AGENTSYS-mailbox-sender",
+                "  address: AGENTSYS-mailbox-sender@agents.localhost",
+                f"  filesystem_root: {shared_root}",
+            ]
+        ),
+    )
+    receiver_manifest = _seed_brain_manifest(
+        tmp_path / "receiver",
+        mailbox_block="\n".join(
+            [
+                "  transport: filesystem",
+                "  principal_id: AGENTSYS-mailbox-receiver",
+                "  address: AGENTSYS-mailbox-receiver@agents.localhost",
+                f"  filesystem_root: {shared_root}",
+            ]
+        ),
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    sender = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=sender_manifest,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="codex_app_server",
+        working_directory=tmp_path,
+    )
+    receiver = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=receiver_manifest,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="codex_app_server",
+        working_directory=tmp_path,
+    )
+
+    assert sender.launch_plan.mailbox is not None
+    assert receiver.launch_plan.mailbox is not None
+    assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
+    assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
+    assert (
+        shared_root / "mailboxes" / "AGENTSYS-mailbox-sender@agents.localhost" / "inbox"
+    ).is_dir()
+    assert (
+        shared_root / "mailboxes" / "AGENTSYS-mailbox-receiver@agents.localhost" / "inbox"
+    ).is_dir()
+
+
 def test_resume_runtime_session_restores_persisted_mailbox_binding(
     monkeypatch,
     tmp_path: Path,
@@ -170,7 +255,7 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             role_package=role,
             backend="claude_headless",
             working_directory=tmp_path,
-            mailbox=MailboxResolvedConfig(
+            mailbox=FilesystemMailboxResolvedConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
                 address="AGENTSYS-research@agents.localhost",
@@ -184,6 +269,9 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
+            agent_name="AGENTSYS-research",
+            agent_id=derive_agent_id_from_name("AGENTSYS-research"),
+            tmux_session_name="AGENTSYS-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
@@ -217,10 +305,59 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
     assert captured["launch_plan"].mailbox.filesystem_root == persisted_root.resolve()
 
 
+def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initialized_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    shared_root = tmp_path / "shared-mail"
+    (tmp_path / "sender").mkdir(parents=True, exist_ok=True)
+    sender_manifest = _seed_brain_manifest(
+        tmp_path / "sender",
+        mailbox_block="\n".join(
+            [
+                "  transport: filesystem",
+                "  principal_id: AGENTSYS-mailbox-sender",
+                "  address: AGENTSYS-mailbox-sender@agents.localhost",
+                f"  filesystem_root: {shared_root}",
+            ]
+        ),
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=sender_manifest,
+        role_name="r",
+        runtime_root=tmp_path / "runtime",
+        backend="codex_app_server",
+        working_directory=tmp_path,
+    )
+
+    with pytest.raises(
+        MailboxBootstrapError,
+        match="no active mailbox registration exists",
+    ):
+        mailbox_env_bindings(
+            FilesystemMailboxResolvedConfig(
+                transport="filesystem",
+                principal_id="AGENTSYS-mailbox-receiver",
+                address="AGENTSYS-mailbox-receiver@agents.localhost",
+                filesystem_root=shared_root.resolve(),
+                bindings_version="2026-03-16T12:00:00Z",
+            )
+        )
+
+
 def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_path: Path) -> None:
     old_root = tmp_path / "mail-old"
     new_root = tmp_path / "mail-new"
-    old_mailbox = MailboxResolvedConfig(
+    old_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id="AGENTSYS-research",
         address="AGENTSYS-research@agents.localhost",
@@ -267,6 +404,12 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
     assert refreshed.filesystem_root == new_root.resolve()
     assert controller.launch_plan.mailbox == refreshed
     assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(new_root.resolve())
+    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
+        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost"
+    )
+    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
+        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost" / "mailbox.sqlite"
+    )
     assert captured["launch_plan"].mailbox == refreshed
     assert refreshed.bindings_version != old_mailbox.bindings_version
     assert (new_root / "protocol-version.txt").is_file()

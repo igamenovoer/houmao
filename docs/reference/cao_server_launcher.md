@@ -2,17 +2,21 @@
 
 `houmao.cao.server_launcher` provides a repo-owned launcher for managing a local `cao-server` process with explicit config, detached standalone startup semantics, and deterministic runtime artifacts.
 
+For the canonical launcher-owned artifact tree, derived CAO home placement, and operator filesystem-preparation guidance, use [CAO Server](./system-files/cao-server.md) and [Operator Preparation](./system-files/operator-preparation.md).
+
 ## Install requirement
 
 The launcher starts `cao-server` from `PATH` only.
 
-- Install CAO with `uv` from the supported fork (example): `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@hz-release`
+- Install CAO with `uv` from the pinned compatibility commit used by the Houmao pair: `uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6`
 - Verify: `command -v cao-server`
 
 If start fails with "`cao-server` not found on PATH", install CAO separately and
 rerun `command -v cao-server` before retrying launcher commands.
 
 The launcher does **not** run vendored sources from `extern/`.
+
+For the `houmao-server + houmao-srv-ctrl` compatibility contract, that exact CAO commit is the source of truth. Use [Houmao Server Pair](houmao_server_pair.md) for the higher-level replacement boundary.
 
 ## Config file (TOML)
 
@@ -22,7 +26,7 @@ Example file: `config/cao-server-launcher/local.toml`.
 
 ```toml
 base_url = "http://localhost:9889"
-runtime_root = "tmp/agents-runtime"
+runtime_root = "/data/agents/houmao-runtime"
 home_dir = "/data/agents/cao-home"
 proxy_policy = "clear"
 startup_timeout_seconds = 15
@@ -67,14 +71,7 @@ Supported ad-hoc overrides:
 
 ## Runtime artifacts
 
-When launching (or managing pidfile state), artifacts live under:
-
-`runtime_root/cao-server/<host>-<port>/`
-
-- `cao-server.pid`
-- `cao-server.log`
-- `ownership.json`
-- `launcher_result.json`
+Launcher-owned artifacts live under a deterministic per-server subtree documented in [CAO Server](./system-files/cao-server.md). That centralized page covers `cao_servers/<host>-<port>/launcher/`, the derived sibling `home/` tree, and the legacy cleanup note for the older `cao-server/` layout.
 
 `start` now means "bootstrap a detached standalone local service and wait until it becomes healthy." Once `start` returns successfully, a later independent `status` command should still be able to reach the same service unless it has been explicitly stopped or crashed independently.
 
@@ -117,27 +114,8 @@ Opt-out switch:
 Implications:
 
 - CAO state is written under `HOME/.aws/cli-agent-orchestrator/`.
-- CAO `working_directory` must be inside this `HOME` tree.
+- `home_dir` is the launcher-managed state/profile-store anchor for the CAO process.
+- Repos and later session workdirs may live elsewhere; the repo-owned launcher/runtime contract does not require them to be nested under `home_dir`.
 - Repos may be read-only, but `HOME` itself must stay writable.
 
-Recommended layout for `/data/...` workflows:
-
-- `HOME`: `/data/<user>/cao-home`
-- repos: `/data/<user>/cao-home/repos/<project>`
-- state: `/data/<user>/cao-home/.aws/cli-agent-orchestrator/`
-
-## Manual `/data/...` verification recipe
-
-1. Create a writable CAO home:
-   `mkdir -p /data/$USER/cao-home/repos && cp -a <repo> /data/$USER/cao-home/repos/`.
-2. Point launcher config `home_dir` to `/data/$USER/cao-home`.
-3. Start CAO:
-   `pixi run python -m houmao.cao.tools.cao_server_launcher start --config <config>`.
-4. Start a CAO-backed runtime session with `--workdir` inside that home tree.
-5. Confirm session start succeeds for `/data/...` workdir.
-6. Confirm CAO state exists under
-   `/data/$USER/cao-home/.aws/cli-agent-orchestrator/`.
-7. Confirm a later independent status check still succeeds:
-   `pixi run python -m houmao.cao.tools.cao_server_launcher status --config <config>`.
-8. Stop CAO:
-   `pixi run python -m houmao.cao.tools.cao_server_launcher stop --config <config>`.
+Use [CAO Server](./system-files/cao-server.md) for the launcher/home ownership boundary and [Operator Preparation](./system-files/operator-preparation.md) for `/data/...` layout patterns, writable-path preparation, redirection surfaces, and cleanup expectations.

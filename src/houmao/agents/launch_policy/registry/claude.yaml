@@ -1,0 +1,74 @@
+schema_version: 1
+tool: claude
+strategies:
+  - strategy_id: claude-unattended-2.1.81
+    operator_prompt_mode: unattended
+    backends:
+      - raw_launch
+      - claude_headless
+      - cao_rest
+      - houmao_server_rest
+    version_range:
+      min_inclusive: 2.1.81
+      max_exclusive: 2.1.82
+    minimal_inputs:
+      credential_forms:
+        - ANTHROPIC_API_KEY
+        - ANTHROPIC_AUTH_TOKEN
+        - endpoint/auth environment variables without pre-made settings.json or .claude.json
+      requires_user_prepared_state: false
+      notes:
+        - Runtime-owned settings.json and .claude.json state may be created or patched in a fresh isolated CLAUDE_CONFIG_DIR.
+        - Template-derived .claude.json content is optional and preserved when present.
+    evidence:
+      - kind: source_reference
+        ref: magic-context/skills/cli-agents/claude-code-install/references/skip-login-config.md
+        note: Local source reference documents the onboarding skip field hasCompletedOnboarding in Claude runtime state.
+      - kind: live_probe
+        ref: claude --version
+        note: Fresh-home probe on installed Claude Code 2.1.81 required onboarding, API-key approval, dangerous-mode suppression, and workspace trust state.
+    owned_paths:
+      - path: settings.json
+        keys:
+          - skipDangerousModePermissionPrompt
+      - path: .claude.json
+        keys:
+          - hasCompletedOnboarding
+          - numStartups
+          - customApiKeyResponses
+          - projects.<resolved_workdir>.hasCompletedProjectOnboarding
+          - projects.<resolved_workdir>.hasTrustDialogAccepted
+          - projects.<resolved_workdir>.projectOnboardingSeenCount
+    actions:
+      - kind: validate.reject_conflicting_launch_args
+        params:
+          owned_args:
+            - --dangerously-skip-permissions
+          disallowed_args: []
+      - kind: cli_arg.ensure_present
+        params:
+          arg: --dangerously-skip-permissions
+      - kind: json.set
+        params:
+          path: settings.json
+          key_path:
+            - skipDangerousModePermissionPrompt
+          value: true
+      - kind: json.set
+        params:
+          path: .claude.json
+          key_path:
+            - hasCompletedOnboarding
+          value: true
+      - kind: json.set
+        params:
+          path: .claude.json
+          key_path:
+            - numStartups
+          value: 1
+      - kind: provider_hook.call
+        params:
+          hook_id: claude.ensure_api_key_approval
+      - kind: provider_hook.call
+        params:
+          hook_id: claude.ensure_project_trust

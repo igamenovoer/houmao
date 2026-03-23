@@ -1,6 +1,5 @@
 ## Purpose
 Define the repository's mailbox reference documentation structure, coverage, and quality bar so readers can find accurate contracts, operations guidance, and internal architecture details under a dedicated mailbox subtree.
-
 ## Requirements
 ### Requirement: Mailbox reference documentation is organized under a dedicated subtree
 The repository SHALL publish the mailbox reference documentation under `docs/reference/mailbox/` with an `index.md` entrypoint instead of concentrating the full mailbox reference in one standalone page.
@@ -80,13 +79,13 @@ The mailbox contract documentation SHALL describe the implemented v1 mailbox sur
 At minimum, that contract coverage SHALL include:
 
 - the canonical mailbox message and addressing model,
-- runtime mailbox bindings and runtime `mail` command expectations,
+- runtime mailbox bindings, discoverable mailbox skill projection, and runtime `mail` command expectations,
 - managed mailbox helper script contract,
 - filesystem mailbox layout and artifact contract.
 
 #### Scenario: Contract documentation covers canonical and runtime mailbox surfaces
 - **WHEN** a reader needs the normative mailbox reference for v1 behavior
-- **THEN** the mailbox contract pages describe the canonical message model, addressing, threading, runtime mailbox bindings, and runtime `mail` command surface
+- **THEN** the mailbox contract pages describe the canonical message model, addressing, threading, runtime mailbox bindings, the primary discoverable mailbox skill surface, and the runtime `mail` command surface
 - **AND THEN** the reader does not need to reconstruct those contracts only from scattered source files
 - **AND THEN** the pages use examples or representative shapes to make those contracts easier to understand
 
@@ -102,12 +101,13 @@ At minimum, that operational guidance SHALL cover:
 
 - mailbox enablement and bootstrap expectations,
 - mailbox read, send, and reply workflows,
+- the discoverable mailbox skill surface used by runtime-owned mailbox work in current sessions,
 - address-routed registration lifecycle modes,
 - repair or recovery expectations for mailbox roots.
 
 #### Scenario: Operational guidance covers runtime mailbox workflows
 - **WHEN** an operator or developer needs to use the mailbox system in practice
-- **THEN** the mailbox operations pages explain mailbox enablement, bootstrap expectations, and common read, send, and reply workflows
+- **THEN** the mailbox operations pages explain mailbox enablement, bootstrap expectations, the discoverable mailbox skill surface, and common read, send, and reply workflows
 - **AND THEN** those pages direct the reader to the managed mailbox rules and helper expectations where relevant
 - **AND THEN** those workflows are explained with enough concrete detail that a new reader can follow the intended sequence safely
 - **AND THEN** important workflows are accompanied by embedded Mermaid sequence diagrams
@@ -122,14 +122,15 @@ The mailbox internal documentation SHALL explain how the runtime integrates mail
 
 At minimum, that internal coverage SHALL include:
 
-- runtime-owned mailbox skill projection and binding refresh behavior,
+- primary runtime-owned mailbox skill projection and any compatibility-mirror behavior,
+- mailbox binding refresh behavior,
 - mailbox-local rules and managed helper interaction points,
 - SQLite responsibility boundaries,
 - address-scoped locking behavior for mailbox mutation flows.
 
 #### Scenario: Internal docs explain runtime integration
 - **WHEN** a maintainer needs to understand how mailbox support is attached to runtime sessions
-- **THEN** the mailbox internals pages explain the runtime-owned mailbox skill projection, env binding model, and mailbox command integration points
+- **THEN** the mailbox internals pages explain the primary discoverable mailbox skill projection, any hidden compatibility mirror behavior, the env binding model, and mailbox command integration points
 - **AND THEN** the reader can relate the mailbox reference to the runtime integration code paths
 - **AND THEN** the explanation gives enough plain-language framing that a developer new to the mailbox subsystem can follow the architecture
 
@@ -157,3 +158,50 @@ At minimum, the documentation SHALL define or explain recurring terms such as ca
 - **WHEN** a new user or developer encounters mailbox-specific terminology in the mailbox reference subtree
 - **THEN** the page or mailbox entrypoint explains that terminology in accessible language
 - **AND THEN** the documentation does not rely on unexplained subsystem jargon as the only way to understand mailbox behavior
+
+### Requirement: Mailbox reference documentation provides a Stalwart-first-session reader path
+The mailbox reference documentation SHALL provide a clear first-session reader path for Stalwart-backed mailbox use instead of requiring readers to infer that path from filesystem-first pages or low-level contract references.
+
+At minimum, the mailbox reference SHALL:
+
+- make the transport choice visible from the mailbox entry path or quickstart,
+- provide a dedicated Stalwart-focused operations page under the mailbox subtree,
+- explain the prerequisites and Houmao-side assumptions for a Stalwart-backed session,
+- explain how to start a mailbox-enabled session with the `stalwart` transport,
+- explain how to verify the first session with `mail check`, `mail send`, and `mail reply`,
+- explain that a live gateway mailbox facade becomes the preferred shared path when it is attached.
+
+The Stalwart-focused guidance SHALL include at least one transport-comparison artifact such as a table that helps new readers distinguish filesystem-backed and Stalwart-backed sessions before the docs dive into detailed contracts.
+
+#### Scenario: Reader can choose the Stalwart path from mailbox quickstart
+- **WHEN** a first-time reader opens the mailbox entry path to enable mailbox support
+- **THEN** the mailbox docs make the transport choice visible near the start of that path
+- **AND THEN** the Stalwart path links to a dedicated page that explains the first-session flow without requiring the reader to reconstruct it from low-level contract pages
+
+#### Scenario: Operator can follow a Stalwart-backed first session safely
+- **WHEN** an operator wants to start and verify a Stalwart-backed mailbox session
+- **THEN** the mailbox operations docs explain the Houmao-side prerequisites, the `stalwart` session-start flow, and the first `mail check`, `mail send`, and `mail reply` steps
+- **AND THEN** the same page explains when the operator should expect shared mailbox work to prefer a live gateway mailbox facade
+
+### Requirement: Mailbox reference documentation explains shared mailbox boundaries across runtime, gateway, and transport
+The mailbox reference documentation SHALL explain the shared mailbox abstraction boundaries now that filesystem-backed and Stalwart-backed transports both exist.
+
+At minimum, the mailbox reference SHALL explain:
+
+- the difference between direct transport-specific mailbox behavior and the shared gateway mailbox facade,
+- that shared mailbox operations are transport-neutral even when implemented by transport-specific adapters underneath,
+- that `message_ref` is an opaque shared reply target rather than a filesystem-only or Stalwart-only identifier contract,
+- which exact payload and schema details remain centralized in the mailbox and gateway contract pages rather than being duplicated into narrative pages.
+
+When this boundary explanation uses summaries or comparison tables, it SHALL preserve the current implemented v1 behavior rather than describing future transport abstractions as though they were already supported.
+
+#### Scenario: Developer can see direct versus gateway mailbox paths clearly
+- **WHEN** a developer opens the mailbox reference to understand how shared mailbox operations are performed
+- **THEN** the mailbox docs explain the distinction between direct transport-specific behavior and the shared gateway mailbox facade
+- **AND THEN** the reader can tell which path is preferred when a live gateway is attached
+
+#### Scenario: Mailbox docs treat shared reply references as opaque
+- **WHEN** a reader uses the mailbox reference to understand reply behavior across transports
+- **THEN** the docs explain that `message_ref` is an opaque shared reply target
+- **AND THEN** the docs do not present filesystem-specific identifiers or Stalwart-native identifiers as the universal mailbox reply contract
+

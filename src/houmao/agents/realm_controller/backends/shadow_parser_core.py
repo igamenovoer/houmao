@@ -1,11 +1,22 @@
-"""Shared runtime shadow-parser contracts, helpers, and preset resolution."""
+"""Shared runtime shadow-parser contracts, helpers, and preset resolution.
+
+Shadow-mode projection is intentionally split into two text surfaces:
+
+- ``normalized_text`` stays close to the provider-visible snapshot after ANSI
+  stripping and newline normalization.
+- ``dialog_text`` is a best-effort heuristic cleanup over that normalized
+  snapshot. It is useful for lifecycle diffing, operator inspection, and
+  caller-owned extraction patterns, but it is not an exact recovered
+  transcript.
+"""
 
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Final, Literal
+from typing import Callable, Final, Literal, Protocol, TypeVar, runtime_checkable
 
 ShadowAvailability = Literal["supported", "unsupported", "disconnected", "unknown"]
 ShadowBusinessState = Literal["idle", "working", "awaiting_operator", "unknown"]
@@ -77,8 +88,32 @@ class SurfaceAssessment:
 
 
 @dataclass(frozen=True)
+class SnapshotSignalSet:
+    """Zone-partitioned signal extraction result for one tail snapshot."""
+
+    prompt_boundary_index: int | None
+    active_zone_lines: tuple[str, ...]
+    historical_zone_lines: tuple[str, ...]
+    has_idle_prompt: bool
+    has_processing_spinner: bool
+    has_response_marker: bool
+    has_operator_blocked: bool
+    has_slash_command: bool
+    has_error_banner: bool
+    operator_blocked_excerpt: str | None
+    active_prompt_payload: str | None
+    anchor_type: str | None
+    blocked_surface_kind: str | None = None
+
+
+@dataclass(frozen=True)
 class DialogProjection:
-    """Provider-agnostic dialog-oriented view of one TUI snapshot."""
+    """Provider-agnostic dialog-oriented view of one TUI snapshot.
+
+    ``normalized_text`` remains the closer-to-source snapshot surface.
+    ``dialog_text`` is a best-effort dialog-oriented projection over that
+    snapshot and must not be treated as exact provider TUI recovery.
+    """
 
     raw_text: str
     normalized_text: str
@@ -95,6 +130,35 @@ class ParsedShadowSnapshot:
 
     surface_assessment: SurfaceAssessment
     dialog_projection: DialogProjection
+
+
+@dataclass(frozen=True)
+class DialogProjectorResult:
+    """Provider-owned projection content returned by one projector instance."""
+
+    dialog_text: str
+    evidence: tuple[str, ...] = ()
+    anomalies: tuple[ShadowParserAnomaly, ...] = ()
+
+
+ProjectionContextT = TypeVar("ProjectionContextT", contravariant=True)
+
+
+@runtime_checkable
+class ShadowDialogProjector(Protocol[ProjectionContextT]):
+    """Duck-typed contract for one swappable dialog projector."""
+
+    @property
+    def projector_id(self) -> str:
+        """Return a stable projector identifier for provenance."""
+
+    def project(
+        self,
+        *,
+        normalized_text: str,
+        context: ProjectionContextT,
+    ) -> DialogProjectorResult:
+        """Return best-effort projected dialog content for one snapshot."""
 
 
 def is_submit_ready(surface_assessment: SurfaceAssessment) -> bool:
@@ -327,6 +391,19 @@ class VersionedPresetRegistry:
         )
 
 
+def find_prompt_boundary(
+    tail_lines: Sequence[str],
+    anchor_patterns: Sequence[re.Pattern[str]],
+) -> int | None:
+    """Return the newest line index matching any provider-defined anchor."""
+
+    for index in range(len(tail_lines) - 1, -1, -1):
+        line = tail_lines[index]
+        if any(pattern.search(line) is not None for pattern in anchor_patterns):
+            return index
+    return None
+
+
 def parse_semver_tuple(value: str) -> tuple[int, int, int] | None:
     """Parse ``X.Y.Z`` semver text into a tuple."""
 
@@ -358,6 +435,20 @@ def ansi_stripped_tail_excerpt(scrollback: str, *, max_lines: int = 12) -> str:
         return ""
     excerpt = "\n".join(line.rstrip() for line in lines[-max_lines:] if line.strip())
     return excerpt.strip()
+
+
+def finalize_projected_dialog(*, normalized_text: str, dialog_text: str) -> str:
+    """Return the final projected dialog text for one snapshot.
+
+    Projectors can legitimately return an empty dialog when they are unable to
+    cleanly separate visible dialog from provider chrome. In that case the
+    normalized snapshot remains available as a closer-to-source fallback.
+    """
+
+    finalized = dialog_text.strip()
+    if finalized:
+        return finalized
+    return normalized_text.strip()
 
 
 def projection_head_tail(dialog_text: str, *, max_lines: int = 12) -> tuple[str, str]:

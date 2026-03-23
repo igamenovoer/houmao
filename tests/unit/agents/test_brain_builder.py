@@ -13,7 +13,8 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
-from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 
 
 def _write(path: Path, content: str) -> None:
@@ -84,8 +85,16 @@ home_selector:
   env_var: CLAUDE_CONFIG_DIR
 launch:
   executable: claude
-  args:
-    - -p
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params:
+      include_partial_messages:
+        type: boolean
+        backends:
+          claude_headless:
+            args_when_true:
+              - --include-partial-messages
   env_injection:
     mode: export_from_env_file
 config_projection:
@@ -99,6 +108,7 @@ credential_projection:
     - source: claude_state.template.json
       destination: claude_state.template.json
       mode: copy
+      required: false
   env:
     source: env/vars.env
     allowlist:
@@ -118,7 +128,13 @@ credential_projection:
     )
     _write(
         agent_def_dir / "brains/api-creds/claude/personal-a/env/vars.env",
-        "ANTHROPIC_API_KEY=sk-test\n",
+        "\n".join(
+            [
+                "ANTHROPIC_API_KEY='sk-test'",
+                'ANTHROPIC_BASE_URL="https://api.example.test"',
+            ]
+        )
+        + "\n",
     )
 
 
@@ -142,13 +158,20 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     )
 
     home = result.home_path
-    assert home == agent_def_dir / "tmp/agents-runtime/homes/codex/home-001"
+    assert home == agent_def_dir / "tmp/agents-runtime/homes/home-001"
     assert home.is_dir()
+    assert result.manifest_path == agent_def_dir / "tmp/agents-runtime/manifests/home-001.yaml"
 
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    assert (home / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
+    visible_mailbox_skill = home / "skills/mailbox/email-via-filesystem/SKILL.md"
+    hidden_mailbox_skill = home / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
+    assert visible_mailbox_skill.is_file()
+    assert hidden_mailbox_skill.is_file()
+    assert visible_mailbox_skill.read_text(encoding="utf-8") == hidden_mailbox_skill.read_text(
+        encoding="utf-8"
+    )
     assert not (home / "skills/skill-b").exists()
 
     # Credential file projection and env contract setup.
@@ -156,12 +179,13 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / ".env").is_symlink()
     assert (home / "launch.sh").is_file()
     launch_script = (home / "launch.sh").read_text(encoding="utf-8")
-    assert "ensure_codex_home_bootstrap" in launch_script
+    assert 'exec codex "$@"' in launch_script
 
     manifest_text = result.manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text)
 
     assert manifest["inputs"]["skills"] == ["skill-a"]
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
     assert manifest["runtime"]["home_path"] == str(home)
     assert manifest["credentials"]["env_contract"]["selected_env_vars"] == [
         "OPENAI_API_KEY",
@@ -169,6 +193,59 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     ]
     assert "NOT_ALLOWLISTED" not in manifest_text
     assert "sk-test-123" not in manifest_text
+
+
+def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path: Path) -> None:
+    """Projected mailbox skills should lead with gateway-first routine actions."""
+
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            mailbox=FilesystemMailboxDeclarativeConfig(
+                transport="filesystem",
+                principal_id="AGENTSYS-research",
+                address="AGENTSYS-research@agents.localhost",
+                filesystem_root="shared-mail",
+            ),
+            home_id="home-gateway-first-mailbox",
+        )
+    )
+
+    filesystem_skill = (
+        result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
+    ).read_text(encoding="utf-8")
+    stalwart_skill = (result.home_path / "skills/mailbox/email-via-stalwart/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "## Routine Actions With A Live Gateway Facade" in filesystem_skill
+    assert (
+        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
+        in filesystem_skill
+    )
+    assert "## Shared Gateway Route Quick Reference" in filesystem_skill
+    assert (
+        '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in filesystem_skill
+    )
+    assert "## Direct Filesystem Fallback Actions" in filesystem_skill
+
+    assert "## Routine Actions With A Live Gateway Facade" in stalwart_skill
+    assert (
+        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
+        in stalwart_skill
+    )
+    assert "## Shared Gateway Route Quick Reference" in stalwart_skill
+    assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in stalwart_skill
+    assert "## Direct Stalwart Fallback Actions" in stalwart_skill
 
 
 def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:
@@ -194,6 +271,61 @@ credential_profile: personal-a
     assert recipe.skills == ["skill-a"]
 
 
+def test_load_brain_recipe_accepts_launch_policy(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+launch_policy:
+  operator_prompt_mode: unattended
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.operator_prompt_mode == "unattended"
+
+
+def test_load_brain_recipe_accepts_launch_overrides(tmp_path: Path) -> None:
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        """
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+skills:
+  - skill-a
+config_profile: default
+credential_profile: personal-a
+launch_overrides:
+  args:
+    mode: append
+    values:
+      - --verbose
+  tool_params:
+    include_partial_messages: true
+""".strip()
+        + "\n",
+    )
+
+    recipe = load_brain_recipe(recipe_path)
+
+    assert recipe.launch_overrides is not None
+    assert recipe.launch_overrides.to_payload() == {
+        "args": {"mode": "append", "values": ["--verbose"]},
+        "tool_params": {"include_partial_messages": True},
+    }
+
+
 def test_load_brain_recipe_accepts_mailbox_config(tmp_path: Path) -> None:
     recipe_path = tmp_path / "recipe.yaml"
     _write(
@@ -217,7 +349,7 @@ mailbox:
 
     recipe = load_brain_recipe(recipe_path)
 
-    assert recipe.mailbox == MailboxDeclarativeConfig(
+    assert recipe.mailbox == FilesystemMailboxDeclarativeConfig(
         transport="filesystem",
         principal_id="AGENTSYS-research",
         address="AGENTSYS-research@agents.localhost",
@@ -259,7 +391,7 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=MailboxDeclarativeConfig(
+            mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
                 address="AGENTSYS-research@agents.localhost",
@@ -391,7 +523,117 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     assert payload["skipDangerousModePermissionPrompt"] is True
     assert (result.home_path / "claude_state.template.json").is_file()
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    assert "ensure_claude_home_bootstrap" in launch_script
+    assert 'exec claude "$@"' in launch_script
+    assert "export ANTHROPIC_API_KEY=sk-test" in launch_script
+    assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
+    assert "ENV_FILE=" not in launch_script
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
+
+
+def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_cli(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-unattended",
+            operator_prompt_mode="unattended",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "unattended"
+    assert "houmao.agents.launch_policy.cli" in launch_script
+    assert "--requested-operator-prompt-mode unattended" in launch_script
+    assert "--backend raw_launch" in launch_script
+
+
+def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-interactive",
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="replace", values=()),
+            ),
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    assert manifest["schema_version"] == 2
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
+        "args": {"mode": "replace", "values": []}
+    }
+    assert 'exec claude "$@"' in launch_script
+
+
+def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            recipe_path=tmp_path / "recipe.yaml",
+            recipe_launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="append", values=("--recipe",)),
+                tool_params={"include_partial_messages": True},
+            ),
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="replace", values=("--direct",)),
+            ),
+            home_id="claude-home-layered",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+
+    assert manifest["runtime"]["launch_contract"]["adapter_defaults"] == {
+        "args": [],
+        "tool_params": {},
+    }
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["recipe"] == {
+        "args": {"mode": "append", "values": ["--recipe"]},
+        "tool_params": {"include_partial_messages": True},
+    }
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
+        "args": {"mode": "replace", "values": ["--direct"]}
+    }
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["recipe_path"] == str(
+        (tmp_path / "recipe.yaml").resolve()
+    )
+    assert 'exec claude --direct "$@"' in launch_script
 
 
 def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> None:

@@ -30,8 +30,8 @@ Provider subclasses refine `ui_context` and may add evidence fields:
 | Field | Meaning |
 |------|---------|
 | `raw_text` | Raw snapshot text before runtime normalization |
-| `normalized_text` | ANSI-stripped, normalized snapshot text |
-| `dialog_text` | Projected visible dialog after provider-specific chrome removal |
+| `normalized_text` | ANSI-stripped, normalized snapshot text; closest shared text surface to the captured TUI |
+| `dialog_text` | Best-effort projected visible dialog after provider-specific chrome removal; not an exact recovered transcript |
 | `head` | Caller-facing head slice over projected dialog |
 | `tail` | Caller-facing tail slice over projected dialog |
 | `projection_metadata` | Provenance for how the projection was produced |
@@ -71,7 +71,7 @@ Provider subclasses add provider-specific evidence:
 - `closed`
 - `unknown`
 
-Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `in_progress` or `completed` live one layer higher in `TurnMonitor`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
+Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `waiting`, `in_progress`, `candidate_complete`, `completed`, and `stalled` live one layer higher in the readiness/completion monitor pipelines in `cao_rx_monitor.py`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
 
 ### Shared `ui_context`
 
@@ -120,6 +120,13 @@ Important fields include:
 - `head_line_count`
 - `tail_line_count`
 
+Provider parsers own default projector selection. In practice this means:
+
+- shared core code normalizes the snapshot and assembles the final `DialogProjection`
+- the provider parser chooses the version-aware projector instance that will interpret that normalized text
+- `projection_metadata.projector_id` identifies the selected projector implementation
+- parser-level and `ShadowParserStack`-level overrides are extensibility hooks for swapping projector behavior without replacing the full parser
+
 ### Common Anomaly Codes
 
 The shared layer currently defines several important anomaly codes:
@@ -130,7 +137,7 @@ The shared layer currently defines several important anomaly codes:
 - `stalled_entered`
 - `stalled_recovered`
 
-The provider parser emits version/baseline anomalies, while runtime `TurnMonitor` adds stalled lifecycle anomalies.
+The provider parser emits version/baseline anomalies, while the runtime readiness/completion monitor adds stalled lifecycle anomalies.
 
 ## Projection Slices And Result Payloads
 
@@ -146,6 +153,14 @@ The runtime payload in `cao_rest.py` exposes:
 
 That payload intentionally omits a shadow-mode `output_text` compatibility alias. The contract is “here is the parsed surface and projected dialog,” not “here is the authoritative answer text for your prompt.”
 
+### Reliability Tiers
+
+The runtime expects different levels of trust from different projection uses:
+
+- lifecycle/runtime evidence: the current runtime monitor uses `DialogProjection.normalized_text` after pipeline normalization for coarse post-submit change detection; `dialog_text` is not the lifecycle evidence boundary
+- operator diagnostics: `dialog_text`, `head`, and `tail` are appropriate for human inspection, logs, and troubleshooting
+- machine-critical extraction: do not rely on exact `dialog_text` fidelity; prefer schema-shaped prompting plus explicit sentinels or similarly narrow caller-owned patterns over available text surfaces
+
 ## Optional Caller-Side Association
 
 The shared parser contract stops at state and projection. If a caller wants to derive prompt-specific answer text, it must do so explicitly.
@@ -155,4 +170,4 @@ The built-in example lives in `backends/shadow_answer_association.py`:
 - `DialogAssociator`: protocol for caller-owned association over `DialogProjection` or projected dialog text
 - `TailRegexExtractAssociator`: searches the last `tail_chars` of projected dialog and returns a regex match
 
-This layer is useful when the caller owns a narrow answer format, but it is not part of the provider parser guarantee.
+This layer is useful when the caller owns a narrow answer format, but it is not part of the provider parser guarantee. If the extracted text matters enough to drive downstream automation, prefer making the tool emit a schema-shaped or sentinel-delimited payload first and only use best-effort association as a fallback.

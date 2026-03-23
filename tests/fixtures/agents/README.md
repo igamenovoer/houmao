@@ -5,6 +5,8 @@ This directory follows a brain-first + role-first composition model.
 ## Canonical Layout
 
 ```text
+tests/fixtures/
+  dummy-projects/                    # Small tracked source-only workdir fixtures
 agents/
   brains/                           # Reusable brain components
     tool-adapters/                  # Per-tool home layout and launch rules
@@ -19,6 +21,38 @@ agents/
 ```
 
 ## How To Use Each Part
+
+## Fixture Selection
+
+Choose `tests/fixtures/dummy-projects/` plus a lightweight role such as `mailbox-demo` when:
+
+- the scenario is a narrow mailbox/runtime-contract turn
+- the launched workdir should stay small and deterministic
+- you want the demo or test to copy a tracked source tree into its own isolated output directory
+
+Choose `tests/fixtures/dummy-projects/` plus `skill-invocation-demo` and the `skill-invocation-demo-*` blueprints when:
+
+- the question under test is whether an installed skill triggers from narrow prompt wording
+- verification should rely on a deterministic side effect instead of assistant prose
+- the launched workdir should stay small, copied, and demo-owned
+
+Choose a repo worktree plus a heavyweight role such as `gpu-kernel-coder` when:
+
+- the workflow intentionally exercises broad repository discovery
+- the agent should inspect real repository context before acting
+- the scenario is about repo-scale engineering behavior rather than one bounded mailbox action
+
+Quick decision tree:
+
+1. Does the agent need the real repository checkout as its workdir?
+   If `yes`, use a repo worktree.
+   If `no`, use a copied dummy project.
+2. Is the task a narrow mailbox/demo/runtime-contract action?
+   If `yes`, prefer `mailbox-demo`.
+   If `no`, continue.
+3. Is the task a narrow installed-skill invocation check?
+   If `yes`, prefer `skill-invocation-demo` plus the recipe-owned `skill-invocation-demo-*` fixture family.
+   If `no`, select the role family that matches the broader workflow.
 
 ### `agents/brains/tool-adapters/`
 
@@ -46,6 +80,7 @@ Stores reusable skills in Agent Skills format.
 Use this when:
 
 - adding/editing reusable task instructions that can be installed into runtime homes
+- defining a reusable narrow probe contract such as `skill-invocation-probe`
 
 ### `agents/brains/brain-recipes/<tool>/*.yaml`
 
@@ -54,6 +89,7 @@ Stores declarative, secret-free brain presets.
 Use this when:
 
 - you want a reusable preset for `{tool, skills, config profile, credential profile-name}`
+- you want recipes to own the selected probe skill together with the tool/config/credential inputs for the skill-invocation demo flow
 
 ### `agents/brains/api-creds/<tool>/<profile>/`
 
@@ -73,6 +109,7 @@ Stores brain-agnostic role packages.
 Use this when:
 
 - defining behavior/policy for an agent independent of tool/runtime layout
+- biasing a copied dummy-project session toward one narrow flow such as `mailbox-demo` or `skill-invocation-demo`
 
 ### `agents/blueprints/<agent>.yaml`
 
@@ -81,6 +118,12 @@ Optional binding between a brain recipe and a role.
 Use this when:
 
 - you want one named, shareable agent definition without embedding secrets
+- you want CLI entrypoints such as `build-brain --blueprint ...` or `start-session --blueprint ...` to resolve the role and the recipe-selected tool/config/credential inputs together
+
+Remember the fixture-model boundary:
+
+- recipes own tool, skills, config profile, and credential profile
+- blueprints bind one recipe to one role without restating secrets or skill lists
 
 ## Runtime Outputs (Generated)
 
@@ -106,7 +149,8 @@ Default runtime root is `tmp/agents-runtime/`.
 
 - Commit: adapters, config profiles, skills, recipes, roles, blueprints.
 - Do not commit: `agents/brains/api-creds/**` contents or secret values anywhere.
-- Use distinct credential profiles for concurrent active sessions.
+- Let recipes own credential-profile selection; blueprints stay secret-free and inherit that selection through their bound recipe.
+- Concurrent active sessions may reuse the same provider credentials when the provider/tool allows it. If you hit provider-side rate or session limits, rotate one recipe or blueprint to a different credential profile.
 - Keep adapter definitions authoritative for per-tool projection and launch behavior.
 
 ## Migration Status

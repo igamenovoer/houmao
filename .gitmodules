@@ -4,5 +4,9 @@
 	branch = main
 [submodule "extern/tracked/cli-agent-orchestrator"]
 	path = extern/tracked/cli-agent-orchestrator
-	url = git@github.com:imsight-forks/cli-agent-orchestrator.git
+	url = https://github.com/imsight-forks/cli-agent-orchestrator.git
+	branch = hz-dev
+[submodule "extern/tracked/tailmux"]
+	path = extern/tracked/tailmux
+	url = https://github.com/imsight-forks/tailmux.git
 	branch = hz-dev

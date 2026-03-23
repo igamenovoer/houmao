@@ -1,6 +1,6 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, reading mail, sending mail, replying, and deciding when mailbox-local rules need to be inspected first.
+This page explains the practical v1 procedures for bootstrapping a mailbox, reading mail, sending mail, replying, and deciding when transport-local filesystem rules need to be inspected first.
 
 ## Mental Model
 
@@ -9,7 +9,8 @@ The safest workflow is simple:
 1. Let the runtime create or validate the mailbox root.
 2. Treat `rules/` as the mailbox-local operating manual.
 3. Use runtime-owned `mail` commands for session-facing actions.
-4. Use managed helpers for direct filesystem operations that touch locks or SQLite.
+4. Prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached.
+5. Use managed helpers only for direct filesystem operations that touch locks or SQLite.
 
 That order matters because the mailbox root may have mailbox-local rules, a private mailbox registration path, or managed helper requirements that are not obvious from a single path listing.
 
@@ -52,8 +53,10 @@ pixi run python -m houmao.agents.realm_controller mail check \
 Operational guidance:
 
 - Re-read the current mailbox bindings before each action.
-- Treat SQLite as the source of truth for unread versus read state.
+- Treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for unread versus read state and mailbox-local thread summaries.
+- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog, not as the mailbox-view read or unread authority.
 - Read canonical content by following projections back to `messages/<date>/<message-id>.md`.
+- Only mark a message read after the mailbox action or processing step has completed successfully.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changed, reload paths and retry from current bindings.
 
 ## Send New Mail
@@ -73,9 +76,10 @@ Stepwise expectations:
 
 1. The runtime validates attachment paths and body source.
 2. The runtime prompts the session with the mailbox skill and a structured request.
-3. The session inspects `rules/`.
-4. If the action touches `index.sqlite` or `locks/`, the session uses the managed helper under `rules/scripts/`.
-5. The delivery flow stages the message, moves it into the canonical store, creates inbox/sent projections, updates SQLite state, and returns one JSON result.
+3. If a live loopback gateway mailbox facade is attached, the session uses the shared gateway route for the ordinary send action instead of reconstructing direct helper recipes.
+4. If direct filesystem access is required, the session inspects `rules/`.
+5. If that direct action touches `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, the session uses the managed helper under `rules/scripts/`.
+6. The delivery flow stages the message, moves it into the canonical store, creates inbox or sent projections, updates the shared catalog plus mailbox-local mailbox state, and returns one JSON result.
 
 ```mermaid
 sequenceDiagram
@@ -97,21 +101,23 @@ sequenceDiagram
 
 ## Reply To Existing Mail
 
-Use `mail reply` when you already know the parent `message_id`.
+Use `mail reply` when you already know the parent shared `message_ref`.
 
 ```bash
 pixi run python -m houmao.agents.realm_controller mail reply \
   --agent-identity AGENTSYS-research \
-  --message-id msg-20260312T050000Z-parent \
+  --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
 
 Reply-specific guidance:
 
+- Treat the reply target as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
 - Preserve the existing `thread_id`.
 - Set `in_reply_to` to the direct parent.
 - Extend `references`; do not infer threading from subject text alone.
-- Use the same rules-first and managed-helper expectations as `mail send`.
+- When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and the follow-up `POST /v1/mail/state` read acknowledgment.
+- Use the same rules-first and managed-helper expectations as `mail send` only when direct filesystem fallback is required.
 
 ## When `rules/` Inspection Is Mandatory
 

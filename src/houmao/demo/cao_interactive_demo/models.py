@@ -111,6 +111,7 @@ class TurnRecord(_StrictModel):
     completed_at_utc: str
     exit_status: int
     response_text: str
+    response_text_source: str = "done_message"
     events: list[dict[str, object]]
     stdout_path: str
     stderr_path: str
@@ -120,6 +121,7 @@ class TurnRecord(_StrictModel):
         "prompt",
         "started_at_utc",
         "completed_at_utc",
+        "response_text_source",
         "stdout_path",
         "stderr_path",
     )
@@ -187,8 +189,10 @@ class VerificationTurnSummary(_StrictModel):
     agent_identity: str
     exit_status: int
     response_text: str
+    response_text_source: str = "done_message"
+    response_text_present: bool
 
-    @field_validator("agent_identity", "response_text")
+    @field_validator("agent_identity", "response_text_source")
     @classmethod
     def _summary_string_not_blank(cls, value: str) -> str:
         """Require non-empty verification turn string fields."""

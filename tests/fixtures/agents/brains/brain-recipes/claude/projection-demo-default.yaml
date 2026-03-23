@@ -1,0 +1,11 @@
+schema_version: 1
+name: projection-demo-default
+tool: claude
+default_agent_name: projection-demo-claude
+skills:
+  - openspec-apply-change
+  - openspec-verify-change
+config_profile: default
+credential_profile: personal-a-default
+launch_policy:
+  operator_prompt_mode: unattended

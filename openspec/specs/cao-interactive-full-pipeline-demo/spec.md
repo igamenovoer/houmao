@@ -22,8 +22,8 @@ directory.
 
 The demo SHALL resolve the requested selector to one canonical recipe file,
 load that recipe through the shared recipe loader for startup metadata, and
-invoke brain construction through the existing `realm_controller
-build-brain --recipe <resolved-path>` path.
+invoke brain construction through the existing `realm_controller build-brain
+--recipe <resolved-path>` path.
 
 The selected recipe SHALL define the default agent name for the launch. When
 the operator omits `--agent-name`, startup SHALL use that recipe-defined
@@ -170,14 +170,20 @@ needed to connect the report to the active demo variant.
 - **AND** the verification helper validates the report against the selected variant contract rather than assuming a fixed Claude-only snapshot
 
 ### Requirement: Multi-turn prompt driving against a live session
+The interactive full-pipeline demo SHALL remain compatible with the default shadow-first CAO runtime posture for Claude and Codex.
+
 The demo workflow SHALL provide a turn-driving command that reads the persisted state artifact and sends a prompt through `realm_controller send-prompt` to the same active session by name-based `agent_identity`.
 
 Operator interaction between automated turns MAY include manual slash commands or manual model switching inside the live session. Once the visible provider surface has returned to its normal prompt, the demo SHALL continue to treat that session as reusable for subsequent `send-turn` operations.
 
-#### Scenario: Sequential prompts use one session identity
+For CAO-backed `shadow_only` turns, per-turn artifacts and verification SHALL NOT assume that the final runtime `done.message` contains the exact assistant reply text.
+
+If the demo records one human-facing text field for a turn, that field SHALL either be derived through an explicit shadow-aware extraction path and described as best-effort, or be replaced by another completion/diagnostic summary. Successful turn verification SHALL rely on recorded turn completion, exit status, and any explicit shadow-aware text contract rather than on CAO-native reply-text assumptions.
+
+#### Scenario: Sequential prompts stay valid under the shadow-first default
 - **WHEN** the user runs the turn-driving command multiple times after a successful startup
 - **THEN** each turn targets the same `agent_identity` recorded by startup
-- **AND** each turn records a non-empty response in per-turn output artifacts along with the `agent_identity` used for that turn
+- **AND THEN** each turn records a successful completion artifact even when the final runtime `done.message` is a neutral shadow-mode completion message
 
 #### Scenario: Follow-up send-turn still works after a recovered slash-command or model switch
 - **WHEN** the operator uses a slash command or manual model switch inside the active interactive session between automated turns
@@ -188,6 +194,11 @@ Operator interaction between automated turns MAY include manual slash commands o
 #### Scenario: Turn-driving rejects missing or inactive session state
 - **WHEN** the user runs the turn-driving command before startup or after stop
 - **THEN** the command fails with a clear actionable message indicating that no active interactive session exists
+
+#### Scenario: Verification does not require CAO-native reply text under shadow mode
+- **WHEN** the interactive demo verifies recorded Claude or Codex turns produced under the default shadow-mode CAO posture
+- **THEN** the verification flow does not require a non-empty authoritative reply string extracted from the final runtime `done.message`
+- **AND THEN** it validates turn success through completion metadata plus any explicitly documented best-effort or schema-shaped text surface instead
 
 ### Requirement: Fixed local CAO target
 The demo workflow SHALL use the fixed CAO base URL `http://127.0.0.1:9889` for startup and SHALL NOT depend on alternate CAO base URL inputs.

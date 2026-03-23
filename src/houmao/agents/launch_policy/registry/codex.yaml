@@ -1,0 +1,72 @@
+schema_version: 1
+tool: codex
+strategies:
+  - strategy_id: codex-unattended-0.116.x
+    operator_prompt_mode: unattended
+    backends:
+      - raw_launch
+      - codex_headless
+      - codex_app_server
+      - cao_rest
+      - houmao_server_rest
+    version_range:
+      min_inclusive: 0.116.0
+      max_exclusive: 0.117.0
+    minimal_inputs:
+      credential_forms:
+        - auth.json
+        - OPENAI_API_KEY
+        - env-only custom provider config with requires_openai_auth=false and wire_api=responses
+      requires_user_prepared_state: false
+      notes:
+        - Runtime-owned config.toml synthesis seeds trust, approval, sandbox, and migration state.
+        - User-authored no-prompt config files are not required.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/codex/codex-rs/app-server/tests/suite/auth.rs
+        note: Codex app-server tests document env-only custom-provider auth with requires_openai_auth=false and wire_api=responses.
+      - kind: source_reference
+        ref: extern/orphan/codex/codex-rs/core/src/config/edit.rs
+        note: Codex source defines project trust, notice.hide_full_access_warning, and model_migrations config edit surfaces.
+      - kind: live_probe
+        ref: codex --version
+        note: Fresh-home probe on installed codex-cli 0.116.0 required trust plus migration-state seeding to avoid startup prompts.
+    owned_paths:
+      - path: config.toml
+        keys:
+          - approval_policy
+          - sandbox_mode
+          - notice.hide_full_access_warning
+          - notice.model_migrations.gpt-5.3-codex
+          - projects.<resolved_workdir>.trust_level
+          - model
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.validate_minimal_inputs
+      - kind: toml.set
+        params:
+          path: config.toml
+          key_path:
+            - approval_policy
+          value: never
+      - kind: toml.set
+        params:
+          path: config.toml
+          key_path:
+            - sandbox_mode
+          value: danger-full-access
+      - kind: toml.set
+        params:
+          path: config.toml
+          key_path:
+            - notice
+            - hide_full_access_warning
+          value: true
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.ensure_project_trust
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.ensure_model_migration_state
+

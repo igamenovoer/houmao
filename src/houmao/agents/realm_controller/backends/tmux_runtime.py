@@ -7,9 +7,15 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Final, Literal, Mapping
 
-from ..agent_identity import AGENT_NAMESPACE_PREFIX, derive_auto_agent_name_base
+from ..agent_identity import (
+    derive_agent_id_from_name,
+    derive_auto_agent_name_base,
+    derive_tmux_session_name,
+    normalize_agent_identity_name,
+)
+from ..errors import SessionManifestError
 
 
 class TmuxCommandError(RuntimeError):
@@ -43,6 +49,19 @@ class TmuxControlInputSegment:
     value: str
 
 
+@dataclass(frozen=True)
+class TmuxPaneRecord:
+    """One tmux pane record resolved from `list-panes` output."""
+
+    pane_id: str
+    session_name: str
+    window_id: str
+    window_name: str
+    pane_index: str
+    pane_active: bool
+    pane_pid: int | None = None
+
+
 _TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
 _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
     {
@@ -59,6 +78,8 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
         "Up",
     }
 )
+HEADLESS_AGENT_WINDOW_INDEX: Final[str] = "0"
+HEADLESS_AGENT_WINDOW_NAME: Final[str] = "agent"
 
 
 def ensure_tmux_available() -> None:
@@ -102,6 +123,42 @@ def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
     )
 
 
+def headless_agent_window_target(*, session_name: str) -> str:
+    """Return the stable tmux window target for one headless agent surface."""
+
+    return f"{session_name}:{HEADLESS_AGENT_WINDOW_INDEX}"
+
+
+def headless_agent_pane_target(*, session_name: str) -> str:
+    """Return the stable tmux pane target for one headless agent surface."""
+
+    return f"{headless_agent_window_target(session_name=session_name)}.0"
+
+
+def prepare_headless_agent_window(*, session_name: str) -> None:
+    """Rename and select the stable primary tmux surface for headless sessions."""
+
+    window_target = headless_agent_window_target(session_name=session_name)
+    for args, description in (
+        (
+            ["rename-window", "-t", window_target, HEADLESS_AGENT_WINDOW_NAME],
+            "rename",
+        ),
+        (
+            ["select-window", "-t", window_target],
+            "select",
+        ),
+    ):
+        result = run_tmux(args)
+        if result.returncode == 0:
+            continue
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to {description} tmux headless agent window `{window_target}`: "
+            f"{detail or 'unknown tmux error'}"
+        )
+
+
 def cleanup_tmux_session(*, session_name: str) -> None:
     """Best-effort tmux session cleanup."""
 
@@ -127,6 +184,12 @@ def has_tmux_session(*, session_name: str) -> subprocess.CompletedProcess[str]:
     """Return raw tmux `has-session` command output."""
 
     return run_tmux(["has-session", "-t", session_name])
+
+
+def tmux_session_exists(*, session_name: str) -> bool:
+    """Return whether one tmux session currently exists."""
+
+    return has_tmux_session(session_name=session_name).returncode == 0
 
 
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
@@ -163,6 +226,117 @@ def show_tmux_environment(
     """Return raw tmux `show-environment` output for one variable."""
 
     return run_tmux(["show-environment", "-t", session_name, variable_name])
+
+
+def read_tmux_session_environment_value(*, session_name: str, variable_name: str) -> str | None:
+    """Return one optional tmux session environment value."""
+
+    result = show_tmux_environment(session_name=session_name, variable_name=variable_name)
+    if result.returncode != 0:
+        detail = tmux_error_detail(result).lower()
+        if "unknown variable" in detail or "unknown-environment" in detail:
+            return None
+        raise TmuxCommandError(
+            f"Failed to read tmux environment variable `{variable_name}` from "
+            f"`{session_name}`: {tmux_error_detail(result) or 'unknown tmux error'}"
+        )
+
+    line = (result.stdout or "").strip()
+    if not line or line.startswith("-"):
+        return None
+    expected_prefix = f"{variable_name}="
+    if not line.startswith(expected_prefix):
+        raise TmuxCommandError(
+            f"Unexpected tmux environment output for `{variable_name}` in `{session_name}`: {line}"
+        )
+    value = line[len(expected_prefix) :].strip()
+    return value or None
+
+
+def list_tmux_clients(*, session_name: str) -> tuple[str, ...]:
+    """Return attached tmux client identifiers for one session."""
+
+    result = run_tmux(
+        [
+            "list-clients",
+            "-t",
+            session_name,
+            "-F",
+            "#{client_tty}",
+        ]
+    )
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        lowered = detail.lower()
+        if "no current client" in lowered or "no server running" in lowered:
+            return ()
+        raise TmuxCommandError(
+            f"Failed to list tmux clients for `{session_name}`: {detail or 'unknown tmux error'}"
+        )
+    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+
+def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+    """Return pane records for one tmux session."""
+
+    result = run_tmux(
+        [
+            "list-panes",
+            "-t",
+            session_name,
+            "-F",
+            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_index}\t#{pane_active}\t#{pane_pid}",
+        ]
+    )
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to list tmux panes for `{session_name}`: {detail or 'unknown tmux error'}"
+        )
+
+    panes: list[TmuxPaneRecord] = []
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) not in {6, 7}:
+            raise TmuxCommandError(f"Unexpected tmux pane output for `{session_name}`: {line}")
+        panes.append(
+            TmuxPaneRecord(
+                pane_id=parts[0],
+                session_name=parts[1],
+                window_id=parts[2],
+                window_name=parts[3],
+                pane_index=parts[4],
+                pane_active=parts[5] == "1",
+                pane_pid=int(parts[6]) if len(parts) == 7 and parts[6].isdigit() else None,
+            )
+        )
+    return tuple(panes)
+
+
+def capture_tmux_pane(*, target: str) -> str:
+    """Return capture-pane text for one tmux target."""
+
+    result = run_tmux(["capture-pane", "-p", "-e", "-S", "-", "-t", target])
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to capture tmux pane `{target}`: {detail or 'unknown tmux error'}"
+        )
+    return result.stdout
+
+
+def select_tmux_pane(*, target: str) -> None:
+    """Select one tmux pane."""
+
+    result = run_tmux(["select-pane", "-t", target])
+    if result.returncode != 0:
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            f"Failed to select tmux pane `{target}`: {detail or 'unknown tmux error'}"
+        )
 
 
 def wait_for_tmux_signal(
@@ -265,22 +439,21 @@ def generate_tmux_session_name(
     role_name: str,
     existing_sessions: set[str] | None = None,
 ) -> str:
-    """Generate a canonical `AGENTSYS-...` tmux session name."""
+    """Generate one default tmux session name for a tool/role identity."""
 
     occupied = existing_sessions if existing_sessions is not None else list_tmux_sessions()
-    base = derive_auto_agent_name_base(tool=tool, role_name=role_name)
-    primary = f"{AGENT_NAMESPACE_PREFIX}{base}"
-    if primary not in occupied:
-        return primary
-
-    for suffix in range(2, 10_000):
-        candidate = f"{primary}-{suffix}"
-        if candidate not in occupied:
-            return candidate
-
-    raise TmuxCommandError(
-        "Failed to auto-generate a unique AGENTSYS session name after 9999 attempts."
-    )
+    canonical_agent_name = normalize_agent_identity_name(
+        derive_auto_agent_name_base(tool=tool, role_name=role_name)
+    ).canonical_name
+    agent_id = derive_agent_id_from_name(canonical_agent_name)
+    try:
+        return derive_tmux_session_name(
+            canonical_agent_name=canonical_agent_name,
+            agent_id=agent_id,
+            occupied_session_names=occupied,
+        )
+    except SessionManifestError as exc:
+        raise TmuxCommandError(str(exc)) from exc
 
 
 def run_tmux(

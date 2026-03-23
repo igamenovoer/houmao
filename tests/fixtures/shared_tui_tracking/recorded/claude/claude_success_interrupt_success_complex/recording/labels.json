@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "labels": [
+    {
+      "label_id": "startup-unknown",
+      "sample_id": "s000001",
+      "sample_end_id": "s000008",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "unknown",
+        "surface_editing_input": "unknown",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "unknown",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "ready-placeholder",
+      "sample_id": "s000009",
+      "sample_end_id": "s000009",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "initial-prompt-editing",
+      "sample_id": "s000010",
+      "sample_end_id": "s000010",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "initial-active-turn",
+      "sample_id": "s000011",
+      "sample_end_id": "s000051",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "first-ready-post-answer",
+      "sample_id": "s000052",
+      "sample_end_id": "s000055",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "first-ready-draft",
+      "sample_id": "s000056",
+      "sample_end_id": "s000060",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "first-settled-success",
+      "sample_id": "s000061",
+      "sample_end_id": "s000061",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "first-active-draft-entry",
+      "sample_id": "s000062",
+      "sample_end_id": "s000062",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "first-active-draft",
+      "sample_id": "s000063",
+      "sample_end_id": "s000068",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "first-interrupted-ready",
+      "sample_id": "s000069",
+      "sample_end_id": "s000069",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "second-ready-draft",
+      "sample_id": "s000070",
+      "sample_end_id": "s000074",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "second-active-draft-entry",
+      "sample_id": "s000075",
+      "sample_end_id": "s000075",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "second-active-draft",
+      "sample_id": "s000076",
+      "sample_end_id": "s000081",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "second-interrupted-ready",
+      "sample_id": "s000082",
+      "sample_end_id": "s000082",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input"
+      }
+    },
+    {
+      "label_id": "final-ready-draft",
+      "sample_id": "s000083",
+      "sample_end_id": "s000086",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "final-active-turn",
+      "sample_id": "s000087",
+      "sample_end_id": "s000131",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "unknown",
+        "turn_phase": "active",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "final-ready-post-answer",
+      "sample_id": "s000132",
+      "sample_end_id": "s000136",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "none",
+        "last_turn_source": "none"
+      }
+    },
+    {
+      "label_id": "final-settled-success",
+      "sample_id": "s000137",
+      "sample_end_id": "s000141",
+      "expectations": {
+        "diagnostics_availability": "available",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input"
+      }
+    }
+  ]
+}

@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the durable per-agent gateway companion, including its storage layout, HTTP surface, execution policy, and recovery behavior.
-
 ## Requirements
-
 ### Requirement: Per-agent gateway companion introduces no visible operator surface and may attach after session start
 The system SHALL support a per-agent gateway companion for gateway-capable tmux-backed sessions.
 
@@ -125,9 +123,13 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health inspection, status inspection, and gateway-managed request submission on the resolved listener address for that session.
+The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
 
-In v1, that HTTP API SHALL expose exactly `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
+
+When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
 
 `GET /health` SHALL return a structured response suitable for runtime launch-readiness checks and SHALL include gateway protocol-version information.
 
@@ -137,11 +139,21 @@ In v1, that HTTP API SHALL expose exactly `GET /health`, `GET /v1/status`, and `
 
 `POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
 
+The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
+
+The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, `reply`, and explicit single-message read-state update behaviors supported by both the filesystem and `stalwart` transports.
+
+Those shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
+
 That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
 
 Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
-Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely to report current gateway health or status.
+Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
+
+Shared mailbox route validation failures SHALL return HTTP `422`. Calls to mailbox routes for sessions without mailbox bindings SHALL fail explicitly rather than pretending mailbox support exists. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
+
+Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, notifier status, or shared mailbox state.
 
 #### Scenario: Health inspection uses default loopback surface
 - **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
@@ -163,10 +175,68 @@ Read-oriented HTTP endpoints SHALL NOT consume the terminal-mutation slot solely
 - **THEN** it may submit that work through `POST /v1/requests` on any reachable host interface address on the resolved port
 - **AND THEN** the gateway validates and records the request before it can compete for execution
 
+#### Scenario: Filesystem-backed mailbox check uses the dedicated gateway mail surface
+- **WHEN** a caller performs mailbox `check` against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
+- **THEN** the live gateway serves that operation through `POST /v1/mail/check`
+- **AND THEN** the caller receives normalized mailbox message metadata without reading mailbox-local SQLite directly
+
+#### Scenario: Stalwart-backed mailbox reply uses the same dedicated gateway mail surface
+- **WHEN** a caller performs mailbox `reply` against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
+- **THEN** the live gateway serves that operation through `POST /v1/mail/reply`
+- **AND THEN** the caller uses the same shared gateway mailbox contract rather than Stalwart-native transport objects directly
+
+#### Scenario: Session without mailbox binding rejects gateway mailbox routes explicitly
+- **WHEN** a caller invokes a gateway mailbox route for a managed session whose manifest has no mailbox binding
+- **THEN** the gateway rejects that mailbox route call explicitly
+- **AND THEN** it does not claim mailbox support for that session
+
+#### Scenario: Non-loopback gateway listener rejects shared mailbox routes
+- **WHEN** a live gateway listener is bound to `0.0.0.0`
+- **AND WHEN** a caller invokes one of the shared `/v1/mail/*` routes
+- **THEN** the gateway rejects that mailbox route call as unavailable for the current listener configuration
+- **AND THEN** terminal-mutating routes remain available under their existing listener rules
+
 #### Scenario: Invalid request payload is rejected with validation semantics
 - **WHEN** a caller submits a malformed `POST /v1/requests` payload
 - **THEN** the gateway returns HTTP `422`
 - **AND THEN** the malformed request is not accepted into durable queue state
+
+#### Scenario: Notifier control surface is available alongside the base gateway API
+- **WHEN** a caller needs to enable, inspect, or disable gateway mail notification for a mailbox-enabled session
+- **THEN** the gateway exposes the dedicated `/v1/mail-notifier` control routes on the same resolved listener
+- **AND THEN** callers do not need to mutate gateway queue persistence directly to manage notifier behavior
+
+### Requirement: Shared gateway mailbox facade supports explicit read-state updates by opaque message reference
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose `POST /v1/mail/state` alongside the existing shared mailbox routes.
+
+That shared mailbox state-update route SHALL accept exactly one opaque `message_ref` target and the explicit read-state mutation field it supports in this change.
+
+For this change, the shared mailbox state-update contract SHALL support explicit single-message `read` mutation for one message addressed to the current session principal, callers SHALL express that mutation as `read=true`, and the route SHALL reject broader mailbox-state fields such as `starred`, `archived`, or `deleted`.
+
+The gateway SHALL resolve that request through the same manifest-backed mailbox adapter boundary used by the other `/v1/mail/*` routes rather than by inventing a second transport-local state path inside the gateway service layer.
+
+The shared mailbox state-update route SHALL remain loopback-only under the same listener-availability rules as the rest of the shared `/v1/mail/*` surface.
+
+The shared mailbox state-update route SHALL NOT consume the single terminal-mutation slot used by `POST /v1/requests`.
+
+The shared mailbox state-update route SHALL return a structured acknowledgment of the resulting read state for that `message_ref` rather than a full delivered-message envelope.
+
+Before returning that acknowledgment, the gateway SHALL validate that the normalized transport state evidence used to derive the response includes an explicit boolean read or unread signal, and it SHALL fail explicitly rather than inferring `read=true` from a missing field.
+
+#### Scenario: Filesystem-backed session marks one processed message read through the shared facade
+- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound filesystem mailbox session with a valid opaque `message_ref` and `read=true`
+- **THEN** the gateway applies that read-state update for the current session principal through the filesystem mailbox adapter
+- **AND THEN** the canonical message content remains immutable while recipient-local read state changes
+
+#### Scenario: Stalwart-backed session marks one processed message read through the shared facade
+- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound `stalwart` mailbox session with a valid opaque `message_ref` and `read=true`
+- **THEN** the gateway applies that read-state update through the Stalwart-backed mailbox adapter
+- **AND THEN** the caller does not need to understand transport-owned message identifiers to complete that update
+
+#### Scenario: Malformed transport normalization does not produce an inferred read acknowledgment
+- **WHEN** a mailbox adapter returns state-update normalization without an explicit boolean read or unread signal after `POST /v1/mail/state`
+- **THEN** the gateway rejects that state update explicitly
+- **AND THEN** it does not acknowledge the message as read by inferring success from the missing field
 
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and terminal-surface readiness.
@@ -219,6 +289,8 @@ The gateway SHALL accept structured local requests for gateway-managed work and 
 
 In v1, the public terminal-mutating request kinds SHALL be exactly `submit_prompt` and `interrupt`.
 
+Mailbox transport operations SHALL use the dedicated `/v1/mail/*` routes rather than introducing new public terminal-mutating request kinds.
+
 The HTTP submission contract SHALL expose typed per-kind payloads. Any persisted `payload_json` field remains an internal storage detail rather than part of the public protocol contract.
 
 For accepted terminal-mutating requests, the gateway SHALL persist them durably, SHALL serialize execution through a single active terminal-mutation slot per managed agent, and SHALL order eligible work according to gateway policy such as priority, timing constraints, or coalescing rules.
@@ -242,6 +314,11 @@ When managed-agent recovery or reconciliation state makes safe execution impossi
 - **WHEN** a caller submits an `interrupt` request for a gateway-managed session
 - **THEN** the gateway records it as a gateway-managed control action
 - **AND THEN** the caller does not need to bypass the gateway with direct concurrent terminal mutation
+
+#### Scenario: Mailbox send does not create a new public terminal-mutating request kind
+- **WHEN** a caller uses the gateway to perform mailbox `send`
+- **THEN** that operation uses the dedicated gateway mailbox surface rather than `POST /v1/requests`
+- **AND THEN** the public terminal-mutating request-kind set remains limited to `submit_prompt` and `interrupt`
 
 #### Scenario: Concurrent terminal-mutating requests are serialized
 - **WHEN** multiple accepted terminal-mutating requests target the same managed agent concurrently
@@ -348,3 +425,126 @@ When the entire tmux session or tmux server hosting the managed agent disappears
 - **WHEN** the tmux session hosting the managed TUI is destroyed while a gateway instance had been attached
 - **THEN** the gateway contract surfaces that loss as an offline or degraded condition when state is next inspected
 - **AND THEN** recovery of the destroyed tmux container is left to an outer launcher or supervisor layer rather than being claimed by the gateway companion alone
+
+### Requirement: Gateway writes a tail-friendly running log to disk
+The gateway SHALL maintain a running log on disk under its gateway-owned root so operators can monitor live behavior by tailing one stable file.
+
+That running log SHALL live under the gateway log directory and SHALL be append-only and line-oriented so common file-tail tools can follow it while the gateway is active.
+
+The running log SHALL cover at minimum:
+
+- gateway process start and stop,
+- attach and detach outcomes,
+- notifier enable, disable, and configuration changes when notifier is supported,
+- notifier poll outcomes such as unread detected, busy deferral, and enqueue success when notifier is supported,
+- request execution start and terminal outcome,
+- explicit gateway-side errors that affect live behavior.
+
+The running log SHALL remain a human-oriented observability surface. Structured artifacts such as `state.json`, `events.jsonl`, and gateway SQLite state remain the authoritative machine-readable contracts for status, history, and recovery.
+
+The gateway SHALL avoid unbounded log spam from high-frequency identical poll outcomes by rate-limiting, coalescing, or periodically summarizing repetitive messages.
+
+#### Scenario: Operator can tail one stable gateway log file
+- **WHEN** an operator wants to watch live gateway behavior for one session
+- **THEN** the gateway writes append-only log lines to one stable file under the gateway root
+- **AND THEN** the operator can follow that file with ordinary tail-style tooling while the gateway is active
+
+#### Scenario: Busy notifier retries are visible without flooding the log
+- **WHEN** unread mail exists but the notifier keeps finding the managed agent busy across multiple polling cycles
+- **THEN** the gateway running log records that notifier work is being deferred for retry
+- **AND THEN** the gateway avoids emitting an unbounded identical busy message on every single short poll forever
+
+### Requirement: Gateway notifier wake-up semantics are unread-set based rather than per-message based
+When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is eligible to receive a reminder prompt.
+
+If a poll cycle finds multiple unread messages, the gateway MAY enqueue a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
+
+The gateway SHALL NOT require one internal reminder prompt per unread message in order to satisfy notifier behavior.
+
+If the unread set has not changed since the last successful reminder and the messages remain unread, the gateway MAY skip emitting a duplicate reminder until the unread set changes or the messages are marked read explicitly.
+
+#### Scenario: Multiple unread messages can be summarized in one reminder prompt
+- **WHEN** one notifier poll cycle observes more than one unread message for the same mailbox-backed session
+- **THEN** the gateway may enqueue one internal reminder prompt that summarizes the unread set observed in that cycle
+- **AND THEN** the gateway does not need to enqueue one reminder per unread message
+
+#### Scenario: Unchanged unread set does not force duplicate reminders
+- **WHEN** the notifier previously delivered or enqueued a reminder for one unread set
+- **AND WHEN** a later poll finds the same unread set still present and still unread
+- **THEN** the gateway may treat that later poll as a duplicate and skip enqueueing a second reminder for the unchanged unread set
+
+### Requirement: Gateway notifier records structured per-poll decision auditing for later review
+When gateway-owned notifier behavior is enabled, the gateway SHALL record one structured notifier-decision audit record for each enabled poll cycle in a queryable SQLite audit table under the gateway state root.
+
+Each record SHALL capture enough detail to explain what the notifier saw and why it enqueued or skipped work, including at minimum:
+
+- poll time,
+- unread-count observation,
+- unread-set identity or equivalent deduplication summary,
+- request-admission state,
+- active-execution state,
+- queue depth,
+- the notifier decision outcome, and
+- enqueue identifiers or skip detail when applicable.
+
+The gateway MAY continue to keep `gateway.log` rate-limited and human-oriented, but that human log SHALL NOT be the only durable source of per-poll notifier decision history.
+
+Detailed per-poll decision history SHALL remain available through that durable audit table even if `GET /v1/mail-notifier` remains a compact status snapshot without last-decision summary fields.
+
+#### Scenario: Busy poll records an explicit skip decision
+- **WHEN** a notifier poll cycle finds unread mail while gateway admission is not open, active execution is running, or queue depth is non-zero
+- **THEN** the gateway records a structured audit record for that poll cycle
+- **AND THEN** that record identifies the decision as a busy or ineligible skip and includes the eligibility inputs that caused the skip
+
+#### Scenario: Enqueue poll records the created reminder request
+- **WHEN** a notifier poll cycle finds unread mail and the gateway enqueues an internal reminder prompt
+- **THEN** the gateway records a structured audit record for that poll cycle
+- **AND THEN** that record includes the reminder decision outcome and the created internal request identifier
+
+#### Scenario: Durable audit history remains the detailed inspection surface
+- **WHEN** an operator or demo helper needs the latest detailed notifier decision data
+- **THEN** it can inspect the durable SQLite notifier audit history under the gateway root
+- **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier` in order to satisfy this requirement
+
+### Requirement: Gateway execution adapters support REST-backed, local-headless, and server-managed targets
+The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority.
+
+In this change, the gateway execution layer SHALL support at minimum:
+
+- a direct REST-backed terminal adapter for the existing runtime-owned REST-backed sessions,
+- a local-headless adapter for runtime-owned native headless sessions outside `houmao-server`, and
+- a server-managed-agent adapter for managed-agent execution owned by `houmao-server`.
+
+For server-managed agents, the gateway SHALL submit prompt and interrupt work through the server-owned managed-agent API rather than locally resuming the session and bypassing server-owned turn or interrupt authority.
+
+The gateway SHALL preserve the same durable queueing, serialization, and admission semantics regardless of which execution adapter is selected.
+
+#### Scenario: Gateway prompt for a server-managed headless agent flows through `houmao-server`
+- **WHEN** a live gateway executes an accepted `submit_prompt` request for a server-managed native headless agent
+- **THEN** the gateway delivers that work through the server-owned managed-agent API
+- **AND THEN** the gateway does not bypass server-owned headless turn authority by privately resuming the managed session itself
+
+#### Scenario: Gateway prompt for a runtime-owned headless session uses the local headless adapter
+- **WHEN** a live gateway executes an accepted `submit_prompt` request for a runtime-owned native headless session outside `houmao-server`
+- **THEN** the gateway uses the local headless execution adapter for that session
+- **AND THEN** the gateway still preserves its durable request queue and single active execution slot semantics
+
+#### Scenario: Existing REST-backed gateway execution remains supported
+- **WHEN** a live gateway executes an accepted request for an existing runtime-owned REST-backed session
+- **THEN** the gateway may continue using the direct REST-backed execution adapter for that session
+- **AND THEN** adding headless or server-managed adapters does not require the REST-backed path to change its public request semantics
+
+### Requirement: Gateway status remains meaningful for headless sessions without TUI parsing
+For headless sessions, the gateway SHALL derive execution eligibility and request-admission behavior from managed-agent execution posture rather than from parsed TUI surface classification.
+
+The published gateway status contract SHALL remain structurally stable across transports, but headless sessions SHALL NOT require parser-owned or prompt-surface evidence in order to report whether prompt execution is currently eligible.
+
+#### Scenario: Idle headless session reports prompt eligibility without TUI parser state
+- **WHEN** a live gateway targets a managed headless session that is available and not currently running a turn
+- **THEN** the gateway status reports prompt execution as eligible according to headless execution posture
+- **AND THEN** the gateway does not need a parsed terminal-ready surface in order to report that eligibility
+
+#### Scenario: Active headless turn blocks new prompt execution
+- **WHEN** a live gateway targets a managed headless session that already has one active managed turn
+- **THEN** the gateway status reports non-open prompt admission for that session
+- **AND THEN** the gateway does not pretend that a new prompt can safely execute merely because no TUI parser is involved

@@ -12,15 +12,20 @@ from houmao.agents.realm_controller.errors import (
     MailboxResultParseError,
 )
 from houmao.agents.realm_controller.mail_commands import (
+    MAIL_RESULT_BEGIN_SENTINEL,
+    MAIL_RESULT_END_SENTINEL,
+    MAIL_RESULT_SURFACES_PAYLOAD_KEY,
+    extract_sentinel_blocks,
     parse_mail_result,
     prepare_mail_prompt,
+    shadow_mail_result_contract_reached,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
     SessionEvent,
 )
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
@@ -35,7 +40,7 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
             principal=MailboxPrincipal(principal_id=principal_id, address=address),
         )
 
-    mailbox = MailboxResolvedConfig(
+    mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
         address=address,
@@ -73,7 +78,10 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     )
 
     assert prompt_request.operation == "check"
-    assert ".system/mailbox/email-via-filesystem" in prompt_request.prompt
+    assert "`email-via-filesystem`" in prompt_request.prompt
+    assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
+    assert "skills/.system/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
+    assert "compatibility-only" in prompt_request.prompt
     assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
     assert '"operation": "check"' in prompt_request.prompt
 
@@ -103,6 +111,144 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
             operation="check",
             mailbox=mailbox,
         )
+
+
+def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="submitted",
+                message="Prompt submitted to CAO terminal",
+                turn_index=1,
+            ),
+            SessionEvent(
+                kind="done",
+                message=(
+                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":1}\n'
+                    "AGENTSYS_MAIL_RESULT_END"
+                ),
+                turn_index=1,
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 1
+
+
+def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="submitted",
+                message="Prompt submitted to CAO terminal",
+                turn_index=1,
+            ),
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    "dialog_projection": {
+                        "dialog_text": (
+                            "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":3}\n'
+                            "AGENTSYS_MAIL_RESULT_END"
+                        )
+                    }
+                },
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 3
+
+
+def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payload(
+    tmp_path: Path,
+) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    "dialog_projection": {
+                        "normalized_text": (
+                            "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":7}\n'
+                            "AGENTSYS_MAIL_RESULT_END"
+                        ),
+                        "dialog_text": "messy tui chrome without sentinels",
+                    }
+                },
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 7
+
+
+def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    payload = parse_mail_result(
+        [
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    MAIL_RESULT_SURFACES_PAYLOAD_KEY: [
+                        {
+                            "surface_id": "shadow_post_submit.raw_text",
+                            "text": (
+                                "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                                '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":9}\n'
+                                "AGENTSYS_MAIL_RESULT_END"
+                            ),
+                        }
+                    ],
+                    "dialog_projection": {
+                        "normalized_text": "prompt resumed without any sentinels",
+                    },
+                },
+            ),
+        ],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 9
 
 
 def test_mail_check_cli_prints_structured_result(
@@ -204,7 +350,7 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
                                 "operation": "send",
                                 "transport": "filesystem",
                                 "principal_id": "AGENTSYS-research",
-                                "message_id": "msg-20260312T050000Z-abc",
+                                "message_ref": "filesystem:msg-20260312T050000Z-abc",
                             }
                         )
                         + "\nAGENTSYS_MAIL_RESULT_END"
@@ -419,3 +565,201 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
 
     assert exit_code == 2
     assert "parsing failed" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# extract_sentinel_blocks: standalone vs inline sentinel mentions
+# ---------------------------------------------------------------------------
+
+
+def test_extract_sentinel_blocks_finds_standalone_block() -> None:
+    text = (
+        "Some preamble\n"
+        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        '{"ok": true}\n'
+        "AGENTSYS_MAIL_RESULT_END\n"
+        "trailing text"
+    )
+    blocks = extract_sentinel_blocks(text)
+    assert len(blocks) == 1
+    assert blocks[0].payload_text == '{"ok": true}'
+    assert blocks[0].begin_line == 1
+    assert blocks[0].end_line == 3
+
+
+def test_extract_sentinel_blocks_ignores_inline_sentinel_mentions() -> None:
+    """Sentinel names inside prose or JSON values are NOT standalone blocks."""
+    text = (
+        "Return exactly one JSON result between "
+        "`AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`.\n"
+        '{"sentinel_begin": "AGENTSYS_MAIL_RESULT_BEGIN", '
+        '"sentinel_end": "AGENTSYS_MAIL_RESULT_END"}\n'
+    )
+    blocks = extract_sentinel_blocks(text)
+    assert blocks == []
+
+
+def test_extract_sentinel_blocks_ignores_prompt_echo_finds_real_block() -> None:
+    """Prompt echo with inline sentinel names followed by a real standalone block."""
+    text = (
+        "Return exactly one JSON result between "
+        "`AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`.\n"
+        "\n"
+        "AGENTSYS_MAIL_REQUEST:\n```json\n"
+        '{"response_contract": {"sentinel_begin": "AGENTSYS_MAIL_RESULT_BEGIN", '
+        '"sentinel_end": "AGENTSYS_MAIL_RESULT_END"}}\n'
+        "```\n"
+        "\n"
+        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        '{"ok": true, "request_id": "r1", "operation": "check"}\n'
+        "AGENTSYS_MAIL_RESULT_END\n"
+    )
+    blocks = extract_sentinel_blocks(text)
+    assert len(blocks) == 1
+    assert '"ok": true' in blocks[0].payload_text
+
+
+def test_extract_sentinel_blocks_returns_multiple_blocks() -> None:
+    text = (
+        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        '{"a": 1}\n'
+        "AGENTSYS_MAIL_RESULT_END\n"
+        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        '{"b": 2}\n'
+        "AGENTSYS_MAIL_RESULT_END\n"
+    )
+    blocks = extract_sentinel_blocks(text)
+    assert len(blocks) == 2
+
+
+def test_extract_sentinel_blocks_begin_without_end() -> None:
+    text = 'AGENTSYS_MAIL_RESULT_BEGIN\n{"ok": true}\n'
+    blocks = extract_sentinel_blocks(text)
+    assert blocks == []
+
+
+# ---------------------------------------------------------------------------
+# shadow_mail_result_contract_reached: prompt-echo regression
+# ---------------------------------------------------------------------------
+
+
+def _build_prompt_echo_surface() -> str:
+    """Return text mimicking a runtime-owned mailbox prompt echo.
+
+    The surface contains sentinel names in both prose and JSON values but
+    no actual standalone sentinel-delimited result block.
+    """
+    return (
+        "Use the runtime-owned mailbox skill `email-via-filesystem` for this mailbox operation.\n"
+        "Open the primary mailbox skill document at `skills/mailbox/email-via-filesystem/SKILL.md`.\n"
+        "The same mailbox skill may also be mirrored at "
+        "`skills/.system/mailbox/email-via-filesystem/SKILL.md`, but treat that hidden path as compatibility-only.\n"
+        "Return exactly one JSON result between "
+        f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"
+        "\n"
+        "AGENTSYS_MAIL_REQUEST:\n"
+        "```json\n"
+        + json.dumps(
+            {
+                "version": 1,
+                "request_id": "mailreq-test",
+                "operation": "check",
+                "response_contract": {
+                    "format": "json",
+                    "sentinel_begin": MAIL_RESULT_BEGIN_SENTINEL,
+                    "sentinel_end": MAIL_RESULT_END_SENTINEL,
+                },
+            },
+            indent=2,
+        )
+        + "\n```\n"
+    )
+
+
+def test_shadow_contract_not_reached_for_prompt_echo_only() -> None:
+    """Prompt-echo-only surface must NOT satisfy mailbox completion gating."""
+    surface_payloads = (
+        {"surface_id": "shadow_post_submit.normalized_text", "text": _build_prompt_echo_surface()},
+    )
+    assert shadow_mail_result_contract_reached(surface_payloads) is False
+
+
+def test_shadow_contract_reached_when_real_block_follows_echo() -> None:
+    """Prompt echo followed by a real standalone result block should satisfy gating."""
+    text = (
+        _build_prompt_echo_surface()
+        + "\n"
+        + "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        + '{"ok": true, "request_id": "r1", "operation": "check"}\n'
+        + "AGENTSYS_MAIL_RESULT_END\n"
+    )
+    surface_payloads = ({"surface_id": "shadow_post_submit.normalized_text", "text": text},)
+    assert shadow_mail_result_contract_reached(surface_payloads) is True
+
+
+# ---------------------------------------------------------------------------
+# parse_mail_result: prompt-echo + valid result
+# ---------------------------------------------------------------------------
+
+
+def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: Path) -> None:
+    """Parser must ignore prompt-echo sentinel mentions and accept the standalone block."""
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    result_json = json.dumps(
+        {
+            "ok": True,
+            "request_id": "r1",
+            "operation": "check",
+            "transport": "filesystem",
+            "principal_id": "AGENTSYS-research",
+            "unread_count": 5,
+        }
+    )
+    text = (
+        _build_prompt_echo_surface()
+        + "\n"
+        + f"AGENTSYS_MAIL_RESULT_BEGIN\n{result_json}\nAGENTSYS_MAIL_RESULT_END\n"
+    )
+
+    payload = parse_mail_result(
+        [SessionEvent(kind="assistant", message=text, turn_index=1)],
+        request_id="r1",
+        operation="check",
+        mailbox=mailbox,
+    )
+    assert payload["ok"] is True
+    assert payload["unread_count"] == 5
+
+
+def test_parse_mail_result_rejects_prompt_echo_only_surface(tmp_path: Path) -> None:
+    """Surface with only prompt-echo sentinel mentions and no standalone block must fail."""
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    with pytest.raises(MailboxResultParseError, match="no standalone sentinel-delimited payload"):
+        parse_mail_result(
+            [SessionEvent(kind="assistant", message=_build_prompt_echo_surface(), turn_index=1)],
+            request_id="r1",
+            operation="check",
+            mailbox=mailbox,
+        )
+
+
+def test_parse_mail_result_still_rejects_malformed_standalone_block(tmp_path: Path) -> None:
+    """A real standalone block with invalid JSON must still produce an explicit parse error."""
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    text = "AGENTSYS_MAIL_RESULT_BEGIN\nnot valid json\nAGENTSYS_MAIL_RESULT_END\n"
+    with pytest.raises(MailboxResultParseError, match="not valid JSON"):
+        parse_mail_result(
+            [SessionEvent(kind="assistant", message=text, turn_index=1)],
+            request_id="r1",
+            operation="check",
+            mailbox=mailbox,
+        )

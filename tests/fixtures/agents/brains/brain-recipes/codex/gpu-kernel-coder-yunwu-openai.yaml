@@ -7,3 +7,5 @@ skills:
   - openspec-verify-change
 config_profile: yunwu-openai
 credential_profile: yunwu-openai
+launch_policy:
+  operator_prompt_mode: unattended

@@ -18,12 +18,14 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.12,<3",
-  "PyYAML>=6.0,<7", "ruff", "mypy", "mkdocs-material>=9.7.4,<10", "omegaconf>=2.3.0,<3", "hydra-core>=1.3.2,<2", "scipy>=1.17.1,<2", "pytest", "mdutils>=1.8.1,<2", "reactivex>=4.1.0,<5", "rich>=14.3.3,<15", "fastapi>=0.135.1,<0.136", "uvicorn>=0.41.0,<0.42", "platformdirs>=4.9.4,<5",
+  "PyYAML>=6.0,<7", "ruff", "mypy", "mkdocs-material>=9.7.4,<10", "omegaconf>=2.3.0,<3", "hydra-core>=1.3.2,<2", "scipy>=1.17.1,<2", "pytest", "mdutils>=1.8.1,<2", "reactivex>=4.1.0,<5", "rich>=14.3.3,<15", "fastapi>=0.135.1,<0.136", "uvicorn>=0.41.0,<0.42", "platformdirs>=4.9.4,<5", "rxpy>=0.1.0,<0.2", "typer>=0.24.1,<0.25", "click>=8.3.1,<9", "memory-fs>=0.41.0,<0.42", "httpx>=0.28.1,<0.29", "libtmux>=0.55.0,<0.56", "mail-parser>=4.1.4,<5", "imageio>=2.37.3,<3", "opencv-python>=4.13.0.92,<5", "matplotlib>=3.10.8,<4", "av>=17.0.0,<18", "typed-ffmpeg>=3.11,<4",
 ]
 
 [project.scripts]
 houmao-cli = "houmao.cli:main"
 houmao-cao-server = "houmao.cao_cli:main"
+houmao-server = "houmao.server.cli:main"
+houmao-srv-ctrl = "houmao.srv_ctrl.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/igamenovoer/houmao"
@@ -85,6 +87,9 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -103,6 +108,7 @@ mypy = ">=1.19.1,<2"
 pip = ">=25,<26"
 
 [tool.pixi.tasks]
+asciinema = { cmd = "./extern/orphan/bin/asciinema-x86_64-unknown-linux-gnu", description = "Run the locally downloaded asciinema standalone binary" }
 format = { cmd = "ruff format src tests docs scripts", description = "Format runtime source, tests, docs, and scripts" }
 lint = { cmd = "ruff check src tests docs scripts", description = "Run Ruff lint checks" }
 typecheck = { cmd = "mypy src", description = "Run strict mypy checks" }
@@ -116,6 +122,11 @@ postgresql = ">=18.3,<19"
 pgvector = ">=0.8.1,<0.9"
 pgcli = ">=4.4.0,<5"
 
+[tool.pixi.feature.gui.dependencies]
+go = "1.23.*"
+tmux = ">=3.5,<4"
+make = ">=4.4.1,<5"
+
 [tool.pixi.feature.pg-hosting.tasks]
 pg-init = { cmd = 'bash -lc "mkdir -p tmp/pg-hosting; printf \"%s\" \"postgres\" > tmp/pg-hosting/pwfile; chmod 600 tmp/pg-hosting/pwfile; rm -rf tmp/pg-hosting/pgdata; initdb -D tmp/pg-hosting/pgdata --username=postgres --pwfile=tmp/pg-hosting/pwfile --auth-host=scram-sha-256 --auth-local=trust"', description = "Initialize a fresh local Postgres cluster under tmp/pg-hosting with dev credentials" }
 pg-start = { cmd = "bash -lc 'ROOT=\"$(pwd)/tmp/pg-hosting\"; mkdir -p \"$ROOT/sock\"; pg_ctl -D \"$ROOT/pgdata\" -l \"$ROOT/postgres.log\" -o \"-p 55432 -k $ROOT/sock -c listen_addresses=127.0.0.1\" start'", description = "Start Postgres in background on localhost using non-default port 55432" }
@@ -124,5 +135,10 @@ pg-ready = { cmd = "bash -lc 'ROOT=\"$(pwd)/tmp/pg-hosting\"; pg_isready -h 127.
 pg-enable-vector = { cmd = 'bash -lc "psql \"postgresql://postgres:postgres@127.0.0.1:55432/postgres\" -c \"CREATE EXTENSION IF NOT EXISTS vector;\""', description = "Enable pgvector extension in target database" }
 pg-psql = { cmd = 'bash -lc "psql \"postgresql://postgres:postgres@127.0.0.1:55432/postgres\""', description = "Open psql against local pg-hosting instance over TCP" }
 
+[tool.pixi.feature.gui.tasks]
+webtmux-build = { cmd = "bash -lc 'cd extern/orphan/webtmux && make build'", description = "Build the local webtmux checkout for the current platform" }
+webtmux-run = { cmd = "bash -lc 'cd extern/orphan/webtmux && ./webtmux -w tmux new-session -A -s main'", description = "Run the locally built webtmux binary against tmux with write access" }
+
 [tool.pixi.environments]
 pg-hosting = { features = ["pg-hosting"], no-default-feature = true }
+gui = { features = ["gui"], no-default-feature = true }

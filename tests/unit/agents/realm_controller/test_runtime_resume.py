@@ -7,6 +7,10 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller.agent_identity import (
+    derive_agent_id_from_name,
+    normalize_agent_identity_name,
+)
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
@@ -50,14 +54,23 @@ def _seed_manifest(
 
     manifest_path = tmp_path / "brain.yaml"
     runtime_lines = [
+        "schema_version: 2",
         "inputs:",
         f"  tool: {tool}",
         "runtime:",
         f"  launch_executable: {tool}",
-        "  launch_args: []",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
         f"    value: {tmp_path / 'home'}",
+        "  launch_contract:",
+        "    adapter_defaults:",
+        "      args: []",
+        "      tool_params: {}",
+        "    requested_overrides:",
+        "      recipe: null",
+        "      direct: null",
+        "    tool_metadata:",
+        "      tool_params: {}",
     ]
     if cao_parsing_mode is not None:
         runtime_lines.append(f"  cao_parsing_mode: {cao_parsing_mode}")
@@ -101,11 +114,18 @@ def _build_session_payload(
             working_directory=tmp_path,
         )
     )
+    resolved_tmux_session_name = str(
+        backend_state.get("tmux_session_name") or backend_state.get("session_name") or ""
+    ).strip()
+    resolved_agent_name = normalize_agent_identity_name(resolved_tmux_session_name).canonical_name
     session_payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
+            agent_name=resolved_agent_name,
+            agent_id=derive_agent_id_from_name(resolved_agent_name),
+            tmux_session_name=resolved_tmux_session_name,
             backend_state=backend_state,
         )
     )
@@ -133,11 +153,15 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
+            agent_name="AGENTSYS-r",
+            agent_id=derive_agent_id_from_name("AGENTSYS-r"),
+            tmux_session_name="AGENTSYS-r",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
+                "tmux_session_name": "AGENTSYS-r",
             },
         )
     )

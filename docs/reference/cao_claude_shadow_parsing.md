@@ -16,6 +16,7 @@ The important boundary is:
 - the Claude shadow parser owns snapshot parsing,
 - the runtime owns turn lifecycle, and
 - caller-side answer association is optional and explicit.
+- `normalized_text` stays closer to the captured TUI snapshot, while `dialog_text` is only a best-effort heuristic cleanup surface.
 
 For resumed CAO operations, session addressing is manifest-driven: runtime uses the persisted `session_manifest.cao.api_base_url` and terminal identity from the session manifest rather than a resume-time CAO base URL override.
 
@@ -23,7 +24,8 @@ For resumed CAO operations, session addressing is manifest-driven: runtime uses 
 
 | File | Role |
 |------|------|
-| `backends/cao_rest.py` | CAO session lifecycle, poll loops, runtime `TurnMonitor`, result payloads |
+| `backends/cao_rx_monitor.py` | Runtime readiness/completion monitor pipelines, post-submit evidence, stability timers, and stalled recovery |
+| `backends/cao_rest.py` | Current-thread CAO poll loops, parser invocation, payload shaping, and error translation |
 | `backends/claude_code_shadow.py` | Claude snapshot parsing into `SurfaceAssessment` + `DialogProjection` |
 | `backends/shadow_parser_core.py` | Shared frozen parser models and projection provenance |
 | `backends/shadow_answer_association.py` | Optional caller-side association helpers such as `TailRegexExtractAssociator` |
@@ -65,7 +67,7 @@ sequenceDiagram
     participant CAO as CAO Server
     participant TMUX as tmux pane<br/>(Claude Code)
     participant SP as Claude Parser<br/>(parse_snapshot)
-    participant TM as TurnMonitor
+    participant RM as Runtime monitor<br/>(cao_rx_monitor.py)
 
     RT->>CAO: GET /terminals/{id}/output?mode=full
     CAO->>TMUX: tmux capture-pane -p
@@ -73,16 +75,17 @@ sequenceDiagram
     CAO-->>RT: output text
     RT->>SP: parse_snapshot(output, baseline_pos)
     SP-->>RT: SurfaceAssessment + DialogProjection
-    RT->>TM: observe(snapshot)
-    TM-->>RT: awaiting_ready / in_progress / blocked / stalled / completed / failed
+    RT->>RM: ShadowObservation
+    RM-->>RT: ready / blocked / failed / stalled / completed
 ```
 
 ## Quick Contract Summary
 
 - `SurfaceAssessment` answers whether the surface is supported and what it appears to be doing right now.
 - Slash-command readiness follows the currently active input surface, not historical `/...` lines still visible in scrollback or projected dialog.
-- `DialogProjection` returns cleaned visible dialog, not an authoritative answer for the current prompt.
-- `TurnMonitor` decides success terminality from ordered snapshots, not from parser-owned answer extraction.
-- `TailRegexExtractAssociator` is an example of caller-owned extraction layered on top of projected dialog.
+- `DialogProjection` returns best-effort cleaned visible dialog, not an authoritative answer for the current prompt and not an exact recovered transcript.
+- The runtime monitor decides success terminality from ordered snapshots, not from parser-owned answer extraction.
+- Current completion evidence keys off normalized shadow text after pipeline normalization; `dialog_text` remains a best-effort transcript surface for operators and caller-owned extraction.
+- `TailRegexExtractAssociator` is an example of caller-owned best-effort extraction layered on top of projected dialog. Reliable downstream machine use should prefer schema-shaped prompting plus explicit sentinels or patterns.
 
 Use the developer guide for the detailed state vocabulary, runtime lifecycle graph, and provider contract breakdown.

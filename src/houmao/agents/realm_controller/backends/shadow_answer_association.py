@@ -1,4 +1,10 @@
-"""Optional caller-side helpers for answer association over dialog projection."""
+"""Optional caller-side helpers for answer association over dialog projection.
+
+These helpers are intentionally caller-owned best-effort escape hatches. When a
+downstream path needs reliable machine-readable output, prefer schema-shaped
+prompting plus explicit sentinel or pattern extraction over generic
+``dialog_projection.dialog_text`` cleanup.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +24,11 @@ class DialogAssociator(Protocol):
 
 @dataclass(frozen=True)
 class TailRegexExtractAssociator:
-    """Extract caller-owned text by regex-searching the tail of projected dialog."""
+    """Extract caller-owned text by regex-searching projected dialog.
+
+    This remains a best-effort helper over projected dialog text rather than a
+    runtime-owned exact-text contract.
+    """
 
     tail_chars: int
     pattern: str

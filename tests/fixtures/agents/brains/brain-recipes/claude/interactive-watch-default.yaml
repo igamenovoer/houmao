@@ -1,0 +1,11 @@
+schema_version: 1
+name: interactive-watch-default
+tool: claude
+default_agent_name: interactive-watch-claude
+skills:
+  - openspec-explore
+  - openspec-apply-change
+config_profile: default
+credential_profile: personal-a-default
+launch_policy:
+  operator_prompt_mode: unattended

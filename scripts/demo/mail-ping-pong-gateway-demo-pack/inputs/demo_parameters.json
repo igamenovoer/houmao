@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "demo_id": "mail-ping-pong-gateway-demo-pack",
+  "agent_def_dir": "tests/fixtures/agents",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
+  "server_start_timeout_seconds": 20.0,
+  "launch_timeout_seconds": 60.0,
+  "stop_timeout_seconds": 20.0,
+  "gateway": {
+    "host": "127.0.0.1",
+    "notifier_interval_seconds": 5
+  },
+  "wait_defaults": {
+    "poll_interval_seconds": 2.0,
+    "timeout_seconds": 600.0,
+    "history_limit": 32
+  },
+  "conversation": {
+    "round_limit": 5,
+    "subject_template": "[{thread_key}] Round {round_index} ping-pong"
+  },
+  "initiator": {
+    "tool": "claude",
+    "role_name": "mail-ping-pong-initiator",
+    "brain_recipe_path": "tests/fixtures/agents/brains/brain-recipes/claude/mail-ping-pong-initiator-default.yaml",
+    "mailbox_principal_id": "AGENTSYS-mail-ping-pong-initiator",
+    "mailbox_address": "AGENTSYS-mail-ping-pong-initiator@agents.localhost"
+  },
+  "responder": {
+    "tool": "codex",
+    "role_name": "mail-ping-pong-responder",
+    "brain_recipe_path": "tests/fixtures/agents/brains/brain-recipes/codex/mail-ping-pong-responder-default.yaml",
+    "mailbox_principal_id": "AGENTSYS-mail-ping-pong-responder",
+    "mailbox_address": "AGENTSYS-mail-ping-pong-responder@agents.localhost"
+  }
+}

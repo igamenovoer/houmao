@@ -14,6 +14,9 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
     second_response_text = str(report.get("second_response_text", "")).strip()
     if not second_response_text:
         raise ValueError("report.second_response_text must be non-empty")
+    second_response_source = str(report.get("second_response_source", "")).strip()
+    if not second_response_source:
+        raise ValueError("report.second_response_source must be non-empty")
 
     second_response_chars = int(report.get("second_response_chars", 0))
     if second_response_chars <= 0:
@@ -58,6 +61,7 @@ def _sanitize(report: dict[str, Any]) -> dict[str, Any]:
         "processing_observed": True,
         "idle_after_escape": True,
         "second_response_text": "<NON_EMPTY_RESPONSE>",
+        "second_response_source": second_response_source,
         "second_response_chars": "<POSITIVE_INT>",
         "processing_shadow_status": "processing",
         "idle_shadow_status": "idle",

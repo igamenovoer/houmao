@@ -23,11 +23,12 @@ Important notes:
 
 - The workflow is intentionally pinned to `http://127.0.0.1:9889`; `CAO_BASE_URL` overrides are ignored for this demo pack.
 - The wrapper scripts delegate to `run_demo.sh`, which keeps the repo-root-derived workspace, launcher home, worktree, and other shell defaults aligned with the underlying Python workflow engine.
-- By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir.
+- By default, `start` creates a fresh run root at `tmp/demo/cao-interactive-full-pipeline-demo/<ts>/`, uses that directory as the CAO launcher home, and creates a nested git worktree at `<run-root>/wktree` for the interactive session workdir. That nested layout is a demo-owned isolation default, not a repo-owned CAO requirement.
 - If startup finds a verified local `cao-server` already healthy at `http://127.0.0.1:9889`, it replaces that server automatically for the new run. There is no replacement prompt anymore.
 - Direct `run_demo.sh start` uses the selected recipe's `default_agent_name` unless you supply `--agent-name`.
 - `launch_alice.sh` is only a convenience wrapper. Its special behavior is just `--agent-name alice`.
 - The demo still passes `AGENT_DEF_DIR` explicitly for brain build and session start, but follow-up prompt/control/stop flows target the persisted runtime name and let `realm_controller` recover the effective agent-definition root from the live tmux session.
+- The persisted `agent_identity` stays canonical (`AGENTSYS-<name>`), while `session_name`, `tmux_target`, and surfaced attach commands use the actual live tmux handle (`AGENTSYS-<name>-<agent-id-prefix>`).
 
 ## Supported Startup Recipes
 
@@ -71,7 +72,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh start \
   --brain-recipe codex/gpu-kernel-coder-yunwu-openai \
   --agent-name gpu-demo
 
-# 5) Inspect the active session and optionally include clean projected dialog text.
+# 5) Inspect the active session and optionally include a best-effort projected dialog tail.
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect
 scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect --with-output-text 400
 
@@ -93,6 +94,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/launch_alice.sh
 ```
 
 The wrapper forwards through `run_demo.sh start --agent-name alice`. With no explicit recipe selector, that means the session is backed by `claude/gpu-kernel-coder-default`, but the persisted identity is still `AGENTSYS-alice`.
+The live tmux handle is distinct and will typically look like `AGENTSYS-alice-<agent-id-prefix>`.
 
 Direct recipe-backed path:
 
@@ -122,6 +124,7 @@ tool: claude
 variant_id: claude-gpu-kernel-coder-default
 brain_recipe: claude/gpu-kernel-coder-default
 agent_identity: AGENTSYS-alice
+tmux_attach: tmux attach -t AGENTSYS-alice-<agent-id-prefix>
 terminal_id: <terminal-id>
 ```
 
@@ -145,6 +148,7 @@ variant_id: claude-gpu-kernel-coder-default
 brain_recipe: claude/gpu-kernel-coder-default
 tool_state: idle
 agent_identity: AGENTSYS-alice
+session_name: AGENTSYS-alice-<agent-id-prefix>
 ```
 
 `tool_state` is the live CAO terminal status for the persisted session and may be `idle`, `processing`, `waiting_user_answer`, `completed`, `error`, or `unknown`.
@@ -167,6 +171,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/send_prompt.sh \
 Each prompt writes a turn artifact under `turns/turn-*.json` plus the captured stdout and stderr logs for the underlying runtime command.
 
 Because the follow-up runtime call targets the persisted `AGENTSYS-...` name, the demo does not pass an explicit `--agent-def-dir` on this path; runtime recovers it from the session's tmux environment.
+Use the surfaced `tmux_attach` command or `session_name` from `inspect` when you need to attach manually; do not assume the live tmux handle is exactly the canonical `agent_identity`.
 
 ## Step 4: Send Control Input Manually
 
@@ -240,7 +245,7 @@ scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh verify --snapshot-re
 | Current-run marker | `tmp/demo/cao-interactive-full-pipeline-demo/current_run_root.txt` | Follow-up wrapper commands resolve the active/latest run root from here when `DEMO_WORKSPACE_ROOT` is omitted. |
 | Agent definitions | `tests/fixtures/agents` | Default agent-definition root. Override with `AGENT_DEF_DIR=/path`. |
 | Launcher home | `<workspace-root>` | Default launcher home used for CAO profile-store alignment. Override with `CAO_LAUNCHER_HOME_DIR=/path`. |
-| Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session. Override with `DEMO_WORKDIR=/abs/path`. |
+| Session workdir | `<launcher-home>/wktree` | Default git worktree created for the interactive session for demo isolation. Override with `DEMO_WORKDIR=/abs/path`. |
 | Role name | `gpu-kernel-coder` | Default role passed through `run_demo.sh`. Override with `DEMO_ROLE_NAME=<name>`. |
 | Verify snapshots | `expected_report/<variant-id>.json` | Variant-specific maintainer snapshot files. |
 
@@ -275,3 +280,4 @@ Implementation files:
 - `src/houmao/demo/cao_interactive_demo/runtime.py`
 - `src/houmao/demo/cao_interactive_demo/rendering.py`
 - `src/houmao/demo/cao_interactive_demo/cao_server.py`
+When `--with-output-text` is present, the inspect surface reports a best-effort projected dialog tail for operator diagnostics. It is not an exact extracted reply API.

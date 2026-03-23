@@ -1,0 +1,5 @@
+{"elapsed_seconds": 0.0, "escape_special_keys": false, "event_id": "i000001", "sequence": "\u001b[?1;2;4c\u001b[>84;0;0c\u001bP>|tmux 3.4\u001b\\", "source": "asciinema_input", "tmux_target": null, "ts_utc": "2026-03-22T10:22:18+00:00"}
+{"elapsed_seconds": 1.466, "escape_special_keys": false, "event_id": "i000002", "sequence": "\u0003", "source": "asciinema_input", "tmux_target": null, "ts_utc": "2026-03-22T10:22:19+00:00"}
+{"elapsed_seconds": 3.505887, "escape_special_keys": false, "event_id": "i000003", "sequence": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.", "source": "managed_send_keys", "tmux_target": "%443", "ts_utc": "2026-03-22T10:22:21+00:00"}
+{"elapsed_seconds": 3.714401, "escape_special_keys": false, "event_id": "i000004", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%443", "ts_utc": "2026-03-22T10:22:21+00:00"}
+{"elapsed_seconds": 5.377621, "escape_special_keys": false, "event_id": "i000005", "sequence": "<[Escape]>", "source": "managed_send_keys", "tmux_target": "%443", "ts_utc": "2026-03-22T10:22:23+00:00"}

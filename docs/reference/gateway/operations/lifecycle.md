@@ -25,9 +25,22 @@ That means session start or resume can create:
 
 It does not mean a live gateway is already running.
 
-## Launch-Time Auto-Attach
+## Post-Launch Attach Is The Official Managed-Agent Path
 
-Use `--gateway-auto-attach` when you want the runtime to start the sidecar immediately after the managed session starts.
+For the official managed-agent flow, launch and gateway lifecycle stay separate.
+
+That means:
+
+- the managed agent launches first,
+- gateway capability is published through `attach.json`, seeded state, and tmux env pointers,
+- live gateway attach happens later through an explicit attach action,
+- async mailbox demos and server-managed flows should treat this post-launch attach as the supported path.
+
+The same design works whether the attach action comes from runtime CLI control or from the server-managed `/houmao/agents/{agent_ref}/gateway/attach` route family.
+
+## Runtime Auto-Attach Convenience
+
+The runtime CLI still has a local `--gateway-auto-attach` convenience for runtime-owned sessions, but that convenience is not the public managed-agent contract and should not be confused with the server-managed lifecycle model.
 
 ```mermaid
 sequenceDiagram
@@ -45,7 +58,7 @@ sequenceDiagram
     RT-->>CLI: session output +<br/>gateway host/port
 ```
 
-Current behavior:
+Current runtime-only behavior:
 
 - the managed session starts first,
 - gateway attach is attempted afterward,
@@ -71,6 +84,7 @@ Listener resolution rules in the current implementation:
 Important rule:
 
 - port conflicts fail the attach explicitly; the runtime does not silently pick a different explicit port on the same attempt.
+- when no attach-time override is supplied, the attach path reuses persisted desired listener defaults when they exist and otherwise falls back to the default listener rules.
 
 ## Status Inspection
 
@@ -141,10 +155,32 @@ Current behavior boundary:
 - gateway-routed requests do not auto-attach the gateway,
 - direct runtime control remains valid even for sessions that are gateway-capable but not currently gateway-attached.
 
+For server-managed agents, the same separation applies: `houmao-server` owns managed-agent request and gateway lifecycle routes, but shared mailbox send, check, and reply stay on the live gateway `/v1/mail/*` facade after attach.
+
+## Tail The Running Log
+
+The live gateway keeps one append-only running log at `<session-root>/gateway/logs/gateway.log`.
+
+That file is the operator-facing view for:
+
+- gateway start and stop,
+- request execution outcomes,
+- mail notifier enable or disable changes,
+- notifier poll decisions such as empty polls, dedup skips, and busy deferrals.
+
+For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone. The runnable operator walkthrough for that inspection flow lives in [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), which now uses the repository's copied dummy-project plus lightweight `mailbox-demo` defaults for this narrow gateway walkthrough.
+
+Typical watch command:
+
+```bash
+tail -f <session-root>/gateway/logs/gateway.log
+```
+
 ## Current Implementation Notes
 
 - A session can be gateway-capable even when `gateway-status` reports `gateway_health=not_attached`.
-- Live attach is implemented first for `backend=cao_rest`.
+- Runtime-owned live attach currently supports REST-backed sessions (`cao_rest`, `houmao_server_rest`) and runtime-owned native headless backends whose execution adapters are implemented.
+- Server-managed native headless agents use the same post-launch attach model, but the live gateway routes prompt and interrupt work back through `/houmao/agents/{agent_ref}/requests` instead of resuming the headless session privately.
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
 - Desired host and port are rewritten after successful live attach so later starts can reuse the actual bound listener.
 

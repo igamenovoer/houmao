@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change improve-cao-interactive-demo-inspect-output. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Interactive demo inspect JSON SHALL expose a stable top-level contract
 The interactive demo inspect `--json` command SHALL emit a stable top-level JSON object describing the current persisted session plus any requested live output-tail data.
 
@@ -34,10 +35,25 @@ If the clean projected dialog tail cannot be produced, the JSON output SHALL
 include:
 - `output_text_tail_note`
 
+For tmux-backed demo sessions whose live tmux handle differs from the canonical
+agent identity, the inspect JSON SHALL preserve that distinction:
+
+- `agent_identity` SHALL remain the canonical `AGENTSYS-<name>` identity
+- `session_name` SHALL reflect the actual persisted runtime session name
+- `tmux_target` SHALL reflect the actual tmux attach target
+- `tmux_attach_command` SHALL target `tmux_target`
+
 #### Scenario: Inspect JSON returns the stable field set for the selected variant
 - **WHEN** a developer runs `run_demo.sh inspect --json` after launching the interactive demo
 - **THEN** the JSON payload includes the stable top-level fields for session state, selected tool and variant, log/tmux commands, and artifact locations
 - **AND THEN** the payload uses `tool_state` instead of `claude_code_state`
+
+#### Scenario: Inspect JSON distinguishes canonical identity from tmux handle
+- **WHEN** a developer runs `run_demo.sh inspect --json` for a live session with canonical agent identity `AGENTSYS-alice`
+- **AND WHEN** the persisted tmux handle is `AGENTSYS-alice-270b87`
+- **THEN** the JSON payload includes `agent_identity="AGENTSYS-alice"`
+- **AND THEN** it includes `tmux_target="AGENTSYS-alice-270b87"`
+- **AND THEN** `tmux_attach_command` is `tmux attach -t AGENTSYS-alice-270b87`
 
 ### Requirement: Interactive demo inspect SHALL present an operator-oriented session summary
 The interactive demo inspect command SHALL render a human-readable inspection surface for `scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh inspect` that makes the current session state, the selected demo variant, the main operator commands, and the important artifact locations easy to identify.
@@ -56,10 +72,18 @@ The human-readable surface SHALL include at minimum:
 - the runtime root, and
 - the last-updated timestamp.
 
+When the live tmux handle differs from the canonical agent identity, the human-readable surface SHALL show the actual tmux attach command while still surfacing the canonical agent identity separately.
+
 #### Scenario: Human-readable inspect highlights the next operator actions
 - **WHEN** a developer runs `run_demo.sh inspect` after launching the interactive demo
 - **THEN** the output includes a clearly identifiable tmux attach command and terminal-log tail command
 - **AND THEN** the output includes the current session status, selected tool and variant, live tool state, and artifact locations needed for debugging
+
+#### Scenario: Human-readable inspect uses the actual tmux attach target
+- **WHEN** a developer runs `run_demo.sh inspect` for a live session with canonical agent identity `AGENTSYS-alice`
+- **AND WHEN** the persisted tmux handle is `AGENTSYS-alice-270b87`
+- **THEN** the output surfaces `agent_identity: AGENTSYS-alice`
+- **AND THEN** it surfaces `tmux_attach: tmux attach -t AGENTSYS-alice-270b87`
 
 ### Requirement: Interactive demo inspect SHALL surface live tool state when available
 The interactive demo SHALL attempt to resolve the current tool state from the
@@ -86,37 +110,36 @@ rather than failing the entire inspect command.
 - **THEN** the command still prints the persisted demo inspection metadata
 - **AND THEN** the surfaced `tool_state` is `unknown`
 
-### Requirement: Interactive demo inspect SHALL optionally include a clean output-text tail
+### Requirement: Interactive demo inspect SHALL optionally include a best-effort projected output-text tail
 The interactive demo `inspect` command SHALL accept `--with-output-text <num-tail-chars>` as an optional argument.
 
-`<num-tail-chars>` SHALL be a positive integer specifying how many characters
-of clean projected dialog text to include from the tail of the current live TUI
-snapshot for the persisted tool selection.
+`<num-tail-chars>` SHALL be a positive integer specifying how many characters of best-effort projected dialog text to include from the tail of the current live TUI snapshot for the persisted tool selection.
 
-When this option is present, the demo SHALL fetch live CAO terminal output
-using `output?mode=full`, project that scrollback into clean dialog text using
-the runtime-owned parser stack for the persisted tool, and include the last
-`<num-tail-chars>` characters of that projected dialog text in the inspect
-result as `output_text_tail`.
+When this option is present, the demo SHALL fetch live CAO terminal output using `output?mode=full`, project that scrollback into best-effort dialog text using the runtime-owned parser stack for the persisted tool, and include the last `<num-tail-chars>` characters of that projected dialog text in the inspect result as `output_text_tail`.
 
-The reported `output_text_tail` SHALL come from clean projected dialog text and
-SHALL NOT fall back to raw ANSI or tmux scrollback.
+The reported `output_text_tail` SHALL remain the field name for this change.
+The reported `output_text_tail` SHALL come from best-effort projected dialog text, SHALL remain an operator-facing diagnostic surface, SHALL NOT be described as an exact extracted tool reply, and SHALL NOT fall back to raw ANSI or tmux scrollback.
 
-#### Scenario: Inspect returns the requested clean dialog tail for the selected tool
+#### Scenario: Inspect returns the requested best-effort dialog tail for the selected tool
 - **WHEN** a developer runs `inspect --with-output-text 500` while the live Claude or Codex terminal is reachable
-- **THEN** the output includes `output_text_tail` derived from the current clean projected dialog text for that tool
+- **THEN** the output includes `output_text_tail` derived from the current best-effort projected dialog text for that tool
 - **AND THEN** the returned string contains at most 500 characters from the end of that projected dialog text
 - **AND THEN** the command continues to include the normal session, variant, tmux, and log metadata
 
-#### Scenario: Short projected dialog returns the full clean text
+#### Scenario: Short projected dialog returns the full best-effort text
 - **WHEN** a developer runs `inspect --with-output-text 500` and the current projected dialog text is shorter than 500 characters
 - **THEN** `output_text_tail` contains the full projected dialog text
 - **AND THEN** the command does not pad, truncate incorrectly, or include raw scrollback chrome
 
+#### Scenario: Inspect does not overclaim projection fidelity
+- **WHEN** a developer reads `output_text_tail` from inspect output
+- **THEN** that field is understood as a best-effort projected diagnostic tail
+- **AND THEN** the inspect contract does not imply that the field is an exact extracted tool reply
+
 #### Scenario: Inspect reports output-tail unavailability without using raw scrollback
 - **WHEN** a developer runs `inspect --with-output-text 500` and live output fetch or clean projection cannot be completed
 - **THEN** the command still prints the base inspection metadata
-- **AND THEN** it includes an explicit note that the clean output-text tail is unavailable
+- **AND THEN** it includes an explicit note that the best-effort output-text tail is unavailable
 - **AND THEN** it does not substitute raw `mode=full` or terminal-log content in place of clean projected dialog text
 
 ### Requirement: Interactive demo inspect SHALL resolve terminal-log paths from the effective CAO home

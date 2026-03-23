@@ -11,25 +11,9 @@ The runtime does not own every part of a live agent session, but it does own the
 - Tmux environment variables are runtime-published discovery pointers, not the full session record.
 - Optional gateway artifacts are nested under the same session root because they belong to the same logical session.
 
+Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the canonical runtime-owned filesystem inventory. This page keeps the authority and recovery boundaries that sit on top of that layout.
+
 ## Runtime-Owned Storage Layout
-
-Representative runtime-owned session layout:
-
-```text
-<runtime_root>/sessions/<backend>/<session-id>/
-  manifest.json
-  gateway/
-    attach.json
-    state.json
-    desired-config.json
-    queue.sqlite
-    events.jsonl
-    logs/
-      gateway.log
-    run/
-      current-instance.json
-      gateway.pid
-```
 
 Authority boundaries:
 
@@ -145,4 +129,5 @@ These classes are useful because they show whether the problem is in persisted s
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../../src/houmao/agents/realm_controller/manifest.py)
 - [`src/houmao/agents/realm_controller/agent_identity.py`](../../../../src/houmao/agents/realm_controller/agent_identity.py)
 - [`src/houmao/agents/realm_controller/errors.py`](../../../../src/houmao/agents/realm_controller/errors.py)
+- [`docs/reference/system-files/agents-and-runtime.md`](../../system-files/agents-and-runtime.md)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)

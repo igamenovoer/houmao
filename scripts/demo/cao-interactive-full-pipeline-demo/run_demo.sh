@@ -43,7 +43,7 @@ Subcommands:
       key stream when it contains spaces or shell metacharacters.
   inspect [--json] [--with-output-text <num-tail-chars>]
       Show tmux/log inspection commands for the current state and optionally
-      include a clean projected tool dialog tail.
+      include a best-effort projected tool dialog tail.
   verify [--snapshot-report]
       Generate report.json and optionally refresh the tracked snapshot.
   stop
@@ -57,7 +57,7 @@ Environment defaults:
       $CURRENT_RUN_ROOT_FILE
   AGENT_DEF_DIR=$DEFAULT_AGENT_DEF_DIR
   CAO_LAUNCHER_HOME_DIR=<workspace-root>
-  DEMO_WORKDIR=<launcher-home>/wktree
+  DEMO_WORKDIR=<launcher-home>/wktree    # demo-isolation default, not a CAO requirement
   DEMO_ROLE_NAME=$DEFAULT_ROLE_NAME
 
 Flags:

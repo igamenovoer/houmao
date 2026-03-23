@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the CAO Claude Esc-interrupt demo with shadow-status polling."""
+"""Drive the CAO Claude Esc-interrupt demo with shadow-stack polling."""
 
 from __future__ import annotations
 
@@ -11,14 +11,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.realm_controller.runtime import resume_runtime_session
-from houmao.agents.realm_controller.backends.claude_code_shadow import (
-    ClaudeCodeExtractionResult,
-    ClaudeCodeShadowParseError,
-    ClaudeCodeShadowParser,
-    ClaudeCodeShadowStatus,
+from houmao.agents.realm_controller.backends.shadow_parser_core import (
+    ParsedShadowSnapshot,
+    is_operator_blocked,
+    is_submit_ready,
 )
+from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
+from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.demo.cao_response_extraction import extract_response_text_from_events
+
+_RESPONSE_SENTINEL_BEGIN = "AGENTSYS_DEMO_RESPONSE_BEGIN"
+_RESPONSE_SENTINEL_END = "AGENTSYS_DEMO_RESPONSE_END"
 
 
 class ProcessingNotObservedError(RuntimeError):
@@ -30,7 +34,8 @@ class ShadowPollResult:
     """One polling snapshot from CAO mode=full output."""
 
     scrollback: str
-    shadow_status: ClaudeCodeShadowStatus
+    snapshot: ParsedShadowSnapshot
+    shadow_status: str
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -86,34 +91,67 @@ def _fetch_full_output(client: CaoRestClient, terminal_id: str) -> str:
         ) from exc
 
 
+def _shadow_status_from_snapshot(
+    snapshot: ParsedShadowSnapshot,
+    *,
+    baseline_dialog_text: str | None,
+    saw_processing: bool,
+) -> str:
+    """Return one coarse shadow-status label for demo polling."""
+
+    surface = snapshot.surface_assessment
+    if surface.availability in {"unsupported", "disconnected"}:
+        return "unsupported"
+    if is_operator_blocked(surface):
+        return "waiting_user_answer"
+    if surface.business_state == "working":
+        return "processing"
+    if is_submit_ready(surface):
+        if baseline_dialog_text is not None and (
+            saw_processing or snapshot.dialog_projection.dialog_text != baseline_dialog_text
+        ):
+            return "completed"
+        return "idle"
+    return "unknown"
+
+
 def _wait_for_shadow_status(
     *,
     client: CaoRestClient,
-    parser: ClaudeCodeShadowParser,
+    parser_stack: ShadowParserStack,
     terminal_id: str,
     baseline_pos: int,
     accepted_statuses: set[str],
     timeout_seconds: float,
     poll_interval_seconds: float,
     phase: str,
+    baseline_dialog_text: str | None = None,
 ) -> ShadowPollResult:
     deadline = time.monotonic() + timeout_seconds
     last_poll: ShadowPollResult | None = None
+    saw_processing = False
 
     while time.monotonic() < deadline:
         scrollback = _fetch_full_output(client, terminal_id)
-        shadow_status = parser.classify_shadow_status(
-            scrollback,
-            baseline_pos=baseline_pos,
+        snapshot = parser_stack.parse_snapshot(scrollback, baseline_pos=baseline_pos)
+        if snapshot.surface_assessment.business_state == "working":
+            saw_processing = True
+        shadow_status = _shadow_status_from_snapshot(
+            snapshot,
+            baseline_dialog_text=baseline_dialog_text,
+            saw_processing=saw_processing,
         )
-        last_poll = ShadowPollResult(scrollback=scrollback, shadow_status=shadow_status)
+        last_poll = ShadowPollResult(
+            scrollback=scrollback,
+            snapshot=snapshot,
+            shadow_status=shadow_status,
+        )
 
-        if shadow_status.status in accepted_statuses:
+        if shadow_status in accepted_statuses:
             return last_poll
-        if shadow_status.status == "waiting_user_answer":
-            excerpt = (
-                shadow_status.waiting_user_answer_excerpt
-                or parser.ansi_stripped_tail_excerpt(scrollback, max_lines=12)
+        if shadow_status == "waiting_user_answer":
+            excerpt = snapshot.surface_assessment.operator_blocked_excerpt or (
+                parser_stack.ansi_stripped_tail_excerpt(scrollback, max_lines=12)
             )
             detail = f"Claude entered waiting_user_answer during {phase}"
             if excerpt:
@@ -122,13 +160,13 @@ def _wait_for_shadow_status(
 
         time.sleep(poll_interval_seconds)
 
-    status_text = last_poll.shadow_status.status if last_poll is not None else "unknown"
+    status_text = last_poll.shadow_status if last_poll is not None else "unknown"
     detail = (
         f"timed out waiting for {phase} within {timeout_seconds:.1f}s "
         f"(last shadow status={status_text})"
     )
     if last_poll is not None:
-        excerpt = parser.ansi_stripped_tail_excerpt(last_poll.scrollback, max_lines=12)
+        excerpt = parser_stack.ansi_stripped_tail_excerpt(last_poll.scrollback, max_lines=12)
         if excerpt:
             detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
     raise TimeoutError(detail)
@@ -144,23 +182,36 @@ def _send_escape_key(*, agent_def_dir: Path, session_manifest_path: Path) -> Non
         raise RuntimeError(f"runtime send-keys failed: {result.detail}")
 
 
-def _extract_second_answer(
-    *,
-    parser: ClaudeCodeShadowParser,
-    completion_poll: ShadowPollResult,
-    second_baseline_pos: int,
-) -> ClaudeCodeExtractionResult:
-    try:
-        return parser.extract_last_answer(
-            completion_poll.scrollback,
-            baseline_pos=second_baseline_pos,
-        )
-    except ClaudeCodeShadowParseError as exc:
-        excerpt = parser.ansi_stripped_tail_excerpt(completion_poll.scrollback, max_lines=12)
-        detail = f"failed to extract second answer: {exc}"
-        if excerpt:
-            detail = f"{detail}\n\nTail excerpt:\n{excerpt}"
-        raise RuntimeError(detail) from exc
+def _extract_second_answer(completion_poll: ShadowPollResult) -> tuple[str, str]:
+    """Extract the second-prompt answer through an explicit sentinel contract."""
+
+    projection = completion_poll.snapshot.dialog_projection
+    payload = {
+        "kind": "done",
+        "message": "",
+        "payload": {
+            "dialog_projection": {
+                "raw_text": projection.raw_text,
+                "normalized_text": projection.normalized_text,
+                "dialog_text": projection.dialog_text,
+                "tail": projection.tail,
+            }
+        },
+    }
+    extraction = extract_response_text_from_events(
+        [payload],
+        sentinel_begin=_RESPONSE_SENTINEL_BEGIN,
+        sentinel_end=_RESPONSE_SENTINEL_END,
+    )
+    response_text = extraction.response_text.strip()
+    if response_text:
+        return (response_text, extraction.response_text_source)
+
+    detail = "failed to extract second answer from shadow dialog projection"
+    excerpt = projection.tail.strip() or projection.dialog_text.strip()
+    if excerpt:
+        detail = f"{detail}\n\nProjected tail:\n{excerpt}"
+    raise RuntimeError(detail)
 
 
 def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
@@ -173,7 +224,7 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
         api_base_url,
         timeout_seconds=float(args.http_timeout_seconds),
     )
-    parser = ClaudeCodeShadowParser()
+    parser_stack = ShadowParserStack(tool="claude")
 
     terminal = client.get_terminal(terminal_id)
     window_name = terminal.name.strip()
@@ -183,17 +234,17 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
 
     _wait_for_shadow_status(
         client=client,
-        parser=parser,
+        parser_stack=parser_stack,
         terminal_id=terminal_id,
         baseline_pos=0,
-        accepted_statuses={"idle", "completed"},
+        accepted_statuses={"idle"},
         timeout_seconds=float(args.ready_timeout_seconds),
         poll_interval_seconds=float(args.poll_interval_seconds),
         phase="initial ready status",
     )
 
     first_baseline_output = _fetch_full_output(client, terminal_id)
-    first_baseline_pos = parser.capture_baseline_pos(first_baseline_output)
+    first_baseline_pos = parser_stack.capture_baseline_pos(first_baseline_output)
     submit_first_result = client.send_terminal_input(terminal_id, first_prompt)
     if not submit_first_result.success:
         raise RuntimeError("CAO rejected first prompt submission")
@@ -201,7 +252,7 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
     try:
         processing_poll = _wait_for_shadow_status(
             client=client,
-            parser=parser,
+            parser_stack=parser_stack,
             terminal_id=terminal_id,
             baseline_pos=first_baseline_pos,
             accepted_statuses={"processing"},
@@ -212,7 +263,7 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
     except TimeoutError as exc:
         raise ProcessingNotObservedError(str(exc)) from exc
 
-    escape_baseline_pos = parser.capture_baseline_pos(processing_poll.scrollback)
+    escape_baseline_pos = parser_stack.capture_baseline_pos(processing_poll.scrollback)
     _send_escape_key(
         agent_def_dir=args.agent_def_dir,
         session_manifest_path=args.agent_identity,
@@ -220,7 +271,7 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
 
     idle_poll = _wait_for_shadow_status(
         client=client,
-        parser=parser,
+        parser_stack=parser_stack,
         terminal_id=terminal_id,
         baseline_pos=escape_baseline_pos,
         accepted_statuses={"idle"},
@@ -230,46 +281,48 @@ def _run_driver(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     second_baseline_output = _fetch_full_output(client, terminal_id)
-    second_baseline_pos = parser.capture_baseline_pos(second_baseline_output)
+    second_baseline_snapshot = parser_stack.parse_snapshot(second_baseline_output, baseline_pos=0)
+    second_baseline_pos = parser_stack.capture_baseline_pos(second_baseline_output)
     submit_second_result = client.send_terminal_input(terminal_id, second_prompt)
     if not submit_second_result.success:
         raise RuntimeError("CAO rejected second prompt submission")
 
     completion_poll = _wait_for_shadow_status(
         client=client,
-        parser=parser,
+        parser_stack=parser_stack,
         terminal_id=terminal_id,
         baseline_pos=second_baseline_pos,
         accepted_statuses={"completed"},
         timeout_seconds=float(args.completion_timeout_seconds),
         poll_interval_seconds=float(args.poll_interval_seconds),
         phase="second prompt completion",
+        baseline_dialog_text=second_baseline_snapshot.dialog_projection.dialog_text,
     )
 
-    extraction = _extract_second_answer(
-        parser=parser,
-        completion_poll=completion_poll,
-        second_baseline_pos=second_baseline_pos,
-    )
-    second_answer_text = extraction.answer_text.strip()
-    if not second_answer_text:
-        raise RuntimeError("second prompt extracted answer is empty")
+    second_answer_text, second_answer_source = _extract_second_answer(completion_poll)
 
     return {
         "status": "ok",
+        "backend": "cao_rest",
+        "tool": "claude",
+        "session_manifest": str(args.agent_identity),
+        "workspace": str(args.output_json.parent),
         "terminal_id": terminal_id,
         "session_name": session_name,
         "window_name": window_name,
         "tmux_target": tmux_target,
         "terminal_log_path": terminal_log_path,
-        "processing_observed": True,
-        "idle_after_escape": idle_poll.shadow_status.status == "idle",
+        "processing_observed": processing_poll.shadow_status == "processing",
+        "idle_after_escape": idle_poll.shadow_status == "idle",
         "second_response_text": second_answer_text,
+        "second_response_source": second_answer_source,
         "second_response_chars": len(second_answer_text),
-        "processing_shadow_status": processing_poll.shadow_status.status,
-        "idle_shadow_status": idle_poll.shadow_status.status,
-        "second_shadow_status": completion_poll.shadow_status.status,
-        "shadow_preset_version": extraction.preset_version,
+        "processing_shadow_status": processing_poll.shadow_status,
+        "idle_shadow_status": idle_poll.shadow_status,
+        "second_shadow_status": completion_poll.shadow_status,
+        "shadow_preset_version": (
+            completion_poll.snapshot.surface_assessment.parser_metadata.parser_preset_version
+        ),
     }
 
 

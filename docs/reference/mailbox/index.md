@@ -1,6 +1,6 @@
 # Mailbox Reference
 
-This section explains the runtime-owned filesystem mailbox from two angles at once: how to use it safely, and how it works under the hood.
+This section explains the runtime-owned mailbox system from two angles at once: how to use it safely, and how it works under the hood across the filesystem and `stalwart` transports.
 
 If you are new to the subsystem, start with [Quickstart](quickstart.md). If you already know the workflow and need exact contracts, jump into the contract pages. If you are debugging or extending mailbox behavior, use the operations and internals pages.
 
@@ -9,24 +9,27 @@ If you are new to the subsystem, start with [Quickstart](quickstart.md). If you 
 The mailbox system is an async message transport owned by the runtime, not a loose collection of helper scripts.
 
 - The runtime resolves one mailbox binding for a session.
-- The filesystem transport stores canonical messages as immutable Markdown documents under `messages/`.
-- Mailbox-visible `inbox/` and `sent/` entries are projections that point back to those canonical files.
-- Mutable per-recipient state such as read or starred lives in `index.sqlite`.
-- Sensitive mutations are funneled through managed scripts published into the mailbox-local `rules/` tree.
+- Shared mailbox operations such as `check`, `send`, `reply`, and the single-message read-state update may flow through the live gateway `/v1/mail/*` facade when it is attached, and that shared facade becomes the preferred path for common mailbox work.
+- The filesystem transport stores canonical messages as immutable Markdown documents under `messages/` and keeps mailbox-view state in SQLite.
+- The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
+- For filesystem-backed sessions, sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
 
 ## Key Terms
 
 - `canonical message`: The immutable Markdown document plus YAML front matter that represents one delivered message.
 - `mailbox binding`: The resolved runtime config and env vars that tell a session which mailbox it belongs to.
+- `message_ref`: The opaque shared target used by direct runtime flows and the gateway mailbox facade for reply and single-message read-state update.
 - `mailbox registration`: The active, inactive, or stashed ownership record for one full mailbox address.
-- `projection`: A symlink in `mailboxes/<address>/inbox` or `sent` that points to a canonical message.
-- `mailbox root`: The shared filesystem tree that holds `messages/`, `mailboxes/`, `locks/`, `rules/`, `staging/`, and `index.sqlite`.
+- `projection`: A filesystem-transport symlink in `mailboxes/<address>/inbox` or `sent` that points to a canonical message.
+- `mailbox root`: The filesystem-transport tree that holds `messages/`, `mailboxes/`, `locks/`, `rules/`, `staging/`, and `index.sqlite`.
 
 ## Read By Goal
 
 ### Start here
 
 - [Quickstart](quickstart.md): Enable mailbox support and run `mail check`, `mail send`, and `mail reply`.
+- [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Start a Stalwart-backed mailbox session, verify it directly, and understand when the gateway mailbox facade becomes the preferred shared path.
+- [Mailbox Roundtrip Tutorial Pack](../../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md): Run the full two-agent CAO-backed roundtrip and verify the sanitized report contract.
 
 ### Contracts
 
@@ -38,6 +41,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 ### Operations
 
 - [Common Workflows](operations/common-workflows.md): Bootstrap, read, send, reply, and when to inspect `rules/` first.
+- [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Prerequisites, first session, secret lifecycle, and the direct-versus-gateway reader path for Stalwart-backed sessions.
 - [Registration Lifecycle](operations/registration-lifecycle.md): `safe`, `force`, `stash`, `deactivate`, and `purge`.
 - [Repair And Recovery](operations/repair-recovery.md): What repair rebuilds, what it preserves, and what it cannot recover.
 
@@ -46,10 +50,17 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 - [Runtime Integration](internals/runtime-integration.md): How build, start, resume, refresh, and `mail` flows connect.
 - [State And Locking](internals/state-and-locking.md): SQLite responsibilities, canonical-versus-mutable ownership, and lock ordering.
 
+## Related References
+
+- [Gateway Mailbox Facade](../gateway/operations/mailbox-facade.md): Shared `/v1/mail/*` routes, adapter selection, loopback-only availability, and notifier behavior through the gateway.
+- [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-owned filesystem placement for manifests, gateway state, and Stalwart credential material.
+
 ## Source References
 
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
+- [`src/houmao/agents/realm_controller/gateway_mailbox.py`](../../../src/houmao/agents/realm_controller/gateway_mailbox.py)
 - [`src/houmao/mailbox/protocol.py`](../../../src/houmao/mailbox/protocol.py)
 - [`src/houmao/mailbox/filesystem.py`](../../../src/houmao/mailbox/filesystem.py)
 - [`src/houmao/mailbox/managed.py`](../../../src/houmao/mailbox/managed.py)
+- [`src/houmao/mailbox/stalwart.py`](../../../src/houmao/mailbox/stalwart.py)

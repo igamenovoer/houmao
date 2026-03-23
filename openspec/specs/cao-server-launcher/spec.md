@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change cao-server-launcher. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Launcher is configured via a server config file
 The launcher SHALL accept a server config file as its primary configuration
 input.
@@ -11,9 +12,12 @@ The launcher SHALL support TOML config files.
 
 The config file SHALL include at least:
 - CAO API `base_url`,
-- `runtime_root` for pid/log artifacts,
-- proxy policy (`clear` or `inherit`), and
-- optional trusted home directory (applied as CAO server process `HOME`).
+- optional `runtime_root` for launcher artifacts and default home derivation,
+- optional `home_dir` (applied as the CAO server process `HOME`),
+- optional proxy policy (`clear` or `inherit`), and
+- optional `startup_timeout_seconds`.
+
+When `runtime_root` is omitted from config and CLI overrides, the launcher SHALL resolve the effective runtime root from the shared Houmao runtime-root contract before deriving launcher artifacts or a default `home_dir`.
 
 The launcher CLI SHALL additionally support one-shot arguments that override
 supported config-file values for a single invocation without modifying the file
@@ -37,23 +41,23 @@ At minimum, the launcher SHALL support CLI overrides for:
 - **AND THEN** the config file on disk remains unchanged
 
 ### Requirement: Launcher config files are schema-validated
-The launcher SHALL validate the config file against a schema and fail fast with
-actionable errors when the config is invalid.
+The launcher SHALL validate the config file against a schema and fail fast with actionable errors when the config is invalid.
 
 The launcher SHALL reject:
 - unknown keys (typo protection),
 - invalid enum values (for example proxy policy not in `{clear, inherit}`), and
-- structurally invalid values (for example malformed base URLs or non-positive
-  timeouts).
+- structurally invalid values (for example malformed base URLs or non-positive timeouts).
 
-The launcher SHALL accept loopback `base_url` values only when all of the
-following are true:
+The launcher SHALL accept loopback `base_url` values only when all of the following are true:
 - the URL uses the `http` scheme,
 - the host is `localhost` or `127.0.0.1`, and
 - the URL includes an explicit port.
 
-The launcher SHALL reject non-loopback hosts, missing ports, and malformed CAO
-base URLs.
+The launcher SHALL reject non-loopback hosts, missing ports, and malformed CAO base URLs.
+
+The launcher SHALL treat an omitted `home_dir` or a blank-string `home_dir` as "use the launcher-derived system-defined home" rather than rejecting that config.
+
+Repository-owned checked-in configs MAY express that portable default explicitly as `home_dir = ""`.
 
 #### Scenario: Unknown config keys are rejected
 - **WHEN** the launcher loads a config file that contains an unknown key
@@ -66,6 +70,16 @@ base URLs.
 #### Scenario: Non-default loopback port values are accepted
 - **WHEN** the launcher loads a config file whose `base_url` is `http://127.0.0.1:9991`
 - **THEN** the launcher accepts that config as a supported loopback CAO target
+
+#### Scenario: Empty home_dir selects the launcher-derived default home
+- **WHEN** the launcher loads a config file whose `home_dir` is the empty string
+- **THEN** the launcher normalizes that config to the same effective behavior as an omitted `home_dir`
+- **AND THEN** it does not fail solely because the checked-in config expressed the default home selection explicitly
+
+#### Scenario: Checked-in local config can express the portable default explicitly
+- **WHEN** a repository-owned launcher config uses `home_dir = ""` as its checked-in default
+- **THEN** the launcher accepts that config and derives the effective CAO home from `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** developers do not need to edit a machine-specific absolute launcher-home path before using that config
 
 #### Scenario: Invalid CLI override values are rejected
 - **WHEN** the launcher is invoked with a CLI override whose effective `base_url` uses a non-loopback host or omits an explicit port
@@ -142,18 +156,26 @@ The launcher SHALL record at least:
 - a server log file capturing stdout/stderr, and
 - a structured ownership artifact describing the standalone service context.
 
-The launcher SHALL partition artifacts by base URL host/port:
-`runtime_root/cao-server/<host>-<port>/`.
+The launcher SHALL partition artifacts by base URL host/port under a launcher-specific subtree:
+`runtime_root/cao_servers/<host>-<port>/launcher/`.
 
 The launcher SHOULD additionally write a structured diagnostics file (for
 example `launcher_result.json`) in the same directory to simplify debugging.
 
-#### Scenario: Start writes pid, log, and ownership artifacts in the `<host>-<port>` directory
+Legacy launcher artifact directories under `runtime_root/cao-server/<host>-<port>/` are not part of a compatibility contract and MAY be removed manually after cutover.
+
+#### Scenario: Start writes pid, log, and ownership artifacts in the launcher subtree
 - **WHEN** the launcher starts a local `cao-server` process at base URL `http://localhost:9889`
-- **THEN** it writes `runtime_root/cao-server/localhost-9889/cao-server.pid`
-- **AND THEN** it writes `runtime_root/cao-server/localhost-9889/cao-server.log`
-- **AND THEN** it writes a structured ownership artifact in `runtime_root/cao-server/localhost-9889/`
+- **THEN** it writes `runtime_root/cao_servers/localhost-9889/launcher/cao-server.pid`
+- **AND THEN** it writes `runtime_root/cao_servers/localhost-9889/launcher/cao-server.log`
+- **AND THEN** it writes a structured ownership artifact in `runtime_root/cao_servers/localhost-9889/launcher/`
 - **AND THEN** the launcher reports the pid and artifact paths in its result payload
+
+#### Scenario: Legacy cao-server artifact path is not used as a fallback
+- **WHEN** a launcher runtime root still contains legacy artifacts under `runtime_root/cao-server/localhost-9889/`
+- **AND WHEN** launcher logic resolves artifact paths after this change
+- **THEN** it uses `runtime_root/cao_servers/localhost-9889/launcher/` and sibling `home/` as the authoritative layout
+- **AND THEN** it does not require fallback reads from the old `cao-server/` path
 
 ### Requirement: Stop is pidfile-based with best-effort identity verification
 The launcher SHALL provide a `stop` operation that reads the pidfile under the
@@ -184,7 +206,7 @@ as a fallback.
 ### Requirement: Launcher stop SHALL persist structured diagnostics from a fresh runtime root
 The launcher SHALL ensure the parent directory for `launcher_result.json`
 exists before writing structured `stop` results under
-`runtime_root/cao-server/<host>-<port>/`.
+`runtime_root/cao_servers/<host>-<port>/launcher/`.
 
 This requirement SHALL apply even when `stop` returns early because no pidfile
 exists, because the tracked pid is stale, or because process verification fails.
@@ -195,7 +217,7 @@ before the `stop` command began.
 
 #### Scenario: Stop without a preexisting artifact directory returns structured already-stopped output
 - **WHEN** a developer runs launcher `stop` for `http://127.0.0.1:9889`
-- **AND WHEN** the resolved `runtime_root/cao-server/127.0.0.1-9889/` directory does not yet exist
+- **AND WHEN** the resolved `runtime_root/cao_servers/127.0.0.1-9889/launcher/` directory does not yet exist
 - **AND WHEN** no pidfile exists for that config
 - **THEN** the launcher returns a structured `already_stopped` result payload
 - **AND THEN** it writes `launcher_result.json` under the resolved artifact directory
@@ -241,21 +263,32 @@ any configured proxy settings on the selected port.
 - **THEN** the launched process environment includes `NO_PROXY` and/or `no_proxy`
 - **AND THEN** the configured value includes at least `localhost`, `127.0.0.1`, and `::1`
 
-### Requirement: Trusted home directory controls CAO workdir acceptance
-The launcher SHALL support an optional “trusted home” directory setting that is
-applied to the launched `cao-server` process as its `HOME` value.
+### Requirement: Launcher home directory anchors CAO state and process HOME
+The launcher SHALL treat CAO `HOME` as launcher-owned mutable service state that is distinct from the shared registry root and from agent workdirs.
 
-This setting exists to control CAO’s workdir validation behavior (which
-restricts working directories to the CAO process home tree).
+The launcher SHALL support an optional `home_dir` setting that is applied to the launched `cao-server` process as its `HOME` value.
 
-CAO writes its own state under `HOME/.aws/cli-agent-orchestrator/`, so the chosen
-`HOME` directory must be writable (even if the repo workdirs under it are
-read-only).
+When launcher config and CLI overrides do not provide an explicit `runtime_root`, and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the launcher SHALL use that env-var value as the effective runtime root before deriving launcher artifacts or a default `home_dir`.
 
-#### Scenario: Launcher overrides HOME when trusted home is configured
-- **WHEN** the launcher starts `cao-server` with a configured trusted-home directory `H`
-- **THEN** the launched process environment sets `HOME=H`
+When launcher config or CLI overrides omit `home_dir`, or provide it as a blank string, the launcher SHALL derive the effective CAO home from the launcher-managed server root for the selected host and port rather than requiring a host-specific absolute path in checked-in config.
 
-#### Scenario: Missing trusted home is rejected
-- **WHEN** the launcher is asked to start `cao-server` with a trusted-home directory that does not exist
-- **THEN** the launcher fails fast with an explicit configuration error
+#### Scenario: Omitted home_dir derives the launcher-managed default home
+- **WHEN** a developer starts launcher-managed CAO with no explicit `home_dir`
+- **THEN** the launcher derives the effective CAO home under `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** the launched `cao-server` process uses that derived home as its `HOME`
+
+#### Scenario: Blank home_dir derives the same launcher-managed default home
+- **WHEN** a developer starts launcher-managed CAO with `home_dir = ""`
+- **THEN** the launcher derives the effective CAO home under `runtime_root/cao_servers/<host>-<port>/home`
+- **AND THEN** the launched `cao-server` process uses that derived home as its `HOME`
+- **AND THEN** the checked-in config remains portable across machines that do not share one writable absolute launcher-home path
+
+### Requirement: User-facing launcher CLI uses the Houmao name
+The repository SHALL publish the supported user-facing CAO launcher CLI under the name `houmao-cao-server`.
+
+Repo-owned docs, examples, scripts, and help text SHALL teach `houmao-cao-server` as the current launcher command and SHALL NOT present `gig-cao-server` as a current user-facing launcher surface.
+
+#### Scenario: Launcher command examples use the canonical binary name
+- **WHEN** a developer follows a repo-owned launcher example or help page
+- **THEN** the example uses `houmao-cao-server`
+- **AND THEN** it does not instruct the developer to run `gig-cao-server`

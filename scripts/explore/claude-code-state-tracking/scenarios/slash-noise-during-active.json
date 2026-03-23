@@ -1,0 +1,39 @@
+{
+  "id": "slash-noise-during-active",
+  "description": "Open slash-menu noise while Claude is visibly processing an already-submitted turn.",
+  "launch": {
+    "ready_timeout_seconds": 45.0,
+    "settle_seconds": 1.0,
+    "sample_interval_seconds": 0.25
+  },
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-ready",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "send_text",
+      "name": "send-active-prompt",
+      "text": "Find ten recent interesting papers and summarize each one carefully.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-active-footer",
+      "pattern": "esc to|[A-Za-z][A-Za-z-]+ing…",
+      "timeout_seconds": 90.0
+    },
+    {
+      "action": "send_text",
+      "name": "open-slash-menu",
+      "text": "/",
+      "submit": false
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-noise",
+      "seconds": 1.0
+    }
+  ]
+}
