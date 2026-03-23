@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import hashlib
 import json
 import os
@@ -44,6 +45,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
     GatewayMailNotifierPutV1,
@@ -122,6 +125,8 @@ class _UnreadMailboxMessage:
     message_ref: str
     thread_ref: str | None
     created_at_utc: str
+    sender_address: str
+    sender_display_name: str | None
     subject: str
 
 
@@ -133,6 +138,29 @@ class _GatewayTargetState:
     connectivity: GatewayConnectivityState
     terminal_surface_eligibility: GatewaySurfaceEligibilityState
     prompt_admission_open: bool
+
+
+def _sort_unread_messages(
+    unread_messages: list[_UnreadMailboxMessage],
+) -> list[_UnreadMailboxMessage]:
+    """Return unread messages in deterministic oldest-first nomination order."""
+
+    return sorted(
+        unread_messages,
+        key=lambda message: (_parse_gateway_timestamp(message.created_at_utc), message.message_ref),
+    )
+
+
+def _parse_gateway_timestamp(value: str) -> datetime:
+    """Parse one gateway timestamp into UTC for deterministic ordering."""
+
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class GatewayExecutionAdapter(Protocol):
@@ -711,6 +739,26 @@ class GatewayServiceRuntime:
                 message=message,
             )
 
+    def update_mail_state(
+        self,
+        request_payload: GatewayMailStateRequestV1,
+    ) -> GatewayMailStateResponseV1:
+        """Run one shared mailbox read-state update request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                return adapter.update_read_state(
+                    message_ref=request_payload.message_ref,
+                    read=request_payload.read,
+                )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
         """Return the current notifier configuration and runtime status."""
 
@@ -901,15 +949,19 @@ class GatewayServiceRuntime:
                 return
 
             try:
-                unread_messages = [
-                    _UnreadMailboxMessage(
-                        message_ref=message.message_ref,
-                        thread_ref=message.thread_ref,
-                        created_at_utc=message.created_at_utc,
-                        subject=message.subject,
-                    )
-                    for message in adapter.check(unread_only=True, limit=None, since=None)
-                ]
+                unread_messages = _sort_unread_messages(
+                    [
+                        _UnreadMailboxMessage(
+                            message_ref=message.message_ref,
+                            thread_ref=message.thread_ref,
+                            created_at_utc=message.created_at_utc,
+                            sender_address=message.sender.address,
+                            sender_display_name=message.sender.display_name,
+                            subject=message.subject,
+                        )
+                        for message in adapter.check(unread_only=True, limit=None, since=None)
+                    ]
+                )
             except GatewayMailboxError as exc:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
@@ -1027,23 +1079,45 @@ class GatewayServiceRuntime:
     def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build a stable digest for one unread-mail snapshot."""
 
-        digest_source = "\n".join(message.message_ref for message in unread_messages)
+        digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
     def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
+        nominated = unread_messages[0]
+        remaining_unread_count = len(unread_messages) - 1
+        sender_label = (
+            f"{nominated.sender_display_name} <{nominated.sender_address}>"
+            if nominated.sender_display_name is not None
+            else nominated.sender_address
+        )
         lines = [
-            "You have unread mailbox messages.",
-            "Use the runtime-owned mailbox skill to inspect and process them.",
-            "Only mark a message read after you have processed it successfully.",
+            "You have one bounded shared-mailbox task to process.",
+            (
+                "Use shared mailbox operations through the live gateway facade for this turn: "
+                "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
+                "`POST /v1/mail/state`."
+            ),
+            "Process only the nominated target in this turn.",
+            "Mark the target read only after the mailbox action succeeds.",
             "",
-            "Unread messages:",
+            "Nominated unread target:",
+            f"- message_ref: {nominated.message_ref}",
         ]
-        for message in unread_messages[:10]:
-            lines.append(f"- {message.created_at_utc} | {message.message_ref} | {message.subject}")
-        if len(unread_messages) > 10:
-            lines.append(f"- ... and {len(unread_messages) - 10} more unread messages")
+        if nominated.thread_ref is not None:
+            lines.append(f"- thread_ref: {nominated.thread_ref}")
+        lines.extend(
+            [
+                f"- from: {sender_label}",
+                f"- subject: {nominated.subject}",
+                f"- created_at_utc: {nominated.created_at_utc}",
+                "",
+                f"Remaining unread after this target: {remaining_unread_count}.",
+            ]
+        )
+        if remaining_unread_count > 0:
+            lines.append("Leave the remaining unread messages queued for later turns.")
         return "\n".join(lines)
 
     def _enqueue_internal_prompt(self, *, prompt: str) -> str:
@@ -1501,6 +1575,12 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Run one shared mailbox reply request."""
 
         return runtime.reply_mail(request_payload)
+
+    @app.post("/v1/mail/state", response_model=GatewayMailStateResponseV1)
+    def _mail_state(request_payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
+        """Run one shared mailbox state update request."""
+
+        return runtime.update_mail_state(request_payload)
 
     @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
     def _get_mail_notifier() -> GatewayMailNotifierStatusV1:

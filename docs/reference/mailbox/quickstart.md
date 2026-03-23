@@ -143,6 +143,7 @@ Every `mail` command uses the runtime-owned projected mailbox skill for the sele
 - Filesystem sessions use `.system/mailbox/email-via-filesystem`.
 - Stalwart sessions use `.system/mailbox/email-via-stalwart`.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
+- For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 
 ```mermaid
 sequenceDiagram

@@ -291,11 +291,7 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
         if self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
-            if (
-                self.headless is not None
-                or self.cao is not None
-                or self.houmao_server is not None
-            ):
+            if self.headless is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
                     "headless/cao/houmao_server must be omitted for backend=codex_app_server"
                 )
@@ -322,12 +318,16 @@ class SessionManifestPayloadV2(_StrictBoundaryModel):
                 or self.headless is not None
                 or self.houmao_server is not None
             ):
-                raise ValueError("codex/headless/houmao_server must be omitted for backend=cao_rest")
+                raise ValueError(
+                    "codex/headless/houmao_server must be omitted for backend=cao_rest"
+                )
         elif self.backend == "houmao_server_rest":
             if self.houmao_server is None:
                 raise ValueError("houmao_server is required for backend=houmao_server_rest")
             if self.codex is not None or self.headless is not None or self.cao is not None:
-                raise ValueError("codex/headless/cao must be omitted for backend=houmao_server_rest")
+                raise ValueError(
+                    "codex/headless/cao must be omitted for backend=houmao_server_rest"
+                )
         return self
 
 
@@ -414,11 +414,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
         if self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
-            if (
-                self.headless is not None
-                or self.cao is not None
-                or self.houmao_server is not None
-            ):
+            if self.headless is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
                     "headless/cao/houmao_server must be omitted for backend=codex_app_server"
                 )
@@ -445,12 +441,16 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
                 or self.headless is not None
                 or self.houmao_server is not None
             ):
-                raise ValueError("codex/headless/houmao_server must be omitted for backend=cao_rest")
+                raise ValueError(
+                    "codex/headless/houmao_server must be omitted for backend=cao_rest"
+                )
         elif self.backend == "houmao_server_rest":
             if self.houmao_server is None:
                 raise ValueError("houmao_server is required for backend=houmao_server_rest")
             if self.codex is not None or self.headless is not None or self.cao is not None:
-                raise ValueError("codex/headless/cao must be omitted for backend=houmao_server_rest")
+                raise ValueError(
+                    "codex/headless/cao must be omitted for backend=houmao_server_rest"
+                )
         return self
 
 

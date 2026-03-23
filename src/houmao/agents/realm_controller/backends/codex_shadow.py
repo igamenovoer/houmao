@@ -811,7 +811,9 @@ class CodexShadowParser:
                 clean_tail_lines,
                 start_index=index + 1,
             )
-            block_end_index = next_prompt_index if next_prompt_index is not None else len(clean_tail_lines)
+            block_end_index = (
+                next_prompt_index if next_prompt_index is not None else len(clean_tail_lines)
+            )
             excerpt_end = min(index + 3, block_end_index)
             excerpt = "\n".join(
                 candidate.rstrip()
@@ -848,12 +850,12 @@ class CodexShadowParser:
             clean_tail_lines,
             start_index=option_indices[-1] + 1,
         )
-        block_end_index = next_prompt_index if next_prompt_index is not None else len(clean_tail_lines)
+        block_end_index = (
+            next_prompt_index if next_prompt_index is not None else len(clean_tail_lines)
+        )
         excerpt_end = min(option_indices[-1] + 2, block_end_index)
         excerpt = "\n".join(
-            line.rstrip()
-            for line in clean_tail_lines[start_index:excerpt_end]
-            if line.strip()
+            line.rstrip() for line in clean_tail_lines[start_index:excerpt_end] if line.strip()
         ).strip()
         if not excerpt:
             return None

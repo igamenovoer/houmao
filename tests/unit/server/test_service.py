@@ -1594,8 +1594,10 @@ def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
 
     monkeypatch.setattr(
         "houmao.server.service.run_tmux",
-        lambda args: tmux_calls.append(list(args))
-        or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr=""),
+        lambda args: (
+            tmux_calls.append(list(args))
+            or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        ),
     )
 
     service._interrupt_headless_tmux_target(active_turn=active_turn)

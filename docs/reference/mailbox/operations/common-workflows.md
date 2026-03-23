@@ -76,9 +76,10 @@ Stepwise expectations:
 
 1. The runtime validates attachment paths and body source.
 2. The runtime prompts the session with the mailbox skill and a structured request.
-3. The session inspects `rules/`.
-4. If the action touches `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, the session uses the managed helper under `rules/scripts/`.
-5. The delivery flow stages the message, moves it into the canonical store, creates inbox or sent projections, updates the shared catalog plus mailbox-local mailbox state, and returns one JSON result.
+3. If a live loopback gateway mailbox facade is attached, the session uses the shared gateway route for the ordinary send action instead of reconstructing direct helper recipes.
+4. If direct filesystem access is required, the session inspects `rules/`.
+5. If that direct action touches `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, the session uses the managed helper under `rules/scripts/`.
+6. The delivery flow stages the message, moves it into the canonical store, creates inbox or sent projections, updates the shared catalog plus mailbox-local mailbox state, and returns one JSON result.
 
 ```mermaid
 sequenceDiagram
@@ -115,7 +116,8 @@ Reply-specific guidance:
 - Preserve the existing `thread_id`.
 - Set `in_reply_to` to the direct parent.
 - Extend `references`; do not infer threading from subject text alone.
-- Use the same rules-first and managed-helper expectations as `mail send`.
+- When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and the follow-up `POST /v1/mail/state` read acknowledgment.
+- Use the same rules-first and managed-helper expectations as `mail send` only when direct filesystem fallback is required.
 
 ## When `rules/` Inspection Is Mandatory
 

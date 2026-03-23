@@ -227,14 +227,12 @@ def _participant_inspect_snapshot(
         state_payload = client.get_managed_agent_state(participant.tracked_agent_id).model_dump(
             mode="json"
         )
-        detail_payload = client.get_managed_agent_state_detail(participant.tracked_agent_id).model_dump(
-            mode="json"
-        )
+        detail_payload = client.get_managed_agent_state_detail(
+            participant.tracked_agent_id
+        ).model_dump(mode="json")
         gateway_status = client.get_managed_agent_gateway_status(
             participant.tracked_agent_id
-        ).model_dump(
-            mode="json"
-        )
+        ).model_dump(mode="json")
         gateway_mail_notifier = client.get_managed_agent_gateway_mail_notifier(
             participant.tracked_agent_id
         ).model_dump(mode="json")
@@ -369,16 +367,18 @@ def _launch_policy_applied(payload: dict[str, Any] | None) -> bool | None:
 
     if payload is None:
         return None
-    if isinstance(payload.get("launch_policy_provenance"), dict) and payload[
-        "launch_policy_provenance"
-    ]:
+    if (
+        isinstance(payload.get("launch_policy_provenance"), dict)
+        and payload["launch_policy_provenance"]
+    ):
         return True
     launch_plan = payload.get("launch_plan")
     if not isinstance(launch_plan, dict):
         return False
-    if isinstance(launch_plan.get("launch_policy_provenance"), dict) and launch_plan[
-        "launch_policy_provenance"
-    ]:
+    if (
+        isinstance(launch_plan.get("launch_policy_provenance"), dict)
+        and launch_plan["launch_policy_provenance"]
+    ):
         return True
     metadata = launch_plan.get("metadata")
     if not isinstance(metadata, dict):

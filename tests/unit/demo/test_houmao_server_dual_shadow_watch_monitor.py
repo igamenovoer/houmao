@@ -369,8 +369,13 @@ def test_styled_token_uses_category_state_colors() -> None:
     """State tokens should carry Rich styles for the dashboard."""
 
     assert monitor_module._styled_token("ready", category="turn_phase").style == "bold cyan"
-    assert monitor_module._styled_token("success", category="last_turn_result").style == "bold green"
-    assert monitor_module._styled_token("available", category="diagnostics_availability").style == "green"
+    assert (
+        monitor_module._styled_token("success", category="last_turn_result").style == "bold green"
+    )
+    assert (
+        monitor_module._styled_token("available", category="diagnostics_availability").style
+        == "green"
+    )
     assert monitor_module._styled_token("tmux_missing", category="transport_state").style == "red"
     assert monitor_module._styled_token("changing", category="stability_state").style == "yellow"
 

@@ -401,8 +401,7 @@ def _map_readiness_stall_timer(
         ops.map(
             lambda _: _ReadinessStallTimerEvent(
                 observation=classification.observation,
-                fired_monotonic_ts=classification.observation.monotonic_ts
-                + stall_timeout_seconds,
+                fired_monotonic_ts=classification.observation.monotonic_ts + stall_timeout_seconds,
             )
         )
     )
@@ -603,8 +602,7 @@ def _map_anchored_completion_stall_timer(
         ops.map(
             lambda _: _AnchoredCompletionStallTimerEvent(
                 observation=classification.observation,
-                fired_monotonic_ts=classification.observation.monotonic_ts
-                + stall_timeout_seconds,
+                fired_monotonic_ts=classification.observation.monotonic_ts + stall_timeout_seconds,
             )
         )
     )

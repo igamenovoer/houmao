@@ -102,6 +102,8 @@ The pack sends only one direct operator request.
 - use the tracked subject format `[{thread_key}] Round {round_index} ping-pong`
 - include visible `Thread-Key`, `Round`, `Round-Limit`, `Sender-Role`, and `Next-Role` lines in every message
 - keep later messages inside the same mailbox thread
+- keep later routine mailbox work on the shared gateway mailbox facade when the attached loopback gateway is available
+- treat later notifier wake-ups as one nominated shared `message_ref` task at a time, then mark that processed source message read through `POST /v1/mail/state` after success
 - stop after the initiator wakes to read reply 5
 
 That contract yields:
@@ -111,6 +113,7 @@ That contract yields:
 - `1` logical thread for the whole run
 
 The final extra turn matters. The initiator must wake one last time to read round-5 reply mail and decide not to send round 6.
+The gateway-first contract matters too. The pack no longer relies on ordinary attached-session turns rediscovering direct filesystem helper recipes such as `deliver_message.py` or `update_mailbox_state.py`; those remain fallback-only transport details when no shared gateway facade is available.
 
 ## Bounded Wait Behavior
 

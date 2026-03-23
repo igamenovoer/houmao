@@ -351,7 +351,9 @@ def test_build_launch_plan_keeps_optional_args_separate_from_protocol_args(
     )
 
     assert expected_arg in plan.args
-    protocol_args = plan.metadata["launch_overrides"]["backend_resolution"]["protocol_reserved_args"]
+    protocol_args = plan.metadata["launch_overrides"]["backend_resolution"][
+        "protocol_reserved_args"
+    ]
     assert protocol_arg in protocol_args
     assert protocol_arg not in plan.args
 
@@ -772,10 +774,9 @@ def test_build_launch_plan_resolves_claude_typed_launch_param(tmp_path: Path) ->
 
     assert "--include-partial-messages" in plan.args
     assert "-p" not in plan.args
-    assert (
-        plan.metadata["launch_overrides"]["backend_resolution"]["translated_args"]
-        == ["--include-partial-messages"]
-    )
+    assert plan.metadata["launch_overrides"]["backend_resolution"]["translated_args"] == [
+        "--include-partial-messages"
+    ]
 
 
 def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: Path) -> None:

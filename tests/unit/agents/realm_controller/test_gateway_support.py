@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPutV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
@@ -57,6 +58,7 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 from houmao.mailbox.stalwart import (
@@ -1198,6 +1200,89 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert reply_payload["message"]["message_ref"].startswith("filesystem:msg-")
 
 
+def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    unread_message_id = _deliver_unread_mailbox_message(tmp_path)
+    mailbox_root = tmp_path / "mailbox"
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/state",
+        json=GatewayMailStateRequestV1(
+            message_ref=f"filesystem:{unread_message_id}",
+            read=True,
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "schema_version",
+        "transport",
+        "principal_id",
+        "address",
+        "message_ref",
+        "read",
+    }
+    assert response.json()["transport"] == "filesystem"
+    assert response.json()["message_ref"] == f"filesystem:{unread_message_id}"
+    assert response.json()["read"] is True
+    assert runtime.status().queue_depth == 0
+
+    local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+        mailbox_root,
+        address="AGENTSYS-gpu@agents.localhost",
+    )
+    with sqlite3.connect(local_sqlite_path) as connection:
+        state_row = connection.execute(
+            "SELECT is_read FROM message_state WHERE message_id = ?",
+            (unread_message_id,),
+        ).fetchone()
+    assert state_row == (1,)
+
+
+def test_gateway_mail_state_route_rejects_unsupported_mailbox_state_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    unread_message_id = _deliver_unread_mailbox_message(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/state",
+        json={
+            "schema_version": 1,
+            "message_ref": f"filesystem:{unread_message_id}",
+            "read": True,
+            "starred": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "extra_forbidden" in response.text
+
+
 def test_gateway_mail_routes_reject_non_loopback_listener(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1260,6 +1345,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
             self.m_jmap_url = jmap_url
             self.m_login_identity = login_identity
             self.m_credential_file = credential_file
+            self.m_read_updates: list[tuple[str, bool]] = []
 
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
@@ -1339,6 +1425,28 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 "unread": False,
             }
 
+        def update_read_state(
+            self,
+            *,
+            message_ref: str,
+            read: bool,
+        ) -> dict[str, object]:
+            self.m_read_updates.append((message_ref, read))
+            return {
+                "id": message_ref,
+                "threadId": "thread-1",
+                "receivedAt": "2026-03-19T08:00:00Z",
+                "subject": "Stalwart unread",
+                "preview": "preview",
+                "body": "full body",
+                "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
+                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "cc": [],
+                "replyTo": [],
+                "attachments": [],
+                "unread": not read,
+            }
+
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
         _FakeStalwartJmapClient,
@@ -1385,6 +1493,18 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     )
     assert reply_response.status_code == 200
     assert reply_response.json()["message"]["message_ref"] == "stalwart:reply-1"
+
+    state_response = client.post(
+        "/v1/mail/state",
+        json=GatewayMailStateRequestV1(
+            message_ref="stalwart:mail-1",
+            read=True,
+        ).model_dump(mode="json"),
+    )
+    assert state_response.status_code == 200
+    assert state_response.json()["transport"] == "stalwart"
+    assert state_response.json()["message_ref"] == "stalwart:mail-1"
+    assert state_response.json()["read"] is True
 
 
 def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_restart(
@@ -1454,7 +1574,44 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     assert all(row.unread_digest == enqueued_rows[-1].unread_digest for row in dedup_rows)
 
 
-def test_gateway_mail_notifier_summarizes_multiple_unread_messages_in_one_prompt(
+def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        monkeypatch.setattr(
+            runtime,
+            "_build_mail_notifier_prompt",
+            lambda unread_messages: "a completely rewritten notifier prompt",
+        )
+        time.sleep(1.3)
+        assert len(fake_client.submitted_prompts) == 1
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1496,7 +1653,14 @@ def test_gateway_mail_notifier_summarizes_multiple_unread_messages_in_one_prompt
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
         assert first_message_id in prompt
-        assert second_message_id in prompt
+        assert second_message_id not in prompt
+        assert "thread_ref: filesystem:" in prompt
+        assert "from: AGENTSYS-sender@agents.localhost" in prompt
+        assert "subject: Gateway unread reminder one" in prompt
+        assert "Remaining unread after this target: 1." in prompt
+        assert "POST /v1/mail/state" in prompt
+        assert "deliver_message.py" not in prompt
+        assert "update_mailbox_state.py" not in prompt
     finally:
         runtime.shutdown()
 
@@ -1506,8 +1670,8 @@ def test_gateway_mail_notifier_summarizes_multiple_unread_messages_in_one_prompt
     latest_row = enqueued_rows[-1]
     assert latest_row.unread_count == 2
     assert [item.message_ref for item in latest_row.unread_summary] == [
-        f"filesystem:{second_message_id}",
         f"filesystem:{first_message_id}",
+        f"filesystem:{second_message_id}",
     ]
 
 
@@ -1597,6 +1761,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
         assert len(fake_client.submitted_prompts) == 2
         assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
+        assert "POST /v1/mail/state" in fake_client.submitted_prompts[1][1]
     finally:
         runtime.shutdown()
 

@@ -382,7 +382,10 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
     )
 
     result = session.send_input_ex("/model<[Enter]>")
-    payload = [json.loads(line) for line in paths.input_events_path.read_text(encoding="utf-8").splitlines()]
+    payload = [
+        json.loads(line)
+        for line in paths.input_events_path.read_text(encoding="utf-8").splitlines()
+    ]
 
     assert result.status == "ok"
     assert commands == [

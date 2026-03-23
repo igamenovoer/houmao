@@ -2984,7 +2984,11 @@ class HoumaoServerService:
         if result.returncode == 0:
             return
         detail = (tmux_error_detail(result) or "unknown tmux error").lower()
-        if "can't find pane" in detail or "can't find window" in detail or "no server running" in detail:
+        if (
+            "can't find pane" in detail
+            or "can't find window" in detail
+            or "no server running" in detail
+        ):
             return
         raise HTTPException(
             status_code=502,

@@ -272,8 +272,7 @@ def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptM
         return None
     if not isinstance(value, str) or value not in {"interactive", "unattended"}:
         raise LaunchPlanError(
-            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` "
-            "or `unattended`."
+            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` or `unattended`."
         )
     return cast(OperatorPromptMode, value)
 

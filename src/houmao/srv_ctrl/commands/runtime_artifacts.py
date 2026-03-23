@@ -9,7 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
-from houmao.owned_paths import AGENTSYS_JOB_DIR_ENV_VAR, resolve_runtime_root, resolve_session_job_dir
+from houmao.owned_paths import (
+    AGENTSYS_JOB_DIR_ENV_VAR,
+    resolve_runtime_root,
+    resolve_session_job_dir,
+)
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -65,11 +69,15 @@ def materialize_delegated_launch(
     """Materialize Houmao-owned manifest/session-root artifacts for one delegated launch."""
 
     resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
-    session_root = default_manifest_path(
-        resolved_runtime_root,
-        "houmao_server_rest",
-        session_name,
-    ).resolve().parent
+    session_root = (
+        default_manifest_path(
+            resolved_runtime_root,
+            "houmao_server_rest",
+            session_name,
+        )
+        .resolve()
+        .parent
+    )
     session_root.mkdir(parents=True, exist_ok=True)
 
     normalized_agent_name = normalize_agent_identity_name(session_name)
@@ -208,7 +216,9 @@ def materialize_delegated_launch(
             agent_id=agent_id,
             generation_id=manifest_payload["registry_generation_id"],
             published_at=published_at.isoformat(timespec="seconds"),
-            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(
+                timespec="seconds"
+            ),
             identity=RegistryIdentityV1(backend="houmao_server_rest", tool=tool),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path),
@@ -272,7 +282,9 @@ def materialize_headless_launch_request(
 
 
 def _safe_role_name(value: str) -> str:
-    stripped = "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in value)
+    stripped = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-" for character in value
+    )
     stripped = stripped.strip("-_")
     return stripped or "delegated-launch"
 

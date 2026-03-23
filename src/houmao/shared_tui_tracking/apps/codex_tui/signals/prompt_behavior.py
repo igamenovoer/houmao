@@ -177,9 +177,7 @@ def latest_turn_lines(
         start_index = index
         break
     return tuple(
-        line.strip()
-        for line in surface.stripped_lines[start_index:prompt_index]
-        if line.strip()
+        line.strip() for line in surface.stripped_lines[start_index:prompt_index] if line.strip()
     )
 
 

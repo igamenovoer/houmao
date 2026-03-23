@@ -9,7 +9,7 @@ If you are new to the subsystem, start with [Quickstart](quickstart.md). If you 
 The mailbox system is an async message transport owned by the runtime, not a loose collection of helper scripts.
 
 - The runtime resolves one mailbox binding for a session.
-- Shared mailbox operations such as `check`, `send`, and `reply` may flow through the live gateway `/v1/mail/*` facade when it is attached, and that shared facade becomes the preferred path for common mailbox work.
+- Shared mailbox operations such as `check`, `send`, `reply`, and the single-message read-state update may flow through the live gateway `/v1/mail/*` facade when it is attached, and that shared facade becomes the preferred path for common mailbox work.
 - The filesystem transport stores canonical messages as immutable Markdown documents under `messages/` and keeps mailbox-view state in SQLite.
 - The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
 - For filesystem-backed sessions, sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
@@ -18,7 +18,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - `canonical message`: The immutable Markdown document plus YAML front matter that represents one delivered message.
 - `mailbox binding`: The resolved runtime config and env vars that tell a session which mailbox it belongs to.
-- `message_ref`: The opaque shared reply target used by direct runtime flows and the gateway mailbox facade.
+- `message_ref`: The opaque shared target used by direct runtime flows and the gateway mailbox facade for reply and single-message read-state update.
 - `mailbox registration`: The active, inactive, or stashed ownership record for one full mailbox address.
 - `projection`: A filesystem-transport symlink in `mailboxes/<address>/inbox` or `sent` that points to a canonical message.
 - `mailbox root`: The filesystem-transport tree that holds `messages/`, `mailboxes/`, `locks/`, `rules/`, `staging/`, and `index.sqlite`.

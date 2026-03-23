@@ -20,4 +20,3 @@ __all__ = [
     "apply_launch_policy",
     "detect_tool_version",
 ]
-

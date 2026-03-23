@@ -26,7 +26,9 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.runtime_artifacts.set_tmux_session_environment",
-        lambda *, session_name, env_vars: published_env.update({"session_name": session_name, **env_vars}),
+        lambda *, session_name, env_vars: published_env.update(
+            {"session_name": session_name, **env_vars}
+        ),
     )
 
     manifest_path, session_root, canonical_agent_name, agent_id = materialize_delegated_launch(
@@ -52,9 +54,13 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert manifest_payload["houmao_server"]["terminal_id"] == "abcd1234"
     assert manifest_payload["houmao_server"]["tmux_window_name"] == "developer-1"
     assert manifest_payload["registry_generation_id"]
-    assert (session_root / "agent_def" / "roles" / "gpu-kernel-coder" / "system-prompt.md").is_file()
+    assert (
+        session_root / "agent_def" / "roles" / "gpu-kernel-coder" / "system-prompt.md"
+    ).is_file()
     assert published_env["session_name"] == "cao-gpu"
-    assert Path(str(published_env[AGENT_MANIFEST_PATH_ENV_VAR])).resolve() == manifest_path.resolve()
+    assert (
+        Path(str(published_env[AGENT_MANIFEST_PATH_ENV_VAR])).resolve() == manifest_path.resolve()
+    )
 
     record = published["record"]
     assert getattr(record, "identity").backend == "houmao_server_rest"

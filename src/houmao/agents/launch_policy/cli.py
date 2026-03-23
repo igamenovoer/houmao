@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import cast
 
 from houmao.agents.launch_policy.engine import apply_launch_policy
-from houmao.agents.launch_policy.models import LaunchPolicyRequest, LaunchSurface, OperatorPromptMode
+from houmao.agents.launch_policy.models import (
+    LaunchPolicyRequest,
+    LaunchSurface,
+    OperatorPromptMode,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

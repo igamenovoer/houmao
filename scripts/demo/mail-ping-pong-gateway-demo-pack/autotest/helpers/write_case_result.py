@@ -35,7 +35,9 @@ def main(argv: list[str] | None = None) -> int:
         "failure_reason": args.failure_reason or None,
         "output_root": str(output_root),
         "artifact_refs": {
-            "demo_state_path": _optional_existing_path(str(output_root / "control" / "demo_state.json")),
+            "demo_state_path": _optional_existing_path(
+                str(output_root / "control" / "demo_state.json")
+            ),
             "inspect_path": _optional_existing_path(str(output_root / "control" / "inspect.json")),
             "report_path": _optional_existing_path(str(output_root / "control" / "report.json")),
             "sanitized_report_path": _optional_existing_path(

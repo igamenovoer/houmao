@@ -54,6 +54,8 @@ def is_interrupted_surface(
 ) -> bool:
     """Return whether the current Codex surface matches the exact interruption rule."""
 
-    return interrupted_text_visible_in_lines(
-        lines=latest_turn_lines
-    ) and prompt_visible and not active_status_row_visible
+    return (
+        interrupted_text_visible_in_lines(lines=latest_turn_lines)
+        and prompt_visible
+        and not active_status_row_visible
+    )

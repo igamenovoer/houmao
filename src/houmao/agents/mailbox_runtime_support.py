@@ -325,10 +325,7 @@ def resolve_effective_mailbox_config(
             jmap_url_override=stalwart_jmap_url_override,
             management_url_override=stalwart_management_url_override,
         )
-        login_identity = (
-            stalwart_login_identity_override
-            or address
-        )
+        login_identity = stalwart_login_identity_override or address
         return StalwartMailboxResolvedConfig(
             transport="stalwart",
             principal_id=principal_id,
@@ -460,14 +457,18 @@ def bootstrap_resolved_mailbox(
             principal=MailboxPrincipal(
                 principal_id=config.principal_id,
                 address=config.address,
-                manifest_path_hint=(str(manifest_path_hint.resolve()) if manifest_path_hint else None),
+                manifest_path_hint=(
+                    str(manifest_path_hint.resolve()) if manifest_path_hint else None
+                ),
                 role=role_name,
             ),
         )
         return config
 
     if manifest_path_hint is None:
-        raise ValueError("stalwart mailbox bootstrap requires a runtime-owned session manifest path")
+        raise ValueError(
+            "stalwart mailbox bootstrap requires a runtime-owned session manifest path"
+        )
     session_root = manifest_path_hint.resolve().parent
     runtime_root = _runtime_root_from_session_root(session_root)
     binding = ensure_stalwart_mailbox(

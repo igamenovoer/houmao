@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import socket
+import sqlite3
 import subprocess
 import threading
 import time
@@ -36,9 +37,13 @@ from houmao.agents.realm_controller.gateway_storage import (
     read_pid_file,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
-from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierPutV1,
+    GatewayMailStateRequestV1,
+)
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -1305,6 +1310,112 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
             log_text = paths.log_path.read_text(encoding="utf-8")
             assert "mail notifier enabled interval_seconds=60" in log_text
             assert "mail notifier disabled" in log_text
+        finally:
+            _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway `/v1/mail/state` should mark one filesystem message read."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    mailbox_root = tmp_path / "mailbox"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+
+    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
+        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
+        tmux_env = _FakeTmuxEnv()
+        _install_gateway_runtime_fakes(
+            monkeypatch=monkeypatch,
+            registry=registry,
+            tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
+        )
+
+        start_exit, start_payload, start_err = _run_cli_json(
+            capsys,
+            [
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(runtime_root),
+                "--brain-manifest",
+                str(brain_manifest_path),
+                "--role",
+                "r",
+                "--backend",
+                "cao_rest",
+                "--workdir",
+                str(tmp_path),
+                "--cao-base-url",
+                fake_cao.base_url,
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--mailbox-address",
+                "AGENTSYS-gateway@agents.localhost",
+            ],
+        )
+        assert start_exit == 0
+        assert start_err == ""
+
+        manifest_path = Path(str(start_payload["session_manifest"]))
+        try:
+            attach_exit, attach_payload, attach_err = _run_cli_json(
+                capsys,
+                [
+                    "attach-gateway",
+                    "--agent-def-dir",
+                    str(agent_def_dir),
+                    "--agent-identity",
+                    str(manifest_path),
+                    "--gateway-host",
+                    "127.0.0.1",
+                ],
+            )
+            assert attach_exit == 0
+            assert attach_err == ""
+
+            message_id = _deliver_unread_mailbox_message(
+                mailbox_root,
+                message_id="msg-20260316T090000Z-44444444444444444444444444444444",
+                recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+                recipient_address=str(start_payload["mailbox"]["address"]),
+            )
+            client = GatewayClient(
+                endpoint=GatewayEndpoint(
+                    host="127.0.0.1",
+                    port=int(attach_payload["gateway_port"]),
+                )
+            )
+
+            state_response = client.update_mail_state(
+                GatewayMailStateRequestV1(
+                    message_ref=f"filesystem:{message_id}",
+                    read=True,
+                )
+            )
+
+            assert state_response.transport == "filesystem"
+            assert state_response.message_ref == f"filesystem:{message_id}"
+            assert state_response.read is True
+
+            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+                mailbox_root,
+                address=str(start_payload["mailbox"]["address"]),
+            )
+            with sqlite3.connect(local_sqlite_path) as connection:
+                row = connection.execute(
+                    "SELECT is_read FROM message_state WHERE message_id = ?",
+                    (message_id,),
+                ).fetchone()
+            assert row == (1,)
         finally:
             _best_effort_cleanup_gateway(manifest_path)
 

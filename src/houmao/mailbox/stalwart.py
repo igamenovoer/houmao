@@ -91,7 +91,9 @@ def load_stalwart_password(credential_file: Path) -> str:
         raise StalwartError(f"Stalwart credential file is invalid JSON: {credential_file}") from exc
 
     if not isinstance(payload, dict):
-        raise StalwartError(f"Stalwart credential file must contain a JSON object: {credential_file}")
+        raise StalwartError(
+            f"Stalwart credential file must contain a JSON object: {credential_file}"
+        )
     password = payload.get("password")
     if not isinstance(password, str) or not password.strip():
         raise StalwartError(
@@ -277,7 +279,9 @@ class StalwartManagementClient:
         response_payload = self._request_json("POST", "/principal", body=payload)
         return response_payload.get("data")
 
-    def patch_principal(self, principal_id: str, operations: Sequence[Mapping[str, object]]) -> None:
+    def patch_principal(
+        self, principal_id: str, operations: Sequence[Mapping[str, object]]
+    ) -> None:
         """Patch one management principal."""
 
         self._request_json(
@@ -301,7 +305,9 @@ class StalwartManagementClient:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
         url = f"{self.m_base_url}{path}"
-        return _request_json(method=method, url=url, body=payload, headers=headers, timeout=self.m_timeout_seconds)
+        return _request_json(
+            method=method, url=url, body=payload, headers=headers, timeout=self.m_timeout_seconds
+        )
 
 
 class StalwartJmapClient:
@@ -347,7 +353,9 @@ class StalwartJmapClient:
                 "Email/query",
                 {
                     "accountId": account_id,
-                    "filter": {"inMailbox": inbox_mailbox_id} if inbox_mailbox_id is not None else None,
+                    "filter": {"inMailbox": inbox_mailbox_id}
+                    if inbox_mailbox_id is not None
+                    else None,
                     "sort": [{"property": "receivedAt", "isAscending": False}],
                     "limit": limit if limit is not None and limit > 0 else None,
                 },
@@ -553,6 +561,35 @@ class StalwartJmapClient:
             references=references,
         )
 
+    def update_read_state(
+        self,
+        *,
+        message_ref: str,
+        read: bool,
+    ) -> dict[str, Any]:
+        """Apply one JMAP read-state mutation and return the normalized message."""
+
+        email_id = message_ref.split(":", 1)[1] if ":" in message_ref else message_ref
+        account_id = self.primary_account_id()
+        response = self.call(
+            [
+                [
+                    "Email/set",
+                    {
+                        "accountId": account_id,
+                        "update": {
+                            email_id: {
+                                "keywords/$seen": read,
+                            }
+                        },
+                    },
+                    "m1",
+                ]
+            ]
+        )
+        _require_method_response(response, method_name="Email/set", call_id="m1")
+        return self.get_email(email_id=email_id)
+
     def get_email(self, *, email_id: str) -> dict[str, Any]:
         """Fetch one normalized email payload."""
 
@@ -597,8 +634,7 @@ class StalwartJmapClient:
         return {
             "id": _require_string(raw_email, "id"),
             "threadId": _optional_string(raw_email, "threadId"),
-            "receivedAt": _optional_string(raw_email, "receivedAt")
-            or _utc_now_iso(),
+            "receivedAt": _optional_string(raw_email, "receivedAt") or _utc_now_iso(),
             "messageId": _coerce_string_list(raw_email.get("messageId")),
             "inReplyTo": _coerce_string_list(raw_email.get("inReplyTo")),
             "references": _coerce_string_list(raw_email.get("references")),
@@ -653,9 +689,7 @@ class StalwartJmapClient:
         """Return the preferred identity id for submissions."""
 
         account_id = self.primary_account_id()
-        response = self.call(
-            [["Identity/get", {"accountId": account_id, "ids": None}, "m1"]]
-        )
+        response = self.call([["Identity/get", {"accountId": account_id, "ids": None}, "m1"]])
         payload = _require_method_response(response, method_name="Identity/get", call_id="m1")
         identities = payload.get("list")
         if not isinstance(identities, list):
@@ -674,9 +708,7 @@ class StalwartJmapClient:
         """Return the first mailbox id for one role."""
 
         account_id = self.primary_account_id()
-        response = self.call(
-            [["Mailbox/get", {"accountId": account_id, "ids": None}, "m1"]]
-        )
+        response = self.call([["Mailbox/get", {"accountId": account_id, "ids": None}, "m1"]])
         payload = _require_method_response(response, method_name="Mailbox/get", call_id="m1")
         mailboxes = payload.get("list")
         if not isinstance(mailboxes, list):

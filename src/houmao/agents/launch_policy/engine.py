@@ -82,12 +82,13 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
 
     if request.requested_operator_prompt_mode != "unattended":
         raise LaunchPolicyError(
-            "Unsupported operator_prompt_mode "
-            f"`{request.requested_operator_prompt_mode}`."
+            f"Unsupported operator_prompt_mode `{request.requested_operator_prompt_mode}`."
         )
 
     detected_version = detect_tool_version(executable=request.executable)
-    strategy, selection_source = resolve_strategy(request=request, detected_version=detected_version)
+    strategy, selection_source = resolve_strategy(
+        request=request, detected_version=detected_version
+    )
     args = list(request.base_args)
 
     for action in strategy.actions:
@@ -231,7 +232,9 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         raise LaunchPolicyError(f"{source} must be a mapping.")
 
     strategy_id = _require_non_blank_str(payload, "strategy_id", source=source)
-    operator_prompt_mode_raw = _require_non_blank_str(payload, "operator_prompt_mode", source=source)
+    operator_prompt_mode_raw = _require_non_blank_str(
+        payload, "operator_prompt_mode", source=source
+    )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
         raise LaunchPolicyError(
             f"{source}.operator_prompt_mode must be `interactive` or `unattended`."
@@ -245,7 +248,9 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     for item in backends_payload:
         backend_raw = _require_non_blank_item(item, source=f"{source}.backends")
         if backend_raw not in _SUPPORTED_BACKENDS:
-            raise LaunchPolicyError(f"{source}.backends contains unsupported backend `{backend_raw}`.")
+            raise LaunchPolicyError(
+                f"{source}.backends contains unsupported backend `{backend_raw}`."
+            )
         parsed_backends.append(cast(LaunchSurface, backend_raw))
     backends = tuple(parsed_backends)
 
@@ -273,7 +278,9 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
             f"{source}.minimal_inputs.requires_user_prepared_state must be a boolean."
         )
     notes_payload = minimal_inputs_payload.get("notes", [])
-    if not isinstance(notes_payload, list) or not all(isinstance(item, str) for item in notes_payload):
+    if not isinstance(notes_payload, list) or not all(
+        isinstance(item, str) for item in notes_payload
+    ):
         raise LaunchPolicyError(f"{source}.minimal_inputs.notes must be a list of strings.")
     minimal_inputs = MinimalInputContract(
         credential_forms=tuple(str(item) for item in credential_forms_payload),
@@ -284,7 +291,9 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     evidence_payload = payload.get("evidence")
     if not isinstance(evidence_payload, list) or not evidence_payload:
         raise LaunchPolicyError(f"{source}.evidence must be a non-empty list.")
-    evidence = tuple(_parse_evidence(item=item, source=f"{source}.evidence") for item in evidence_payload)
+    evidence = tuple(
+        _parse_evidence(item=item, source=f"{source}.evidence") for item in evidence_payload
+    )
 
     owned_paths_payload = payload.get("owned_paths")
     if not isinstance(owned_paths_payload, list) or not owned_paths_payload:
@@ -296,7 +305,10 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     actions_payload = payload.get("actions")
     if not isinstance(actions_payload, list) or not actions_payload:
         raise LaunchPolicyError(f"{source}.actions must be a non-empty list.")
-    actions = tuple(_parse_action(item=item, source=f"{source}.actions[{index}]") for index, item in enumerate(actions_payload))
+    actions = tuple(
+        _parse_action(item=item, source=f"{source}.actions[{index}]")
+        for index, item in enumerate(actions_payload)
+    )
 
     return LaunchPolicyStrategy(
         strategy_id=strategy_id,
@@ -335,7 +347,9 @@ def _parse_owned_path(*, item: object, source: str) -> OwnedPathSpec:
         raise LaunchPolicyError(f"{source}.keys must be a non-empty list.")
     return OwnedPathSpec(
         path=_require_non_blank_str(item, "path", source=source),
-        keys=tuple(_require_non_blank_item(value, source=f"{source}.keys") for value in keys_payload),
+        keys=tuple(
+            _require_non_blank_item(value, source=f"{source}.keys") for value in keys_payload
+        ),
     )
 
 
@@ -417,7 +431,9 @@ def _validate_owned_args(*, params: Mapping[str, Any], args: list[str]) -> None:
     if not isinstance(owned_args_payload, list) or not all(
         isinstance(item, str) for item in owned_args_payload
     ):
-        raise LaunchPolicyError("validate.reject_conflicting_launch_args.owned_args must be a list.")
+        raise LaunchPolicyError(
+            "validate.reject_conflicting_launch_args.owned_args must be a list."
+        )
     if not isinstance(disallowed_args_payload, list) or not all(
         isinstance(item, str) for item in disallowed_args_payload
     ):
@@ -430,8 +446,7 @@ def _validate_owned_args(*, params: Mapping[str, Any], args: list[str]) -> None:
     if conflicts:
         joined = ", ".join(conflicts)
         raise LaunchPolicyError(
-            "Caller launch args conflict with unattended strategy-owned args: "
-            f"{joined}."
+            f"Caller launch args conflict with unattended strategy-owned args: {joined}."
         )
 
     seen: set[str] = set()
@@ -452,7 +467,10 @@ def _parse_key_path(payload: Mapping[str, Any], *, source: str) -> tuple[str, ..
     key_path_payload = payload.get("key_path")
     if not isinstance(key_path_payload, list) or not key_path_payload:
         raise LaunchPolicyError(f"{source}.params.key_path must be a non-empty list.")
-    return tuple(_require_non_blank_item(value, source=f"{source}.params.key_path") for value in key_path_payload)
+    return tuple(
+        _require_non_blank_item(value, source=f"{source}.params.key_path")
+        for value in key_path_payload
+    )
 
 
 def _require_non_blank_str(payload: Mapping[str, Any], key: str, *, source: str) -> str:

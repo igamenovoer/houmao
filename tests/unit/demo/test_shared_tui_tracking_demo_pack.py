@@ -243,7 +243,9 @@ def test_demo_session_ownership_round_trips_and_saves_atomically(tmp_path: Path)
     assert list(run_root.glob("*.tmp")) == []
 
 
-def test_live_watch_session_names_associate_tool_and_dashboard_without_cross_tool_collision() -> None:
+def test_live_watch_session_names_associate_tool_and_dashboard_without_cross_tool_collision() -> (
+    None
+):
     """Tool and dashboard session names should stay associated and tool-scoped for one run id."""
 
     run_id = "20260323T140207"
@@ -2168,13 +2170,7 @@ def test_complex_recorded_fixtures_validate_without_mismatches(
     """Maintained complex fixtures should replay cleanly against committed labels."""
 
     fixture_root = (
-        _repo_root()
-        / "tests"
-        / "fixtures"
-        / "shared_tui_tracking"
-        / "recorded"
-        / tool
-        / case_id
+        _repo_root() / "tests" / "fixtures" / "shared_tui_tracking" / "recorded" / tool / case_id
     )
 
     result = validate_recorded_fixture(
@@ -2234,13 +2230,7 @@ def test_complex_recorded_sweep_contracts_pass(
     """Complex maintained fixtures should satisfy the repeated lifecycle sweep contract."""
 
     fixture_root = (
-        _repo_root()
-        / "tests"
-        / "fixtures"
-        / "shared_tui_tracking"
-        / "recorded"
-        / tool
-        / case_id
+        _repo_root() / "tests" / "fixtures" / "shared_tui_tracking" / "recorded" / tool / case_id
     )
 
     result = run_recorded_sweep(

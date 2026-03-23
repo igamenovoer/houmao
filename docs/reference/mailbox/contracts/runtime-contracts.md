@@ -103,10 +103,12 @@ Shared runtime rules:
 - require the runtime-managed env vars,
 - prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached,
 - treat `message_ref` as the shared reply target contract,
+- keep ordinary attached-session mailbox work on the shared gateway routines for `check`, `send`, `reply`, and `POST /v1/mail/state`,
 - only mark a message read after successful processing.
 
 Filesystem-specific rules:
 
+- present direct helper flows as fallback guidance rather than the first-choice attached-session path when the shared gateway facade is available,
 - inspect `rules/` before touching shared mailbox state,
 - inspect `rules/scripts/requirements.txt` before invoking Python helpers,
 - use shared managed scripts for steps that touch `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`,
@@ -114,6 +116,7 @@ Filesystem-specific rules:
 
 Stalwart-specific rules:
 
+- present direct env-backed access as fallback guidance rather than the first-choice attached-session path when the shared gateway facade is available,
 - use the runtime-managed `AGENTSYS_MAILBOX_EMAIL_*` bindings for direct mailbox access when no live gateway mailbox facade is available,
 - do not assume filesystem mailbox rules, SQLite paths, locks, or projection symlinks exist for this transport.
 

@@ -308,7 +308,9 @@ class _NoopTransport:
         """Reject unexpected transport calls."""
 
         del base_url, method, path, params
-        raise AssertionError("Unexpected transport request in managed-agent gateway integration test.")
+        raise AssertionError(
+            "Unexpected transport request in managed-agent gateway integration test."
+        )
 
 
 class _NoopChildManager:

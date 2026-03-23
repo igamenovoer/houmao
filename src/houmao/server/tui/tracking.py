@@ -962,6 +962,7 @@ class LiveSessionTracker:
             self.m_completion_subscription = None
         self.m_completion_snapshot_queue.clear()
 
+
 def _build_initial_state(
     *,
     identity: HoumaoTrackedSessionIdentity,
@@ -1268,7 +1269,9 @@ def _tracker_snapshot_text_from_host(
 ) -> str | None:
     """Return tracker input text from raw host data with a compatibility fallback."""
 
-    if output_text is not None and _raw_text_looks_tracker_informative(tool=tool, output_text=output_text):
+    if output_text is not None and _raw_text_looks_tracker_informative(
+        tool=tool, output_text=output_text
+    ):
         return output_text
     if parsed_surface is None:
         return output_text
