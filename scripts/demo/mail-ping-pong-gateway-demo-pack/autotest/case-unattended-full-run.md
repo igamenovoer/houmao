@@ -142,11 +142,12 @@ bash scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/helpers/print_tmux_r
 
 Expected outcome:
 
-- the helper prints recent pane output plus an attach hint
+- the helper prints recent pane output plus an attach hint for window `0` (`agent`)
 
 What to look for:
 
 - the pane is not blank
+- the helper is reading the stable primary agent surface rather than an auxiliary tmux window
 - once a turn becomes active, you can see rolling CLI output rather than a frozen screen
 
 Decision point:
@@ -166,11 +167,12 @@ bash scripts/demo/mail-ping-pong-gateway-demo-pack/autotest/helpers/print_tmux_r
 
 Expected outcome:
 
-- the helper prints recent pane output plus an attach hint
+- the helper prints recent pane output plus an attach hint for window `0` (`agent`)
 
 What to look for:
 
 - the pane is live and watchable
+- the helper is reading the stable primary agent surface rather than an auxiliary tmux window
 - once later turns wake, you can see rolling CLI output from the responder as well
 
 Decision point:
@@ -206,7 +208,7 @@ Action:
 - if you want a live view from another terminal, attach directly with:
 
 ```bash
-tmux attach-session -t <tmux_session_name>
+tmux attach-session -t <tmux_session_name> \; select-window -t <tmux_session_name>:0
 ```
 
 Expected outcome:

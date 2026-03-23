@@ -10,6 +10,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxPaneRecord,
     capture_tmux_pane,
     create_tmux_session,
+    prepare_headless_agent_window,
     has_tmux_session,
     list_tmux_panes,
     list_tmux_sessions,
@@ -117,6 +118,33 @@ def test_create_tmux_session_surfaces_tmux_error(
             session_name="AGENTSYS-gpu",
             working_directory=tmp_path,
         )
+
+
+def test_prepare_headless_agent_window_renames_and_selects_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        captured.append(cmd)
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    prepare_headless_agent_window(session_name="AGENTSYS-gpu")
+
+    assert captured == [
+        ["tmux", "rename-window", "-t", "AGENTSYS-gpu:0", "agent"],
+        ["tmux", "select-window", "-t", "AGENTSYS-gpu:0"],
+    ]
 
 
 def test_set_tmux_session_environment_surfaces_key_context(

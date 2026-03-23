@@ -23,6 +23,7 @@ from .tmux_runtime import (
     generate_tmux_session_name as generate_tmux_session_name_shared,
     has_tmux_session as has_tmux_session_shared,
     kill_tmux_session as kill_tmux_session_shared,
+    prepare_headless_agent_window as prepare_headless_agent_window_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
 )
@@ -269,6 +270,12 @@ class HeadlessInteractiveSession:
                     "Headless resume requires existing tmux session "
                     f"`{persisted}` but it is unavailable: {detail}"
                 )
+            try:
+                prepare_headless_agent_window_shared(session_name=persisted)
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare headless tmux agent surface in `{persisted}`: {exc}"
+                ) from exc
             self._state.tmux_session_name = persisted
             self._publish_tmux_session_environment()
             return
@@ -294,12 +301,20 @@ class HeadlessInteractiveSession:
             detail = tmux_error_detail_shared(has) or "unknown tmux error"
             raise BackendExecutionError(f"Failed to query tmux session `{session_name}`: {detail}")
 
+        created_session = False
         try:
             create_tmux_session_shared(
                 session_name=session_name,
                 working_directory=self._plan.working_directory,
             )
+            created_session = True
+            prepare_headless_agent_window_shared(session_name=session_name)
         except TmuxCommandError as exc:
+            if created_session:
+                try:
+                    kill_tmux_session_shared(session_name=session_name)
+                except TmuxCommandError:
+                    pass
             raise BackendExecutionError(str(exc)) from exc
 
         self._state.tmux_session_name = session_name
