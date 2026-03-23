@@ -22,13 +22,14 @@ from houmao.shared_tui_tracking.reducer import replay_timeline
 from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
 from houmao.terminal_record.models import TerminalRecordManifest, load_manifest
 from houmao.terminal_record.runtime_bridge import append_managed_control_input_for_tmux_session
-from houmao.terminal_record.service import start_terminal_record, stop_terminal_record
+from houmao.terminal_record.service import start_terminal_record
 
 from .comparison import TimelineComparison, compare_timelines
 from .config import ResolvedDemoConfig
 from .groundtruth import expand_labels_to_groundtruth_timeline, load_fixture_inputs
 from .models import (
     DEMO_PACK_SCHEMA_VERSION,
+    DemoOwnedResourceRole,
     RecordedFixtureManifest,
     RecordedValidationManifest,
     RecordedValidationPaths,
@@ -38,6 +39,15 @@ from .models import (
     load_input_events,
     overwrite_ndjson,
     save_json,
+)
+from .ownership import (
+    initialize_demo_session_ownership,
+    publish_demo_session_recovery_pointers,
+    reap_demo_owned_resources,
+    resolve_demo_owned_resources,
+    set_demo_session_ownership_status,
+    set_demo_session_recorder_run_root,
+    upsert_demo_owned_resource,
 )
 from .reporting import (
     build_recorded_run_issues,
@@ -51,8 +61,8 @@ from .tooling import (
     capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
-    kill_supported_process_for_pane,
     kill_tmux_session_if_exists,
+    kill_supported_process_for_pane,
     launch_tmux_session,
     now_utc_iso,
     resolve_active_pane_id,
@@ -193,66 +203,102 @@ def run_recorded_capture(
     workdir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     save_json(run_root / "resolved_demo_config.json", demo_config.to_payload())
-
-    launch = _resolve_scenario_launch(
-        scenario=scenario,
-        demo_config=demo_config,
-    )
-    tool_metadata = default_tool_runtime_metadata(
-        repo_root=repo_root,
-        tool=scenario.tool,
-        demo_config=demo_config,
-    )
-    selected_recipe_path = launch.recipe_path
-    recipe = load_brain_recipe(selected_recipe_path)
-    if recipe.tool != scenario.tool:
-        raise RuntimeError(
-            f"Scenario `{scenario.scenario_id}` expects tool `{scenario.tool}`, "
-            f"but recipe `{selected_recipe_path}` declares `{recipe.tool}`."
-        )
-    build_result = build_brain_home(
-        BuildRequest(
-            agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
-            tool=recipe.tool,
-            skills=list(recipe.skills),
-            config_profile=recipe.config_profile,
-            credential_profile=recipe.credential_profile,
-            runtime_root=runtime_root,
-            mailbox=recipe.mailbox,
-            agent_name=recipe.default_agent_name,
-            launch_args_override=tool_metadata.launch_args_override,
-            operator_prompt_mode=tool_metadata.operator_prompt_mode or recipe.operator_prompt_mode,
-        )
-    )
-    observed_version = detect_tool_version(tool=scenario.tool)
     tool_session_name = build_session_name(
         prefix=f"shared-tui-{scenario.tool}", run_id=run_root.name
     )
-    launch_tmux_session(
-        session_name=tool_session_name,
-        workdir=workdir,
-        launch_script=build_result.launch_helper_path,
-    )
-    pane_id = resolve_active_pane_id(session_name=tool_session_name)
-    recorder_payload = start_terminal_record(
-        mode="active",
-        target_session=tool_session_name,
-        target_pane=pane_id,
+    initialize_demo_session_ownership(
+        demo_id=demo_config.demo_id,
+        run_root=run_root,
+        workflow_kind="recorded_capture",
         tool=scenario.tool,
-        run_root=recording_root,
-        sample_interval_seconds=launch.sample_interval_seconds,
     )
-    recorder_manifest = load_manifest(recording_root / "manifest.json")
-    observer = RuntimeObserver(
-        tool=scenario.tool,
-        session_name=tool_session_name,
-        pane_id=pane_id,
-        output_path=run_root / "runtime_observations.ndjson",
-        recorder_started_at=datetime.fromisoformat(recorder_manifest.started_at_utc),
-        poll_interval_seconds=launch.runtime_observer_interval_seconds,
-    )
-    observer.start()
+    launch: _ResolvedScenarioLaunch | None = None
+    selected_recipe_path: Path | None = None
+    build_result: Any | None = None
+    observed_version: str | None = None
+    pane_id: str | None = None
+    recorder_payload: dict[str, Any] | None = None
+    observer: RuntimeObserver | None = None
+    execution_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
     try:
+        launch = _resolve_scenario_launch(
+            scenario=scenario,
+            demo_config=demo_config,
+        )
+        tool_metadata = default_tool_runtime_metadata(
+            repo_root=repo_root,
+            tool=scenario.tool,
+            demo_config=demo_config,
+        )
+        selected_recipe_path = launch.recipe_path
+        recipe = load_brain_recipe(selected_recipe_path)
+        if recipe.tool != scenario.tool:
+            raise RuntimeError(
+                f"Scenario `{scenario.scenario_id}` expects tool `{scenario.tool}`, "
+                f"but recipe `{selected_recipe_path}` declares `{recipe.tool}`."
+            )
+        build_result = build_brain_home(
+            BuildRequest(
+                agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
+                tool=recipe.tool,
+                skills=list(recipe.skills),
+                config_profile=recipe.config_profile,
+                credential_profile=recipe.credential_profile,
+                runtime_root=runtime_root,
+                mailbox=recipe.mailbox,
+                agent_name=recipe.default_agent_name,
+                launch_args_override=tool_metadata.launch_args_override,
+                operator_prompt_mode=tool_metadata.operator_prompt_mode
+                or recipe.operator_prompt_mode,
+            )
+        )
+        observed_version = detect_tool_version(tool=scenario.tool)
+        launch_tmux_session(
+            session_name=tool_session_name,
+            workdir=workdir,
+            launch_script=build_result.launch_helper_path,
+        )
+        upsert_demo_owned_resource(run_root=run_root, role="tool", session_name=tool_session_name)
+        publish_demo_session_recovery_pointers(
+            demo_id=demo_config.demo_id,
+            run_root=run_root,
+            session_name=tool_session_name,
+            role="tool",
+        )
+        pane_id = resolve_active_pane_id(session_name=tool_session_name)
+        set_demo_session_recorder_run_root(run_root=run_root, recorder_run_root=recording_root)
+        upsert_demo_owned_resource(run_root=run_root, role="recorder", session_name=None)
+        recorder_payload = start_terminal_record(
+            mode="active",
+            target_session=tool_session_name,
+            target_pane=pane_id,
+            tool=scenario.tool,
+            run_root=recording_root,
+            sample_interval_seconds=launch.sample_interval_seconds,
+        )
+        recorder_manifest = load_manifest(recording_root / "manifest.json")
+        upsert_demo_owned_resource(
+            run_root=run_root,
+            role="recorder",
+            session_name=recorder_manifest.recorder_session_name,
+        )
+        publish_demo_session_recovery_pointers(
+            demo_id=demo_config.demo_id,
+            run_root=run_root,
+            session_name=recorder_manifest.recorder_session_name,
+            role="recorder",
+        )
+        observer = RuntimeObserver(
+            tool=scenario.tool,
+            session_name=tool_session_name,
+            pane_id=pane_id,
+            output_path=run_root / "runtime_observations.ndjson",
+            recorder_started_at=datetime.fromisoformat(recorder_manifest.started_at_utc),
+            poll_interval_seconds=launch.runtime_observer_interval_seconds,
+        )
+        observer.start()
+        set_demo_session_ownership_status(run_root=run_root, status="running")
         _execute_scenario(
             scenario=scenario,
             launch=launch,
@@ -261,11 +307,49 @@ def run_recorded_capture(
             observed_version=observed_version,
             log_path=run_root / "drive_events.ndjson",
         )
+    except BaseException as exc:
+        execution_error = exc
+        try:
+            set_demo_session_ownership_status(
+                run_root=run_root,
+                status="failed",
+                last_error=_error_text(exc),
+            )
+        except FileNotFoundError:
+            pass
+        raise
     finally:
-        observer.stop()
-        stop_terminal_record(run_root=recording_root)
-        if cleanup_session:
-            kill_tmux_session_if_exists(session_name=tool_session_name)
+        if observer is not None:
+            observer.stop()
+        cleanup_roles: set[DemoOwnedResourceRole] = {"recorder"}
+        if execution_error is not None or cleanup_session:
+            cleanup_roles.add("tool")
+        try:
+            reap_demo_owned_resources(
+                resolved_resources=resolve_demo_owned_resources(run_root=run_root),
+                include_roles=cleanup_roles,
+                stop_recorder=True,
+                best_effort=execution_error is not None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            cleanup_error = exc
+            if execution_error is None:
+                try:
+                    set_demo_session_ownership_status(
+                        run_root=run_root,
+                        status="failed",
+                        last_error=_error_text(exc),
+                    )
+                except FileNotFoundError:
+                    pass
+                raise
+        if execution_error is None and cleanup_error is None:
+            set_demo_session_ownership_status(run_root=run_root, status="stopped")
+
+    if launch is None or selected_recipe_path is None or build_result is None:
+        raise RuntimeError("Recorded capture finished without resolved launch metadata.")
+    if pane_id is None or recorder_payload is None:
+        raise RuntimeError("Recorded capture finished without initialized runtime metadata.")
 
     fixture_manifest = RecordedFixtureManifest(
         schema_version=DEMO_PACK_SCHEMA_VERSION,
@@ -772,9 +856,7 @@ def _wait_for_interrupted_ready(*, pane_id: str, detector: Any, timeout_seconds:
         output = capture_visible_pane_text(pane_id=pane_id)
         signals = detector.detect(output_text=output)
         interrupted_ready = (
-            signals.interrupted
-            and signals.ready_posture == "yes"
-            and not signals.active_evidence
+            signals.interrupted and signals.ready_posture == "yes" and not signals.active_evidence
         )
         if interrupted_ready:
             consecutive_matches += 1
@@ -818,6 +900,15 @@ def _load_ndjson_payloads(path: Path) -> list[dict[str, Any]]:
             continue
         payloads.append(json.loads(stripped))
     return payloads
+
+
+def _error_text(error: BaseException) -> str:
+    """Return a stable error string for recorded-capture ownership state."""
+
+    message = str(error).strip()
+    if message:
+        return message
+    return error.__class__.__name__
 
 
 def _resolve_scenario_launch(

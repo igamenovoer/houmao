@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -16,6 +17,9 @@ from houmao.shared_tui_tracking.models import (
 
 ToolName = Literal["claude", "codex"]
 InteractiveWatchStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
+DemoWorkflowKind = Literal["recorded_capture", "live_watch"]
+DemoOwnedResourceRole = Literal["tool", "dashboard", "recorder"]
+DemoSessionOwnershipStatus = Literal["starting", "running", "cleanup_pending", "stopped", "failed"]
 
 DEFAULT_DEMO_ROOT_PARENT = Path("tmp/demo/shared-tui-tracking-demo-pack")
 DEFAULT_RECORDED_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "recorded"
@@ -23,6 +27,8 @@ DEFAULT_LIVE_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "live"
 DEFAULT_SWEEP_RUN_ROOT_PARENT = DEFAULT_DEMO_ROOT_PARENT / "sweeps"
 DEFAULT_REVIEW_VIDEO_FPS = 8
 DEMO_PACK_SCHEMA_VERSION = 1
+DEMO_SESSION_OWNERSHIP_SCHEMA_VERSION = 1
+DEMO_SESSION_OWNERSHIP_FILE_NAME = "session_ownership.json"
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,7 @@ class LiveWatchPaths:
     logs_dir: Path
     traces_dir: Path
     terminal_record_run_root: Path
+    session_ownership_path: Path
     watch_manifest_path: Path
     resolved_config_path: Path
     live_state_path: Path
@@ -120,6 +127,7 @@ class LiveWatchPaths:
             logs_dir=resolved / "logs",
             traces_dir=resolved / "traces",
             terminal_record_run_root=resolved / f"terminal-record-{resolved.name}",
+            session_ownership_path=session_ownership_path(run_root=resolved),
             watch_manifest_path=artifacts_dir / "interactive_watch_manifest.json",
             resolved_config_path=artifacts_dir / "resolved_demo_config.json",
             live_state_path=artifacts_dir / "interactive_watch_live_state.json",
@@ -258,9 +266,7 @@ class LiveWatchManifest:
             resolved_config_path=str(
                 payload.get(
                     "resolved_config_path",
-                    LiveWatchPaths.from_run_root(
-                        run_root=Path(run_root)
-                    ).resolved_config_path,
+                    LiveWatchPaths.from_run_root(run_root=Path(run_root)).resolved_config_path,
                 )
             ),
             sample_interval_seconds=float(payload["sample_interval_seconds"]),
@@ -322,6 +328,78 @@ class LiveWatchStartResult:
 
 
 @dataclass(frozen=True)
+class DemoOwnedResource:
+    """One workflow-owned tmux resource for a demo run."""
+
+    role: DemoOwnedResourceRole
+    session_name: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "DemoOwnedResource":
+        """Parse one owned-resource payload."""
+
+        return cls(
+            role=cast(DemoOwnedResourceRole, str(payload["role"])),
+            session_name=_optional_string(payload.get("session_name")),
+        )
+
+
+@dataclass(frozen=True)
+class DemoSessionOwnership:
+    """Mutable lifecycle bookkeeping for one demo run."""
+
+    schema_version: int
+    demo_id: str
+    workflow_kind: DemoWorkflowKind
+    run_root: str
+    tool: ToolName
+    status: DemoSessionOwnershipStatus
+    recorder_run_root: str | None
+    owned_resources: tuple[DemoOwnedResource, ...]
+    started_at_utc: str
+    updated_at_utc: str
+    stopped_at_utc: str | None
+    last_error: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        payload = asdict(self)
+        payload["owned_resources"] = [item.to_payload() for item in self.owned_resources]
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "DemoSessionOwnership":
+        """Parse one session-ownership payload."""
+
+        resources_raw = payload.get("owned_resources", [])
+        if not isinstance(resources_raw, list):
+            raise ValueError("owned_resources must be a list")
+        return cls(
+            schema_version=int(payload.get("schema_version", 0)),
+            demo_id=str(payload["demo_id"]),
+            workflow_kind=cast(DemoWorkflowKind, str(payload["workflow_kind"])),
+            run_root=str(payload["run_root"]),
+            tool=cast(ToolName, str(payload["tool"])),
+            status=cast(DemoSessionOwnershipStatus, str(payload["status"])),
+            recorder_run_root=_optional_string(payload.get("recorder_run_root")),
+            owned_resources=tuple(
+                DemoOwnedResource.from_payload(item)
+                for item in cast(list[dict[str, Any]], resources_raw)
+            ),
+            started_at_utc=str(payload["started_at_utc"]),
+            updated_at_utc=str(payload["updated_at_utc"]),
+            stopped_at_utc=_optional_string(payload.get("stopped_at_utc")),
+            last_error=_optional_string(payload.get("last_error")),
+        )
+
+
+@dataclass(frozen=True)
 class RecordedSweepPaths:
     """Filesystem layout for one recorded-sweep run."""
 
@@ -355,6 +433,12 @@ class RecordedSweepPaths:
         )
 
 
+def session_ownership_path(*, run_root: Path) -> Path:
+    """Return the canonical ownership-artifact path for one demo run."""
+
+    return run_root.resolve() / DEMO_SESSION_OWNERSHIP_FILE_NAME
+
+
 def append_ndjson(path: Path, payload: dict[str, Any]) -> None:
     """Append one JSON record to an NDJSON file."""
 
@@ -386,7 +470,12 @@ def save_json(path: Path, payload: dict[str, Any]) -> None:
     """Persist one JSON payload."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp_path = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temp_path.replace(path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def load_json(path: Path) -> dict[str, Any] | None:
@@ -395,6 +484,21 @@ def load_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
+
+
+def save_session_ownership(path: Path, ownership: DemoSessionOwnership) -> None:
+    """Persist one demo-run ownership artifact."""
+
+    save_json(path, ownership.to_payload())
+
+
+def load_session_ownership(path: Path) -> DemoSessionOwnership | None:
+    """Load one demo-run ownership artifact when present."""
+
+    payload = load_json(path)
+    if payload is None:
+        return None
+    return DemoSessionOwnership.from_payload(payload)
 
 
 def load_runtime_observations(path: Path) -> list[RuntimeObservation]:

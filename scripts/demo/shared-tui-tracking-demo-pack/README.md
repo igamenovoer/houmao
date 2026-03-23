@@ -42,6 +42,8 @@ HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL=DEBUG \
 
 Recorded validation writes under `tmp/demo/shared-tui-tracking-demo-pack/recorded/...` unless `--output-root` overrides it.
 
+Each recorded-capture run now persists a run-local `session_ownership.json` before tmux launch and tags demo-owned tmux sessions with matching recovery pointers in tmux session environment. If a capture dies after tmux startup but before `capture_manifest.json` is written, the run is still recoverable through `cleanup`.
+
 Each run produces:
 
 - `analysis/summary_report.md`
@@ -124,7 +126,21 @@ Stop the latest run:
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop --json
 ```
 
-If you started the live run with a config that changes `live_root`, use the same `--demo-config` again for `inspect` and `stop` unless you pass `--run-root` explicitly:
+Forcefully reap stale demo-owned tmux sessions for the latest recoverable run:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup --json
+```
+
+Target one specific run root when you want recovery without relying on the latest-run heuristic:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup \
+  --run-root tmp/demo/shared-tui-tracking-demo-pack/live/claude/20260322T000000 \
+  --json
+```
+
+If you started the run with a config that changes `live_root` or `recorded_root`, use the same `--demo-config` again for `inspect`, `stop`, and `cleanup` unless you pass `--run-root` explicitly:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh inspect \
@@ -132,6 +148,10 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh inspect \
   --json
 
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop \
+  --demo-config /path/to/alternate-demo-config.toml \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup \
   --demo-config /path/to/alternate-demo-config.toml \
   --json
 ```
@@ -147,6 +167,8 @@ The normal launch posture is intentionally permissive, and the default live-watc
 This avoids routine approval stalls during observation without paying recorder overhead on every smoke test.
 
 Each live run also persists `artifacts/resolved_demo_config.json` so later inspection can see which launch, evidence, semantic, and presentation defaults were active.
+
+Each live or recorded run also keeps a run-local `session_ownership.json` with the demo-owned tool, dashboard, and recorder resources known for that run. `stop` remains the graceful live-watch finalization path that writes replay and report artifacts. `cleanup` is the forceful recovery path for stale tmux sessions and does not claim finalized analysis output.
 
 ## Real Fixture Authoring Plan
 

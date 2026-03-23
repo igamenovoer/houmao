@@ -18,9 +18,11 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start \
   --demo-config /path/to/alternate-demo-config.toml
 ```
 
-The selected config file becomes the base config for that command. The demo does not merge the alternate file with the checked-in companion config. If you use custom config-derived roots such as a different `live_root` or `recorded_root`, use the same `--demo-config` again for later `inspect`, `stop`, `recorded-validate-corpus`, or `recorded-sweep` calls unless you pass an explicit `--run-root` or `--fixtures-root`.
+The selected config file becomes the base config for that command. The demo does not merge the alternate file with the checked-in companion config. If you use custom config-derived roots such as a different `live_root` or `recorded_root`, use the same `--demo-config` again for later `inspect`, `stop`, `cleanup`, `recorded-validate-corpus`, or `recorded-sweep` calls unless you pass an explicit `--run-root` or `--fixtures-root`.
 
 Each run persists the resolved config payload, including `source_config_path`, so later inspection can tell which file governed the run.
+
+Each live-watch or recorded-capture run also writes a run-local `session_ownership.json` and publishes matching secret-free recovery pointers into the demo-owned tmux session environment. Normal `stop` uses that bookkeeping for graceful live-watch finalization. Forceful `cleanup` uses the same bookkeeping to recover stale demo-owned tmux sessions when graceful shutdown is no longer possible.
 
 ## Merge Order
 
@@ -88,7 +90,7 @@ Controls how evidence is captured around the tmux-backed demo session:
 - `sample_interval_seconds`: live observation cadence, and recorder pane-snapshot cadence when recorder capture is enabled
 - `runtime_observer_interval_seconds`: runtime liveness sampling cadence
 - `ready_timeout_seconds`: timeout used by scenario steps that wait for a ready surface
-- `cleanup_session`: whether the demo reaps the tmux session after capture
+- `cleanup_session`: whether a successful recorded-capture run reaps its tool tmux session after recorder shutdown; failures still use the shared ownership-based recovery path to avoid stale sessions
 - `live_watch_recorder_enabled`: whether live watch retains passive terminal-recorder capture for replay debugging
 
 If `runtime_observer_interval_seconds` is omitted, it defaults to the sample interval in the resolved config.
@@ -196,7 +198,7 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
   --demo-config /path/to/alternate-demo-config.toml
 ```
 
-Use an alternate config for live watch, then inspect and stop with the same config-derived roots:
+Use an alternate config for live watch, then inspect, stop, or clean up with the same config-derived roots:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start \
@@ -208,6 +210,10 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh inspect \
   --json
 
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh stop \
+  --demo-config /path/to/alternate-demo-config.toml \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup \
   --demo-config /path/to/alternate-demo-config.toml \
   --json
 ```

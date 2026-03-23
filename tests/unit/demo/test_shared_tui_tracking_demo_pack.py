@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 from houmao.demo.shared_tui_tracking_demo_pack import driver as demo_driver
+from houmao.demo.shared_tui_tracking_demo_pack import ownership as ownership_module
 from houmao.demo.shared_tui_tracking_demo_pack import recorded as recorded_module
 from houmao.demo.shared_tui_tracking_demo_pack.boundary_models import DemoConfigDocumentV1
 from houmao.demo.shared_tui_tracking_demo_pack.config import (
@@ -26,10 +27,16 @@ from houmao.demo.shared_tui_tracking_demo_pack.live_watch import (
     stop_live_watch,
 )
 from houmao.demo.shared_tui_tracking_demo_pack.models import (
+    DemoOwnedResource,
+    DemoSessionOwnership,
     LiveWatchManifest,
     LiveWatchPaths,
     RecordedValidationPaths,
+    load_session_ownership,
+    save_session_ownership,
+    session_ownership_path,
 )
+from houmao.demo.shared_tui_tracking_demo_pack.ownership import ResolvedDemoOwnedResources
 from houmao.demo.shared_tui_tracking_demo_pack.recorded import validate_recorded_fixture
 from houmao.demo.shared_tui_tracking_demo_pack.scenario import load_scenario
 from houmao.demo.shared_tui_tracking_demo_pack.review_video import (
@@ -65,6 +72,72 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     """Write one JSON file."""
 
     _write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _write_terminal_record_manifest(
+    run_root: Path,
+    *,
+    recorder_session_name: str = "terminal-record-demo",
+    target_session_name: str = "shared-tui-claude-demo",
+    pane_id: str = "%1",
+) -> None:
+    """Write one minimal terminal-recorder manifest for tests."""
+
+    _write_json(
+        run_root / "manifest.json",
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "mode": "passive",
+            "repo_root": str(_repo_root()),
+            "run_root": str(run_root.resolve()),
+            "target": {
+                "session_name": target_session_name,
+                "pane_id": pane_id,
+                "window_id": "@1",
+                "window_name": "main",
+            },
+            "tool": "claude",
+            "sample_interval_seconds": 0.2,
+            "visual_recording_kind": "readonly_observer",
+            "input_capture_level": "output_only",
+            "run_tainted": False,
+            "taint_reasons": [],
+            "recorder_session_name": recorder_session_name,
+            "attach_command": None,
+            "started_at_utc": "2026-03-22T00:00:00+00:00",
+            "stopped_at_utc": None,
+            "stop_reason": None,
+        },
+    )
+
+
+def _demo_session_ownership(
+    run_root: Path,
+    *,
+    workflow_kind: str = "live_watch",
+    status: str = "starting",
+    recorder_run_root: Path | None = None,
+    owned_resources: tuple[DemoOwnedResource, ...] = (),
+) -> DemoSessionOwnership:
+    """Return one demo-run ownership payload for tests."""
+
+    return DemoSessionOwnership(
+        schema_version=1,
+        demo_id="shared-tui-tracking-demo-pack",
+        workflow_kind=workflow_kind,  # type: ignore[arg-type]
+        run_root=str(run_root.resolve()),
+        tool="claude",
+        status=status,  # type: ignore[arg-type]
+        recorder_run_root=(
+            str(recorder_run_root.resolve()) if recorder_run_root is not None else None
+        ),
+        owned_resources=owned_resources,
+        started_at_utc="2026-03-22T00:00:00+00:00",
+        updated_at_utc="2026-03-22T00:00:00+00:00",
+        stopped_at_utc=None,
+        last_error=None,
+    )
 
 
 def _demo_config() -> ResolvedDemoConfig:
@@ -148,6 +221,159 @@ def test_recorded_and_live_paths_resolve_expected_layout() -> None:
         live_paths.terminal_record_run_root
         == live_run_root / f"terminal-record-{live_run_root.name}"
     )
+
+
+def test_demo_session_ownership_round_trips_and_saves_atomically(tmp_path: Path) -> None:
+    """Ownership artifacts should round-trip cleanly without leaving temp files behind."""
+
+    run_root = tmp_path / "live-run"
+    ownership = _demo_session_ownership(
+        run_root,
+        owned_resources=(DemoOwnedResource(role="tool", session_name="shared-tui-claude-demo"),),
+    )
+    path = session_ownership_path(run_root=run_root)
+
+    save_session_ownership(path, ownership)
+
+    assert load_session_ownership(path) == ownership
+    assert list(run_root.glob("*.tmp")) == []
+
+
+def test_publish_demo_session_recovery_pointers_sets_tmux_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ownership publication should tag tmux sessions with run-local recovery pointers."""
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ownership_module,
+        "set_tmux_session_environment",
+        lambda *, session_name, env_vars: captured.update(
+            {"session_name": session_name, "env_vars": env_vars}
+        ),
+    )
+
+    ownership_module.publish_demo_session_recovery_pointers(
+        demo_id="shared-tui-tracking-demo-pack",
+        run_root=tmp_path / "live-run",
+        session_name="shared-tui-claude-demo",
+        role="tool",
+    )
+
+    assert captured["session_name"] == "shared-tui-claude-demo"
+    assert captured["env_vars"] == {
+        ownership_module.DEMO_SESSION_ID_ENV_VAR: "shared-tui-tracking-demo-pack",
+        ownership_module.DEMO_SESSION_RUN_ROOT_ENV_VAR: str((tmp_path / "live-run").resolve()),
+        ownership_module.DEMO_SESSION_OWNERSHIP_PATH_ENV_VAR: str(
+            session_ownership_path(run_root=tmp_path / "live-run")
+        ),
+        ownership_module.DEMO_SESSION_ROLE_ENV_VAR: "tool",
+    }
+
+
+def test_resolve_demo_owned_resources_prefers_ownership_then_manifest_then_tmux_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discovery should combine ownership, final manifests, and tmux-env fallback per role."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    save_session_ownership(
+        paths.session_ownership_path,
+        _demo_session_ownership(
+            run_root,
+            owned_resources=(DemoOwnedResource(role="tool", session_name="owned-tool"),),
+        ),
+    )
+    _write_json(paths.watch_manifest_path, _watch_manifest(paths).to_payload())
+    monkeypatch.setattr(
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda session_name: (
+            session_name in {"owned-tool", "shared-tui-dashboard-demo", "recovered-recorder"}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "_list_tmux_session_names",
+        lambda: ("recovered-recorder",),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "read_demo_session_recovery_pointers",
+        lambda *, session_name: (
+            ownership_module.DemoSessionRecoveryPointers(
+                run_root=run_root.resolve(),
+                ownership_path=paths.session_ownership_path,
+                role="recorder",
+            )
+            if session_name == "recovered-recorder"
+            else None
+        ),
+    )
+
+    resolved = ownership_module.resolve_demo_owned_resources(run_root=run_root)
+
+    assert resolved.known_session_name(role="tool") == "owned-tool"
+    assert resolved.known_session_name(role="dashboard") == "shared-tui-dashboard-demo"
+    assert resolved.known_session_name(role="recorder") == "recovered-recorder"
+    assert resolved.recorder_run_root == paths.terminal_record_run_root
+    assert [item.role for item in resolved.owned_resources] == ["tool", "dashboard", "recorder"]
+
+
+def test_reap_demo_owned_resources_stops_recorder_before_tmux_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cleanup should stop the recorder service before direct tmux cleanup for remaining sessions."""
+
+    recorder_run_root = tmp_path / "recording"
+    kill_calls: list[str] = []
+    stop_calls: list[Path] = []
+    monkeypatch.setattr(
+        ownership_module,
+        "stop_terminal_record",
+        lambda *, run_root: stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda _session_name: True,
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "kill_tmux_session_if_exists",
+        lambda *, session_name: kill_calls.append(session_name),
+    )
+
+    resolved = ResolvedDemoOwnedResources(
+        run_root=tmp_path / "live-run",
+        ownership_path=session_ownership_path(run_root=tmp_path / "live-run"),
+        ownership=None,
+        recorder_run_root=recorder_run_root,
+        owned_resources=(
+            DemoOwnedResource(role="tool", session_name="tool-session"),
+            DemoOwnedResource(role="dashboard", session_name="dashboard-session"),
+            DemoOwnedResource(role="recorder", session_name="recorder-session"),
+        ),
+        live_resources=(
+            DemoOwnedResource(role="tool", session_name="tool-session"),
+            DemoOwnedResource(role="dashboard", session_name="dashboard-session"),
+            DemoOwnedResource(role="recorder", session_name="recorder-session"),
+        ),
+    )
+
+    payload = ownership_module.reap_demo_owned_resources(
+        resolved_resources=resolved,
+        include_roles={"tool", "dashboard", "recorder"},
+        stop_recorder=True,
+        best_effort=False,
+    )
+
+    assert stop_calls == [recorder_run_root]
+    assert kill_calls == ["tool-session", "dashboard-session", "recorder-session"]
+    assert payload["recorder_stop"] == {"status": "stopped"}
 
 
 def test_default_tool_runtime_metadata_uses_permissive_launch_posture() -> None:
@@ -425,6 +651,10 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
         lambda **_kwargs: "%1",
     )
     monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.publish_demo_session_recovery_pointers",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
         "houmao.demo.shared_tui_tracking_demo_pack.live_watch.start_terminal_record",
         lambda **kwargs: recorder_start_calls.append(kwargs),
     )
@@ -437,11 +667,18 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
     )
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
-        lambda *, run_root: {"status": "stopped", "run_root": str(run_root)},
+        ownership_module,
+        "_list_tmux_session_names",
+        lambda: (),
     )
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda _session_name: True,
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "kill_tmux_session_if_exists",
         lambda *, session_name: cleaned_sessions.append(session_name),
     )
 
@@ -472,6 +709,8 @@ def test_start_live_watch_builds_run_local_runtime_and_cleanup_on_failure(
     assert manifest_payload["terminal_record_run_root"] is None
     assert live_state_payload["status"] == "failed"
     assert live_state_payload["last_error"] == "dashboard failed"
+    ownership_payload = json.loads(paths.session_ownership_path.read_text(encoding="utf-8"))
+    assert ownership_payload["status"] == "failed"
 
 
 def test_start_live_watch_starts_recorder_when_enabled(
@@ -527,10 +766,18 @@ def test_start_live_watch_starts_recorder_when_enabled(
         lambda **_kwargs: "%1",
     )
     monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.publish_demo_session_recovery_pointers",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
         "houmao.demo.shared_tui_tracking_demo_pack.live_watch.start_terminal_record",
         lambda **kwargs: (
             recorder_start_calls.append(kwargs),
             Path(kwargs["run_root"]).mkdir(parents=True, exist_ok=True),
+            _write_terminal_record_manifest(
+                Path(kwargs["run_root"]),
+                recorder_session_name="terminal-record-live-run",
+            ),
             {"status": "running"},
         )[-1],
     )
@@ -543,11 +790,23 @@ def test_start_live_watch_starts_recorder_when_enabled(
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
     )
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
+        ownership_module,
+        "_list_tmux_session_names",
+        lambda: (),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda _session_name: True,
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "stop_terminal_record",
         lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
     )
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        ownership_module,
+        "kill_tmux_session_if_exists",
         lambda **_kwargs: None,
     )
 
@@ -575,6 +834,8 @@ def test_start_live_watch_starts_recorder_when_enabled(
     assert recorder_stop_calls == [paths.terminal_record_run_root]
     assert manifest_payload["recorder_enabled"] is True
     assert manifest_payload["terminal_record_run_root"] == str(paths.terminal_record_run_root)
+    ownership_payload = json.loads(paths.session_ownership_path.read_text(encoding="utf-8"))
+    assert ownership_payload["owned_resources"][-1]["session_name"] == "terminal-record-live-run"
 
 
 def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
@@ -632,7 +893,20 @@ def test_stop_live_watch_accepts_older_manifest_without_resolved_config_path(
     )
     cleaned_sessions: list[str] = []
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        ownership_module,
+        "_list_tmux_session_names",
+        lambda: (),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda session_name: (
+            session_name in {"shared-tui-claude-demo", "shared-tui-dashboard-demo"}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "kill_tmux_session_if_exists",
         lambda *, session_name: cleaned_sessions.append(session_name),
     )
     monkeypatch.setattr(
@@ -684,7 +958,9 @@ def test_stop_live_watch_without_recorder_skips_recorder_shutdown(
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     paths.analysis_dir.mkdir(parents=True, exist_ok=True)
     paths.issues_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload()
+    )
     _write_json(
         paths.live_state_path,
         {
@@ -709,7 +985,20 @@ def test_stop_live_watch_without_recorder_skips_recorder_shutdown(
     )
     cleaned_sessions: list[str] = []
     monkeypatch.setattr(
-        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.kill_tmux_session_if_exists",
+        ownership_module,
+        "_list_tmux_session_names",
+        lambda: (),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "_tmux_session_is_live",
+        lambda session_name: (
+            session_name in {"shared-tui-claude-demo", "shared-tui-dashboard-demo"}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "kill_tmux_session_if_exists",
         lambda *, session_name: cleaned_sessions.append(session_name),
     )
     monkeypatch.setattr(
@@ -746,6 +1035,135 @@ def test_stop_live_watch_without_recorder_skips_recorder_shutdown(
     assert updated_manifest["terminal_record_run_root"] is None
 
 
+def test_stop_live_watch_uses_recovered_owned_resources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop should use recovered ownership metadata when manifest session names are stale."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.analysis_dir.mkdir(parents=True, exist_ok=True)
+    paths.issues_dir.mkdir(parents=True, exist_ok=True)
+    manifest = _watch_manifest(paths)
+    _write_json(
+        paths.watch_manifest_path,
+        LiveWatchManifest(
+            schema_version=manifest.schema_version,
+            run_id=manifest.run_id,
+            tool=manifest.tool,
+            repo_root=manifest.repo_root,
+            run_root=manifest.run_root,
+            runtime_root=manifest.runtime_root,
+            recipe_path=manifest.recipe_path,
+            brain_home_path=manifest.brain_home_path,
+            brain_manifest_path=manifest.brain_manifest_path,
+            launch_helper_path=manifest.launch_helper_path,
+            workdir=manifest.workdir,
+            tool_session_name="manifest-tool-session",
+            tool_attach_command=manifest.tool_attach_command,
+            dashboard_session_name="manifest-dashboard-session",
+            dashboard_attach_command=manifest.dashboard_attach_command,
+            dashboard_command=manifest.dashboard_command,
+            recorder_enabled=manifest.recorder_enabled,
+            terminal_record_run_root=manifest.terminal_record_run_root,
+            resolved_config_path=manifest.resolved_config_path,
+            sample_interval_seconds=manifest.sample_interval_seconds,
+            runtime_observer_interval_seconds=manifest.runtime_observer_interval_seconds,
+            settle_seconds=manifest.settle_seconds,
+            observed_version=manifest.observed_version,
+            trace_enabled=manifest.trace_enabled,
+            started_at_utc=manifest.started_at_utc,
+            stopped_at_utc=manifest.stopped_at_utc,
+            stop_reason=manifest.stop_reason,
+        ).to_payload(),
+    )
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+    recovered = ResolvedDemoOwnedResources(
+        run_root=run_root.resolve(),
+        ownership_path=session_ownership_path(run_root=run_root),
+        ownership=None,
+        recorder_run_root=paths.terminal_record_run_root,
+        owned_resources=(
+            DemoOwnedResource(role="tool", session_name="recovered-tool-session"),
+            DemoOwnedResource(role="dashboard", session_name="recovered-dashboard-session"),
+            DemoOwnedResource(role="recorder", session_name="terminal-record-live-run"),
+        ),
+        live_resources=(
+            DemoOwnedResource(role="tool", session_name="recovered-tool-session"),
+            DemoOwnedResource(role="dashboard", session_name="recovered-dashboard-session"),
+            DemoOwnedResource(role="recorder", session_name="terminal-record-live-run"),
+        ),
+    )
+    recorder_stop_calls: list[Path] = []
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.resolve_demo_owned_resources",
+        lambda *, run_root: recovered,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.stop_terminal_record",
+        lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._wait_for_dashboard_stop",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.reap_demo_owned_resources",
+        lambda *, resolved_resources, **_kwargs: {
+            "cleaned_sessions": [
+                resolved_resources.known_session_name(role="tool"),
+                resolved_resources.known_session_name(role="dashboard"),
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch._finalize_live_replay",
+        lambda **_kwargs: SimpleNamespace(mismatch_count=0),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_run_issues",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.write_issue_documents",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.build_live_summary_report",
+        lambda **_kwargs: "summary\n",
+    )
+    timestamps = iter(["2026-03-22T00:00:03+00:00", "2026-03-22T00:00:04+00:00"])
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.now_utc_iso",
+        lambda: next(timestamps),
+    )
+
+    payload = stop_live_watch(
+        repo_root=tmp_path,
+        demo_config=_demo_config(),
+        run_root=run_root,
+        stop_reason="operator_requested",
+    )
+
+    assert recorder_stop_calls == [paths.terminal_record_run_root]
+    assert payload["cleaned_sessions"] == [
+        "recovered-tool-session",
+        "recovered-dashboard-session",
+    ]
+
+
 def test_run_dashboard_uses_direct_visible_pane_capture_without_recorder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -754,7 +1172,9 @@ def test_run_dashboard_uses_direct_visible_pane_capture_without_recorder(
     run_root = tmp_path / "live-run"
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload()
+    )
     _write_json(
         paths.live_state_path,
         {
@@ -1238,7 +1658,9 @@ def test_inspect_live_watch_reports_recorder_disabled_state(
     run_root = tmp_path / "live-run"
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload())
+    _write_json(
+        paths.watch_manifest_path, _watch_manifest(paths, recorder_enabled=False).to_payload()
+    )
     _write_json(
         paths.live_state_path,
         {
@@ -1286,6 +1708,111 @@ def test_inspect_live_watch_reports_recorder_disabled_state(
     assert payload["recorder_status"] is None
 
 
+def test_inspect_live_watch_reports_recovered_session_liveness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspect should report liveness from recovered ownership metadata, not only manifest names."""
+
+    run_root = tmp_path / "live-run"
+    paths = LiveWatchPaths.from_run_root(run_root=run_root)
+    paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    manifest = _watch_manifest(paths, recorder_enabled=False)
+    _write_json(
+        paths.watch_manifest_path,
+        LiveWatchManifest(
+            schema_version=manifest.schema_version,
+            run_id=manifest.run_id,
+            tool=manifest.tool,
+            repo_root=manifest.repo_root,
+            run_root=manifest.run_root,
+            runtime_root=manifest.runtime_root,
+            recipe_path=manifest.recipe_path,
+            brain_home_path=manifest.brain_home_path,
+            brain_manifest_path=manifest.brain_manifest_path,
+            launch_helper_path=manifest.launch_helper_path,
+            workdir=manifest.workdir,
+            tool_session_name="manifest-tool-session",
+            tool_attach_command=manifest.tool_attach_command,
+            dashboard_session_name="manifest-dashboard-session",
+            dashboard_attach_command=manifest.dashboard_attach_command,
+            dashboard_command=manifest.dashboard_command,
+            recorder_enabled=manifest.recorder_enabled,
+            terminal_record_run_root=manifest.terminal_record_run_root,
+            resolved_config_path=manifest.resolved_config_path,
+            sample_interval_seconds=manifest.sample_interval_seconds,
+            runtime_observer_interval_seconds=manifest.runtime_observer_interval_seconds,
+            settle_seconds=manifest.settle_seconds,
+            observed_version=manifest.observed_version,
+            trace_enabled=manifest.trace_enabled,
+            started_at_utc=manifest.started_at_utc,
+            stopped_at_utc=manifest.stopped_at_utc,
+            stop_reason=manifest.stop_reason,
+        ).to_payload(),
+    )
+    _write_json(
+        paths.live_state_path,
+        {
+            "schema_version": 1,
+            "run_id": run_root.name,
+            "run_root": str(run_root),
+            "status": "running",
+            "latest_state_path": str(paths.latest_state_path),
+            "stop_requested_at_utc": None,
+            "last_error": None,
+            "updated_at_utc": "2026-03-22T00:00:00+00:00",
+        },
+    )
+    _write_json(
+        paths.latest_state_path,
+        {
+            "sample_id": "s000001",
+            "elapsed_seconds": 0.0,
+            "diagnostics_availability": "available",
+            "turn_phase": "ready",
+            "last_turn_result": "none",
+            "last_turn_source": "none",
+            "surface_accepting_input": "yes",
+            "surface_editing_input": "no",
+            "surface_ready_posture": "yes",
+        },
+    )
+    recovered = ResolvedDemoOwnedResources(
+        run_root=run_root.resolve(),
+        ownership_path=session_ownership_path(run_root=run_root),
+        ownership=None,
+        recorder_run_root=None,
+        owned_resources=(
+            DemoOwnedResource(role="tool", session_name="recovered-tool-session"),
+            DemoOwnedResource(role="dashboard", session_name="recovered-dashboard-session"),
+        ),
+        live_resources=(
+            DemoOwnedResource(role="dashboard", session_name="recovered-dashboard-session"),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.resolve_demo_owned_resources",
+        lambda *, run_root: recovered,
+    )
+    monkeypatch.setattr(
+        "houmao.demo.shared_tui_tracking_demo_pack.live_watch.tmux_session_exists",
+        lambda *, session_name: session_name == "recovered-tool-session",
+    )
+
+    payload = inspect_live_watch(
+        repo_root=_repo_root(),
+        demo_config=_demo_config(),
+        run_root=run_root,
+    )
+
+    assert payload["tool_session_running"] is True
+    assert payload["dashboard_session_running"] is True
+    assert payload["owned_resources"] == [
+        {"role": "tool", "session_name": "recovered-tool-session"},
+        {"role": "dashboard", "session_name": "recovered-dashboard-session"},
+    ]
+    assert payload["ownership_path"] == str(paths.session_ownership_path)
+
+
 def test_driver_start_supports_with_recorder_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1311,6 +1838,176 @@ def test_driver_start_supports_with_recorder_override(
     assert demo_driver.main(["start", "--tool", "claude", "--with-recorder", "--json"]) == 0
     capsys.readouterr()
     assert captured["recorder_enabled"] is True
+
+
+def test_driver_cleanup_command_reports_forceful_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The driver should expose the forceful cleanup command with machine-readable output."""
+
+    captured: dict[str, object] = {}
+
+    def _fake_cleanup_demo_run(**kwargs):
+        captured["run_root"] = kwargs["run_root"]
+        return {
+            "run_root": str(tmp_path / "live-run"),
+            "cleanup_kind": "forceful",
+            "finalized_analysis": False,
+            "cleaned_sessions": ["shared-tui-claude-demo"],
+        }
+
+    monkeypatch.setattr(demo_driver, "cleanup_demo_run", _fake_cleanup_demo_run)
+
+    assert demo_driver.main(["cleanup", "--run-root", str(tmp_path / "live-run"), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert captured["run_root"] == (tmp_path / "live-run").resolve()
+    assert payload["cleanup_kind"] == "forceful"
+    assert payload["finalized_analysis"] is False
+
+
+def test_run_recorded_capture_failure_after_tmux_launch_remains_recoverable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorded-capture failures after tmux launch should still clean up through ownership metadata."""
+
+    recipe_path = tmp_path / "recipe.yaml"
+    _write(
+        recipe_path,
+        "\n".join(
+            [
+                "schema_version: 1",
+                "name: recorded-default",
+                "tool: claude",
+                "skills: []",
+                "config_profile: default",
+                "credential_profile: personal-a-default",
+            ]
+        )
+        + "\n",
+    )
+    scenario = load_scenario(
+        _repo_root()
+        / "scripts"
+        / "demo"
+        / "shared-tui-tracking-demo-pack"
+        / "scenarios"
+        / "claude-explicit-success.json"
+    )
+    run_root = tmp_path / "recorded-run"
+    cleaned_sessions: list[str] = []
+    recorder_stop_calls: list[Path] = []
+
+    def _fake_build(request):
+        home_path = Path(request.runtime_root) / "homes" / "claude-home"  # type: ignore[arg-type]
+        manifest_path = Path(request.runtime_root) / "manifests" / "claude-home.yaml"  # type: ignore[arg-type]
+        launch_path = home_path / "launch.sh"
+        home_path.mkdir(parents=True, exist_ok=True)
+        launch_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("schema_version: 1\n", encoding="utf-8")
+        return SimpleNamespace(
+            home_path=home_path,
+            manifest_path=manifest_path,
+            launch_helper_path=launch_path,
+        )
+
+    class _FakeObserver:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def start(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+    monkeypatch.setattr(recorded_module, "build_brain_home", _fake_build)
+    monkeypatch.setattr(
+        recorded_module,
+        "_resolve_scenario_launch",
+        lambda **_kwargs: SimpleNamespace(
+            settle_seconds=1.0,
+            sample_interval_seconds=0.2,
+            runtime_observer_interval_seconds=0.2,
+            ready_timeout_seconds=45.0,
+            recipe_path=recipe_path,
+        ),
+    )
+    monkeypatch.setattr(
+        recorded_module,
+        "load_brain_recipe",
+        lambda _path: SimpleNamespace(
+            tool="claude",
+            skills=[],
+            config_profile="default",
+            credential_profile="personal-a-default",
+            mailbox=None,
+            default_agent_name="claude-home",
+            operator_prompt_mode=None,
+        ),
+    )
+    monkeypatch.setattr(recorded_module, "launch_tmux_session", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        recorded_module, "publish_demo_session_recovery_pointers", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(recorded_module, "resolve_active_pane_id", lambda **_kwargs: "%1")
+    monkeypatch.setattr(
+        recorded_module,
+        "detect_tool_version",
+        lambda *, tool: "2.1.80" if tool == "claude" else None,
+    )
+    monkeypatch.setattr(
+        recorded_module,
+        "start_terminal_record",
+        lambda **kwargs: (
+            Path(kwargs["run_root"]).mkdir(parents=True, exist_ok=True),
+            _write_terminal_record_manifest(
+                Path(kwargs["run_root"]),
+                recorder_session_name="terminal-record-recorded-run",
+                target_session_name=kwargs["target_session"],
+            ),
+            {"status": "running", "run_root": str(kwargs["run_root"])},
+        )[-1],
+    )
+    monkeypatch.setattr(recorded_module, "RuntimeObserver", _FakeObserver)
+    monkeypatch.setattr(
+        recorded_module,
+        "_execute_scenario",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("drive failure")),
+    )
+    monkeypatch.setattr(ownership_module, "_list_tmux_session_names", lambda: ())
+    monkeypatch.setattr(ownership_module, "_tmux_session_is_live", lambda _session_name: True)
+    monkeypatch.setattr(
+        ownership_module,
+        "stop_terminal_record",
+        lambda *, run_root: recorder_stop_calls.append(run_root) or {"status": "stopped"},
+    )
+    monkeypatch.setattr(
+        ownership_module,
+        "kill_tmux_session_if_exists",
+        lambda *, session_name: cleaned_sessions.append(session_name),
+    )
+
+    with pytest.raises(RuntimeError, match="drive failure"):
+        recorded_module.run_recorded_capture(
+            repo_root=tmp_path,
+            scenario=scenario,
+            demo_config=_demo_config(),
+            output_root=run_root,
+            cleanup_session=False,
+        )
+
+    ownership = load_session_ownership(session_ownership_path(run_root=run_root))
+    assert ownership is not None
+    assert ownership.status == "failed"
+    assert [item.role for item in ownership.owned_resources] == ["tool", "recorder"]
+    assert recorder_stop_calls == [run_root / "recording"]
+    assert set(cleaned_sessions) == {
+        "shared-tui-claude-recorded-run",
+        "terminal-record-recorded-run",
+    }
+    assert not (run_root / "capture_manifest.json").exists()
 
 
 def test_validate_recorded_fixture_persists_selected_source_config_path(tmp_path: Path) -> None:

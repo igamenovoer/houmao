@@ -12,6 +12,7 @@ from typing import Any
 
 from .config import resolve_demo_config
 from .live_watch import inspect_live_watch, run_dashboard, start_live_watch, stop_live_watch
+from .ownership import cleanup_demo_run
 from .recorded import run_recorded_capture, validate_fixture_corpus, validate_recorded_fixture
 from .scenario import load_scenario
 from .sweep import run_recorded_sweep
@@ -208,6 +209,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit_payload(stop_payload, json_output=bool(args.json))
             return 0
+        if args.command == "cleanup":
+            demo_config = resolve_demo_config(
+                repo_root=_repo_root(),
+                config_path=_optional_path(args.demo_config),
+                profile_name=args.profile,
+            )
+            cleanup_payload = cleanup_demo_run(
+                demo_config=demo_config,
+                run_root=_optional_path(args.run_root),
+            )
+            _emit_payload(cleanup_payload, json_output=bool(args.json))
+            return 0
         if args.command == "dashboard":
             return run_dashboard(run_root=_resolve_path(args.run_root))
     except (OSError, RuntimeError, ValueError) as exc:
@@ -313,6 +326,15 @@ def _build_parser() -> argparse.ArgumentParser:
     stop.add_argument("--run-root")
     stop.add_argument("--reason", default="operator_requested")
     stop.add_argument("--json", action="store_true")
+
+    cleanup = subparsers.add_parser(
+        "cleanup",
+        help="Forcefully reap one demo run's owned tmux sessions",
+    )
+    cleanup.add_argument("--demo-config")
+    cleanup.add_argument("--profile")
+    cleanup.add_argument("--run-root")
+    cleanup.add_argument("--json", action="store_true")
 
     dashboard = subparsers.add_parser("dashboard", help="Run the live dashboard loop")
     dashboard.add_argument("--run-root", required=True)

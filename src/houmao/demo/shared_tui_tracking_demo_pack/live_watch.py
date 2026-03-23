@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +20,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.shared_tui_tracking.models import RecordedObservation, RuntimeObservation
 from houmao.shared_tui_tracking.reducer import StreamStateReducer, replay_timeline
-from houmao.terminal_record.models import TerminalRecordPaths, load_manifest as load_terminal_record_manifest
+from houmao.terminal_record.models import (
+    TerminalRecordPaths,
+    load_manifest as load_terminal_record_manifest,
+)
 from houmao.terminal_record.service import (
     start_terminal_record,
     status_terminal_record,
@@ -45,6 +47,15 @@ from .models import (
     load_ndjson,
     save_json,
 )
+from .ownership import (
+    initialize_demo_session_ownership,
+    publish_demo_session_recovery_pointers,
+    reap_demo_owned_resources,
+    resolve_demo_owned_resources,
+    set_demo_session_ownership_status,
+    set_demo_session_recorder_run_root,
+    upsert_demo_owned_resource,
+)
 from .reporting import (
     build_live_run_issues,
     build_live_summary_report,
@@ -55,7 +66,6 @@ from .tooling import (
     capture_visible_pane_text,
     default_tool_runtime_metadata,
     detect_tool_version,
-    kill_tmux_session_if_exists,
     launch_tmux_session,
     now_utc_iso,
     resolve_active_pane_id,
@@ -65,16 +75,6 @@ from .tooling import (
 
 
 DEFAULT_DASHBOARD_REFRESH_PER_SECOND = 4.0
-
-
-@dataclass
-class _StartupResources:
-    """Track workflow-owned resources created during live-watch startup."""
-
-    tool_session_name: str | None = None
-    dashboard_session_name: str | None = None
-    terminal_record_run_root: Path | None = None
-    metadata_written: bool = False
 
 
 def start_live_watch(
@@ -102,51 +102,71 @@ def start_live_watch(
         raise RuntimeError(f"Run root already exists: {run_root}")
     paths = LiveWatchPaths.from_run_root(run_root=run_root)
     ensure_directory_layout(paths)
-
-    tool_metadata = default_tool_runtime_metadata(
-        repo_root=repo_root,
+    initialize_demo_session_ownership(
+        demo_id=demo_config.demo_id,
+        run_root=run_root,
+        workflow_kind="live_watch",
         tool=tool,
-        demo_config=demo_config,
     )
-    selected_recipe_path = (
-        recipe_path.expanduser().resolve()
-        if recipe_path is not None
-        else tool_metadata.interactive_watch_recipe_path
-    )
-    recipe = load_brain_recipe(selected_recipe_path)
-    if recipe.tool != tool:
-        raise RuntimeError(
-            f"Interactive watch requested `{tool}`, but recipe `{selected_recipe_path}` declares `{recipe.tool}`."
-        )
-    build_result = build_brain_home(
-        BuildRequest(
-            agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
-            tool=recipe.tool,
-            skills=list(recipe.skills),
-            config_profile=recipe.config_profile,
-            credential_profile=recipe.credential_profile,
-            runtime_root=paths.runtime_root,
-            mailbox=recipe.mailbox,
-            agent_name=recipe.default_agent_name,
-            launch_args_override=tool_metadata.launch_args_override,
-            operator_prompt_mode=tool_metadata.operator_prompt_mode or recipe.operator_prompt_mode,
-        )
-    )
-    observed_version = detect_tool_version(tool=tool)
-    tool_session_name = build_session_name(prefix=f"shared-tui-{tool}", run_id=run_root.name)
-    dashboard_session_name = build_session_name(prefix="shared-tui-dashboard", run_id=run_root.name)
-    recorder_enabled = demo_config.evidence.live_watch_recorder_enabled
-    resources = _StartupResources()
+
     try:
+        tool_metadata = default_tool_runtime_metadata(
+            repo_root=repo_root,
+            tool=tool,
+            demo_config=demo_config,
+        )
+        selected_recipe_path = (
+            recipe_path.expanduser().resolve()
+            if recipe_path is not None
+            else tool_metadata.interactive_watch_recipe_path
+        )
+        recipe = load_brain_recipe(selected_recipe_path)
+        if recipe.tool != tool:
+            raise RuntimeError(
+                f"Interactive watch requested `{tool}`, but recipe `{selected_recipe_path}` declares `{recipe.tool}`."
+            )
+        build_result = build_brain_home(
+            BuildRequest(
+                agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
+                tool=recipe.tool,
+                skills=list(recipe.skills),
+                config_profile=recipe.config_profile,
+                credential_profile=recipe.credential_profile,
+                runtime_root=paths.runtime_root,
+                mailbox=recipe.mailbox,
+                agent_name=recipe.default_agent_name,
+                launch_args_override=tool_metadata.launch_args_override,
+                operator_prompt_mode=tool_metadata.operator_prompt_mode
+                or recipe.operator_prompt_mode,
+            )
+        )
+        observed_version = detect_tool_version(tool=tool)
+        tool_session_name = build_session_name(prefix=f"shared-tui-{tool}", run_id=run_root.name)
+        dashboard_session_name = build_session_name(
+            prefix="shared-tui-dashboard",
+            run_id=run_root.name,
+        )
+        recorder_enabled = demo_config.evidence.live_watch_recorder_enabled
         save_json(paths.resolved_config_path, demo_config.to_payload())
         launch_tmux_session(
             session_name=tool_session_name,
             workdir=paths.workdir,
             launch_script=build_result.launch_helper_path,
         )
-        resources.tool_session_name = tool_session_name
+        upsert_demo_owned_resource(run_root=run_root, role="tool", session_name=tool_session_name)
+        publish_demo_session_recovery_pointers(
+            demo_id=demo_config.demo_id,
+            run_root=run_root,
+            session_name=tool_session_name,
+            role="tool",
+        )
         pane_id = resolve_active_pane_id(session_name=tool_session_name)
         if recorder_enabled:
+            set_demo_session_recorder_run_root(
+                run_root=run_root,
+                recorder_run_root=paths.terminal_record_run_root,
+            )
+            upsert_demo_owned_resource(run_root=run_root, role="recorder", session_name=None)
             start_terminal_record(
                 mode="passive",
                 target_session=tool_session_name,
@@ -155,7 +175,20 @@ def start_live_watch(
                 run_root=paths.terminal_record_run_root,
                 sample_interval_seconds=sample_interval_seconds,
             )
-            resources.terminal_record_run_root = paths.terminal_record_run_root
+            recorder_manifest = load_terminal_record_manifest(
+                paths.terminal_record_run_root / "manifest.json"
+            )
+            upsert_demo_owned_resource(
+                run_root=run_root,
+                role="recorder",
+                session_name=recorder_manifest.recorder_session_name,
+            )
+            publish_demo_session_recovery_pointers(
+                demo_id=demo_config.demo_id,
+                run_root=run_root,
+                session_name=recorder_manifest.recorder_session_name,
+                role="recorder",
+            )
         dashboard_command = (
             f"cd {repo_root} && pixi run python "
             f"scripts/demo/shared-tui-tracking-demo-pack/scripts/demo_driver.py "
@@ -208,21 +241,31 @@ def start_live_watch(
         )
         save_json(paths.watch_manifest_path, manifest.to_payload())
         save_json(paths.live_state_path, live_state.to_payload())
-        resources.metadata_written = True
 
         launch_tmux_session(
             session_name=dashboard_session_name,
             workdir=repo_root,
             launch_script=dashboard_script,
         )
-        resources.dashboard_session_name = dashboard_session_name
+        upsert_demo_owned_resource(
+            run_root=run_root,
+            role="dashboard",
+            session_name=dashboard_session_name,
+        )
+        publish_demo_session_recovery_pointers(
+            demo_id=demo_config.demo_id,
+            run_root=run_root,
+            session_name=dashboard_session_name,
+            role="dashboard",
+        )
         _wait_for_dashboard_running(paths=paths)
+        set_demo_session_ownership_status(run_root=run_root, status="running")
         return LiveWatchStartResult(run_root=run_root, manifest=manifest)
     except KeyboardInterrupt as exc:
-        _cleanup_failed_start(paths=paths, resources=resources, last_error=_error_text(exc))
+        _cleanup_failed_start(paths=paths, last_error=_error_text(exc))
         raise
     except Exception as exc:
-        _cleanup_failed_start(paths=paths, resources=resources, last_error=_error_text(exc))
+        _cleanup_failed_start(paths=paths, last_error=_error_text(exc))
         raise
 
 
@@ -242,7 +285,14 @@ def inspect_live_watch(
     paths = LiveWatchPaths.from_run_root(run_root=selected_run_root)
     manifest = _load_manifest(paths.watch_manifest_path)
     live_state = _load_live_state(paths.live_state_path)
+    resolved_resources = resolve_demo_owned_resources(run_root=selected_run_root)
     latest_state = load_json(paths.latest_state_path)
+    tool_session_name = (
+        resolved_resources.known_session_name(role="tool") or manifest.tool_session_name
+    )
+    dashboard_session_name = (
+        resolved_resources.known_session_name(role="dashboard") or manifest.dashboard_session_name
+    )
     return {
         "run_root": manifest.run_root,
         "runtime_root": manifest.runtime_root,
@@ -251,14 +301,21 @@ def inspect_live_watch(
         "tool_attach_command": manifest.tool_attach_command,
         "dashboard_attach_command": manifest.dashboard_attach_command,
         "recorder_enabled": manifest.recorder_enabled,
-        "recorder_root": manifest.terminal_record_run_root,
-        "tool_session_running": tmux_session_exists(session_name=manifest.tool_session_name),
-        "dashboard_session_running": tmux_session_exists(
-            session_name=manifest.dashboard_session_name
+        "recorder_root": (
+            str(resolved_resources.recorder_run_root)
+            if resolved_resources.recorder_run_root is not None
+            else manifest.terminal_record_run_root
         ),
+        "tool_session_running": resolved_resources.live_session_name(role="tool") is not None
+        or tmux_session_exists(session_name=tool_session_name),
+        "dashboard_session_running": resolved_resources.live_session_name(role="dashboard")
+        is not None
+        or tmux_session_exists(session_name=dashboard_session_name),
         "recorder_status": _recorder_status_payload(manifest=manifest),
         "live_status": live_state.to_payload(),
         "latest_state": latest_state,
+        "ownership_path": str(paths.session_ownership_path),
+        "owned_resources": [item.to_payload() for item in resolved_resources.owned_resources],
         "artifact_paths": {
             "latest_state": str(paths.latest_state_path),
             "state_samples": str(paths.state_samples_path),
@@ -287,6 +344,7 @@ def stop_live_watch(
     paths = LiveWatchPaths.from_run_root(run_root=selected_run_root)
     manifest = _load_manifest(paths.watch_manifest_path)
     live_state = _load_live_state(paths.live_state_path)
+    resolved_resources = resolve_demo_owned_resources(run_root=selected_run_root)
     stop_requested_at = now_utc_iso()
     save_json(
         paths.live_state_path,
@@ -301,19 +359,31 @@ def stop_live_watch(
             updated_at_utc=stop_requested_at,
         ).to_payload(),
     )
+    try:
+        set_demo_session_ownership_status(
+            run_root=selected_run_root,
+            status="cleanup_pending",
+            last_error="graceful_stop_requested",
+        )
+    except FileNotFoundError:
+        pass
     recorder_stop = (
-        stop_terminal_record(run_root=Path(manifest.terminal_record_run_root))
-        if manifest.recorder_enabled and manifest.terminal_record_run_root is not None
+        stop_terminal_record(run_root=resolved_resources.recorder_run_root)
+        if manifest.recorder_enabled and resolved_resources.recorder_run_root is not None
         else None
     )
     _wait_for_dashboard_stop(paths=paths)
-    kill_tmux_session_if_exists(session_name=manifest.dashboard_session_name)
-    kill_tmux_session_if_exists(session_name=manifest.tool_session_name)
+    cleanup_payload = reap_demo_owned_resources(
+        resolved_resources=resolve_demo_owned_resources(run_root=selected_run_root),
+        include_roles={"tool", "dashboard", "recorder"},
+        stop_recorder=False,
+        best_effort=False,
+    )
 
     comparison = _finalize_live_replay(paths=paths, manifest=manifest)
     labels_present = bool(
-        manifest.terminal_record_run_root is not None
-        and (Path(manifest.terminal_record_run_root) / "labels.json").is_file()
+        resolved_resources.recorder_run_root is not None
+        and (resolved_resources.recorder_run_root / "labels.json").is_file()
     )
     issues = build_live_run_issues(
         comparison=comparison,
@@ -387,12 +457,21 @@ def stop_live_watch(
             updated_at_utc=stopped_at_utc,
         ).to_payload(),
     )
+    try:
+        set_demo_session_ownership_status(
+            run_root=selected_run_root,
+            status="stopped",
+            last_error="graceful_stop_completed",
+        )
+    except FileNotFoundError:
+        pass
     return {
         "run_root": str(paths.run_root),
         "report_path": str(paths.report_path),
         "comparison_path": str(paths.comparison_json_path) if manifest.recorder_enabled else None,
         "recorder_stop": recorder_stop,
         "recorder_enabled": manifest.recorder_enabled,
+        "cleaned_sessions": cleanup_payload["cleaned_sessions"],
     }
 
 
@@ -622,22 +701,25 @@ def _load_live_state(path: Path) -> LiveWatchLiveState:
     return LiveWatchLiveState.from_payload(payload)
 
 
-def _cleanup_failed_start(
-    *, paths: LiveWatchPaths, resources: _StartupResources, last_error: str
-) -> None:
+def _cleanup_failed_start(*, paths: LiveWatchPaths, last_error: str) -> None:
     """Best-effort cleanup for one failed or interrupted startup."""
 
-    if resources.metadata_written:
-        _mark_start_failed(paths=paths, last_error=last_error)
-    if resources.terminal_record_run_root is not None and paths.terminal_record_run_root.exists():
-        try:
-            stop_terminal_record(run_root=resources.terminal_record_run_root)
-        except Exception:
-            pass
-    if resources.dashboard_session_name is not None:
-        kill_tmux_session_if_exists(session_name=resources.dashboard_session_name)
-    if resources.tool_session_name is not None:
-        kill_tmux_session_if_exists(session_name=resources.tool_session_name)
+    _mark_start_failed(paths=paths, last_error=last_error)
+    try:
+        set_demo_session_ownership_status(
+            run_root=paths.run_root, status="failed", last_error=last_error
+        )
+    except FileNotFoundError:
+        pass
+    try:
+        reap_demo_owned_resources(
+            resolved_resources=resolve_demo_owned_resources(run_root=paths.run_root),
+            include_roles={"tool", "dashboard", "recorder"},
+            stop_recorder=True,
+            best_effort=True,
+        )
+    except Exception:
+        pass
 
 
 def _mark_start_failed(*, paths: LiveWatchPaths, last_error: str) -> None:
