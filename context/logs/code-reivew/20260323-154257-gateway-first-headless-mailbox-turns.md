@@ -119,6 +119,9 @@ While the `GatewayMailboxAdapter.update_read_state` protocol accepts `read: bool
 
 **Recommendation:** If intentionally v1-narrowed, add a brief docstring or inline comment such as `# v1: only mark-read is supported; mark-unread deferred`. Also consider whether the adapter protocol should mirror this restriction or remain wider for future readiness.
 
+> **DECISION: Refine.**
+> Rationale: The apparent mismatch is real, but widening the request model to `read: bool` would change the accepted v1 contract. The change spec and [`docs/reference/gateway/contracts/protocol-and-state.md`](../../../docs/reference/gateway/contracts/protocol-and-state.md) intentionally restrict `POST /v1/mail/state` to the one-way "mark one processed message read" flow with `read=true`, not general mailbox flag editing or mark-unread. I am not treating this as a correctness bug in the shipped contract. The useful follow-up is clarity in the local code surface, since the internal adapter signature stays `bool` for transport parity and future expansion.
+
 #### M2. `_participant_from_mailbox_principal` uses unsafe `getattr` without type narrowing
 
 **File:** `src/houmao/agents/realm_controller/gateway_mailbox.py:534-539`
@@ -136,6 +139,9 @@ Using `getattr(principal, "address")` without a default will raise `AttributeErr
 
 **Recommendation:** Type the parameter as the actual Pydantic model (`MailboxPrincipal` or `MailboxParticipant`) imported from the protocol module, or at minimum use `getattr(principal, "address", "")` with a fallback plus validation. The `object` typing here defeats mypy's ability to catch regressions.
 
+> **DECISION: Accept.**
+> Rationale: This is a real implementation weakness. [`MailboxMessage`](../../../src/houmao/mailbox/protocol.py) already carries concrete `MailboxPrincipal` and `MailboxAttachment` models, so typing these helpers as `object` and reaching through `getattr` throws away static guarantees and turns type drift into a runtime failure. A follow-up patch should narrow these helpers to the actual protocol models rather than preserving unchecked `object` access.
+
 #### M3. Stalwart `update_read_state` inverts the read-state response without documentation
 
 **File:** `src/houmao/agents/realm_controller/gateway_mailbox.py:518`
@@ -150,6 +156,9 @@ The Stalwart JMAP response uses `unread: bool` while the gateway model uses `rea
 
 **Recommendation:** Add an explicit check: if `unread` is not in `payload` or not a `bool`, raise `GatewayMailboxError` rather than silently inferring read-state from a missing field.
 
+> **DECISION: Refine.**
+> Rationale: The hardening direction is reasonable, but this is not currently an observed transport bug. The real Stalwart path is `StalwartJmapClient.update_read_state()` -> `get_email()`, and [`get_email()`](../../../src/houmao/mailbox/stalwart.py) always normalizes `unread: bool` from JMAP `keywords` / `$seen` before the gateway adapter sees the payload. That means the missing-field case does not occur on the implemented path today. I still agree that an explicit assertion at the adapter boundary would make the contract more defensive against future client drift.
+
 ### SHOULD FIX
 
 #### S1. Duplicate `_parse_timestamp` / `_parse_gateway_timestamp` implementations
@@ -159,6 +168,9 @@ The Stalwart JMAP response uses `unread: bool` while the gateway model uses `rea
 These are nearly identical functions parsing ISO timestamps to UTC `datetime`. `_parse_timestamp` in `gateway_mailbox.py` and `_parse_gateway_timestamp` in `gateway_service.py` handle the same edge cases (trailing `Z`, missing timezone) the same way.
 
 **Recommendation:** Extract into a shared utility (e.g., `gateway_models.py` or a small `gateway_utils.py`) and import from both modules. This avoids future drift if one is updated and the other forgotten.
+
+> **DECISION: Defer.**
+> Rationale: The duplication is small and still local to the gateway implementation. I do not want to introduce a new shared utility module just for two short helpers without a clearer reuse boundary. This is worth reconsidering if a third caller appears or the parsing rules diverge.
 
 #### S2. Filesystem adapter `check` doesn't use SQL filtering for `since` and `unread_only`
 
@@ -177,6 +189,9 @@ LIMIT ?
 
 This is not a correctness issue but becomes a performance issue as mailbox history grows.
 
+> **DECISION: Defer.**
+> Rationale: This is a valid optimization candidate, but not a current correctness or scope problem. The mailbox histories exercised by the current runtime and tests are modest, and returned rows still require canonical message loads afterward. I am leaving this as performance cleanup rather than treating it as a near-term fix requirement.
+
 #### S3. `body_text` included in every `check` response message
 
 **File:** `src/houmao/agents/realm_controller/gateway_mailbox.py:422`
@@ -185,11 +200,17 @@ The filesystem adapter's `_message_to_model` always includes full `body_text` fo
 
 **Recommendation:** Consider making `body_text` opt-in (e.g., only when `limit=1` or with a separate parameter) for list-style checks, returning only `body_preview` by default. This is a minor optimization but matters for large mailbox views.
 
+> **DECISION: Reject.**
+> Rationale: Full `body_text` in `check` is intentional for the current bounded-turn mailbox contract. The projected gateway-first skills assume an attached agent can inspect and act on a nominated message immediately after `POST /v1/mail/check`, and there is no separate fetch-full-message route in this v1 surface. Making body text opt-in would be a user-facing contract change, not a local optimization.
+
 #### S4. Notifier prompt text is tightly coupled to the runtime and not easily testable in isolation
 
 The `_build_mail_notifier_prompt` method is a private method on `GatewayServiceRuntime`. To test the prompt structure, the test (`test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt`) has to spin up a full `GatewayServiceRuntime`, enable the notifier, wait for polling, and inspect submitted prompts through a fake client.
 
 **Recommendation:** Extract the prompt builder into a pure function (or static method) that takes `unread_messages: list[_UnreadMailboxMessage]` and returns `str`. This enables fast unit tests of prompt content without the full runtime overhead.
+
+> **DECISION: Defer.**
+> Rationale: The extraction idea is reasonable, but the current notifier coverage is intentionally behavioral rather than string-only. The existing test exercises the real polling, deduplication, enqueue, and audit path together. I do not want to separate prompt formatting until there is broader reuse or a concrete maintenance problem that justifies the extra seam.
 
 ### NICE TO HAVE
 
@@ -197,9 +218,15 @@ The `_build_mail_notifier_prompt` method is a private method on `GatewayServiceR
 
 The module exports the `GatewayMailboxAdapter` protocol, both transport implementations, `GatewayMailboxError`, and `build_gateway_mailbox_adapter`. An `__all__` would make the public API explicit and help IDEs auto-import correctly.
 
+> **DECISION: Defer.**
+> Rationale: This is low-value cleanup for an internal module with explicit import sites today. The repository uses `__all__` selectively, mostly on package boundaries and a few intentionally exported modules. I am not treating this as useful work for the change follow-up.
+
 #### N2. Add type alias for the opaque `message_ref` string
 
 Throughout the codebase, `message_ref: str` is used as an opaque shared mailbox reference. A `NewType("MessageRef", str)` would improve self-documentation and help catch accidental mixing of raw message IDs with shared refs.
+
+> **DECISION: Reject.**
+> Rationale: I do not see enough payoff for `NewType` here. This codebase does not currently use `NewType` for comparable wire identifiers, and `message_ref` crosses JSON and Pydantic boundaries where the extra aliasing would mostly add annotation noise without meaningful runtime protection. Clear field names plus spec and doc language are sufficient for now.
 
 #### N3. Stalwart `update_read_state` uses `keywords/$seen` — consider documenting the JMAP mapping
 
@@ -207,9 +234,15 @@ Throughout the codebase, `message_ref: str` is used as an opaque shared mailbox 
 
 The mapping from the gateway `read: bool` to JMAP `keywords/$seen: bool` is a Stalwart-specific semantic. A brief inline comment explaining this mapping would help future maintainers understand the JMAP keyword semantics.
 
+> **DECISION: Accept.**
+> Rationale: This is a good documentation-level improvement. The mapping is correct today, but it is transport-specific enough that a short inline note near `update_read_state()` or `get_email()` would make later maintenance easier and reduce confusion about why the gateway surface speaks in `read` while Stalwart normalizes through JMAP `$seen`.
+
 #### N4. Integration test coverage for `POST /v1/mail/state` on Stalwart transport
 
 The current test coverage uses the filesystem adapter. If Stalwart integration is testable in CI (even with a mock JMAP server), adding a parallel test for the Stalwart path would catch regressions in the `unread`→`read` inversion logic (see M3).
+
+> **DECISION: Defer.**
+> Rationale: More Stalwart end-to-end coverage would be valuable, but this change already added unit-level route coverage with a fake Stalwart client and we do not yet have a cheap CI-grade live JMAP fixture for the gateway integration layer. I am treating this as future test-infrastructure work, not as something required to validate the current change.
 
 ---
 
@@ -244,12 +277,12 @@ The current test coverage uses the filesystem adapter. If Stalwart integration i
 
 ## Summary
 
-The implementation is well-executed and closely aligned with its specs. The gateway-first pattern is consistently applied across adapters, skills, notifier, demo, and docs. The main concerns are:
+The implementation is well-executed and closely aligned with its specs. The gateway-first pattern is consistently applied across adapters, skills, notifier, demo, and docs. After review:
 
-- **M1** (request model locked to `Literal[True]` — document or widen)
-- **M2** (unsafe `getattr` on `object` defeats type safety)
-- **M3** (silent `None`→`True` coercion on missing Stalwart `unread` field)
+- **M2** is accepted as a concrete follow-up fix: the mailbox principal and attachment conversion helpers should use the actual protocol model types instead of `object` plus `getattr`.
+- **M1** is refined rather than treated as a bug: the one-way `read=true` request shape is intentional v1 scope, though the local code could signal that constraint more clearly.
+- **M3** is also refined: the current Stalwart client path already normalizes `unread: bool`, so the reported missing-field case is defensive-hardening territory rather than a demonstrated transport failure.
 
-These are real issues that should be addressed before or shortly after merge. The SHOULD FIX items (duplicate timestamp parsing, in-Python filtering, full body in list checks, coupled prompt builder) are quality improvements worth tracking for near-term cleanup.
+The SHOULD FIX items are mostly deferred cleanup or optimization work. `S3` is rejected because full `body_text` in `check` is part of the current bounded-turn contract, not an accidental payload choice. `N3` is accepted as a useful documentation follow-up for the JMAP `$seen` mapping.
 
-Overall: **solid implementation with clear spec traceability and good test coverage**. The three MUST FIX items are all localized and straightforward to address.
+Overall: **solid implementation with clear spec traceability and good test coverage**. The only concrete implementation fix I would prioritize from this review is the helper type narrowing in `gateway_mailbox.py`; the rest are clarity, hardening, or future optimization decisions.
