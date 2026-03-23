@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import subprocess
 
+import pytest
+
+import houmao.agents.realm_controller.backends.headless_runner as headless_runner_module
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessCliRunner,
 )
@@ -77,3 +82,56 @@ def test_headless_runner_extracts_codex_thread_id_from_stream_json(
 
     assert result.returncode == 0
     assert result.session_id == "thread-abc"
+
+
+def test_headless_runner_tmux_persists_process_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "emit_tmux_stream.sh"
+    script.write_text(
+        '#!/usr/bin/env bash\necho \'{"type":"final","session_id":"sess-tmux","text":"done"}\'\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args[:1] != ["new-window"]:
+            raise AssertionError(args)
+        subprocess.Popen(["sh", "-lc", str(args[-1])], cwd=tmp_path)
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="@11\n", stderr="")
+
+    monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
+    monkeypatch.setattr(
+        headless_runner_module,
+        "wait_for_tmux_signal_shared",
+        lambda **_kwargs: subprocess.CompletedProcess(
+            args=["tmux", "wait-for"],
+            returncode=1,
+            stdout="",
+            stderr="timed out",
+        ),
+    )
+
+    runner = HeadlessCliRunner()
+    result = runner.run(
+        command=[str(script)],
+        env={},
+        cwd=tmp_path,
+        turn_index=1,
+        output_format="stream-json",
+        tmux_session_name="AGENTSYS-headless-test",
+        turn_artifacts_root=tmp_path / "turn-artifacts",
+    )
+
+    assert result.returncode == 0
+    assert result.session_id == "sess-tmux"
+    assert result.process_path is not None
+    assert result.process_path.exists()
+    assert result.process_metadata is not None
+    assert result.process_metadata.runner_pid is not None
+    assert result.process_metadata.child_pid is not None
+    persisted = json.loads(result.process_path.read_text(encoding="utf-8"))
+    assert persisted["runner_pid"] == result.process_metadata.runner_pid
+    assert persisted["child_pid"] == result.process_metadata.child_pid
+    assert persisted["launched_at_utc"]

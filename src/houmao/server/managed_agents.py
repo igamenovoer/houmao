@@ -76,6 +76,10 @@ class ManagedHeadlessActiveTurnRecord(_ManagedAgentStoreModel):
     started_at_utc: str
     tmux_session_name: str
     tmux_window_name: str | None = None
+    process_path: str | None = None
+    process_started_at_utc: str | None = None
+    runner_pid: int | None = None
+    child_pid: int | None = None
     interrupt_requested_at_utc: str | None = None
 
     @field_validator(
@@ -85,6 +89,8 @@ class ManagedHeadlessActiveTurnRecord(_ManagedAgentStoreModel):
         "started_at_utc",
         "tmux_session_name",
         "tmux_window_name",
+        "process_path",
+        "process_started_at_utc",
         "interrupt_requested_at_utc",
     )
     @classmethod
@@ -107,6 +113,17 @@ class ManagedHeadlessActiveTurnRecord(_ManagedAgentStoreModel):
             raise ValueError("turn_index must be > 0")
         return value
 
+    @field_validator("runner_pid", "child_pid")
+    @classmethod
+    def _validate_optional_pid(cls, value: int | None) -> int | None:
+        """Require optional pid fields to be positive when present."""
+
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("pid must be > 0")
+        return value
+
 
 class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
     """Durable per-turn record for one accepted headless turn."""
@@ -114,12 +131,16 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
     tracked_agent_id: str
     turn_id: str
     turn_index: int
-    status: Literal["active", "completed", "failed", "interrupted", "unknown"] = "active"
+    status: Literal["active", "completed", "failed", "interrupted"] = "active"
     started_at_utc: str
     completed_at_utc: str | None = None
     turn_artifact_dir: str
     tmux_session_name: str
     tmux_window_name: str | None = None
+    process_path: str | None = None
+    process_started_at_utc: str | None = None
+    runner_pid: int | None = None
+    child_pid: int | None = None
     stdout_path: str | None = None
     stderr_path: str | None = None
     status_path: str | None = None
@@ -138,6 +159,8 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
         "turn_artifact_dir",
         "tmux_session_name",
         "tmux_window_name",
+        "process_path",
+        "process_started_at_utc",
         "stdout_path",
         "stderr_path",
         "status_path",
@@ -164,6 +187,17 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
 
         if value <= 0:
             raise ValueError("turn_index must be > 0")
+        return value
+
+    @field_validator("runner_pid", "child_pid")
+    @classmethod
+    def _validate_optional_pid(cls, value: int | None) -> int | None:
+        """Require optional pid fields to be positive when present."""
+
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("pid must be > 0")
         return value
 
 
@@ -311,7 +345,9 @@ class ManagedHeadlessStore:
         """Return the turn-record path for one server turn id."""
 
         safe_turn_id = _safe_path_component(turn_id)
-        return (self.turns_dir(tracked_agent_id=tracked_agent_id) / f"{safe_turn_id}.json").resolve()
+        return (
+            self.turns_dir(tracked_agent_id=tracked_agent_id) / f"{safe_turn_id}.json"
+        ).resolve()
 
     def _read_model(self, path: Path, model: type[_ModelT]) -> _ModelT | None:
         """Read one optional JSON model from disk."""

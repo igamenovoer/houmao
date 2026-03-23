@@ -37,6 +37,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
+    load_headless_process_metadata,
     read_headless_turn_return_code,
 )
 from houmao.cao.models import CaoTerminal
@@ -59,7 +60,6 @@ from houmao.agents.realm_controller.runtime import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
-    list_tmux_panes,
     run_tmux,
     tmux_session_exists,
     tmux_error_detail,
@@ -976,6 +976,8 @@ class HoumaoServerService:
             f"turn-{_message_sha1(f'{tracked_agent_id}:{backend_turn_index}:{time.time()}')[:12]}"
         )
         turn_artifact_dir = self._headless_turn_artifacts_root(controller) / turn_id
+        process_path = turn_artifact_dir / "process.json"
+        tmux_window_name = f"turn-{backend_turn_index}"
         turn_record = ManagedHeadlessTurnRecord(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
@@ -984,7 +986,8 @@ class HoumaoServerService:
             started_at_utc=utc_now_iso(),
             turn_artifact_dir=str(turn_artifact_dir),
             tmux_session_name=self._require_controller_tmux_session_name(controller),
-            tmux_window_name=turn_id,
+            tmux_window_name=tmux_window_name,
+            process_path=str(process_path),
             history_summary=f"Turn {turn_id} accepted.",
         )
         active_turn = ManagedHeadlessActiveTurnRecord(
@@ -994,7 +997,8 @@ class HoumaoServerService:
             turn_artifact_dir=str(turn_artifact_dir),
             started_at_utc=turn_record.started_at_utc,
             tmux_session_name=turn_record.tmux_session_name,
-            tmux_window_name=turn_id,
+            tmux_window_name=tmux_window_name,
+            process_path=str(process_path),
         )
         self.m_managed_headless_store.write_turn_record(turn_record)
         self.m_managed_headless_store.write_active_turn(active_turn)
@@ -2435,68 +2439,132 @@ class HoumaoServerService:
         return entries
 
     def _reconcile_headless_active_turn(self, *, tracked_agent_id: str) -> None:
-        """Reconcile one persisted active headless turn against live evidence."""
+        """Refresh one persisted active headless turn against execution evidence."""
 
         active_turn = self.m_managed_headless_store.read_active_turn(
             tracked_agent_id=tracked_agent_id
         )
         if active_turn is None:
             return
+        self._refresh_headless_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=active_turn.turn_id,
+            error_detail=None,
+        )
+
+    def _refresh_headless_turn_record(
+        self,
+        *,
+        tracked_agent_id: str,
+        turn_id: str,
+        error_detail: str | None,
+    ) -> ManagedHeadlessTurnRecord | None:
+        """Refresh one headless turn from durable results and execution liveness."""
 
         turn_record = self.m_managed_headless_store.read_turn_record(
             tracked_agent_id=tracked_agent_id,
-            turn_id=active_turn.turn_id,
+            turn_id=turn_id,
         )
-        turn_dir = Path(active_turn.turn_artifact_dir)
+        active_turn = self.m_managed_headless_store.read_active_turn(
+            tracked_agent_id=tracked_agent_id
+        )
+        if turn_record is None:
+            if active_turn is not None and active_turn.turn_id == turn_id:
+                self.m_managed_headless_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+            return None
+        if active_turn is not None and active_turn.turn_id != turn_id:
+            active_turn = None
+
+        legacy_missing_execution_metadata = self._is_legacy_headless_execution_metadata_missing(
+            turn_record=turn_record,
+            active_turn=active_turn,
+        )
+        turn_record, active_turn, process_metadata_error = self._sync_headless_process_metadata(
+            tracked_agent_id=tracked_agent_id,
+            turn_record=turn_record,
+            active_turn=active_turn,
+        )
+
+        if active_turn is None:
+            return turn_record
+
+        turn_dir = Path(turn_record.turn_artifact_dir)
+        stdout_path = turn_dir / "stdout.jsonl"
+        stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
+        interrupt_requested_at_utc = (
+            active_turn.interrupt_requested_at_utc or turn_record.interrupt_requested_at_utc
+        )
+
+        returncode: int | None = None
+        completion_source = turn_record.completion_source
+        final_status: Literal["active", "completed", "failed", "interrupted"]
         if status_path.exists():
-            self._finalize_headless_turn_record(
-                tracked_agent_id=tracked_agent_id,
-                turn_id=active_turn.turn_id,
-                error_detail=None,
-            )
-            return
-
-        try:
-            panes = (
-                list_tmux_panes(session_name=active_turn.tmux_session_name)
-                if tmux_session_exists(session_name=active_turn.tmux_session_name)
-                else ()
-            )
-        except TmuxCommandError:
-            panes = ()
-
-        if any(
-            pane.window_name == active_turn.tmux_window_name
-            for pane in panes
-            if active_turn.tmux_window_name is not None
+            returncode = read_headless_turn_return_code(status_path=status_path)
+            if returncode == 0:
+                final_status = "completed"
+            elif interrupt_requested_at_utc is not None:
+                final_status = "interrupted"
+            else:
+                final_status = "failed"
+            if stdout_path.exists():
+                events = load_headless_turn_events(
+                    stdout_path=stdout_path,
+                    output_format=self._headless_output_format(tracked_agent_id=tracked_agent_id),
+                    turn_index=turn_record.turn_index,
+                )
+                for event in reversed(events):
+                    payload = event.payload
+                    if not isinstance(payload, dict):
+                        continue
+                    payload_source = payload.get("completion_source")
+                    if isinstance(payload_source, str) and payload_source.strip():
+                        completion_source = payload_source.strip()
+                        break
+        elif self._headless_execution_is_live(
+            tracked_agent_id=tracked_agent_id,
+            turn_record=turn_record,
+            active_turn=active_turn,
         ):
-            return
+            return turn_record
+        elif interrupt_requested_at_utc is not None:
+            final_status = "interrupted"
+        else:
+            final_status = "failed"
 
-        if turn_record is not None:
-            updated_record = turn_record.model_copy(
-                update={
-                    "status": (
-                        "interrupted"
-                        if active_turn.interrupt_requested_at_utc is not None
-                        else "unknown"
-                    ),
-                    "completed_at_utc": utc_now_iso(),
-                    "interrupt_requested_at_utc": active_turn.interrupt_requested_at_utc,
-                    "history_summary": (
-                        f"Turn {turn_record.turn_id} interrupted."
-                        if active_turn.interrupt_requested_at_utc is not None
-                        else f"Turn {turn_record.turn_id} ended without durable completion."
-                    ),
-                    "error": (
-                        None
-                        if active_turn.interrupt_requested_at_utc is not None
-                        else "Headless active turn was not live at reconcile time."
-                    ),
-                }
+        final_error = error_detail
+        if final_status == "failed" and final_error is None:
+            final_error = self._headless_failed_execution_detail(
+                turn_record=turn_record,
+                active_turn=active_turn,
+                legacy_missing_execution_metadata=legacy_missing_execution_metadata,
+                process_metadata_error=process_metadata_error,
             )
-            self.m_managed_headless_store.write_turn_record(updated_record)
+
+        history_summary = {
+            "completed": f"Turn {turn_id} completed successfully.",
+            "failed": f"Turn {turn_id} failed.",
+            "interrupted": f"Turn {turn_id} interrupted.",
+            "active": f"Turn {turn_id} is still active.",
+        }[final_status]
+
+        updated_record = turn_record.model_copy(
+            update={
+                "status": final_status,
+                "completed_at_utc": utc_now_iso(),
+                "stdout_path": str(stdout_path) if stdout_path.exists() else None,
+                "stderr_path": str(stderr_path) if stderr_path.exists() else None,
+                "status_path": str(status_path) if status_path.exists() else None,
+                "completion_source": completion_source,
+                "returncode": returncode,
+                "error": final_error,
+                "interrupt_requested_at_utc": interrupt_requested_at_utc,
+                "history_summary": history_summary,
+            }
+        )
+        self.m_managed_headless_store.write_turn_record(updated_record)
         self.m_managed_headless_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+        return updated_record
 
     def _next_headless_backend_turn_index(
         self,
@@ -2542,7 +2610,8 @@ class HoumaoServerService:
         handle = self._require_headless_handle(tracked_agent_id)
         controller = handle.controller
         if controller is None:
-            self._finalize_headless_turn_record(
+            handle.set_active_thread(None)
+            self._refresh_headless_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
                 error_detail=(
@@ -2550,16 +2619,15 @@ class HoumaoServerService:
                     "turn execution."
                 ),
             )
-            handle.set_active_thread(None)
             return
         backend_session = controller.backend_session
         if not isinstance(backend_session, HeadlessInteractiveSession):
-            self._finalize_headless_turn_record(
+            handle.set_active_thread(None)
+            self._refresh_headless_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
                 error_detail="Managed headless controller is missing a headless backend session.",
             )
-            handle.set_active_thread(None)
             return
 
         error_detail: str | None = None
@@ -2573,12 +2641,12 @@ class HoumaoServerService:
             except Exception as exc:
                 if error_detail is None:
                     error_detail = f"{type(exc).__name__}: {exc}"
-            self._finalize_headless_turn_record(
+            handle.set_active_thread(None)
+            self._refresh_headless_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
                 error_detail=error_detail,
             )
-            handle.set_active_thread(None)
 
     def _finalize_headless_turn_record(
         self,
@@ -2587,83 +2655,184 @@ class HoumaoServerService:
         turn_id: str,
         error_detail: str | None,
     ) -> None:
-        """Finalize one headless turn record from durable artifact evidence."""
+        """Refresh one headless turn record from durable artifact evidence."""
 
-        turn_record = self.m_managed_headless_store.read_turn_record(
+        self._refresh_headless_turn_record(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
+            error_detail=error_detail,
         )
-        if turn_record is None:
-            return
 
-        active_turn = self.m_managed_headless_store.read_active_turn(
-            tracked_agent_id=tracked_agent_id
-        )
-        turn_dir = Path(turn_record.turn_artifact_dir)
-        stdout_path = turn_dir / "stdout.jsonl"
-        stderr_path = turn_dir / "stderr.log"
-        status_path = turn_dir / "exitcode"
+    def _sync_headless_process_metadata(
+        self,
+        *,
+        tracked_agent_id: str,
+        turn_record: ManagedHeadlessTurnRecord,
+        active_turn: ManagedHeadlessActiveTurnRecord | None,
+    ) -> tuple[
+        ManagedHeadlessTurnRecord,
+        ManagedHeadlessActiveTurnRecord | None,
+        str | None,
+    ]:
+        """Mirror durable process metadata from runner artifacts into store records."""
 
-        returncode: int | None = None
-        completion_source: str | None = None
-        status = turn_record.status
-        if status_path.exists():
-            returncode = read_headless_turn_return_code(status_path=status_path)
-            if returncode == 0:
-                status = "completed"
-            elif (
-                active_turn is not None and active_turn.interrupt_requested_at_utc is not None
-            ) or turn_record.interrupt_requested_at_utc is not None:
-                status = "interrupted"
+        process_path = self._headless_process_path(turn_record=turn_record, active_turn=active_turn)
+        metadata_error: str | None = None
+        runner_pid: int | None = None
+        child_pid: int | None = None
+        process_started_at_utc: str | None = None
+
+        if process_path.exists():
+            try:
+                process_metadata = load_headless_process_metadata(process_path=process_path)
+            except (ValueError, json.JSONDecodeError) as exc:
+                metadata_error = f"Invalid headless process metadata at `{process_path}`: {exc}"
             else:
-                status = "failed"
-            if stdout_path.exists():
-                events = load_headless_turn_events(
-                    stdout_path=stdout_path,
-                    output_format=self._headless_output_format(tracked_agent_id=tracked_agent_id),
-                    turn_index=turn_record.turn_index,
-                )
-                for event in reversed(events):
-                    payload = event.payload
-                    if not isinstance(payload, dict):
-                        continue
-                    payload_source = payload.get("completion_source")
-                    if isinstance(payload_source, str) and payload_source.strip():
-                        completion_source = payload_source.strip()
-                        break
-        elif active_turn is not None and active_turn.interrupt_requested_at_utc is not None:
-            status = "interrupted"
-        else:
-            status = "unknown"
+                runner_pid = process_metadata.runner_pid
+                child_pid = process_metadata.child_pid
+                process_started_at_utc = process_metadata.launched_at_utc
 
-        history_summary = {
-            "completed": f"Turn {turn_id} completed successfully.",
-            "failed": f"Turn {turn_id} failed.",
-            "interrupted": f"Turn {turn_id} interrupted.",
-            "unknown": f"Turn {turn_id} ended without durable completion.",
-            "active": f"Turn {turn_id} is still active.",
-        }[status]
+        turn_updates: dict[str, str | int | None] = {}
+        process_path_text = str(process_path)
+        if turn_record.process_path != process_path_text:
+            turn_updates["process_path"] = process_path_text
+        if runner_pid is not None and turn_record.runner_pid != runner_pid:
+            turn_updates["runner_pid"] = runner_pid
+        if child_pid is not None and turn_record.child_pid != child_pid:
+            turn_updates["child_pid"] = child_pid
+        if (
+            process_started_at_utc is not None
+            and turn_record.process_started_at_utc != process_started_at_utc
+        ):
+            turn_updates["process_started_at_utc"] = process_started_at_utc
+        if turn_updates:
+            turn_record = turn_record.model_copy(update=turn_updates)
+            self.m_managed_headless_store.write_turn_record(turn_record)
 
-        updated_record = turn_record.model_copy(
-            update={
-                "status": status,
-                "completed_at_utc": utc_now_iso(),
-                "stdout_path": str(stdout_path) if stdout_path.exists() else None,
-                "stderr_path": str(stderr_path) if stderr_path.exists() else None,
-                "status_path": str(status_path) if status_path.exists() else None,
-                "completion_source": completion_source,
-                "returncode": returncode,
-                "error": error_detail,
-                "interrupt_requested_at_utc": (
-                    active_turn.interrupt_requested_at_utc
-                    if active_turn is not None
-                    else turn_record.interrupt_requested_at_utc
-                ),
-                "history_summary": history_summary,
-            }
+        if active_turn is not None:
+            active_updates: dict[str, str | int | None] = {}
+            if active_turn.process_path != process_path_text:
+                active_updates["process_path"] = process_path_text
+            if runner_pid is not None and active_turn.runner_pid != runner_pid:
+                active_updates["runner_pid"] = runner_pid
+            if child_pid is not None and active_turn.child_pid != child_pid:
+                active_updates["child_pid"] = child_pid
+            if (
+                process_started_at_utc is not None
+                and active_turn.process_started_at_utc != process_started_at_utc
+            ):
+                active_updates["process_started_at_utc"] = process_started_at_utc
+            if active_updates:
+                active_turn = active_turn.model_copy(update=active_updates)
+                self.m_managed_headless_store.write_active_turn(active_turn)
+
+        return turn_record, active_turn, metadata_error
+
+    def _headless_process_path(
+        self,
+        *,
+        turn_record: ManagedHeadlessTurnRecord,
+        active_turn: ManagedHeadlessActiveTurnRecord | None,
+    ) -> Path:
+        """Return the durable process-metadata path for one headless turn."""
+
+        candidate = None
+        if active_turn is not None and active_turn.process_path is not None:
+            candidate = active_turn.process_path
+        elif turn_record.process_path is not None:
+            candidate = turn_record.process_path
+        if candidate is not None:
+            return Path(candidate)
+        return Path(turn_record.turn_artifact_dir) / "process.json"
+
+    def _is_legacy_headless_execution_metadata_missing(
+        self,
+        *,
+        turn_record: ManagedHeadlessTurnRecord,
+        active_turn: ManagedHeadlessActiveTurnRecord | None,
+    ) -> bool:
+        """Return whether one active headless turn predates execution-evidence metadata."""
+
+        if turn_record.process_path is not None or turn_record.runner_pid is not None:
+            return False
+        if turn_record.child_pid is not None or turn_record.process_started_at_utc is not None:
+            return False
+        if active_turn is None:
+            return False
+        return (
+            active_turn.process_path is None
+            and active_turn.runner_pid is None
+            and active_turn.child_pid is None
+            and active_turn.process_started_at_utc is None
         )
-        self.m_managed_headless_store.write_turn_record(updated_record)
-        self.m_managed_headless_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+
+    def _headless_execution_is_live(
+        self,
+        *,
+        tracked_agent_id: str,
+        turn_record: ManagedHeadlessTurnRecord,
+        active_turn: ManagedHeadlessActiveTurnRecord,
+    ) -> bool:
+        """Return whether one managed headless turn still has live execution evidence."""
+
+        if self._headless_active_thread_is_live(tracked_agent_id=tracked_agent_id):
+            return True
+        for pid in (
+            active_turn.child_pid,
+            turn_record.child_pid,
+            active_turn.runner_pid,
+            turn_record.runner_pid,
+        ):
+            if self._pid_is_live(pid):
+                return True
+        return False
+
+    def _headless_active_thread_is_live(self, *, tracked_agent_id: str) -> bool:
+        """Return whether one managed headless agent still has a live worker thread."""
+
+        with self.m_lock:
+            handle = self.m_headless_agents.get(tracked_agent_id)
+        if handle is None:
+            return False
+        active_thread = handle.active_thread
+        if active_thread is None:
+            return False
+        if not active_thread.is_alive():
+            handle.set_active_thread(None)
+            return False
+        return True
+
+    def _pid_is_live(self, pid: int | None) -> bool:
+        """Return whether one pid still appears to be live."""
+
+        if pid is None:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _headless_failed_execution_detail(
+        self,
+        *,
+        turn_record: ManagedHeadlessTurnRecord,
+        active_turn: ManagedHeadlessActiveTurnRecord | None,
+        legacy_missing_execution_metadata: bool,
+        process_metadata_error: str | None,
+    ) -> str:
+        """Return the failure detail for a no-evidence managed headless terminal state."""
+
+        if process_metadata_error is not None:
+            return process_metadata_error
+        if legacy_missing_execution_metadata:
+            return "Pre-migration active turn without execution-evidence metadata."
+        process_path = self._headless_process_path(turn_record=turn_record, active_turn=active_turn)
+        if not process_path.exists():
+            return "Headless execution ended without durable completion or process metadata."
+        return "Headless execution ended without durable completion."
 
     def _require_turn_record(
         self,
@@ -2710,7 +2879,7 @@ class HoumaoServerService:
         self,
         active_turn: ManagedHeadlessActiveTurnRecord,
     ) -> None:
-        """Deliver a best-effort interrupt to one persisted active turn."""
+        """Deliver a best-effort interrupt through execution identity first."""
 
         interrupted_at = utc_now_iso()
         updated_active_turn = active_turn.model_copy(
@@ -2723,9 +2892,87 @@ class HoumaoServerService:
             turn_id=active_turn.turn_id,
         )
         if turn_record is not None:
-            self.m_managed_headless_store.write_turn_record(
-                turn_record.model_copy(update={"interrupt_requested_at_utc": interrupted_at})
+            turn_record = turn_record.model_copy(
+                update={"interrupt_requested_at_utc": interrupted_at}
             )
+            self.m_managed_headless_store.write_turn_record(turn_record)
+
+        if self._interrupt_live_headless_handle(tracked_agent_id=active_turn.tracked_agent_id):
+            return
+        if self._interrupt_persisted_headless_process(
+            turn_record=turn_record,
+            active_turn=updated_active_turn,
+        ):
+            return
+        self._interrupt_headless_tmux_target(active_turn=updated_active_turn)
+
+    def _interrupt_live_headless_handle(self, *, tracked_agent_id: str) -> bool:
+        """Interrupt one live in-memory headless execution handle when present."""
+
+        with self.m_lock:
+            handle = self.m_headless_agents.get(tracked_agent_id)
+        if handle is None or not self._headless_active_thread_is_live(
+            tracked_agent_id=tracked_agent_id
+        ):
+            return False
+        controller = handle.controller
+        if controller is None:
+            return False
+        backend_session = controller.backend_session
+        if not isinstance(backend_session, HeadlessInteractiveSession):
+            return False
+        result = backend_session.interrupt()
+        if result.status == "ok":
+            return True
+        raise HTTPException(status_code=502, detail=result.detail)
+
+    def _interrupt_persisted_headless_process(
+        self,
+        *,
+        turn_record: ManagedHeadlessTurnRecord | None,
+        active_turn: ManagedHeadlessActiveTurnRecord,
+    ) -> bool:
+        """Interrupt one persisted headless execution identity when present."""
+
+        candidates: list[int] = []
+        for pid in (
+            active_turn.child_pid,
+            turn_record.child_pid if turn_record is not None else None,
+            active_turn.runner_pid,
+            turn_record.runner_pid if turn_record is not None else None,
+        ):
+            if pid is not None and pid not in candidates:
+                candidates.append(pid)
+        for pid in candidates:
+            if self._signal_pid_best_effort(pid=pid):
+                return True
+        return False
+
+    def _signal_pid_best_effort(self, *, pid: int) -> bool:
+        """Send SIGTERM to one pid when it still appears to be live."""
+
+        try:
+            os.kill(pid, 15)
+        except ProcessLookupError:
+            return False
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to interrupt managed headless pid `{pid}`: {exc}",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to interrupt managed headless pid `{pid}`: {exc}",
+            ) from exc
+        return True
+
+    def _interrupt_headless_tmux_target(
+        self,
+        *,
+        active_turn: ManagedHeadlessActiveTurnRecord,
+    ) -> None:
+        """Interrupt one headless turn through tmux as a last-resort fallback."""
 
         target = (
             f"{active_turn.tmux_session_name}:{active_turn.tmux_window_name}"
@@ -2901,10 +3148,8 @@ def _last_turn_result_from_headless_status(status: str) -> ManagedAgentLastTurnR
         return "success"
     if status == "interrupted":
         return "interrupted"
-    if status == "failed":
+    if status in {"failed", "unknown"}:
         return "known_failure"
-    if status == "unknown":
-        return "unknown"
     return "none"
 
 

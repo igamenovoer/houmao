@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import shlex
+import signal
 import subprocess
 import time
 import uuid
@@ -25,6 +28,15 @@ _DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
+class HeadlessProcessMetadata:
+    """Durable process identity for one tmux-backed headless turn."""
+
+    runner_pid: int | None = None
+    child_pid: int | None = None
+    launched_at_utc: str | None = None
+
+
+@dataclass(frozen=True)
 class HeadlessRunResult:
     """Result for one headless CLI invocation."""
 
@@ -35,6 +47,8 @@ class HeadlessRunResult:
     stdout_path: Path | None = None
     stderr_path: Path | None = None
     status_path: Path | None = None
+    process_path: Path | None = None
+    process_metadata: HeadlessProcessMetadata | None = None
     completion_source: str = "direct_process"
 
 
@@ -46,6 +60,8 @@ class HeadlessCliRunner:
         self._active_tmux_session_name: str | None = None
         self._active_tmux_window_id: str | None = None
         self._active_tmux_wait_signal: str | None = None
+        self._active_process_path: Path | None = None
+        self._active_process_metadata: HeadlessProcessMetadata | None = None
 
     def run(
         self,
@@ -101,6 +117,13 @@ class HeadlessCliRunner:
                 detail="Sent terminate signal to headless process",
             )
 
+        if self._signal_active_tmux_process(signal.SIGTERM):
+            return SessionControlResult(
+                status="ok",
+                action="interrupt",
+                detail="Sent terminate signal to active tmux-backed headless process",
+            )
+
         window_id = self._active_tmux_window_id
         if window_id is None:
             return SessionControlResult(
@@ -140,6 +163,13 @@ class HeadlessCliRunner:
                 status="ok",
                 action="terminate",
                 detail="Killed headless process",
+            )
+
+        if self._signal_active_tmux_process(signal.SIGKILL):
+            return SessionControlResult(
+                status="ok",
+                action="terminate",
+                detail="Killed active tmux-backed headless process",
             )
 
         window_id = self._active_tmux_window_id
@@ -258,6 +288,9 @@ class HeadlessCliRunner:
         stdout_path = turn_dir / "stdout.jsonl"
         stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
+        process_path = turn_dir / "process.json"
+        process_tmp_path = turn_dir / f".process-{uuid.uuid4().hex}.tmp"
+        status_tmp_path = turn_dir / f".exitcode-{uuid.uuid4().hex}.tmp"
         wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         window_name = f"turn-{turn_index}"
 
@@ -266,10 +299,20 @@ class HeadlessCliRunner:
             [
                 "set +e",
                 f"cd {shlex.quote(str(cwd))}",
+                'started_at_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
                 f"{command_text} > {shlex.quote(str(stdout_path))} "
-                f"2> {shlex.quote(str(stderr_path))}",
+                f"2> {shlex.quote(str(stderr_path))} &",
+                "child_pid=$!",
+                (
+                    "printf "
+                    '\'{"runner_pid":%s,"child_pid":%s,"launched_at_utc":"%s"}\\n\' '
+                    f'"$$" "$child_pid" "$started_at_utc" > {shlex.quote(str(process_tmp_path))}'
+                ),
+                (f"mv {shlex.quote(str(process_tmp_path))} {shlex.quote(str(process_path))}"),
+                'wait "$child_pid"',
                 "status=$?",
-                f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_path))}",
+                f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_tmp_path))}",
+                (f"mv {shlex.quote(str(status_tmp_path))} {shlex.quote(str(status_path))}"),
                 f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
                 'exit "$status"',
             ]
@@ -315,6 +358,11 @@ class HeadlessCliRunner:
         self._active_tmux_session_name = tmux_session_name
         self._active_tmux_window_id = window_id
         self._active_tmux_wait_signal = wait_signal
+        self._active_process_path = process_path
+        self._active_process_metadata = self._wait_for_process_metadata(
+            process_path=process_path,
+            timeout_seconds=1.0,
+        )
 
         completion_source = "status_polling"
         try:
@@ -346,6 +394,7 @@ class HeadlessCliRunner:
             turn_index=turn_index,
         )
         session_id = extract_session_id(events)
+        process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
 
         if returncode != 0:
             message = stderr_text.strip() or f"command exited with code {returncode}"
@@ -357,21 +406,69 @@ class HeadlessCliRunner:
                     payload={"returncode": returncode},
                 )
             )
+        try:
+            return HeadlessRunResult(
+                events=events,
+                stderr=stderr_text,
+                returncode=returncode,
+                session_id=session_id,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                status_path=status_path,
+                process_path=process_path,
+                process_metadata=process_metadata,
+                completion_source=completion_source,
+            )
+        finally:
+            self._active_tmux_session_name = None
+            self._active_tmux_window_id = None
+            self._active_tmux_wait_signal = None
+            self._active_process_path = None
+            self._active_process_metadata = None
 
-        self._active_tmux_session_name = None
-        self._active_tmux_window_id = None
-        self._active_tmux_wait_signal = None
+    def _signal_active_tmux_process(self, sig: int) -> bool:
+        """Signal the active tmux-backed process identity when available."""
 
-        return HeadlessRunResult(
-            events=events,
-            stderr=stderr_text,
-            returncode=returncode,
-            session_id=session_id,
-            stdout_path=stdout_path,
-            stderr_path=stderr_path,
-            status_path=status_path,
-            completion_source=completion_source,
-        )
+        metadata = self._active_process_metadata
+        if metadata is None and self._active_process_path is not None:
+            metadata = self._read_process_metadata_best_effort(
+                process_path=self._active_process_path
+            )
+            if metadata is not None:
+                self._active_process_metadata = metadata
+        if metadata is None:
+            return False
+        if _signal_pid(metadata.child_pid, sig):
+            return True
+        return _signal_pid(metadata.runner_pid, sig)
+
+    def _wait_for_process_metadata(
+        self,
+        *,
+        process_path: Path,
+        timeout_seconds: float,
+    ) -> HeadlessProcessMetadata | None:
+        """Wait briefly for launch-time process metadata to be published."""
+
+        deadline = time.monotonic() + max(timeout_seconds, 0.0)
+        while time.monotonic() < deadline:
+            metadata = self._read_process_metadata_best_effort(process_path=process_path)
+            if metadata is not None:
+                return metadata
+            time.sleep(0.05)
+        return self._read_process_metadata_best_effort(process_path=process_path)
+
+    def _read_process_metadata_best_effort(
+        self,
+        *,
+        process_path: Path,
+    ) -> HeadlessProcessMetadata | None:
+        """Read durable process metadata without surfacing parse failures."""
+
+        try:
+            return load_headless_process_metadata(process_path=process_path)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            return None
 
 
 def extract_session_id(events: list[SessionEvent]) -> str | None:
@@ -419,6 +516,19 @@ def load_headless_turn_events(
         output_format=output_format,
         stdout_text=stdout_text,
         turn_index=turn_index,
+    )
+
+
+def load_headless_process_metadata(*, process_path: Path) -> HeadlessProcessMetadata:
+    """Read one persisted headless process metadata artifact."""
+
+    payload = json.loads(process_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("headless process metadata must be a JSON object")
+    return HeadlessProcessMetadata(
+        runner_pid=_coerce_optional_pid(payload.get("runner_pid")),
+        child_pid=_coerce_optional_pid(payload.get("child_pid")),
+        launched_at_utc=_coerce_optional_string(payload.get("launched_at_utc")),
     )
 
 
@@ -534,3 +644,49 @@ def _extract_session_id_from_payload(payload: dict[str, Any]) -> str | None:
                 return nested_data
 
     return None
+
+
+def _coerce_optional_pid(value: object) -> int | None:
+    """Normalize one optional persisted pid field."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("pid must not be boolean")
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("pid must be > 0")
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+        if parsed <= 0:
+            raise ValueError("pid must be > 0")
+        return parsed
+    raise ValueError("pid must be an integer")
+
+
+def _coerce_optional_string(value: object) -> str | None:
+    """Normalize one optional persisted string field."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("value must be a string")
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("value must not be empty")
+    return stripped
+
+
+def _signal_pid(pid: int | None, sig: int) -> bool:
+    """Deliver one POSIX signal when the pid is live."""
+
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, sig)
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return False
+        raise
+    return True

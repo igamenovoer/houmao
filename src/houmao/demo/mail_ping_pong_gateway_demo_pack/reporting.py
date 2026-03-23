@@ -267,7 +267,7 @@ def _participant_outcome_summary(
         1 for record in evidence.turn_records_by_role[role] if record.status != "active"
     )
     last_turn = state_payload.get("last_turn", {})
-    last_turn_result = str(last_turn.get("result", "unknown"))
+    last_turn_result = str(last_turn.get("result", "none"))
     return ParticipantOutcomeSummary(
         tool=participant.tool,
         role_name=participant.role_name,

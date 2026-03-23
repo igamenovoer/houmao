@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import threading
 
 import pytest
 from fastapi import HTTPException
@@ -202,7 +205,9 @@ class _FakeKnownSessionRegistry:
 
 
 class _FakeHeadlessSession(HeadlessInteractiveSession):
-    def __init__(self, *, turn_index: int = 0, tmux_session_name: str = "AGENTSYS-headless") -> None:
+    def __init__(
+        self, *, turn_index: int = 0, tmux_session_name: str = "AGENTSYS-headless"
+    ) -> None:
         self._state = type(
             "HeadlessState",
             (),
@@ -298,6 +303,24 @@ def _processing_surface() -> HoumaoParsedSurface:
         baseline_invalidated=False,
         operator_blocked_excerpt=None,
     )
+
+
+def _write_process_metadata(
+    process_path: Path,
+    *,
+    runner_pid: int | None = None,
+    child_pid: int | None = None,
+    launched_at_utc: str = "2026-03-23T12:00:00Z",
+) -> None:
+    """Write one durable headless process metadata artifact."""
+
+    process_path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, object] = {"launched_at_utc": launched_at_utc}
+    if runner_pid is not None:
+        payload["runner_pid"] = runner_pid
+    if child_pid is not None:
+        payload["child_pid"] = child_pid
+    process_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
 def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_path: Path) -> None:
@@ -1037,7 +1060,14 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     workdir = tmp_path / "workspace"
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
-    manifest_path = tmp_path / "runtime" / "sessions" / "claude_headless" / "claude-headless-1" / "manifest.json"
+    manifest_path = (
+        tmp_path
+        / "runtime"
+        / "sessions"
+        / "claude_headless"
+        / "claude-headless-1"
+        / "manifest.json"
+    )
     workdir.mkdir()
     agent_def_dir.mkdir()
     brain_manifest_path.write_text("inputs:\n  tool: claude\n", encoding="utf-8")
@@ -1174,7 +1204,14 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
         child_manager=_FakeChildManager(),
     )
     agent_def_dir = tmp_path / "agent-defs"
-    manifest_path = tmp_path / "runtime" / "sessions" / "claude_headless" / "claude-headless-3" / "manifest.json"
+    manifest_path = (
+        tmp_path
+        / "runtime"
+        / "sessions"
+        / "claude_headless"
+        / "claude-headless-3"
+        / "manifest.json"
+    )
     agent_def_dir.mkdir()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text("{}\n", encoding="utf-8")
@@ -1207,7 +1244,10 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             started_at_utc="2026-03-20T09:01:00+00:00",
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
             tmux_session_name="AGENTSYS-live",
-            tmux_window_name="turn-live",
+            tmux_window_name="turn-2",
+            process_path=str(
+                manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
+            ),
             history_summary="Turn turn-live accepted.",
         )
     )
@@ -1219,8 +1259,15 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
             started_at_utc="2026-03-20T09:01:00+00:00",
             tmux_session_name="AGENTSYS-live",
-            tmux_window_name="turn-live",
+            tmux_window_name="turn-2",
+            process_path=str(
+                manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
+            ),
         )
+    )
+    _write_process_metadata(
+        manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json",
+        runner_pid=os.getpid(),
     )
 
     monkeypatch.setattr(
@@ -1228,20 +1275,6 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
         lambda **_kwargs: fake_controller,
     )
     monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
-    monkeypatch.setattr(
-        "houmao.server.service.list_tmux_panes",
-        lambda *, session_name: [
-            TmuxPaneRecord(
-                pane_id="%9",
-                session_name=session_name,
-                window_id="@2",
-                window_name="turn-live",
-                pane_index="0",
-                pane_active=True,
-                pane_pid=4321,
-            )
-        ],
-    )
 
     service.startup()
     try:
@@ -1255,14 +1288,282 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
         service.shutdown()
 
     assert exc_info.value.status_code == 409
-    assert service.m_managed_headless_store.read_active_turn(
-        tracked_agent_id="claude-headless-3"
-    ) is not None
+    assert (
+        service.m_managed_headless_store.read_active_turn(tracked_agent_id="claude-headless-3")
+        is not None
+    )
     assert shared_state.turn.phase == "active"
     assert shared_state.turn.active_turn_id == "turn-live"
 
 
-def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(tmp_path: Path) -> None:
+def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_path: Path) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-live"
+    process_path = turn_dir / "process.json"
+    service.m_managed_headless_store.write_turn_record(
+        ManagedHeadlessTurnRecord(
+            tracked_agent_id="claude-headless-thread",
+            turn_id="turn-live",
+            turn_index=1,
+            status="active",
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            turn_artifact_dir=str(turn_dir),
+            tmux_session_name="AGENTSYS-thread",
+            tmux_window_name="turn-1",
+            process_path=str(process_path),
+            history_summary="Turn turn-live accepted.",
+        )
+    )
+    service.m_managed_headless_store.write_active_turn(
+        ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id="claude-headless-thread",
+            turn_id="turn-live",
+            turn_index=1,
+            turn_artifact_dir=str(turn_dir),
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            tmux_session_name="AGENTSYS-thread",
+            tmux_window_name="turn-1",
+            process_path=str(process_path),
+        )
+    )
+
+    ready = threading.Event()
+    release = threading.Event()
+
+    def _worker() -> None:
+        ready.set()
+        release.wait(timeout=5.0)
+
+    live_thread = threading.Thread(target=_worker, daemon=True)
+    live_thread.start()
+    assert ready.wait(timeout=2.0)
+
+    class _ThreadOnlyHandle:
+        def __init__(self, thread: threading.Thread) -> None:
+            self.active_thread = thread
+
+        def set_active_thread(self, value: threading.Thread | None) -> None:
+            self.active_thread = value
+
+    try:
+        service.m_headless_agents["claude-headless-thread"] = _ThreadOnlyHandle(live_thread)
+        service._reconcile_headless_active_turn(tracked_agent_id="claude-headless-thread")
+    finally:
+        release.set()
+        live_thread.join(timeout=2.0)
+
+    turn_record = service.m_managed_headless_store.read_turn_record(
+        tracked_agent_id="claude-headless-thread",
+        turn_id="turn-live",
+    )
+    assert turn_record is not None
+    assert turn_record.status == "active"
+    assert (
+        service.m_managed_headless_store.read_active_turn(tracked_agent_id="claude-headless-thread")
+        is not None
+    )
+
+
+def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-dead"
+    process_path = turn_dir / "process.json"
+    service.m_managed_headless_store.write_turn_record(
+        ManagedHeadlessTurnRecord(
+            tracked_agent_id="claude-headless-dead",
+            turn_id="turn-dead",
+            turn_index=1,
+            status="active",
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            turn_artifact_dir=str(turn_dir),
+            tmux_session_name="AGENTSYS-dead",
+            tmux_window_name="turn-1",
+            process_path=str(process_path),
+            history_summary="Turn turn-dead accepted.",
+        )
+    )
+    service.m_managed_headless_store.write_active_turn(
+        ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id="claude-headless-dead",
+            turn_id="turn-dead",
+            turn_index=1,
+            turn_artifact_dir=str(turn_dir),
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            tmux_session_name="AGENTSYS-dead",
+            tmux_window_name="turn-1",
+            process_path=str(process_path),
+        )
+    )
+
+    service._finalize_headless_turn_record(
+        tracked_agent_id="claude-headless-dead",
+        turn_id="turn-dead",
+        error_detail=None,
+    )
+
+    turn_record = service.m_managed_headless_store.read_turn_record(
+        tracked_agent_id="claude-headless-dead",
+        turn_id="turn-dead",
+    )
+    assert turn_record is not None
+    assert turn_record.status == "failed"
+    assert (
+        turn_record.error
+        == "Headless execution ended without durable completion or process metadata."
+    )
+    assert (
+        service.m_managed_headless_store.read_active_turn(tracked_agent_id="claude-headless-dead")
+        is None
+    )
+
+
+def test_finalize_headless_turn_record_fails_closed_for_legacy_active_turn_metadata(
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-legacy"
+    service.m_managed_headless_store.write_turn_record(
+        ManagedHeadlessTurnRecord(
+            tracked_agent_id="claude-headless-legacy",
+            turn_id="turn-legacy",
+            turn_index=1,
+            status="active",
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            turn_artifact_dir=str(turn_dir),
+            tmux_session_name="AGENTSYS-legacy",
+            tmux_window_name="turn-1",
+            history_summary="Turn turn-legacy accepted.",
+        )
+    )
+    service.m_managed_headless_store.write_active_turn(
+        ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id="claude-headless-legacy",
+            turn_id="turn-legacy",
+            turn_index=1,
+            turn_artifact_dir=str(turn_dir),
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            tmux_session_name="AGENTSYS-legacy",
+            tmux_window_name="turn-1",
+        )
+    )
+
+    service._finalize_headless_turn_record(
+        tracked_agent_id="claude-headless-legacy",
+        turn_id="turn-legacy",
+        error_detail=None,
+    )
+
+    turn_record = service.m_managed_headless_store.read_turn_record(
+        tracked_agent_id="claude-headless-legacy",
+        turn_id="turn-legacy",
+    )
+    assert turn_record is not None
+    assert turn_record.status == "failed"
+    assert turn_record.error == "Pre-migration active turn without execution-evidence metadata."
+
+
+def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-interrupt"
+    process_path = turn_dir / "process.json"
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _write_process_metadata(process_path, child_pid=sleeper.pid)
+        service.m_managed_headless_store.write_turn_record(
+            ManagedHeadlessTurnRecord(
+                tracked_agent_id="claude-headless-interrupt",
+                turn_id="turn-interrupt",
+                turn_index=1,
+                status="active",
+                started_at_utc="2026-03-23T12:00:00+00:00",
+                turn_artifact_dir=str(turn_dir),
+                tmux_session_name="AGENTSYS-interrupt",
+                tmux_window_name="turn-1",
+                process_path=str(process_path),
+                child_pid=sleeper.pid,
+                process_started_at_utc="2026-03-23T12:00:00Z",
+                history_summary="Turn turn-interrupt accepted.",
+            )
+        )
+        active_turn = ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id="claude-headless-interrupt",
+            turn_id="turn-interrupt",
+            turn_index=1,
+            turn_artifact_dir=str(turn_dir),
+            started_at_utc="2026-03-23T12:00:00+00:00",
+            tmux_session_name="AGENTSYS-interrupt",
+            tmux_window_name="turn-1",
+            process_path=str(process_path),
+            child_pid=sleeper.pid,
+            process_started_at_utc="2026-03-23T12:00:00Z",
+        )
+        service.m_managed_headless_store.write_active_turn(active_turn)
+        monkeypatch.setattr(
+            "houmao.server.service.run_tmux",
+            lambda _args: (_ for _ in ()).throw(AssertionError("tmux fallback was not expected")),
+        )
+
+        service._interrupt_active_turn_record(active_turn)
+        sleeper.wait(timeout=5.0)
+        service._reconcile_headless_active_turn(tracked_agent_id="claude-headless-interrupt")
+    finally:
+        if sleeper.poll() is None:
+            sleeper.terminate()
+            sleeper.wait(timeout=5.0)
+
+    turn_record = service.m_managed_headless_store.read_turn_record(
+        tracked_agent_id="claude-headless-interrupt",
+        turn_id="turn-interrupt",
+    )
+    assert turn_record is not None
+    assert turn_record.status == "interrupted"
+    assert turn_record.interrupt_requested_at_utc is not None
+
+
+def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
+    tmp_path: Path,
+) -> None:
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
