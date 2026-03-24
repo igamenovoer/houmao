@@ -1,50 +1,43 @@
 # Houmao Server Pair Migration Pack
 
-This migration pack introduces the newly implemented Houmao-managed replacement pair:
+This migration pack describes the supported Houmao-managed replacement pair:
 
 - `houmao-server`
 - `houmao-srv-ctrl`
 
-Together, those tools are the supported Houmao replacement for:
+Together, those tools replace the supported operator path that used to be expressed as:
 
 - `cao-server`
 - `cao`
 
-This pack is intentionally about the pair, not about isolated cross-product combinations. Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported in this implementation.
+Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported.
 
 ## What We Implemented
 
 ### `houmao-server`
 
-`houmao-server` is now a first-party HTTP service with two responsibilities:
-
-1. It exposes the CAO-compatible HTTP surface under an explicit `/cao/*` namespace.
-2. It owns Houmao-specific state that CAO did not own before.
+`houmao-server` is now the public HTTP authority for the pair and owns the CAO-compatible control slice directly.
 
 Implemented server scope includes:
 
-- CAO-compatible `/cao/*` HTTP route mapping for the supported upstream CAO surface
-- a supervised child `cao-server` in the shallow v1 architecture
-- derived child listener address `public_port + 1`
-- Houmao-owned `GET /health` additive metadata
-- Houmao-owned current-instance metadata
-- shared managed-agent routes under `/houmao/agents/*` for transport-neutral discovery, summary state, detailed state, request submission, post-launch gateway lifecycle, notifier control, and bounded history
+- native Houmao-owned CAO-compatible control core behind `/cao/*`
+- server-local dispatch for the preserved `/cao/*` route family instead of reverse proxying to a supervised child `cao-server`
+- preserved root `GET /health` compatibility identity with `service="cli-agent-orchestrator"` plus `houmao_service="houmao-server"`, without `child_cao` metadata
+- Houmao-owned current-instance metadata under `/houmao/server/current-instance`
+- Houmao-owned compatibility profile store and profile index under the server root
+- Houmao-owned compatibility registry persistence for CAO-shaped sessions, terminals, and inbox messages
+- shared managed-agent routes under `/houmao/agents/*`
 - native headless lifecycle routes for launch, stop, turns, events, artifacts, and best-effort interrupt
-- one background worker per known tmux-backed tracked session
-- direct tmux pane capture and process-based TUI up/down detection
-- official live parsing through the shared parser stack
-- explicit transport/process/parse diagnostics, simplified `diagnostics` / `surface` / `turn` / `last_turn` tracked state, generic stability metadata, and bounded in-memory recent transitions
-- server-local delegated-launch registration records
-- server-owned native headless authority records under `state/managed_agents/<tracked_agent_id>/`
-- a Houmao-owned server root under `<runtime-root>/houmao_servers/<host>-<port>/`
+- direct tmux/process watch, official parser integration, and Houmao-owned tracked terminal state
+- server-owned managed-agent authority records under `state/managed_agents/<tracked_agent_id>/`
 
 ### `houmao-srv-ctrl`
 
-`houmao-srv-ctrl` is now a pair service-management CLI with an explicit CAO-compatible namespace.
+`houmao-srv-ctrl` remains the pair service-management CLI and keeps the explicit `cao` namespace, but the implementation is now Houmao-owned.
 
 Implemented CLI scope includes:
 
-- top-level Houmao-owned pair commands:
+- top-level pair commands:
   - `install`
   - `launch`
   - `agent-gateway attach`
@@ -56,43 +49,40 @@ Implemented CLI scope includes:
   - `launch`
   - `mcp-server`
   - `shutdown`
-- local-only delegation of `cao flow`, `cao init`, `cao install`, and `cao mcp-server` to the installed `cao` executable
-- pair-aware `cao launch`, `cao info`, and `cao shutdown` wrappers over the supported `houmao-server` boundary
+- pair-routed `cao launch`, `cao info`, `cao shutdown`, and `cao install`
+- local Houmao-owned compatibility helpers for `cao flow` and `cao init`
+- explicit retirement guidance for `cao mcp-server` instead of passthrough to standalone CAO
+- explicit launch provider coverage for `kiro_cli`, `claude_code`, `codex`, `gemini_cli`, `kimi_cli`, and `q_cli`
 - terminal-backed launch follow-up registration back into `houmao-server`
 - native top-level `launch --headless` translation into the Houmao headless launch API
-- Houmao-owned runtime artifact materialization after successful terminal-backed launch
-- pair-owned managed-agent gateway attach through `houmao-srv-ctrl agent-gateway attach`, including explicit-target and current-session modes
 
 ### Runtime Integration
 
-The runtime now supports a first-class persisted backend identity:
+Runtime-backed terminal sessions launched through the pair continue to persist:
 
 - `backend = "houmao_server_rest"`
 
-That backend persists the public `houmao-server` transport identity instead of pretending the session is still owned directly by `cao_rest`.
+That preserves the existing pair runtime seam while redirecting the underlying CAO-compatible authority to `houmao-server` itself.
 
-Implemented runtime scope includes:
+## What Changed
 
-- dedicated `houmao_server` manifest sections
-- runtime-owned session roots and manifests for delegated launches
-- gateway and registry compatibility through those runtime-owned artifacts
-- launch-time stable gateway capability publication for delegated `houmao_server_rest` sessions before live attach
-- same-session `houmao_server_rest` gateway auxiliary windows with an authoritative `gateway/run/current-instance.json` execution handle
-- reserved tmux window `0` as the contractual agent surface for pair-managed sessions
-- runtime control paths that route `houmao_server_rest` sessions through `houmao-server`
-- native headless runtime sessions that remain on their headless backend while exposing server-owned control through `/houmao/agents/*`
+- `houmao-server` no longer supervises a child `cao-server` for the supported pair path.
+- `houmao-srv-ctrl cao ...` no longer depends on an installed `cao` executable for the supported command family.
+- pair-targeted install now writes to a Houmao-managed compatibility profile store under the selected server root.
+- standalone `houmao-cao-server` is retired and fails fast with migration guidance.
+- standalone `houmao-cli` workflows that would create or control raw `backend="cao_rest"` sessions are retired and fail fast with migration guidance.
 
 ## What Stayed The Same
 
-- `houmao-cli` remains the runtime and agent lifecycle CLI. It is not the CAO-compatible service-management wrapper.
-- Direct CAO-based flows still exist while `houmao-server` adoption remains opt-in.
-- `houmao-server` still uses a supervised child `cao-server` behind the public Houmao boundary for delegated control routes.
-- The watch plane is no longer child-CAO-shaped even though the control plane still delegates in v1.
+- `houmao-cli` remains the runtime and agent lifecycle CLI.
+- the public pair boundary remains `houmao-server + houmao-srv-ctrl`.
+- the explicit `/cao/*` HTTP namespace and `houmao-srv-ctrl cao ...` CLI namespace remain present for compatibility.
+- pair-managed runtime artifacts, gateway attachability publication, and reserved tmux window `0` behavior remain centered on `houmao_server_rest`.
 
 ## Recommended Reading Order
 
 1. [What We Tested](tested.md)
 2. [Migration Guide](migration-guide.md)
-3. [TUI Handling Internals](../../../developer/houmao-server/internals/README.md)
-4. [Houmao Server Pair Reference](../../../reference/houmao_server_pair.md)
-5. [Houmao Server Filesystem Reference](../../../reference/system-files/houmao-server.md)
+3. [Houmao Server Pair Reference](../../../reference/houmao_server_pair.md)
+4. [Houmao Server Filesystem Reference](../../../reference/system-files/houmao-server.md)
+5. [TUI Handling Internals](../../../developer/houmao-server/internals/README.md)

@@ -1,7 +1,7 @@
 """Core service runtime for `houmao-server`.
 
-This service keeps CAO-compatible control delegation behind the child server
-while owning live tmux/process observation and in-memory TUI tracking directly.
+This service serves the CAO-compatible control surface locally while owning
+live tmux/process observation and in-memory TUI tracking directly.
 """
 
 from __future__ import annotations
@@ -85,10 +85,9 @@ from houmao.server.tui import (
 )
 from houmao.server.tui.tracking import utc_now_iso
 
-from houmao.server.child_cao import ChildCaoInstallError, ChildCaoManager
 from houmao.server.config import HoumaoServerConfig
+from houmao.server.control_core import CompatibilityControlCore, LocalCompatibilityTransport
 from houmao.server.models import (
-    ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoErrorDetail,
     HoumaoHeadlessLaunchRequest,
@@ -176,7 +175,7 @@ class _ManagedHeadlessAgentHandle:
 
 
 class ProxyResponse:
-    """One proxied child-CAO response."""
+    """One proxied CAO-compatible response."""
 
     def __init__(
         self,
@@ -204,7 +203,7 @@ class ProxyResponse:
 
 
 class ProxyTransport(Protocol):
-    """Transport contract for proxied child-CAO requests."""
+    """Transport contract for proxied CAO-compatible requests."""
 
     def request(
         self,
@@ -214,11 +213,11 @@ class ProxyTransport(Protocol):
         path: str,
         params: dict[str, str] | None = None,
     ) -> ProxyResponse:
-        """Send one child-CAO request."""
+        """Send one CAO-compatible request."""
 
 
 class UrlLibProxyTransport:
-    """urllib-based child-CAO proxy transport."""
+    """urllib-based CAO-compatible proxy transport."""
 
     def request(
         self,
@@ -228,7 +227,7 @@ class UrlLibProxyTransport:
         path: str,
         params: dict[str, str] | None = None,
     ) -> ProxyResponse:
-        """Send one child-CAO request with urllib."""
+        """Send one CAO-compatible request with urllib."""
 
         encoded_params = parse.urlencode(params or {})
         url = f"{base_url.rstrip('/')}{path}"
@@ -271,8 +270,41 @@ class UrlLibProxyTransport:
             reason = getattr(exc, "reason", exc)
             raise HTTPException(
                 status_code=503,
-                detail=f"Child `cao-server` is unavailable: {reason}",
+                detail=f"Compatibility transport is unavailable: {reason}",
             ) from exc
+
+
+class LocalCompatibilityTransportBridge:
+    """Proxy-transport bridge that dispatches into the native control core."""
+
+    def __init__(self, *, transport: LocalCompatibilityTransport) -> None:
+        """Initialize the bridge transport."""
+
+        self.m_transport = transport
+
+    def request(
+        self,
+        *,
+        base_url: str,
+        method: str,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> ProxyResponse:
+        """Dispatch one CAO-compatible request locally."""
+
+        del base_url
+        status_code, payload = self.m_transport.dispatch(
+            method=method,
+            path=path,
+            params=params,
+        )
+        body = json.dumps(payload).encode("utf-8")
+        return ProxyResponse(
+            status_code=status_code,
+            body=body,
+            content_type="application/json",
+            json_payload=payload,
+        )
 
 
 class HoumaoServerService:
@@ -283,7 +315,8 @@ class HoumaoServerService:
         *,
         config: HoumaoServerConfig,
         transport: ProxyTransport | None = None,
-        child_manager: ChildCaoManager | None = None,
+        control_core: CompatibilityControlCore | None = None,
+        child_manager: object | None = None,
         known_session_registry: KnownSessionRegistry | None = None,
         managed_headless_store: ManagedHeadlessStore | None = None,
         transport_resolver: TmuxTransportResolver | None = None,
@@ -293,9 +326,12 @@ class HoumaoServerService:
     ) -> None:
         """Initialize the service runtime."""
 
+        del child_manager
         self.m_config = config
-        self.m_transport = transport or UrlLibProxyTransport()
-        self.m_child_manager = child_manager or ChildCaoManager(config=config)
+        self.m_control_core = control_core or CompatibilityControlCore(config=config)
+        self.m_transport = transport or LocalCompatibilityTransportBridge(
+            transport=LocalCompatibilityTransport(control_core=self.m_control_core)
+        )
         self.m_known_session_registry = known_session_registry or KnownSessionRegistry(
             config=config
         )
@@ -319,8 +355,7 @@ class HoumaoServerService:
 
         self._ensure_directories()
         self.m_managed_headless_store.ensure_directories()
-        if self.m_config.startup_child:
-            self.m_child_manager.start()
+        self.m_control_core.startup()
         self._write_current_instance()
         self._rebuild_headless_agents()
         self.m_supervisor.start()
@@ -330,19 +365,15 @@ class HoumaoServerService:
         """Stop the service runtime."""
 
         self.m_supervisor.stop()
-        if self.m_config.startup_child:
-            try:
-                self.m_child_manager.stop()
-            except Exception:
-                pass
+        self.m_control_core.shutdown()
 
     def proxy(
         self, *, method: str, path: str, params: dict[str, str] | None = None
     ) -> ProxyResponse:
-        """Proxy one CAO-compatible request to the child server."""
+        """Dispatch one CAO-compatible request through the compatibility transport."""
 
         return self.m_transport.request(
-            base_url=self.m_config.child_api_base_url,
+            base_url=self.m_config.api_base_url,
             method=method,
             path=path,
             params=params,
@@ -354,7 +385,6 @@ class HoumaoServerService:
         return HoumaoHealthResponse(
             status="ok",
             service="cli-agent-orchestrator",
-            child_cao=self._projected_child_status(),
         )
 
     def current_instance_response(self) -> HoumaoCurrentInstance:
@@ -364,13 +394,12 @@ class HoumaoServerService:
             pid=os.getpid(),
             api_base_url=self.m_config.api_base_url,
             server_root=str(self.m_config.server_root),
-            child_cao=self._projected_child_status(),
         )
 
     def install_agent_profile(
         self, request_model: HoumaoInstallAgentProfileRequest
     ) -> HoumaoInstallAgentProfileResponse:
-        """Install one agent profile into the server-managed child CAO state."""
+        """Install one agent profile into the Houmao-managed compatibility store."""
 
         working_directory = (
             Path(request_model.working_directory).expanduser().resolve()
@@ -389,32 +418,15 @@ class HoumaoServerService:
             )
 
         try:
-            install_result = self.m_child_manager.install_agent_profile(
+            detail = self.m_control_core.install_profile(
                 agent_source=request_model.agent_source,
                 provider=request_model.provider,
                 working_directory=working_directory,
             )
-        except ChildCaoInstallError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        if install_result.returncode != 0:
-            LOGGER.warning(
-                "Pair-owned install failed for provider=%s agent_source=%s returncode=%s "
-                "stdout=%r stderr=%r",
-                request_model.provider,
-                request_model.agent_source,
-                install_result.returncode,
-                install_result.stdout,
-                install_result.stderr,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Pair-owned install failed through managed child CAO state for "
-                    f"provider `{request_model.provider}` and agent source "
-                    f"`{request_model.agent_source}` (exit code {install_result.returncode})."
-                ),
-            )
+        except Exception as exc:
+            status_code = getattr(exc, "status_code", 500)
+            detail = getattr(exc, "detail", str(exc))
+            raise HTTPException(status_code=status_code, detail=detail) from exc
 
         LOGGER.info(
             "Pair-owned install completed for provider=%s agent_source=%s",
@@ -425,37 +437,8 @@ class HoumaoServerService:
             success=True,
             agent_source=request_model.agent_source,
             provider=request_model.provider,
-            detail=(
-                "Pair-owned install completed through managed child CAO state for "
-                f"provider `{request_model.provider}` and agent source "
-                f"`{request_model.agent_source}`."
-            ),
+            detail=detail,
         )
-
-    def child_status(self) -> ChildCaoStatus:
-        """Return child-CAO lifecycle metadata."""
-
-        inspection = self.m_child_manager.inspect()
-        return ChildCaoStatus(
-            api_base_url=inspection.config.base_url,
-            healthy=inspection.status.healthy,
-            health_status=inspection.status.health_status,
-            service=inspection.status.service,
-            error=inspection.status.error,
-            derived_port=self.m_config.public_port + 1,
-            ownership_file=(
-                str(self.m_child_manager.ownership_file_path())
-                if self.m_child_manager.ownership_file_path().exists()
-                else None
-            ),
-        )
-
-    def _projected_child_status(self) -> ChildCaoStatus | None:
-        """Return child metadata only when child startup is part of this server mode."""
-
-        if not self.m_config.startup_child:
-            return None
-        return self.child_status()
 
     def sync_created_terminal(self, payload: object) -> None:
         """Accept the proxied create payload without admitting tracking authority."""
@@ -555,13 +538,13 @@ class HoumaoServerService:
             if not isinstance(first, dict):
                 raise HTTPException(
                     status_code=502,
-                    detail="Child CAO returned an invalid terminal payload during launch registration.",
+                    detail="The compatibility control surface returned an invalid terminal payload during launch registration.",
                 )
             terminal_id = str(first.get("id", "")).strip() or None
             if terminal_id is None:
                 raise HTTPException(
                     status_code=502,
-                    detail="Child CAO launch registration payload is missing terminal id.",
+                    detail="The compatibility launch registration payload is missing terminal id.",
                 )
 
         proxy = self.proxy(
@@ -572,7 +555,7 @@ class HoumaoServerService:
         if not isinstance(payload, dict):
             raise HTTPException(
                 status_code=502,
-                detail="Child CAO returned an invalid terminal payload during launch registration.",
+                detail="The compatibility control surface returned an invalid terminal payload during launch registration.",
             )
         CaoTerminal.model_validate(payload)
 
@@ -1583,7 +1566,7 @@ class HoumaoServerService:
             self.m_config.history_dir,
             self.m_config.sessions_dir,
             self.m_config.managed_agents_root,
-            self.m_config.child_root,
+            self.m_config.compatibility_state_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
@@ -1991,7 +1974,7 @@ class HoumaoServerService:
             self._require_successful_proxy_action(
                 proxy_response,
                 failure_status_code=503,
-                failure_detail="Managed-agent prompt submission failed through the child CAO transport.",
+                failure_detail="Managed-agent prompt submission failed through the compatibility transport.",
             )
             self.note_prompt_submission(terminal_id=terminal_id, message=request_model.prompt)
             return HoumaoManagedAgentRequestAcceptedResponse(
@@ -2020,7 +2003,7 @@ class HoumaoServerService:
         self._require_successful_proxy_action(
             proxy_response,
             failure_status_code=503,
-            failure_detail="Managed-agent interrupt delivery failed through the child CAO transport.",
+            failure_detail="Managed-agent interrupt delivery failed through the compatibility transport.",
         )
         return HoumaoManagedAgentRequestAcceptedResponse(
             success=True,
@@ -2111,7 +2094,7 @@ class HoumaoServerService:
         failure_status_code: int,
         failure_detail: str,
     ) -> None:
-        """Require one proxied child-CAO action to succeed."""
+        """Require one proxied compatibility action to succeed."""
 
         if not 200 <= proxy_response.status_code < 300:
             detail = self._proxy_action_detail(proxy_response, fallback=failure_detail)
@@ -2122,7 +2105,7 @@ class HoumaoServerService:
             raise HTTPException(status_code=failure_status_code, detail=detail)
 
     def _proxy_action_detail(self, proxy_response: ProxyResponse, *, fallback: str) -> str:
-        """Return a concise error detail for one proxied child-CAO action."""
+        """Return a concise error detail for one proxied compatibility action."""
 
         payload = proxy_response.json_payload
         if isinstance(payload, dict):

@@ -2,13 +2,13 @@
 
 This implementation does not claim unlimited CAO parity. The verification boundary is explicit:
 
-- CAO-compatible `/cao/*` HTTP routes are tested as request-surface acceptance and forwarding contracts.
-- Explicit `houmao-srv-ctrl cao ...` compatibility commands are tested as namespaced command-surface contracts, with delegation or pair-aware wrapping depending on the subcommand.
-- Houmao-owned extensions and lifecycle behavior are tested directly for correctness.
+- CAO-compatible `/cao/*` HTTP routes are tested as request-surface and local-dispatch contracts owned by `houmao-server`
+- `houmao-srv-ctrl cao ...` is tested as a Houmao-owned compatibility namespace, with either pair-routed behavior or local compatibility helpers depending on the subcommand
+- Houmao-owned extensions, tracking, gateway, managed-agent, and install behavior are tested directly for correctness
 
 ## Compatibility Source Of Truth
 
-Pinned upstream CAO source used for compatibility verification:
+Pinned upstream CAO source used as the compatibility oracle:
 
 - repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
 - commit: `0fb3e5196570586593736a21262996ca622f53b6`
@@ -16,28 +16,27 @@ Pinned upstream CAO source used for compatibility verification:
 
 ## HTTP Verification
 
-Server-side verification covers the contract Houmao actually owns at the HTTP boundary.
+Server-side verification covers the contract Houmao owns at the HTTP boundary.
 
 Verified areas:
 
 - pinned upstream CAO route inventory matches Houmao's CAO-compatible route inventory
-- request query-shape parity for compatibility routes such as:
+- request query-shape parity for preserved compatibility routes such as:
   - `POST /cao/sessions`
   - `GET /cao/terminals/{terminal_id}/output`
   - `GET /cao/terminals/{terminal_id}/inbox/messages`
-- request forwarding for:
+- local dispatch and route-side hook behavior for:
   - required and optional params
   - path-segment percent encoding
-  - additive query handling
+  - created-terminal sync
+  - deleted-session and deleted-terminal handling
+  - prompt-submission bookkeeping
 - Houmao-owned server behavior:
-  - additive `/health` payload
-  - removal of root `/sessions/*` and `/terminals/*` public routes
-  - current-instance payload
-  - launch registration
+  - root `/health` identity fields without `child_cao`
+  - current-instance payload without child metadata
+  - install validation and explicit server-owned install failures
+  - compatibility registry persistence and shutdown behavior
   - terminal history ordering and limiting
-  - startup seeding from child sessions
-  - watch-worker startup and shutdown behavior
-  - child metadata and derived-port reporting
 
 Primary test files:
 
@@ -46,104 +45,68 @@ Primary test files:
 
 ## CLI Verification
 
-CLI-side verification covers the contract Houmao actually owns at the `houmao-srv-ctrl` boundary.
+CLI-side verification covers the contract Houmao owns at the `houmao-srv-ctrl` boundary.
 
 Verified areas:
 
 - pinned upstream CAO command-family inventory matches `houmao-srv-ctrl cao`
-- local-only delegated argument forwarding for representative compatibility commands:
+- local compatibility helper behavior for:
   - `cao flow`
   - `cao init`
-  - `cao install`
+- explicit retirement guidance for:
   - `cao mcp-server`
-- pair-aware compatibility wrapper behavior for:
+- pair-routed compatibility wrapper behavior for:
   - `cao info`
   - `cao shutdown`
   - `cao launch`
+  - `cao install`
 - Houmao-owned top-level command behavior for:
   - `install`
   - `launch`
   - `launch --headless`
   - `agent-gateway attach --agent <agent-ref> --port <public-port>`
-  - `agent-gateway attach` current-session resolution from stable tmux-published gateway metadata
-- terminal-backed launch follow-up behavior:
-  - session discovery
-  - runtime artifact materialization
-  - `houmao-server` registration payload
-  - compatibility-significant `cao launch/info/shutdown` output and exit-code behavior
-  - native headless completion output
+  - `agent-gateway attach` current-session resolution from tmux-published gateway metadata
 
 Primary test file:
 
 - [`tests/unit/srv_ctrl/test_commands.py`](../../../tests/unit/srv_ctrl/test_commands.py)
 
-## Runtime And Persisted Contract Coverage
+## Runtime And Pair Seam Verification
 
-The server-pair work also reuses existing runtime and schema coverage already present in this repository for:
+The change also keeps focused coverage around the preserved `houmao_server_rest` runtime seam and the pair-specific startup hooks that no longer require raw `cao-server` assumptions.
 
-- `houmao_server_rest` manifest persistence
-- gateway attach metadata
-- shared-registry pointer publication
-- runtime backend schema support
+Representative file:
 
-Representative files:
-
-- [`tests/unit/agents/realm_controller/test_schema_and_manifest.py`](../../../tests/unit/agents/realm_controller/test_schema_and_manifest.py)
-- [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)
-- [`tests/unit/srv_ctrl/test_runtime_artifacts.py`](../../../tests/unit/srv_ctrl/test_runtime_artifacts.py)
-- [`tests/unit/srv_ctrl/test_commands.py`](../../../tests/unit/srv_ctrl/test_commands.py)
-- [`tests/unit/server/test_service.py`](../../../tests/unit/server/test_service.py)
-- [`tests/integration/server/test_managed_agent_gateway_contract.py`](../../../tests/integration/server/test_managed_agent_gateway_contract.py)
-- [`tests/integration/agents/realm_controller/test_gateway_runtime_contract.py`](../../../tests/integration/agents/realm_controller/test_gateway_runtime_contract.py)
+- [`tests/unit/agents/realm_controller/test_cao_client_and_profile.py`](../../../tests/unit/agents/realm_controller/test_cao_client_and_profile.py)
 
 ## Commands Run
 
-Focused verification added for this implementation:
+Focused verification run for the absorbed control plane:
 
 ```bash
-pixi run pytest \
-  tests/unit/server/test_app_contracts.py \
-  tests/unit/server/test_client.py \
-  tests/unit/srv_ctrl/test_commands.py
+pixi run python -m pytest tests/unit/agents/realm_controller/test_cao_client_and_profile.py -q
 ```
 
 Result:
 
-- `29 passed`
+- `42 passed in 10.56s`
 
-Additional runtime, gateway, server, and demo coverage run for the boundary repair:
+Focused regression verification run after updating the server and CLI compatibility expectations:
 
 ```bash
-pixi run pytest \
-  tests/unit/agents/realm_controller/test_gateway_support.py \
-  tests/unit/agents/realm_controller/test_runtime_resume.py \
-  tests/unit/agents/realm_controller/test_schema_and_manifest.py \
-  tests/unit/agents/realm_controller/test_cao_client_and_profile.py \
-  tests/unit/server/test_service.py \
-  tests/unit/demo/test_houmao_server_dual_shadow_watch_driver.py \
-  tests/unit/demo/test_houmao_server_dual_shadow_watch_monitor.py -q
+pixi run python -m pytest tests/unit/server/test_app_contracts.py tests/unit/server/test_service.py tests/unit/srv_ctrl/test_commands.py -q
 ```
 
 Result:
 
-- `109 passed`
-
-Static verification run after the targeted tests:
-
-```bash
-pixi run lint
-```
-
-Result:
-
-- `pass`
+- `57 passed in 1.42s`
 
 ## What We Did Not Claim
 
 The current verification intentionally does not claim:
 
-- full downstream re-testing of every CAO business behavior behind passthrough HTTP routes
-- byte-for-byte human-prose stdout or stderr parity for compatibility wrappers
+- full downstream re-testing of every CAO business behavior beyond the supported Houmao-owned boundary
+- byte-for-byte human-prose stdout or stderr parity for compatibility commands
 - support for mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl`
 
-Those omissions are deliberate. They match the implemented boundary and avoid over-claiming behavior that still belongs to the delegated CAO side.
+Those omissions are deliberate. They match the implemented boundary and avoid over-claiming behavior outside the supported pair.

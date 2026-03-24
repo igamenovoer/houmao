@@ -142,6 +142,38 @@ class _FakeChildManager:
         )
 
 
+class _FakeControlCore:
+    def __init__(
+        self,
+        *,
+        install_detail: str = "Pair-owned install completed through the Houmao-managed compatibility profile store.",
+        install_error: Exception | None = None,
+    ) -> None:
+        self.startup_calls = 0
+        self.shutdown_calls = 0
+        self.install_calls: list[tuple[str, str, Path | None]] = []
+        self.m_install_detail = install_detail
+        self.m_install_error = install_error
+
+    def startup(self) -> None:
+        self.startup_calls += 1
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+    def install_profile(
+        self,
+        *,
+        agent_source: str,
+        provider: str,
+        working_directory: Path | None = None,
+    ) -> str:
+        self.install_calls.append((agent_source, provider, working_directory))
+        if self.m_install_error is not None:
+            raise self.m_install_error
+        return self.m_install_detail
+
+
 class _FakeTmuxTransportResolver:
     def __init__(self, *, output_text: str | list[str]) -> None:
         self.m_output_text = output_text
@@ -697,14 +729,11 @@ def test_terminal_history_returns_recent_in_memory_transitions(
     assert "turn_phase" in history.entries[0].changed_fields
 
 
-def test_startup_persists_current_instance_and_child_metadata(
+def test_startup_persists_current_instance_without_child_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    ownership_file = tmp_path / "child-cao" / "ownership.json"
-    ownership_file.parent.mkdir(parents=True, exist_ok=True)
-    ownership_file.write_text("{}\n", encoding="utf-8")
-    child_manager = _FakeChildManager(ownership_file=ownership_file)
+    control_core = _FakeControlCore()
     monkeypatch.setattr(
         "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
     )
@@ -715,7 +744,7 @@ def test_startup_persists_current_instance_and_child_metadata(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.startup()
@@ -726,25 +755,22 @@ def test_startup_persists_current_instance_and_child_metadata(
     current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
     health = service.health_response()
 
-    assert child_manager.start_calls == 1
+    assert control_core.startup_calls == 1
     assert current_instance["status"] == "ok"
     assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
-    assert current_instance["child_cao"]["api_base_url"] == "http://127.0.0.1:9890"
-    assert current_instance["child_cao"]["derived_port"] == 9890
-    assert current_instance["child_cao"]["ownership_file"] == str(ownership_file)
+    assert "child_cao" not in current_instance
     assert health.status == "ok"
     assert health.houmao_service == "houmao-server"
-    assert health.child_cao is not None
-    assert health.child_cao.healthy is True
+    assert health.child_cao is None
 
 
-def test_startup_omits_child_metadata_when_child_startup_disabled(
+def test_startup_ignores_legacy_child_startup_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """No-child mode should persist Houmao-owned state without child metadata."""
+    """Legacy child-startup flags do not change the server-owned health surface."""
 
-    child_manager = _FakeChildManager(healthy=False, error="connection refused")
+    control_core = _FakeControlCore()
     monkeypatch.setattr(
         "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
     )
@@ -759,7 +785,7 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
             startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.startup()
@@ -770,8 +796,7 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
     current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
     health = service.health_response()
 
-    assert child_manager.start_calls == 0
-    assert child_manager.inspect_calls == 0
+    assert control_core.startup_calls == 1
     assert current_instance["status"] == "ok"
     assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
     assert "child_cao" not in current_instance
@@ -780,25 +805,25 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
     assert health.child_cao is None
 
 
-def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
-    child_manager = _FakeChildManager()
+def test_shutdown_persists_core_state_without_prior_startup(tmp_path: Path) -> None:
+    control_core = _FakeControlCore()
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.shutdown()
 
-    assert child_manager.stop_calls == 1
+    assert control_core.shutdown_calls == 1
 
 
-def test_install_agent_profile_routes_through_child_manager(tmp_path: Path) -> None:
-    child_manager = _FakeChildManager()
+def test_install_agent_profile_routes_through_control_core(tmp_path: Path) -> None:
+    control_core = _FakeControlCore()
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     response = service.install_agent_profile(
@@ -810,22 +835,25 @@ def test_install_agent_profile_routes_through_child_manager(tmp_path: Path) -> N
     )
 
     assert response.success is True
-    assert child_manager.install_calls == [("projection-demo", "codex", tmp_path.resolve())]
-    assert "Pair-owned install completed" in response.detail
+    assert control_core.install_calls == [("projection-demo", "codex", tmp_path.resolve())]
+    assert "Houmao-managed compatibility profile store" in response.detail
 
 
-def test_install_agent_profile_returns_explicit_failure_without_child_path_leak(
+def test_install_agent_profile_returns_explicit_server_owned_failure(
     tmp_path: Path,
 ) -> None:
-    child_manager = _FakeChildManager(
-        install_returncode=7,
-        install_stdout="internal success path /tmp/hidden/home",
-        install_stderr="internal failure path /tmp/hidden/home",
+    install_error = type(
+        "InstallError",
+        (Exception,),
+        {"status_code": 502, "detail": "Pair-owned install failed through the compatibility store."},
+    )()
+    control_core = _FakeControlCore(
+        install_error=install_error,
     )
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -838,8 +866,7 @@ def test_install_agent_profile_returns_explicit_failure_without_child_path_leak(
         )
 
     assert exc_info.value.status_code == 502
-    assert "Pair-owned install failed through managed child CAO state" in str(exc_info.value.detail)
-    assert "/tmp/hidden/home" not in str(exc_info.value.detail)
+    assert "compatibility store" in str(exc_info.value.detail)
 
 
 def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Path) -> None:

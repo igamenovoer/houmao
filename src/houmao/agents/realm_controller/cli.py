@@ -47,6 +47,10 @@ _CONTROL_AGENT_DEF_DIR_HELP = (
     "For name-based tmux control: explicit CLI override or the addressed session's "
     "AGENTSYS_AGENT_DEF_DIR."
 )
+_DEPRECATED_CAO_RUNTIME_GUIDANCE = (
+    "Standalone backend='cao_rest' operator workflows are retired. "
+    "Use `houmao-server` with `houmao-srv-ctrl` instead."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -486,6 +490,22 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reject_deprecated_raw_cao_backend(*, backend: BackendKind | None) -> None:
+    """Reject public raw CAO-backed start requests with migration guidance."""
+
+    if backend == "cao_rest":
+        raise BrainLaunchRuntimeError(_DEPRECATED_CAO_RUNTIME_GUIDANCE)
+
+
+def _reject_deprecated_cao_runtime_controller(controller: object) -> None:
+    """Reject public control flows bound to deprecated raw CAO-backed sessions."""
+
+    launch_plan = getattr(controller, "launch_plan", None)
+    backend = getattr(launch_plan, "backend", None)
+    if backend == "cao_rest":
+        raise BrainLaunchRuntimeError(_DEPRECATED_CAO_RUNTIME_GUIDANCE)
+
+
 def _cmd_start_session(args: argparse.Namespace) -> int:
     cwd = Path.cwd().resolve()
     agent_def_dir = _resolve_agent_def_dir(args.agent_def_dir, cwd=cwd)
@@ -496,6 +516,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     )
     role_name = str(args.role) if args.role else _resolve_role(args, agent_def_dir=agent_def_dir)
     backend: BackendKind | None = args.backend
+    _reject_deprecated_raw_cao_backend(backend=backend)
 
     controller = start_runtime_session(
         agent_def_dir=agent_def_dir,
@@ -600,6 +621,7 @@ def _cmd_send_prompt(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
 
     events = controller.send_prompt(args.prompt)
     for event in events:
@@ -623,6 +645,7 @@ def _cmd_gateway_send_prompt(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     payload = controller.send_prompt_via_gateway(args.prompt)
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0
@@ -643,6 +666,7 @@ def _cmd_send_keys(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
 
     result = controller.send_input_ex(
         args.sequence,
@@ -668,6 +692,7 @@ def _cmd_gateway_interrupt(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     payload = controller.interrupt_via_gateway()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0
@@ -688,6 +713,7 @@ def _cmd_stop_session(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
 
     result = controller.stop(force_cleanup=bool(args.force_cleanup))
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
@@ -710,6 +736,7 @@ def _cmd_attach_gateway(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     result = controller.attach_gateway(
         host_override=args.gateway_host,
         port_override=args.gateway_port,
@@ -733,6 +760,7 @@ def _cmd_detach_gateway(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     result = controller.detach_gateway()
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
     return 0 if result.status == "ok" else 2
@@ -753,6 +781,7 @@ def _cmd_gateway_status(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     payload = controller.gateway_status()
     print(json.dumps(payload.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0
@@ -807,6 +836,7 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         session_manifest_path=resolved.session_manifest_path,
         cao_parsing_mode=args.cao_parsing_mode,
     )
+    _reject_deprecated_cao_runtime_controller(controller)
     mailbox = ensure_mailbox_command_ready(controller.launch_plan)
     prefer_live_gateway = False
     try:

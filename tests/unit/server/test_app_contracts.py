@@ -15,7 +15,6 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.server.app import create_app
 from houmao.server.models import (
-    ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessLaunchResponse,
@@ -169,15 +168,6 @@ class _AppServiceDouble:
         return HoumaoHealthResponse(
             status="ok",
             service="cli-agent-orchestrator",
-            child_cao=ChildCaoStatus(
-                api_base_url="http://127.0.0.1:9890",
-                healthy=True,
-                health_status="ok",
-                service="cli-agent-orchestrator",
-                error=None,
-                derived_port=9890,
-                ownership_file="/tmp/child/ownership.json",
-            ),
         )
 
     def current_instance_response(self) -> HoumaoCurrentInstance:
@@ -185,15 +175,6 @@ class _AppServiceDouble:
             pid=12345,
             api_base_url="http://127.0.0.1:9889",
             server_root="/tmp/houmao-server",
-            child_cao=ChildCaoStatus(
-                api_base_url="http://127.0.0.1:9890",
-                healthy=True,
-                health_status="ok",
-                service="cli-agent-orchestrator",
-                error=None,
-                derived_port=9890,
-                ownership_file="/tmp/child/ownership.json",
-            ),
         )
 
     def install_agent_profile(
@@ -881,10 +862,9 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     history_response = history_route.endpoint(terminal_id="abcd1234", limit=3)
 
     assert health_response.houmao_service == "houmao-server"
-    assert health_response.child_cao is not None
-    assert health_response.child_cao.derived_port == 9890
-
+    assert health_response.child_cao is None
     assert current_instance_response.api_base_url == "http://127.0.0.1:9889"
+    assert current_instance_response.child_cao is None
 
     assert install_response.success is True
     assert service.m_install_requests == [

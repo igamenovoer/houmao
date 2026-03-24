@@ -10,10 +10,11 @@ import click
 from houmao.cao.rest_client import CaoApiError
 
 from .common import require_supported_houmao_pair, resolve_server_base_url
+from .install import install_command
 from .launch import (
     _launch_session_backed_pair_command,
 )
-from .passthrough import passthrough_command
+from .local_compat import flow_group, init_command, mcp_server_command
 
 _DEFAULT_PROVIDER = "kiro_cli"
 _PROVIDERS = frozenset(
@@ -164,9 +165,9 @@ def cao_shutdown_command(
 
 
 cao_group.add_command(cao_launch_command)
-cao_group.add_command(passthrough_command("flow"))
+cao_group.add_command(flow_group)
 cao_group.add_command(cao_info_command)
-cao_group.add_command(passthrough_command("init"))
-cao_group.add_command(passthrough_command("install"))
-cao_group.add_command(passthrough_command("mcp-server"))
+cao_group.add_command(init_command)
+cao_group.add_command(install_command)
+cao_group.add_command(mcp_server_command)
 cao_group.add_command(cao_shutdown_command)

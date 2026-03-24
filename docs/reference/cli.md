@@ -11,7 +11,7 @@ pixi install
 ## Primary Commands
 
 - Runtime CLI: `houmao-cli`
-- CAO launcher CLI: `houmao-cao-server`
+- Retired standalone launcher: `houmao-cao-server`
 - Houmao server CLI: `houmao-server`
 - Houmao pair CLI: `houmao-srv-ctrl`
 
@@ -28,7 +28,7 @@ Module equivalents:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller --help
-pixi run python -m houmao.cao.tools.cao_server_launcher --help
+pixi run python -m houmao.cao.tools.cao_server_launcher   # retired: exits with migration guidance
 houmao-server --help
 houmao-srv-ctrl --help
 ```
@@ -52,6 +52,12 @@ The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctr
 
 Within that pair, `houmao-srv-ctrl` is split deliberately: top-level `launch` and `install` are Houmao-owned pair commands, while `houmao-srv-ctrl cao ...` is the explicit CAO-compatible namespace.
 
+That `cao` namespace is also Houmao-owned in the supported pair:
+
+- `cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
+- `cao flow` and `cao init` are local compatibility helpers
+- `cao mcp-server` is retired and fails explicitly with migration guidance
+
 For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
 
 - `houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>` for explicit managed-agent targeting
@@ -70,7 +76,7 @@ Command reminders:
 
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
-- `send-keys` is the low-level CAO control-input surface; use `send-prompt` or `mail` for higher-level runtime-owned turns.
+- `send-keys` is the low-level CAO control-input surface for resumed legacy `cao_rest` sessions; new standalone `backend="cao_rest"` operator workflows are retired in favor of `houmao-server` with `houmao-srv-ctrl`.
 
 For the dedicated mailbox quickstart, contracts, and operational guidance, see [Mailbox Reference](mailbox/index.md).
 
