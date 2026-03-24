@@ -15,6 +15,25 @@ This requirement applies at minimum to `houmao-srv-ctrl cao launch`, `houmao-srv
 - **THEN** `houmao-srv-ctrl` reads compatibility-significant session information through Houmao-owned pair authority
 - **AND THEN** the command does not require a raw `cao-server` deployment as its supported target
 
+### Requirement: Pair compatibility launch preserves the current provider surface explicitly
+The supported pair SHALL preserve the current compatibility launch provider identifiers accepted by `houmao-srv-ctrl launch` and `houmao-srv-ctrl cao launch` in v1.
+
+At minimum, that preserved provider surface SHALL include:
+
+- `kiro_cli`
+- `claude_code`
+- `codex`
+- `gemini_cli`
+- `kimi_cli`
+- `q_cli`
+
+If a later change intentionally narrows or retires any of those provider identifiers, it SHALL do so explicitly rather than as an implicit side effect of removing CAO.
+
+#### Scenario: Namespaced compatibility launch preserves a non-headless provider id
+- **WHEN** an operator runs `houmao-srv-ctrl cao launch --provider q_cli ...` against the supported pair
+- **THEN** `houmao-srv-ctrl` accepts that current compatibility provider identifier through Houmao-owned pair authority
+- **AND THEN** the command does not require an external `cao` subprocess to preserve that launch surface
+
 ## MODIFIED Requirements
 
 ### Requirement: Most CAO-compatible CLI work delegates to the installed `cao` executable

@@ -5,6 +5,8 @@
 
 `houmao-server` current-instance, health, and install behavior MAY expose Houmao-owned control-core status, but they SHALL NOT require or publish child-CAO process identity as part of the supported public contract.
 
+In v1, `houmao-server` MAY preserve the existing `/cao/*` route-handler seam through a server-local compatibility transport that projects control-core results back into the current route surface.
+
 #### Scenario: Compatibility routes resolve locally inside `houmao-server`
 - **WHEN** a caller uses a supported `/cao/*` route against `houmao-server`
 - **THEN** the server dispatches that route into its local control core
@@ -14,6 +16,11 @@
 - **WHEN** a caller queries `GET /health` or `GET /houmao/server/current-instance` on a running `houmao-server`
 - **THEN** those routes report Houmao-owned server state and any Houmao-owned control-core status that the server chooses to expose
 - **AND THEN** they do not require a `child_cao` process record to describe the supported server state
+
+#### Scenario: Root health keeps pair compatibility identity fields
+- **WHEN** a pair-owned client queries `GET /health` on a running `houmao-server`
+- **THEN** the response still includes `service="cli-agent-orchestrator"` and `houmao_service="houmao-server"`
+- **AND THEN** child-CAO-specific metadata is absent
 
 ## MODIFIED Requirements
 
@@ -74,7 +81,7 @@ At minimum, the memory-primary bucket SHALL include:
 - **THEN** it reads those profiles from Houmao-owned server storage
 - **AND THEN** callers do not manage a separate CAO-home contract as part of the supported public surface
 
-### Requirement: `houmao-server` uses replaceable upstream adapters and v1 SHALL support a CAO-backed engine
+### Requirement: `houmao-server` uses replaceable upstream adapters and v1 SHALL support a native CAO-compatible engine
 `houmao-server` SHALL interact with underlying live terminal providers through an explicit upstream-adapter boundary rather than embedding one backend's control logic into the public server contract.
 
 That upstream-adapter boundary SHALL support at minimum:
@@ -88,6 +95,15 @@ That upstream-adapter boundary SHALL support at minimum:
 - upstream health or connectivity checks
 
 In v1 after this change, the system SHALL provide a Houmao-owned native CAO-compatible engine behind that boundary, composed from a tmux controller, provider adapters, a profile store, and CAO compatibility projection layers.
+
+That v1 engine SHALL preserve the current pair compatibility launch provider identifiers accepted by the supported pair surface:
+
+- `kiro_cli`
+- `claude_code`
+- `codex`
+- `gemini_cli`
+- `kimi_cli`
+- `q_cli`
 
 The public `houmao-server` API SHALL remain Houmao-owned even when the implementation continues to compare itself to CAO as a parity oracle.
 
@@ -135,10 +151,12 @@ Houmao-owned behavior SHALL be tested directly and more strictly. That verificat
 - **THEN** direct Houmao behavior verification detects the regression
 - **AND THEN** the implementation can reject that change even though `/cao/*` parity may still succeed
 
-### Requirement: `houmao-server` exposes a pair-owned install surface for child-managed profile state
+### Requirement: `houmao-server` exposes a pair-owned install surface for compatibility profile state
 `houmao-server` SHALL expose a Houmao-owned install surface that lets paired clients install compatibility profiles into the server-managed Houmao profile store without direct access to internal storage layout details.
 
 That install surface SHALL accept the install inputs needed by the supported pair, including the provider plus agent source or profile reference needed for the install operation.
+
+The server-owned install path SHALL absorb the minimum used CAO install behavior required by the pair, including source resolution, required profile validation/frontmatter handling, provider-specific materialization, and profile metadata indexing behind server-owned storage.
 
 `houmao-server` SHALL resolve compatibility profile-store paths internally. The public contract SHALL NOT require callers to provide or compute CAO-home-like paths or hidden control-core storage locations.
 
@@ -160,4 +178,4 @@ That install surface SHALL accept the install inputs needed by the supported pai
 
 ### Requirement: `houmao-server` no-child mode keeps Houmao root health independent from child-CAO readiness
 **Reason**: After child-CAO removal there is no separate child readiness mode to expose or suppress.
-**Migration**: Treat root `GET /health` and `GET /houmao/server/current-instance` as Houmao-owned server state only, and use `/cao/*` route behavior plus Houmao-owned control-core status fields for compatibility-surface readiness.
+**Migration**: Treat root `GET /health` and `GET /houmao/server/current-instance` as Houmao-owned server routes that no longer report child readiness, while preserving the pair-compatible health identity fields and using `/cao/*` route behavior plus Houmao-owned control-core status fields for compatibility-surface readiness.

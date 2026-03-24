@@ -58,7 +58,7 @@ Houmao will add one native control-core seam that owns the control slice current
 - terminal output and working-directory lookup
 - provider bootstrap and exit behavior
 - profile install and profile lookup
-- compatibility inbox queue behavior when the CAO route surface still exposes it
+- compatibility inbox behavior for the preserved `/cao/terminals/{terminal_id}/inbox/messages` route family
 
 That seam will stay behind Houmao-owned interfaces and models. CAO-shaped HTTP payloads and CAO-shaped CLI behaviors will be projections over the core, not the core's native types.
 
@@ -69,6 +69,7 @@ The intended internal decomposition is:
 - `control_core/tmux_controller`: tmux create/send/capture/lookup logic
 - `control_core/provider_adapters/*`: provider-specific bootstrap, readiness, input, exit, and cleanup quirks
 - `control_core/profile_store`: Houmao-owned compatibility profile storage and install behavior
+- `control_core/compat/transport`: server-local compatibility transport that projects control-core results into the existing `/cao/*` route handler seam
 - `control_core/compat/cao_router` and `control_core/compat/cao_models`: `/cao/*` request and response projection
 - `control_core/compat/cao_cli`: CLI compatibility helpers for `houmao-srv-ctrl cao ...`
 
@@ -95,6 +96,8 @@ The recent pair implementation already has one explicit layering boundary:
 The absorption work should therefore land underneath that existing seam first. In practice that means:
 
 - keep `backend = "houmao_server_rest"` as the pair-facing runtime identity;
+- keep the shared pair-facing CAO-compatible client seam rooted in `HoumaoServerRestSession -> CaoRestSession -> CaoRestClient(path_prefix="/cao")` for v1;
+- explicitly override or extract the startup and profile-store hooks that currently assume raw CAO runtime setup so the pair path no longer requires `cao-server` on `PATH` or a caller-managed CAO profile store;
 - keep pair-owned gateway capability artifacts and attach contracts stable;
 - replace the server-side CAO authority behind `/cao/*` and the pair CLI implementations beneath those existing seams; and
 - avoid introducing a second parallel pair-managed control path that bypasses the existing `houmao_server_rest` runtime and gateway artifacts.
@@ -114,7 +117,7 @@ Alternatives considered:
 
 Houmao's direct tmux/process watch path remains authoritative for live tracked state. Houmao mailbox and gateway remain separate Houmao-owned subsystems.
 
-If the CAO-compatible inbox route family remains exposed under `/cao/terminals/{terminal_id}/inbox/messages`, it will be implemented as a compatibility-only terminal wake queue inside the control core. It will not become the Houmao mailbox transport, message store, or gateway notifier input.
+The supported pair keeps the CAO-compatible inbox route family exposed under `/cao/terminals/{terminal_id}/inbox/messages` in v1. That route family will be implemented as the smallest compatibility-only terminal wake queue or stub that preserves the current route contract inside the control core. It will not become the Houmao mailbox transport, message store, or gateway notifier input.
 
 The recent pair-owned gateway contracts remain in force during this absorption:
 
@@ -138,7 +141,15 @@ Alternatives considered:
 
 `houmao-server` will stop supervising a child `cao-server` as part of the supported pair path. Instead, `/cao/*` routes will dispatch directly into the local control core and project CAO-compatible responses there.
 
+For v1, the server keeps the existing `proxy()`-shaped route-handler seam in `app.py` and replaces the external `UrlLibProxyTransport` target with a server-local compatibility transport that returns `ProxyResponse` values from control-core results. That preserves current route-side hooks such as `sync_created_terminal`, `handle_deleted_session`, and `note_prompt_submission` while the underlying CAO authority is removed.
+
 The root `GET /health`, `/houmao/*`, managed-agent APIs, watch workers, gateway routes, and mailbox routes remain Houmao-owned exactly as before. The change is specifically about where `/cao/*` compatibility work lands.
+
+Root `GET /health` also keeps the current pair-compatible identity fields in v1:
+
+- `service="cli-agent-orchestrator"` remains present for compatibility-shaped clients;
+- `houmao_service="houmao-server"` remains the pair-authentication extension field; and
+- `child_cao` metadata disappears because there is no longer a supported child process to report.
 
 Derived child-CAO port behavior, child-home filesystem layout, and child readiness bookkeeping disappear from the supported server contract. If server-local health needs to report compatibility-core degradation, it will do so as Houmao-owned fields rather than as child process metadata.
 
@@ -184,6 +195,8 @@ The supported operator path after this change is the pair:
 
 If `houmao-cli` is invoked in ways that would create or control standalone CAO-backed sessions, those commands will fail fast with explicit migration guidance to `houmao-server` and `houmao-srv-ctrl`.
 
+For v1, that deprecation guard lives at the public CLI entrypoint layer: raw `backend="cao_rest"` operator selections are rejected before runtime session construction. Internal runtime classes such as `CaoRestSession` may remain available for parity tests, debugging, or transitional pair machinery as long as they are no longer part of the supported standalone operator path.
+
 `houmao-cao-server` becomes a retirement surface: it always fails fast with the same migration guidance and does not attempt to read config, spawn CAO, or mutate launcher artifacts.
 
 This retirement applies to public standalone operator entrypoints, not to the internal runtime machinery that the supported pair still uses. Pair-owned runtime artifacts such as `houmao_server_rest` manifests and gateway capability publication remain valid internal building blocks unless and until a later change replaces them deliberately.
@@ -201,9 +214,27 @@ Alternatives considered:
 
 ### Decision 7: Keep provider quirks and profile behavior in explicit Houmao-owned seams
 
-Provider-specific bootstrap and shutdown quirks will be absorbed into provider adapters. CAO-format agent-profile semantics that Houmao still needs will be preserved in a Houmao-owned profile store and loader.
+Provider-specific bootstrap and shutdown quirks will be absorbed into provider adapters. In v1, the provider-adapter registry preserves the current pair compatibility launch surface accepted by `houmao-srv-ctrl launch` and `houmao-srv-ctrl cao launch`:
+
+- `kiro_cli`
+- `claude_code`
+- `codex`
+- `gemini_cli`
+- `kimi_cli`
+- `q_cli`
+
+If a provider is intentionally retired later, that narrowing must be explicit in a follow-up change rather than happening implicitly during CAO absorption.
+
+CAO-format agent-profile semantics that Houmao still needs will be preserved in a Houmao-owned profile store and loader.
 
 The profile store remains a compatibility-format store, not a hidden CAO `HOME`. Pair install flows mutate that Houmao-owned store through `houmao-server`.
+
+The absorbed install slice is the minimum subset of current `cao install` behavior that the supported pair actually depends on:
+
+- agent-source resolution from the pair install inputs;
+- required compatibility-profile validation, including required frontmatter fields;
+- provider-specific materialization or copying into the Houmao-managed store; and
+- metadata indexing or lookup data needed for later terminal creation.
 
 Rationale:
 
@@ -242,19 +273,21 @@ Alternatives considered:
 - Compatibility drift without CAO in the runtime path → Mitigation: keep the pinned CAO checkout as an explicit parity oracle and add route/CLI parity coverage.
 - Reimplementing local-only `houmao-srv-ctrl cao` verbs adds ownership cost → Mitigation: confine them to small compatibility-helper modules instead of spreading them across the pair.
 - Provider bootstrap quirks are easy to accidentally duplicate → Mitigation: centralize them under provider adapters and forbid route handlers from embedding provider-specific launch logic.
+- The pair-facing runtime seam may still carry hidden CAO assumptions after child removal → Mitigation: keep the `HoumaoServerRestSession` seam explicit in design and tasks, and remove raw `cao-server` startup plus local CAO profile-store assumptions as named implementation work.
 - Removing child-CAO state may break hidden assumptions in current-instance, health, or docs → Mitigation: make retirement and server-local replacement fields explicit and cover them in regression tests.
 - Replacing CAO underneath the pair could accidentally break the newly implemented `houmao_server_rest` gateway attach workflow → Mitigation: preserve runtime-owned attach artifacts, `current-instance.json`, tmux-published gateway env pointers, and reserved window `0` semantics as explicit non-goals of this change.
 - Deprecated standalone surfaces may still be used by old scripts → Mitigation: fail fast with migration guidance that names the replacement pair explicitly.
 
 ## Migration Plan
 
-1. Introduce the Houmao-owned control-core interfaces, registries, tmux controller, provider adapters, profile store, and compatibility inbox queue underneath the existing `houmao_server_rest` pair seam.
-2. Rewire `houmao-server` `/cao/*` routes from child-CAO proxying to the local control core while keeping Houmao root, `/houmao/*`, watch, gateway, mailbox, runtime-owned gateway capability artifacts, and reserved-window behavior intact.
-3. Move pair install behavior and compatibility profile-store access onto the Houmao-owned profile store.
-4. Rework `houmao-srv-ctrl cao ...` to use repo-owned compatibility helpers and pair APIs instead of invoking external `cao`.
-5. Add explicit migration failures for deprecated standalone CAO-facing `houmao-cli` paths and for `houmao-cao-server`, while preserving internal pair runtime machinery and `houmao_server_rest` artifacts.
-6. Update docs, help text, and regression coverage to reflect the pair-owned control core, stable `houmao_server_rest` and gateway-publication contracts, and retired standalone surfaces.
-7. Keep the pinned CAO checkout available for parity verification and future selective imports.
+1. Introduce the Houmao-owned control-core interfaces, registries, tmux controller, provider adapters, profile store, minimal compatibility inbox behavior, and server-local compatibility transport underneath the existing `houmao_server_rest` pair seam.
+2. Rework the pair-facing `HoumaoServerRestSession` seam so it keeps the shared CAO-compatible client path for v1 but no longer depends on raw `cao-server` startup checks or caller-managed CAO profile-store assumptions.
+3. Rewire `houmao-server` `/cao/*` routes from child-CAO proxying to the local control core while keeping Houmao root, `/houmao/*`, watch, gateway, mailbox, runtime-owned gateway capability artifacts, reserved-window behavior, and current route side-effect hooks intact.
+4. Move pair install behavior and compatibility profile-store access onto the Houmao-owned profile store, including the minimum used `cao install` behavior slice.
+5. Rework `houmao-srv-ctrl cao ...` to use repo-owned compatibility helpers and pair APIs instead of invoking external `cao`, while preserving the current pair launch provider surface explicitly.
+6. Add explicit CLI-layer migration failures for deprecated standalone CAO-facing `houmao-cli` paths and retire `houmao-cao-server` before config or launcher side effects, while preserving internal pair runtime machinery and `houmao_server_rest` artifacts.
+7. Update docs, help text, and regression coverage to reflect the pair-owned control core, stable `houmao_server_rest` and gateway-publication contracts, preserved root health compatibility fields, and retired standalone surfaces.
+8. Keep the pinned CAO checkout available for parity verification and future selective imports.
 
 Rollback strategy:
 
