@@ -36,6 +36,7 @@ GatewayAdmissionState = Literal[
 ]
 GatewaySurfaceEligibilityState = Literal["ready", "unknown", "not_ready"]
 GatewayExecutionState = Literal["idle", "running"]
+GatewayCurrentExecutionMode = Literal["detached_process", "tmux_auxiliary_window"]
 GatewayStoredRequestState = Literal[
     "accepted",
     "running",
@@ -303,6 +304,10 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
     pid: int
     host: GatewayHost
     port: int
+    execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
+    tmux_window_id: str | None = None
+    tmux_window_index: str | None = None
+    tmux_pane_id: str | None = None
     managed_agent_instance_epoch: int
     managed_agent_instance_id: str | None = None
 
@@ -315,10 +320,15 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
             raise ValueError("must be > 0")
         return value
 
-    @field_validator("managed_agent_instance_id")
+    @field_validator(
+        "managed_agent_instance_id",
+        "tmux_window_id",
+        "tmux_window_index",
+        "tmux_pane_id",
+    )
     @classmethod
-    def _optional_instance_id(cls, value: str | None) -> str | None:
-        """Validate the optional managed-agent instance identifier."""
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate optional current-instance string fields."""
 
         if value is None:
             return None
@@ -332,6 +342,26 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
 
         if self.schema_version != GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION}")
+        if self.execution_mode == "detached_process":
+            if any(
+                value is not None
+                for value in (self.tmux_window_id, self.tmux_window_index, self.tmux_pane_id)
+            ):
+                raise ValueError(
+                    "detached_process current-instance payload must not include tmux execution "
+                    "handle fields"
+                )
+            return self
+        if any(
+            value is None
+            for value in (self.tmux_window_id, self.tmux_window_index, self.tmux_pane_id)
+        ):
+            raise ValueError(
+                "tmux_auxiliary_window current-instance payload requires tmux_window_id, "
+                "tmux_window_index, and tmux_pane_id"
+            )
+        if self.tmux_window_index == "0":
+            raise ValueError("tmux auxiliary gateway window must not use window index 0")
         return self
 
 

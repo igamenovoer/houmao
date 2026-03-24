@@ -10,6 +10,12 @@ from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_agent_identity_name,
 )
+from houmao.agents.realm_controller.gateway_storage import (
+    AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+    AGENT_GATEWAY_ROOT_ENV_VAR,
+    load_attach_contract,
+    load_gateway_status,
+)
 from houmao.srv_ctrl.commands.runtime_artifacts import materialize_delegated_launch
 
 
@@ -61,6 +67,18 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert (
         Path(str(published_env[AGENT_MANIFEST_PATH_ENV_VAR])).resolve() == manifest_path.resolve()
     )
+    assert Path(str(published_env[AGENT_GATEWAY_ATTACH_PATH_ENV_VAR])).is_file()
+    assert Path(str(published_env[AGENT_GATEWAY_ROOT_ENV_VAR])).is_dir()
+    attach_contract = load_attach_contract(
+        Path(str(published_env[AGENT_GATEWAY_ATTACH_PATH_ENV_VAR]))
+    )
+    gateway_state = load_gateway_status(
+        Path(str(published_env[AGENT_GATEWAY_ROOT_ENV_VAR])) / "state.json"
+    )
+    assert attach_contract.backend == "houmao_server_rest"
+    assert attach_contract.backend_metadata.api_base_url == "http://127.0.0.1:9889"
+    assert attach_contract.backend_metadata.session_name == "cao-gpu"
+    assert gateway_state.gateway_health == "not_attached"
 
     record = published["record"]
     assert getattr(record, "identity").backend == "houmao_server_rest"

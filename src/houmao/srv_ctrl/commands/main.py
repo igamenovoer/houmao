@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from .agent_gateway import agent_gateway_group
 from .cao import cao_group
 from .install import install_command
 from .launch import launch_command
@@ -15,6 +16,7 @@ def cli() -> None:
 
 
 cli.add_command(cao_group)
+cli.add_command(agent_gateway_group)
 cli.add_command(install_command)
 cli.add_command(launch_command)
 

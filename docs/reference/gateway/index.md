@@ -27,6 +27,7 @@ The gateway is an optional control plane attached to one runtime-managed session
 ### Start here
 
 - [Lifecycle And Operator Flows](operations/lifecycle.md): Attach, inspect, detach, and understand offline versus live gateway states.
+- [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
 - [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
 
 ### Contracts

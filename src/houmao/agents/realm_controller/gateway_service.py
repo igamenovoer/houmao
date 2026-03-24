@@ -94,6 +94,10 @@ _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _GatewayRequestTerminalState = Literal["completed", "failed"]
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,16 @@ def _parse_gateway_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _optional_env_string(variable_name: str) -> str | None:
+    """Return one stripped environment variable when present."""
+
+    value = os.environ.get(variable_name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 class GatewayExecutionAdapter(Protocol):
@@ -498,6 +512,10 @@ class GatewayServiceRuntime:
         self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
         self.m_mailbox_adapter: GatewayMailboxAdapter | None = None
         self.m_mailbox_bindings_version: str | None = None
+        self.m_execution_mode = self._execution_mode_from_env()
+        self.m_tmux_window_id = _optional_env_string(_GATEWAY_TMUX_WINDOW_ID_ENV_VAR)
+        self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
+        self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
 
     @classmethod
     def from_gateway_root(
@@ -525,6 +543,16 @@ class GatewayServiceRuntime:
         """
 
         return cls(gateway_root=gateway_root, host=host, port=port)
+
+    def _execution_mode_from_env(self) -> Literal["detached_process", "tmux_auxiliary_window"]:
+        """Return the runtime execution mode published by the launcher."""
+
+        raw_value = _optional_env_string(_GATEWAY_EXECUTION_MODE_ENV_VAR)
+        if raw_value is None:
+            return "detached_process"
+        if raw_value not in {"detached_process", "tmux_auxiliary_window"}:
+            raise GatewayError(f"Unsupported gateway execution mode `{raw_value}` in environment.")
+        return cast(Literal["detached_process", "tmux_auxiliary_window"], raw_value)
 
     def start(self) -> None:
         """Initialize current-instance state and start the queue worker."""
@@ -1440,6 +1468,10 @@ class GatewayServiceRuntime:
                 pid=self._current_pid(),
                 host=self.m_host,
                 port=self.m_port,
+                execution_mode=self.m_execution_mode,
+                tmux_window_id=self.m_tmux_window_id,
+                tmux_window_index=self.m_tmux_window_index,
+                tmux_pane_id=self.m_tmux_pane_id,
                 managed_agent_instance_epoch=self.m_current_epoch,
                 managed_agent_instance_id=current_instance_id,
             ),
@@ -1495,6 +1527,10 @@ class GatewayServiceRuntime:
                 pid=self._current_pid(),
                 host=self.m_host,
                 port=self.m_port,
+                execution_mode=self.m_execution_mode,
+                tmux_window_id=self.m_tmux_window_id,
+                tmux_window_index=self.m_tmux_window_index,
+                tmux_pane_id=self.m_tmux_pane_id,
                 managed_agent_instance_epoch=self.m_current_epoch,
                 managed_agent_instance_id=self.m_current_instance_id,
             ),

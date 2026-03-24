@@ -145,19 +145,27 @@ class _FakeChildManager:
 class _FakeTmuxTransportResolver:
     def __init__(self, *, output_text: str | list[str]) -> None:
         self.m_output_text = output_text
-        self.m_resolve_calls: list[tuple[str, str | None]] = []
+        self.m_resolve_calls: list[tuple[str, str | None, str | None]] = []
         self.m_capture_calls = 0
 
-    def resolve_target(self, *, session_name: str, window_name: str | None) -> ResolvedTmuxTarget:
-        self.m_resolve_calls.append((session_name, window_name))
+    def resolve_target(
+        self,
+        *,
+        session_name: str,
+        window_name: str | None,
+        window_index: str | None = None,
+    ) -> ResolvedTmuxTarget:
+        self.m_resolve_calls.append((session_name, window_name, window_index))
         return ResolvedTmuxTarget(
             pane=TmuxPaneRecord(
                 pane_id="%9",
                 session_name=session_name,
                 window_id="@2",
+                window_index=window_index or "1",
                 window_name=window_name or "developer-1",
                 pane_index="0",
                 pane_active=True,
+                pane_dead=False,
                 pane_pid=4321,
             )
         )
@@ -461,7 +469,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert state.probe_snapshot.pane_id == "%9"
     assert state.probe_snapshot.matched_process_names == ["codex"]
     assert transport.m_calls == []
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None)]
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None, None)]
     assert process_inspector.m_calls == [("codex", 4321)]
     assert parser_adapter.m_capture_baseline_calls == [("codex", _CODEX_READY_RAW_SNAPSHOT)]
     assert parser_adapter.m_parse_calls == [("codex", 17)]
@@ -1020,7 +1028,71 @@ def test_refresh_terminal_state_uses_registration_window_name(
 
     service.refresh_terminal_state("abcd1234")
 
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1")]
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", None)]
+
+
+def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    tmux_transport = _FakeTmuxTransportResolver(output_text="visible tmux text")
+    process_inspector = _FakeProcessInspector(
+        PaneProcessInspection(
+            process_state="tui_up",
+            matched_process_names=["codex"],
+            matched_processes=(),
+        )
+    )
+    parser_adapter = _FakeParserAdapter(
+        [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    monkeypatch.setattr(
+        "houmao.server.service.load_session_manifest",
+        lambda path: type("Handle", (), {"path": path, "payload": {}})(),
+    )
+    monkeypatch.setattr(
+        "houmao.server.service.parse_session_manifest_payload",
+        lambda payload, *, source: type("Payload", (), {"backend": "houmao_server_rest"})(),
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=tmux_transport,
+        process_inspector=process_inspector,
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=str(manifest_path),
+        )
+    )
+
+    service.refresh_terminal_state("abcd1234")
+
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", "0")]
 
 
 def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(

@@ -52,6 +52,13 @@ The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctr
 
 Within that pair, `houmao-srv-ctrl` is split deliberately: top-level `launch` and `install` are Houmao-owned pair commands, while `houmao-srv-ctrl cao ...` is the explicit CAO-compatible namespace.
 
+For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
+
+- `houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>` for explicit managed-agent targeting
+- `houmao-srv-ctrl agent-gateway attach` from inside the target tmux session for current-session attach
+
+Current-session attach requires the target tmux session to publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`, and it becomes valid only after the matching managed-agent registration exists on the persisted `api_base_url`.
+
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 
 When `start-session` is used with `--json`, unattended sessions may also return:

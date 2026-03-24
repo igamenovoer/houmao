@@ -213,7 +213,10 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
         del check, capture_output, text, timeout
         return _completed(
             cmd,
-            stdout="%1\tAGENTSYS-gpu\t@2\tdeveloper-1\t0\t1\n%2\tAGENTSYS-gpu\t@2\tdeveloper-1\t1\t0\n",
+            stdout=(
+                "%1\tAGENTSYS-gpu\t@2\t1\tdeveloper-1\t0\t1\t0\n"
+                "%2\tAGENTSYS-gpu\t@2\t1\tdeveloper-1\t1\t0\t0\n"
+            ),
         )
 
     monkeypatch.setattr("subprocess.run", _fake_run)
@@ -223,17 +226,21 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
             pane_id="%1",
             session_name="AGENTSYS-gpu",
             window_id="@2",
+            window_index="1",
             window_name="developer-1",
             pane_index="0",
             pane_active=True,
+            pane_dead=False,
         ),
         TmuxPaneRecord(
             pane_id="%2",
             session_name="AGENTSYS-gpu",
             window_id="@2",
+            window_index="1",
             window_name="developer-1",
             pane_index="1",
             pane_active=False,
+            pane_dead=False,
         ),
     )
 

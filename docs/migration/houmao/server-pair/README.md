@@ -47,6 +47,7 @@ Implemented CLI scope includes:
 - top-level Houmao-owned pair commands:
   - `install`
   - `launch`
+  - `agent-gateway attach`
 - explicit CAO-compatible namespace under `houmao-srv-ctrl cao`:
   - `flow`
   - `info`
@@ -60,6 +61,7 @@ Implemented CLI scope includes:
 - terminal-backed launch follow-up registration back into `houmao-server`
 - native top-level `launch --headless` translation into the Houmao headless launch API
 - Houmao-owned runtime artifact materialization after successful terminal-backed launch
+- pair-owned managed-agent gateway attach through `houmao-srv-ctrl agent-gateway attach`, including explicit-target and current-session modes
 
 ### Runtime Integration
 
@@ -74,6 +76,9 @@ Implemented runtime scope includes:
 - dedicated `houmao_server` manifest sections
 - runtime-owned session roots and manifests for delegated launches
 - gateway and registry compatibility through those runtime-owned artifacts
+- launch-time stable gateway capability publication for delegated `houmao_server_rest` sessions before live attach
+- same-session `houmao_server_rest` gateway auxiliary windows with an authoritative `gateway/run/current-instance.json` execution handle
+- reserved tmux window `0` as the contractual agent surface for pair-managed sessions
 - runtime control paths that route `houmao_server_rest` sessions through `houmao-server`
 - native headless runtime sessions that remain on their headless backend while exposing server-owned control through `/houmao/agents/*`
 

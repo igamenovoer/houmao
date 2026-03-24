@@ -47,12 +47,43 @@ Representative CAO-backed attach contract:
 }
 ```
 
+Representative `houmao_server_rest` attach contract used by pair-managed current-session attach:
+
+```json
+{
+  "schema_version": 1,
+  "attach_identity": "cao-gpu",
+  "backend": "houmao_server_rest",
+  "tmux_session_name": "cao-gpu",
+  "working_directory": "/abs/path/repo",
+  "backend_metadata": {
+    "api_base_url": "http://127.0.0.1:9889",
+    "session_name": "cao-gpu",
+    "terminal_id": "term-123",
+    "parsing_mode": "shadow_only"
+  },
+  "manifest_path": "/abs/path/.houmao/runtime/sessions/houmao_server_rest/cao-gpu/manifest.json",
+  "agent_def_dir": "/abs/path/.agentsys/agents",
+  "runtime_session_id": "cao-gpu",
+  "desired_host": "127.0.0.1",
+  "desired_port": 43123
+}
+```
+
 Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach and request execution currently support runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`) and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
 - Native headless attach metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
+
+Pair-managed current-session attach rules:
+
+- tmux-published `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` must resolve to the same runtime-owned gateway subtree
+- `attach.json.tmux_session_name` must match the current tmux session
+- `attach.json.backend` must be `houmao_server_rest`
+- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` are the authoritative managed-agent attach target for no-`--agent` pair attach
+- delegated pair launch may publish these stable artifacts before the matching managed-agent registration exists, so current-session attach readiness is later than capability publication
 
 ## Live Gateway Bindings
 
@@ -388,6 +419,51 @@ Detailed inspection note:
 - Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
 - The runnable walkthrough for this behavior lives at [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), using the copied dummy-project plus lightweight `mailbox-demo` fixture shape rather than a repository worktree.
 
+## Current-Instance Execution Handle
+
+`run/current-instance.json` is the authoritative live execution record for one attached gateway instance.
+
+Representative detached-process payload:
+
+```json
+{
+  "schema_version": 1,
+  "protocol_version": "v1",
+  "pid": 424242,
+  "host": "127.0.0.1",
+  "port": 43123,
+  "execution_mode": "detached_process",
+  "managed_agent_instance_epoch": 1,
+  "managed_agent_instance_id": "term-123"
+}
+```
+
+Representative same-session `houmao_server_rest` payload:
+
+```json
+{
+  "schema_version": 1,
+  "protocol_version": "v1",
+  "pid": 424242,
+  "host": "127.0.0.1",
+  "port": 43123,
+  "execution_mode": "tmux_auxiliary_window",
+  "tmux_window_id": "@2",
+  "tmux_window_index": "1",
+  "tmux_pane_id": "%7",
+  "managed_agent_instance_epoch": 1,
+  "managed_agent_instance_id": "term-123"
+}
+```
+
+Current rules:
+
+- `execution_mode = "detached_process"` must omit tmux execution-handle fields
+- `execution_mode = "tmux_auxiliary_window"` must include `tmux_window_id`, `tmux_window_index`, and `tmux_pane_id`
+- same-session mode must never record `tmux_window_index = "0"`
+- for pair-managed `houmao_server_rest`, the recorded tmux handle is the authoritative live gateway surface for attach, detach, cleanup, and auxiliary-window recreation
+- non-zero tmux windows remain non-contractual by convention; callers should rely on the recorded current-instance handle rather than window naming heuristics
+
 ## Durable And Ephemeral Gateway Artifacts
 
 For the full runtime-managed session tree that surrounds `gateway/`, use [Agents And Runtime](../../system-files/agents-and-runtime.md). This page keeps the gateway-local artifact semantics.
@@ -418,8 +494,8 @@ Artifact roles:
 - `queue.sqlite`: durable queue records, the singleton gateway-owned mail notifier record, and the `gateway_notifier_audit` table that records one structured notifier decision row per enabled poll cycle
 - `events.jsonl`: append-only event log
 - `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
-- `run/current-instance.json`: current process id, host, port, epoch, and instance id
-- `run/gateway.pid`: pidfile mirror
+- `run/current-instance.json`: current process id, host, port, upstream epoch and instance id, plus same-session execution-handle fields when the gateway is hosted in a tmux auxiliary window
+- `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target for pair-managed `houmao_server_rest`
 
 Operator note:
 
