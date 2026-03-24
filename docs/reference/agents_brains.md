@@ -100,7 +100,7 @@ launch_overrides:
     include_partial_messages: true
 ```
 
-Explicit builds can pass the same shape through `build-brain --launch-overrides <path-or-inline-json>`.
+Explicit builds can pass the same shape through `houmao-srv-ctrl brains build --launch-overrides <path-or-inline-json>` on the pair CLI, or through `build-brain --launch-overrides <path-or-inline-json>` on the runtime CLI.
 
 Ownership rules:
 

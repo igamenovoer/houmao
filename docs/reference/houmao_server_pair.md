@@ -27,7 +27,7 @@ Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` compatibility namespace
 - `houmao-srv-ctrl`: exposes top-level pair commands plus the explicit `cao` compatibility namespace
-- `houmao-cli`: remains the runtime and agent lifecycle CLI
+- `houmao-cli`: remains available for uncovered or intentionally runtime-local workflows
 
 Representative usage:
 
@@ -40,8 +40,11 @@ houmao-srv-ctrl cao flow list --all
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
 houmao-srv-ctrl cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
-houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
-houmao-srv-ctrl agent-gateway attach
+houmao-srv-ctrl agents prompt cao-gpu --prompt "Summarize the current state."
+houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
+houmao-srv-ctrl agents gateway attach
+houmao-srv-ctrl brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
+houmao-srv-ctrl admin cleanup-registry --grace-seconds 0
 ```
 
 Retired standalone surfaces:
@@ -50,14 +53,34 @@ Retired standalone surfaces:
 - `python -m houmao.cao.tools.cao_server_launcher`
 - standalone `houmao-cli` operator flows that would create or control raw `backend="cao_rest"` sessions
 
+## Pair-Native CLI Tree
+
+`houmao-srv-ctrl` now has one native top-level tree for covered pair workflows:
+
+- `launch`
+- `install`
+- `agents`
+- `brains`
+- `admin`
+- `cao`
+
+Authority is split intentionally:
+
+- `agents ...` is server-backed and routes through `houmao-server`
+- `brains build` is a local brain-construction wrapper
+- `admin cleanup-registry` is local shared-registry maintenance
+- `cao ...` remains the explicit compatibility namespace
+
+For ordinary prompt submission, `houmao-srv-ctrl agents prompt <agent-ref> --prompt "..."` is the default documented path. `houmao-srv-ctrl agents gateway prompt <agent-ref> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter.
+
 ## Pair-Managed Gateway Attach
 
-For pair-managed terminal sessions, the supported public attach command is `houmao-srv-ctrl agent-gateway attach`.
+For pair-managed terminal sessions, the supported public attach command is `houmao-srv-ctrl agents gateway attach`.
 
 Supported modes:
 
-- explicit target mode: `houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>`
-- current-session mode: run `houmao-srv-ctrl agent-gateway attach` from inside the tmux session that owns the managed agent
+- explicit target mode: `houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>`
+- current-session mode: run `houmao-srv-ctrl agents gateway attach` from inside the tmux session that owns the managed agent
 
 Current-session mode is intentionally strict:
 
@@ -121,9 +144,14 @@ The pair exposes three public server surfaces:
   - `GET /houmao/agents/{agent_ref}/gateway`
   - `POST /houmao/agents/{agent_ref}/gateway/attach`
   - `POST /houmao/agents/{agent_ref}/gateway/detach`
+  - `POST /houmao/agents/{agent_ref}/gateway/requests`
   - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
+  - `GET /houmao/agents/{agent_ref}/mail/status`
+  - `POST /houmao/agents/{agent_ref}/mail/check`
+  - `POST /houmao/agents/{agent_ref}/mail/send`
+  - `POST /houmao/agents/{agent_ref}/mail/reply`
 - native headless lifecycle and durable turn routes:
   - `POST /houmao/agents/headless/launches`
   - `POST /houmao/agents/{agent_ref}/stop`
@@ -178,6 +206,12 @@ Memory-primary live state:
 - rebuilt managed-agent alias resolution across TUI registrations and native headless authority records
 
 Live terminal tracking remains authoritative in server memory. `houmao-server` does not write per-terminal tracker logs for the public contract.
+
+Managed-agent history retention is intentionally split:
+
+- TUI-backed `GET /houmao/agents/{agent_ref}/history` is a bounded in-memory projection built from the live tracker's recent transitions. It disappears when the server process forgets or loses that tracked live state.
+- Headless `GET /houmao/agents/{agent_ref}/history` is still coarse, but it is derived from persisted server-owned turn records under `state/managed_agents/<tracked_agent_id>/`.
+- Durable headless stdout, stderr, event streams, and return codes remain on `/houmao/agents/{agent_ref}/turns/*`, not on `/history`.
 
 ## `houmao_server_rest` Runtime Identity
 
@@ -243,6 +277,12 @@ Standalone `houmao-cao-server` and raw standalone `cao_rest` operator entrypoint
 - [`src/houmao/server/control_core/profile_store.py`](../../src/houmao/server/control_core/profile_store.py)
 - [`src/houmao/server/control_core/provider_adapters.py`](../../src/houmao/server/control_core/provider_adapters.py)
 - [`src/houmao/server/managed_agents.py`](../../src/houmao/server/managed_agents.py)
+- [`src/houmao/srv_ctrl/commands/admin.py`](../../src/houmao/srv_ctrl/commands/admin.py)
+- [`src/houmao/srv_ctrl/commands/brains.py`](../../src/houmao/srv_ctrl/commands/brains.py)
+- [`src/houmao/srv_ctrl/commands/agents/core.py`](../../src/houmao/srv_ctrl/commands/agents/core.py)
+- [`src/houmao/srv_ctrl/commands/agents/gateway.py`](../../src/houmao/srv_ctrl/commands/agents/gateway.py)
+- [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../src/houmao/srv_ctrl/commands/agents/mail.py)
+- [`src/houmao/srv_ctrl/commands/agents/turn.py`](../../src/houmao/srv_ctrl/commands/agents/turn.py)
 - [`src/houmao/srv_ctrl/commands/cao.py`](../../src/houmao/srv_ctrl/commands/cao.py)
 - [`src/houmao/srv_ctrl/commands/local_compat.py`](../../src/houmao/srv_ctrl/commands/local_compat.py)
 - [`src/houmao/srv_ctrl/commands/launch.py`](../../src/houmao/srv_ctrl/commands/launch.py)

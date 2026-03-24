@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import click
 
-from .agent_gateway import agent_gateway_group
+from .admin import admin_group
+from .agents import agents_group
+from .brains import brains_group
 from .cao import cao_group
 from .install import install_command
 from .launch import launch_command
@@ -12,11 +14,13 @@ from .launch import launch_command
 
 @click.group(name="houmao-srv-ctrl")
 def cli() -> None:
-    """Houmao service-management CLI with explicit CAO compatibility namespace."""
+    """Houmao pair CLI with native and explicit CAO-compatible command families."""
 
 
 cli.add_command(cao_group)
-cli.add_command(agent_gateway_group)
+cli.add_command(admin_group)
+cli.add_command(agents_group)
+cli.add_command(brains_group)
 cli.add_command(install_command)
 cli.add_command(launch_command)
 

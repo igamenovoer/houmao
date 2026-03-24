@@ -64,8 +64,11 @@ Verified areas:
   - `install`
   - `launch`
   - `launch --headless`
-  - `agent-gateway attach --agent <agent-ref> --port <public-port>`
-  - `agent-gateway attach` current-session resolution from tmux-published gateway metadata
+  - `agents gateway attach <agent-ref> --port <public-port>`
+  - `agents gateway attach` current-session resolution from tmux-published gateway metadata
+  - `agents prompt`, `agents mail ...`, and `agents turn ...`
+  - `brains build`
+  - `admin cleanup-registry`
 
 Primary test file:
 

@@ -14,12 +14,20 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
     GatewayAdmissionState,
     GatewayConnectivityState,
     GatewayExecutionState,
     GatewayHealthState,
     GatewayHost,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
     GatewayRecoveryState,
+    GatewayRequestCreateV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.shared_tui_tracking.models import (
@@ -760,6 +768,38 @@ class HoumaoManagedAgentRequestAcceptedResponse(CaoSuccessResponse):
         if not stripped:
             raise ValueError("must not be empty")
         return stripped
+
+
+class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
+    """Gateway-mediated managed-agent request payload."""
+
+
+class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):
+    """Accepted response for `POST /houmao/agents/{agent_ref}/gateway/requests`."""
+
+
+class HoumaoManagedAgentMailStatusResponse(GatewayMailStatusV1):
+    """Pair-owned managed-agent mail status payload."""
+
+
+class HoumaoManagedAgentMailCheckRequest(GatewayMailCheckRequestV1):
+    """Pair-owned managed-agent mail-check request payload."""
+
+
+class HoumaoManagedAgentMailCheckResponse(GatewayMailCheckResponseV1):
+    """Pair-owned managed-agent mail-check response payload."""
+
+
+class HoumaoManagedAgentMailSendRequest(GatewayMailSendRequestV1):
+    """Pair-owned managed-agent mail-send request payload."""
+
+
+class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
+    """Pair-owned managed-agent mail-reply request payload."""
+
+
+class HoumaoManagedAgentMailActionResponse(GatewayMailActionResponseV1):
+    """Pair-owned managed-agent mail action response payload."""
 
 
 class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):

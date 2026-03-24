@@ -13,8 +13,9 @@ import os
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol, TypeVar, cast
 from urllib import error, parse, request
 
 from fastapi import HTTPException, Response
@@ -22,8 +23,13 @@ from fastapi import HTTPException, Response
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHeadlessV1,
+    GatewayAcceptedRequestV1,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailStatusV1,
+    GatewayRequestCreateV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -42,7 +48,11 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 )
 from houmao.cao.models import CaoTerminal
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
-from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    GatewayHttpError,
+    LaunchPlanError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -102,12 +112,20 @@ from houmao.server.models import (
     HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayRequestAcceptedResponse,
+    HoumaoManagedAgentGatewayRequestCreate,
     ManagedAgentAvailability,
     HoumaoManagedAgentHistoryEntry,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentMailActionResponse,
+    HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailReplyRequest,
+    HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -128,6 +146,15 @@ from houmao.server.models import (
 from houmao.server.tracking_debug import TrackingDebugSink
 
 LOGGER = logging.getLogger(__name__)
+
+_GatewayModelT = TypeVar(
+    "_GatewayModelT",
+    GatewayAcceptedRequestV1,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailNotifierStatusV1,
+    GatewayMailStatusV1,
+)
 
 
 class _ManagedHeadlessAgentHandle:
@@ -877,13 +904,33 @@ class HoumaoServerService:
         )
 
     def stop_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
-        """Stop one managed headless agent and delete its server authority."""
+        """Stop one managed agent through the pair-owned transport lifecycle."""
 
         resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] != "headless":
-            raise HTTPException(
-                status_code=400,
-                detail="Managed-agent stop is only supported for native headless agents in v1.",
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            identity = tracker.current_state().tracked_session
+            session_name = identity.session_name.strip()
+            proxy_response = self.proxy(
+                method="DELETE",
+                path=f"/sessions/{parse.quote(session_name, safe='')}",
+            )
+            self._require_successful_proxy_action(
+                proxy_response,
+                failure_status_code=503,
+                failure_detail=(
+                    "Managed-agent stop failed through the pair-managed session-delete lifecycle."
+                ),
+            )
+            self.handle_deleted_session(session_name)
+            return HoumaoManagedAgentActionResponse(
+                success=True,
+                tracked_agent_id=resolved["tracked_agent_id"],
+                detail=self._proxy_action_detail(
+                    proxy_response,
+                    fallback=f"Managed TUI agent `{session_name}` stopped.",
+                ),
+                turn_id=None,
             )
 
         tracked_agent_id = resolved["tracked_agent_id"]
@@ -1170,13 +1217,30 @@ class HoumaoServerService:
             raise HTTPException(status_code=503, detail=detach_result.detail)
         return self._gateway_status_for_session_root(Path(gateway_context["session_root"]))
 
+    def submit_managed_agent_gateway_request(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayRequestCreate,
+    ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
+        """Proxy one gateway-mediated managed-agent request through a live gateway."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(
+            lambda: client.create_request(
+                GatewayRequestCreateV1.model_validate(request_model.model_dump(mode="json"))
+            )
+        )
+        return HoumaoManagedAgentGatewayRequestAcceptedResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
     def get_managed_agent_gateway_mail_notifier(
         self, agent_ref: str
     ) -> GatewayMailNotifierStatusV1:
         """Return live gateway mail-notifier status for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return client.get_mail_notifier()
+        return self._invoke_live_gateway(client.get_mail_notifier)
 
     def put_managed_agent_gateway_mail_notifier(
         self,
@@ -1186,7 +1250,7 @@ class HoumaoServerService:
         """Enable or update live gateway notifier state for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return client.put_mail_notifier(request_model)
+        return self._invoke_live_gateway(lambda: client.put_mail_notifier(request_model))
 
     def delete_managed_agent_gateway_mail_notifier(
         self,
@@ -1195,7 +1259,47 @@ class HoumaoServerService:
         """Disable live gateway notifier state for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return client.delete_mail_notifier()
+        return self._invoke_live_gateway(client.delete_mail_notifier)
+
+    def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
+        """Return pair-owned mailbox status for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(client.mail_status)
+        return HoumaoManagedAgentMailStatusResponse.model_validate(response.model_dump(mode="json"))
+
+    def check_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailCheckRequest,
+    ) -> HoumaoManagedAgentMailCheckResponse:
+        """Check pair-owned mailbox contents for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.check_mail(request_model))
+        return HoumaoManagedAgentMailCheckResponse.model_validate(response.model_dump(mode="json"))
+
+    def send_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailSendRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Send one pair-owned mailbox message for a managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.send_mail(request_model))
+        return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def reply_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailReplyRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Reply through the pair-owned mailbox facade for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
+        return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""
@@ -2365,6 +2469,17 @@ class HoumaoServerService:
         except (LaunchPlanError, SessionManifestError, RuntimeError):
             return None
 
+    def _invoke_live_gateway(
+        self,
+        call: Callable[[], _GatewayModelT],
+    ) -> _GatewayModelT:
+        """Translate one gateway client failure into an HTTPException."""
+
+        try:
+            return call()
+        except GatewayHttpError as exc:
+            raise HTTPException(status_code=exc.status_code or 503, detail=exc.detail) from exc
+
     def _require_live_managed_gateway_client(self, agent_ref: str) -> GatewayClient:
         """Return a live gateway client for one managed agent or fail."""
 
@@ -2395,6 +2510,20 @@ class HoumaoServerService:
                 detail=f"Live gateway health check failed: {exc}",
             ) from exc
         return client
+
+    def _require_live_managed_mail_gateway_client(self, agent_ref: str) -> GatewayClient:
+        """Require pair-owned mailbox capability plus a live gateway client."""
+
+        summary_state = self.managed_agent_state(agent_ref)
+        if summary_state.mailbox is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Managed-agent mail follow-up is unavailable because this managed agent "
+                    "does not expose pair-owned mailbox capability."
+                ),
+            )
+        return self._require_live_managed_gateway_client(agent_ref)
 
     def _latest_headless_turn_record(
         self,

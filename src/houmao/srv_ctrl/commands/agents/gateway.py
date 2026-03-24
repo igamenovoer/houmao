@@ -1,8 +1,7 @@
-"""Pair-owned managed-agent gateway commands for `houmao-srv-ctrl`."""
+"""Managed-agent gateway commands for `houmao-srv-ctrl agents`."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import subprocess
 
@@ -14,6 +13,8 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayRequestPayloadInterruptV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -22,53 +23,110 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_attach_contract,
     require_gateway_paths_for_attach_contract,
 )
-from houmao.cao.rest_client import CaoApiError
+from houmao.server.models import HoumaoManagedAgentGatewayRequestCreate
 
-from .common import require_supported_houmao_pair, resolve_server_base_url
-
-
-@click.group(name="agent-gateway")
-def agent_gateway_group() -> None:
-    """Manage pair-owned gateway lifecycle for managed agents."""
-
-
-@click.command(name="attach")
-@click.option("--agent", "agent_ref", help="Managed-agent reference to attach explicitly")
-@click.option(
-    "--port",
-    default=None,
-    type=int,
-    help="Houmao server port to use for explicit `--agent` attach",
+from ..common import (
+    emit_json,
+    pair_port_option,
+    pair_request,
+    require_supported_houmao_pair,
+    resolve_managed_agent_identity,
+    resolve_pair_client,
+    resolve_prompt_text,
 )
-def attach_agent_gateway_command(agent_ref: str | None, port: int | None) -> None:
-    """Attach a managed-agent gateway through the Houmao pair authority."""
 
-    if agent_ref is not None:
-        status = _attach_explicit(agent_ref=agent_ref, port=port)
-    else:
+
+@click.group(name="gateway")
+def gateway_group() -> None:
+    """Server-backed gateway lifecycle plus explicit live-gateway request commands."""
+
+
+@gateway_group.command(name="attach")
+@click.argument("agent_ref", required=False)
+@pair_port_option(help_text="Houmao server port to use for explicit attach")
+def attach_gateway_command(agent_ref: str | None, port: int | None) -> None:
+    """Attach or reuse a live gateway for one managed agent."""
+
+    if agent_ref is None:
         if port is not None:
             raise click.ClickException(
-                "`--port` is only supported with `--agent`; current-session attach uses "
-                "the persisted `api_base_url` from the tmux-published attach contract."
+                "`--port` is only supported with an explicit `<agent-ref>` attach target."
             )
-        status = _attach_current_session()
-    click.echo(json.dumps(status.model_dump(mode="json"), indent=2, sort_keys=True))
+        emit_json(_attach_current_session())
+        return
+
+    client = resolve_pair_client(port=port)
+    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    emit_json(pair_request(client.attach_managed_agent_gateway, resolved.tracked_agent_id))
 
 
-def _attach_explicit(*, agent_ref: str, port: int | None) -> GatewayStatusV1:
-    """Attach by resolving one explicit managed-agent reference first."""
+@gateway_group.command(name="detach")
+@pair_port_option()
+@click.argument("agent_ref")
+def detach_gateway_command(port: int | None, agent_ref: str) -> None:
+    """Detach the live gateway for one managed agent through `houmao-server`."""
 
-    candidate = agent_ref.strip()
-    if not candidate:
-        raise click.ClickException("`--agent` must not be empty.")
+    client = resolve_pair_client(port=port)
+    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    emit_json(pair_request(client.detach_managed_agent_gateway, resolved.tracked_agent_id))
 
-    base_url = resolve_server_base_url(port=port)
-    client = require_supported_houmao_pair(base_url=base_url)
-    try:
-        resolved = client.get_managed_agent(candidate)
-        return client.attach_managed_agent_gateway(resolved.tracked_agent_id)
-    except CaoApiError as exc:
-        raise click.ClickException(exc.detail) from exc
+
+@gateway_group.command(name="status")
+@pair_port_option()
+@click.argument("agent_ref")
+def status_gateway_command(port: int | None, agent_ref: str) -> None:
+    """Show live gateway status for one managed agent."""
+
+    client = resolve_pair_client(port=port)
+    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    emit_json(pair_request(client.get_managed_agent_gateway_status, resolved.tracked_agent_id))
+
+
+@gateway_group.command(name="prompt")
+@click.option(
+    "--prompt",
+    default=None,
+    help="Prompt text to submit. If omitted, piped stdin is used.",
+)
+@pair_port_option(help_text="Houmao server port to use for the explicit gateway prompt path")
+@click.argument("agent_ref")
+def prompt_gateway_command(port: int | None, prompt: str | None, agent_ref: str) -> None:
+    """Submit the explicit gateway-mediated prompt path for one managed agent."""
+
+    client = resolve_pair_client(port=port)
+    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    emit_json(
+        pair_request(
+            client.submit_managed_agent_gateway_request,
+            resolved.tracked_agent_id,
+            HoumaoManagedAgentGatewayRequestCreate(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(
+                    prompt=resolve_prompt_text(prompt=prompt)
+                ),
+            ),
+        )
+    )
+
+
+@gateway_group.command(name="interrupt")
+@pair_port_option()
+@click.argument("agent_ref")
+def interrupt_gateway_command(port: int | None, agent_ref: str) -> None:
+    """Submit the explicit gateway-mediated interrupt path for one managed agent."""
+
+    client = resolve_pair_client(port=port)
+    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    emit_json(
+        pair_request(
+            client.submit_managed_agent_gateway_request,
+            resolved.tracked_agent_id,
+            HoumaoManagedAgentGatewayRequestCreate(
+                kind="interrupt",
+                payload=GatewayRequestPayloadInterruptV1(),
+            ),
+        )
+    )
 
 
 def _attach_current_session() -> GatewayStatusV1:
@@ -125,11 +183,7 @@ def _attach_current_session() -> GatewayStatusV1:
         )
 
     client = require_supported_houmao_pair(base_url=metadata.api_base_url)
-    try:
-        resolved = client.get_managed_agent(metadata.session_name)
-    except CaoApiError as exc:
-        raise click.ClickException(exc.detail) from exc
-
+    resolved = resolve_managed_agent_identity(client, agent_ref=metadata.session_name)
     if resolved.transport != "tui":
         raise click.ClickException(
             "Current-session attach resolved a non-TUI managed agent, which is invalid for "
@@ -140,10 +194,7 @@ def _attach_current_session() -> GatewayStatusV1:
             "Current-session attach metadata is stale: the persisted session alias no longer "
             "resolves to the expected managed agent."
         )
-    try:
-        return client.attach_managed_agent_gateway(metadata.session_name)
-    except CaoApiError as exc:
-        raise click.ClickException(exc.detail) from exc
+    return pair_request(client.attach_managed_agent_gateway, metadata.session_name)
 
 
 def _require_current_tmux_session_name() -> str:
@@ -190,6 +241,3 @@ def _require_tmux_pointer(*, session_name: str, variable_name: str) -> Path:
             f"absolute path, got `{value}`."
         )
     return path.resolve()
-
-
-agent_gateway_group.add_command(attach_agent_gateway_command)

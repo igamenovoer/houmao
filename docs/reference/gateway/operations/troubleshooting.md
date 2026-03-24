@@ -2,7 +2,7 @@
 
 This page covers the current operator-facing failure modes for pair-managed `houmao_server_rest` gateway attach and same-session gateway lifecycle.
 
-## `houmao-srv-ctrl agent-gateway attach` Reports Missing Stable Tmux Metadata
+## `houmao-srv-ctrl agents gateway attach` Reports Missing Stable Tmux Metadata
 
 If current-session attach says the tmux session does not publish `AGENTSYS_GATEWAY_ATTACH_PATH` or `AGENTSYS_GATEWAY_ROOT`, the command is not running against a session that has published stable gateway capability yet.
 
@@ -15,7 +15,7 @@ Check:
 If you need to attach before current-session metadata is available, use explicit pair attach instead:
 
 ```bash
-houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>
+houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>
 ```
 
 ## Current-Session Attach Reports Stale Metadata
@@ -31,11 +31,11 @@ Typical causes:
 Operator guidance:
 
 - treat the session as stale rather than trying to patch the env by hand
-- relaunch the pair-managed session or use explicit `--agent` attach against the server if the managed-agent registration is still valid
+- relaunch the pair-managed session or use explicit `<agent-ref>` attach against the server if the managed-agent registration is still valid
 
 ## Current-Session Attach Returns Unknown Managed Agent
 
-No-`--agent` pair attach uses the persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` from `attach.json` as its only managed-agent route target.
+Current-session pair attach uses the persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` from `attach.json` as its only managed-agent route target.
 
 That means a seeded `attach.json` alone is not enough. Current-session attach becomes valid only after the matching delegated launch has completed managed-agent registration on that same server.
 

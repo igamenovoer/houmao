@@ -78,7 +78,10 @@ pixi run houmao-srv-ctrl cao install gpu-kernel-coder --provider codex --port 98
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-srv-ctrl cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
-pixi run houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+pixi run houmao-srv-ctrl agents prompt cao-gpu --prompt "Summarize the current state."
+pixi run houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
+pixi run houmao-srv-ctrl brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
+pixi run houmao-srv-ctrl admin cleanup-registry --grace-seconds 0
 pixi run houmao-srv-ctrl cao shutdown --all --port 9889
 ```
 
@@ -109,7 +112,21 @@ These commands expose Houmao-owned views such as:
 
 For managed agents, use `/houmao/agents/*` instead of treating headless agents as fake CAO terminals.
 
+History retention is intentionally split:
+
+- TUI-backed managed-agent history is bounded in memory and disappears when the server forgets or loses the live tracker state
+- headless managed-agent history is still coarse, but it is derived from persisted server-owned turn records and remains inspectable across server restarts
+- durable headless stdout, stderr, event logs, and return codes stay on `/houmao/agents/{agent_ref}/turns/*`
+
 ## 6. Understand What `launch` Does Differently Now
+
+`houmao-srv-ctrl` now exposes one native tree plus the explicit compatibility namespace:
+
+- top-level `launch` and `install`
+- server-backed `agents ...`
+- local `brains build`
+- local `admin cleanup-registry`
+- explicit `cao ...`
 
 `houmao-srv-ctrl` still exposes two public launch families:
 
@@ -128,11 +145,18 @@ Successful terminal-backed launches still:
 
 Pair-managed gateway attach remains post-launch:
 
-- explicit attach: `pixi run houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>`
-- current-session attach: run `pixi run houmao-srv-ctrl agent-gateway attach` from inside the target tmux session
+- explicit attach: `pixi run houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>`
+- current-session attach: run `pixi run houmao-srv-ctrl agents gateway attach` from inside the target tmux session
 - tmux window `0` remains the contractual agent surface for that pair-managed session
 
 Native headless launch is unchanged in shape: `houmao-srv-ctrl launch --headless` uses the Houmao-native `/houmao/agents/*` lifecycle instead of CAO terminals.
+
+For follow-up operator control after launch, treat the native `agents` tree as the default pair surface:
+
+- `agents prompt` is the default documented prompt path
+- `agents gateway prompt` is the explicit live-gateway queue path
+- `agents mail status|check|send|reply` covers pair-owned mailbox follow-up when the managed agent exposes mailbox capability
+- `agents turn ...` is headless-only and rejects TUI-backed agents explicitly
 
 ## 7. Runtime Sessions Persist As `houmao_server_rest`
 

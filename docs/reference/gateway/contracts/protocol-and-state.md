@@ -82,7 +82,7 @@ Pair-managed current-session attach rules:
 - tmux-published `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` must resolve to the same runtime-owned gateway subtree
 - `attach.json.tmux_session_name` must match the current tmux session
 - `attach.json.backend` must be `houmao_server_rest`
-- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` are the authoritative managed-agent attach target for no-`--agent` pair attach
+- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` are the authoritative managed-agent attach target for current-session pair attach
 - delegated pair launch may publish these stable artifacts before the matching managed-agent registration exists, so current-session attach readiness is later than capability publication
 
 ## Live Gateway Bindings
