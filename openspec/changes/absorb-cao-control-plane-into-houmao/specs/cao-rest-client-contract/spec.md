@@ -7,6 +7,8 @@ For the supported pair, that client SHALL target the Houmao-owned compatibility 
 
 Pair-owned persisted authority SHALL remain the public `houmao-server` root base URL. The CAO compatibility prefix SHALL be applied through one shared compatibility client seam rather than by persisting `/cao`-qualified base URLs.
 
+The supported pair MAY continue to reuse that repo-owned CAO-compatible client seam internally during v1, but that internal seam SHALL NOT require a local `cao-server` executable or a caller-managed CAO profile-store path as a precondition for supported pair workflows.
+
 For supported loopback compatibility base URLs (`http://localhost:<port>`,
 `http://127.0.0.1:<port>` with explicit ports), the CAO-compatible REST client SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
@@ -21,6 +23,11 @@ When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the CAO-compatible REST client SHALL NO
 - **WHEN** the pair-owned client sends input text `T` to terminal `TERM_ID`
 - **THEN** the CAO-compatible client issues `POST /cao/terminals/{TERM_ID}/input` using CAO's parameter name `message=T`
 - **AND THEN** the supported authority for that request is `houmao-server`
+
+#### Scenario: Pair-backed runtime startup keeps the shared CAO client seam without raw CAO startup requirements
+- **WHEN** the pair starts a `houmao_server_rest` session through its shared CAO-compatible client seam
+- **THEN** that pair workflow may still use repo-owned CAO-compatible client classes internally
+- **AND THEN** it does not require `cao-server` on `PATH` or a caller-managed local CAO profile-store path to satisfy the supported pair contract
 
 #### Scenario: Loopback compatibility requests bypass ambient proxy env on a non-default port
 - **WHEN** the CAO-compatible client is configured with pair root base URL `http://127.0.0.1:9990`
