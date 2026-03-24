@@ -8,7 +8,7 @@
 
 ## 1. Problem
 
-The CAO Claude Code demo (`scripts/demo/cao-claude-session/run_demo.sh`) fails with:
+The historical CAO Claude Code session demo wrapper fails with:
 
 ```
 Failed to create terminal: Claude Code initialization timed out after 30 seconds
@@ -183,6 +183,6 @@ Files changed by the earlier proxy fix (retained):
 
 ## 7. Remaining Work
 
-- **Verify end-to-end**: Re-run `scripts/demo/cao-claude-session/run_demo.sh` to confirm the demo passes.
+- **Verify end-to-end**: Re-run a maintained CAO interactive demo path to confirm the live Claude flow passes.
 - **Headless backend**: The headless backend (`headless_base.py`) also sets `CLAUDE_CONFIG_DIR` to a fresh path. If it's used with Claude in non-pipe mode, the same issue would apply. Currently Claude headless uses `-p` (pipe mode) which likely skips setup screens, but this should be verified.
 - **ANSI stripping**: The vendored fix in `claude_code.py` remains applied as a preventive measure.
