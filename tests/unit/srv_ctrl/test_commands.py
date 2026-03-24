@@ -136,8 +136,8 @@ class _FakeHoumaoClient:
             {
                 "success": True,
                 "detail": (
-                    "Pair-owned install completed through managed child CAO state for "
-                    f"provider `{request_model.provider}` and agent source "
+                    "Pair-owned install completed through the Houmao-managed compatibility "
+                    f"profile store for provider `{request_model.provider}` and agent source "
                     f"`{request_model.agent_source}`."
                 ),
             },
@@ -204,36 +204,42 @@ def test_cao_group_inventory_matches_pinned_upstream() -> None:
     assert set(cao_group.commands.keys()) == _extract_upstream_cli_commands()
 
 
-@pytest.mark.parametrize(
-    ("argv", "expected_command_name", "expected_extra_args"),
-    [
-        (["cao", "flow", "list", "--all"], "flow", ["list", "--all"]),
-        (["cao", "init"], "init", []),
-        (["cao", "mcp-server"], "mcp-server", []),
-    ],
-)
-def test_cao_passthrough_commands_forward_arguments(
+def test_cao_flow_list_uses_local_compatibility_state(
     monkeypatch: pytest.MonkeyPatch,
-    argv: list[str],
-    expected_command_name: str,
-    expected_extra_args: list[str],
+    tmp_path: Path,
 ) -> None:
-    forwarded: list[tuple[str, list[str]]] = []
+    monkeypatch.setenv("AGENTSYS_GLOBAL_RUNTIME_DIR", str((tmp_path / "runtime").resolve()))
 
-    def _fake_run_passthrough(
-        *, command_name: str, extra_args: list[str]
-    ) -> subprocess.CompletedProcess[bytes]:
-        forwarded.append((command_name, list(extra_args)))
-        return subprocess.CompletedProcess(args=[], returncode=0)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.passthrough.run_passthrough", _fake_run_passthrough
-    )
-
-    result = CliRunner().invoke(cli, argv)
+    result = CliRunner().invoke(cli, ["cao", "flow", "list", "--all"])
 
     assert result.exit_code == 0
-    assert forwarded == [(expected_command_name, expected_extra_args)]
+    assert "No flows found" in result.output
+
+
+def test_cao_init_initializes_local_compatibility_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    monkeypatch.setenv("AGENTSYS_GLOBAL_RUNTIME_DIR", str(runtime_root))
+
+    result = CliRunner().invoke(cli, ["cao", "init"])
+
+    assert result.exit_code == 0
+    assert "CLI Agent Orchestrator initialized successfully" in result.output
+    assert (runtime_root / "cao_compat" / "flows.json").is_file()
+    assert json.loads((runtime_root / "cao_compat" / "flows.json").read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "flows": [],
+    }
+
+
+def test_cao_mcp_server_reports_pair_owned_guidance() -> None:
+    result = CliRunner().invoke(cli, ["cao", "mcp-server"])
+
+    assert result.exit_code != 0
+    assert "The standalone CAO MCP helper is not part of the supported Houmao pair" in result.output
+    assert "houmao-server" in result.output
 
 
 def test_top_level_install_routes_through_houmao_server_by_default(
@@ -260,24 +266,34 @@ def test_top_level_install_routes_through_houmao_server_by_default(
             working_directory=str(tmp_path.resolve()),
         )
     ]
-    assert "Pair-owned install completed through managed child CAO state" in result.output
+    assert "Houmao-managed compatibility profile store" in result.output
 
 
-def test_cao_install_remains_local_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
-    forwarded: list[tuple[str, list[str]]] = []
+def test_cao_install_routes_through_houmao_server_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pair_checks: list[str] = []
+    client = _FakeHoumaoClient()
+    monkeypatch.chdir(tmp_path)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.passthrough.run_passthrough",
-        lambda *, command_name, extra_args: (
-            forwarded.append((command_name, list(extra_args)))
-            or subprocess.CompletedProcess(args=[], returncode=0)
-        ),
+        "houmao.srv_ctrl.commands.install.require_supported_houmao_pair",
+        lambda *, base_url: pair_checks.append(base_url) or client,
     )
 
     result = CliRunner().invoke(cli, ["cao", "install", "gpu-kernel-coder"])
 
     assert result.exit_code == 0
-    assert forwarded == [("install", ["gpu-kernel-coder"])]
+    assert pair_checks == ["http://127.0.0.1:9889"]
+    assert client.m_install_requests == [
+        HoumaoInstallAgentProfileRequest(
+            agent_source="gpu-kernel-coder",
+            provider="kiro_cli",
+            working_directory=str(tmp_path.resolve()),
+        )
+    ]
+    assert "Houmao-managed compatibility profile store" in result.output
 
 
 def test_cao_info_reads_current_tmux_session_through_pair_client(

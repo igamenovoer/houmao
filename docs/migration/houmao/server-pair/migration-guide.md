@@ -5,14 +5,14 @@ This guide is for operators and developers moving from:
 - `cao-server`
 - `cao`
 
-to the Houmao-managed replacement pair:
+to the supported Houmao-managed pair:
 
 - `houmao-server`
 - `houmao-srv-ctrl`
 
 ## 1. Understand The Support Boundary
 
-The supported migration target is the pair:
+The supported migration target is:
 
 ```text
 houmao-server + houmao-srv-ctrl
@@ -23,15 +23,19 @@ Do not plan around mixed deployments such as:
 - `houmao-server + cao`
 - `cao-server + houmao-srv-ctrl`
 
-Those combinations are outside the supported contract of this implementation.
+Those combinations are outside the supported contract.
 
-## 2. Keep `cao` Installed
+## 2. Stop Depending On Installed `cao`
 
-`houmao-srv-ctrl` still requires `cao` to be present on `PATH` in v1, but only for the local-only compatibility commands under `houmao-srv-ctrl cao` such as `flow`, `init`, `install`, and `mcp-server`.
+The supported pair no longer requires the standalone `cao` executable for `houmao-srv-ctrl cao ...`.
 
-Top-level `houmao-srv-ctrl launch` and `install`, plus pair-aware compatibility wrappers such as `houmao-srv-ctrl cao launch`, `houmao-srv-ctrl cao info`, and `houmao-srv-ctrl cao shutdown`, now target `houmao-server` directly instead of blindly delegating to local `cao`.
+Current behavior is split intentionally:
 
-You are moving the public authority to Houmao, not removing CAO internals from the shallow-cut implementation yet.
+- `houmao-srv-ctrl cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
+- `houmao-srv-ctrl cao flow` and `cao init` are Houmao-owned local compatibility helpers
+- `houmao-srv-ctrl cao mcp-server` is retired and fails explicitly with migration guidance
+
+The supported path is now Houmao-owned end to end. The pinned CAO source remains the compatibility oracle, not a runtime dependency.
 
 ## 3. Start `houmao-server`
 
@@ -54,16 +58,15 @@ pixi run houmao-server serve \
 What changes when you do this:
 
 - `houmao-server` becomes the public HTTP authority
-- root `/health` and `/houmao/*` stay Houmao-owned, while CAO-compatible session and terminal routes move under `/cao/*`
-- the child `cao-server` is supervised internally by `houmao-server`
-- live terminal tracking becomes server-owned and runs from direct tmux/process observation
-- the child listener stays internal and is derived as `public_port + 1`
+- root `/health` keeps `service="cli-agent-orchestrator"` and adds `houmao_service="houmao-server"`, without `child_cao`
+- the preserved `/cao/*` route family is served locally by `houmao-server`
+- live terminal tracking remains server-owned and runs from direct tmux/process observation
+- pair-targeted installs are written into a Houmao-managed compatibility profile store under the server root
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
-- pair-targeted installs go through `houmao-srv-ctrl install --port <public-port>` instead of direct `HOME` mutation
 
 ## 4. Switch Service-Management Commands To `houmao-srv-ctrl`
 
-Replace direct `cao` usage with `houmao-srv-ctrl` top-level commands for Houmao-owned pair operations and `houmao-srv-ctrl cao ...` for the explicit compatibility family.
+Replace direct `cao` usage with `houmao-srv-ctrl` top-level commands for pair-owned operations and `houmao-srv-ctrl cao ...` for the explicit compatibility family.
 
 Examples:
 
@@ -71,20 +74,19 @@ Examples:
 pixi run houmao-srv-ctrl cao info
 pixi run houmao-srv-ctrl cao init
 pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex
-pixi run houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+pixi run houmao-srv-ctrl cao install gpu-kernel-coder --provider codex --port 9889
+pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-srv-ctrl cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
-pixi run houmao-srv-ctrl cao shutdown --all
+pixi run houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+pixi run houmao-srv-ctrl cao shutdown --all --port 9889
 ```
 
-Do not alias bare `cao` to bare `houmao-srv-ctrl`; the top level is now Houmao-owned. If you need compatibility-command muscle memory, alias `cao` to `houmao-srv-ctrl cao` instead.
-
-Use the additive `--port` form when you are intentionally targeting a running Houmao pair instance. That path routes install through the selected `houmao-server`, so the child-managed CAO home stays an internal implementation detail instead of a caller-computed path.
+Do not alias bare `cao` to bare `houmao-srv-ctrl`. If you want compatibility-command muscle memory, alias `cao` to `houmao-srv-ctrl cao`.
 
 ## 5. Use Houmao Inspection Commands
 
-After switching, inspect state through `houmao-server` instead of reading only raw CAO state.
+After switching, inspect state through `houmao-server` instead of reading raw CAO state or child-process artifacts.
 
 Examples:
 
@@ -99,76 +101,42 @@ pixi run houmao-server terminals history --limit 20 abcd1234
 
 These commands expose Houmao-owned views such as:
 
-- additive health metadata
+- root health with preserved compatibility identity fields
 - current server instance details
 - explicit transport/process/parse state for tracked sessions
 - derived operator-facing live state and stability metadata
 - bounded in-memory recent transitions
 
-For managed agents, inspect the Houmao-owned `/houmao/agents/*` routes rather than treating native headless sessions as fake terminals:
-
-- shared managed-agent routes:
-  - `GET /houmao/agents`
-  - `GET /houmao/agents/{agent_ref}`
-  - `GET /houmao/agents/{agent_ref}/state`
-  - `GET /houmao/agents/{agent_ref}/state/detail`
-  - `GET /houmao/agents/{agent_ref}/history`
-  - `POST /houmao/agents/{agent_ref}/requests`
-  - `GET /houmao/agents/{agent_ref}/gateway`
-  - `POST /houmao/agents/{agent_ref}/gateway/attach`
-  - `POST /houmao/agents/{agent_ref}/gateway/detach`
-  - `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
-- native headless-only lifecycle and durable turn routes:
-  - `POST /houmao/agents/headless/launches`
-  - `POST /houmao/agents/{agent_ref}/stop`
-  - `POST /houmao/agents/{agent_ref}/turns`
-  - `POST /houmao/agents/{agent_ref}/interrupt`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
+For managed agents, use `/houmao/agents/*` instead of treating headless agents as fake CAO terminals.
 
 ## 6. Understand What `launch` Does Differently Now
 
-`houmao-srv-ctrl` now exposes two public launch families.
+`houmao-srv-ctrl` still exposes two public launch families:
 
-Top-level `houmao-srv-ctrl launch` is the Houmao-owned pair launch. `houmao-srv-ctrl cao launch` is the explicit CAO-compatible launch surface.
+- top-level `houmao-srv-ctrl launch` is the Houmao-owned pair launch
+- `houmao-srv-ctrl cao launch` is the explicit CAO-compatible launch surface
 
-Terminal-backed TUI launch through either surface still creates the underlying CAO session through `houmao-server`, and successful launches still trigger Houmao-owned follow-up work:
+Terminal-backed launch through either surface now creates and controls the session through the Houmao-owned `/cao/*` authority served by `houmao-server`.
+
+Successful terminal-backed launches still:
 
 - register the launched session in `houmao-server`
 - materialize a runtime-owned session root
 - write a manifest with `backend = "houmao_server_rest"`
-- publish stable gateway attachability through the shared runtime seam (`attach.json`, seeded `state.json`, queue/bootstrap assets, and tmux env pointers)
-- publish compatibility pointers when transitional registry flows need them
+- publish stable gateway attachability through the shared runtime seam
 - let `houmao-server` rediscover and continuously track the tmux-backed session from its registration seed
 
-Pair-managed gateway attach now stays post-launch and pair-owned:
+Pair-managed gateway attach remains post-launch:
 
 - explicit attach: `pixi run houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>`
 - current-session attach: run `pixi run houmao-srv-ctrl agent-gateway attach` from inside the target tmux session
-- current-session attach becomes valid only after the matching managed-agent registration succeeds on the persisted server
-- tmux window `0` remains the contractual agent surface for that pair-managed session, while any non-zero auxiliary gateway window remains non-contractual except for the exact live handle recorded in `gateway/run/current-instance.json`
+- tmux window `0` remains the contractual agent surface for that pair-managed session
 
-Native headless launch is now different:
+Native headless launch is unchanged in shape: `houmao-srv-ctrl launch --headless` uses the Houmao-native `/houmao/agents/*` lifecycle instead of CAO terminals.
 
-- `houmao-srv-ctrl launch --headless` resolves a native launch request with `tool`, `working_directory`, `agent_def_dir`, `brain_manifest_path`, and `role_name`
-- it calls `POST /houmao/agents/headless/launches` on the selected `houmao-server`
-- `houmao-server` launches the headless runtime directly instead of creating a CAO session or terminal first
-- server-owned admission and restart-recovery state is persisted under `state/managed_agents/<tracked_agent_id>/`
-- later prompt submission, interrupt, state inspection, and gateway lifecycle run through `/houmao/agents/*`, with durable turn status, event, and artifact inspection remaining under `/houmao/agents/{agent_ref}/turns/*`
+## 7. Runtime Sessions Persist As `houmao_server_rest`
 
-The explicit compatibility variant stays distinct:
-
-- `houmao-srv-ctrl cao launch` remains the CAO-compatible launch surface
-- `houmao-srv-ctrl cao launch --headless` keeps compatibility-style detached-session behavior through `/cao/*`
-- `houmao-srv-ctrl launch --headless` remains the canonical Houmao-native headless path
-
-This split is the key migration seam: terminal-backed compatibility still flows through CAO, while native headless lifecycle is already Houmao-owned end to end.
-
-## 7. Runtime Sessions Now Persist As `houmao_server_rest`
-
-When a terminal-backed session is launched through the Houmao server pair and runtime artifacts are materialized, the persisted session identity is:
+When a terminal-backed session is launched through the pair and runtime artifacts are materialized, the persisted identity remains:
 
 ```text
 backend = "houmao_server_rest"
@@ -178,33 +146,43 @@ That means:
 
 - the manifest points at `houmao-server`
 - runtime follow-up control should use the persisted Houmao server identity
-- the session should not be mentally modeled as plain `cao_rest` anymore
-- current-session pair attach should use the persisted attach contract and tmux env pointers instead of guessing another server or alias
-- same-session gateway lifecycle may create auxiliary non-zero tmux windows, but only window `0` is the contractual agent surface
+- the session should not be modeled as a supported standalone `cao_rest` session anymore
+- same-session gateway lifecycle still resolves from the persisted attach contract and tmux-published pointers
 
-That statement does not apply to native headless launch. Headless agents keep their native runtime backend such as `claude_headless`; the new server-owned state for that path lives in the managed-agent authority subtree plus the `/houmao/agents/*` API.
+## 8. Deprecated Standalone CAO Surfaces Are Retired
 
-## 8. Roll Out In A Safe Sequence
+The supported operator path is now the pair.
+
+The following standalone CAO-facing surfaces are retired:
+
+- `houmao-cao-server`
+- `python -m houmao.cao.tools.cao_server_launcher`
+- `houmao-cli start-session --backend cao_rest`
+- resumed `houmao-cli` control flows against standalone raw `cao_rest` sessions
+
+Those entrypoints now fail fast with migration guidance to `houmao-server` and `houmao-srv-ctrl`.
+
+## 9. Roll Out In A Safe Sequence
 
 Recommended migration order:
 
-1. Start `houmao-server` on the CAO-facing public base URL you want to own.
+1. Start `houmao-server` on the public base URL you want to own.
 2. Replace operator command usage from `cao` to `houmao-srv-ctrl`.
 3. Verify `houmao-server health` and `houmao-srv-ctrl cao info`.
-4. If needed, install agent profiles through `houmao-srv-ctrl install --port <public-port> ...`.
-5. Launch one new terminal-backed session through `houmao-srv-ctrl launch` or `houmao-srv-ctrl cao launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
+4. Install agent profiles through `houmao-srv-ctrl install` or `houmao-srv-ctrl cao install`.
+5. Launch one terminal-backed session through `houmao-srv-ctrl launch` or `houmao-srv-ctrl cao launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
 6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
-7. Move terminal-backed runtime tooling toward the persisted `houmao_server_rest` artifacts, and move managed-agent tooling toward `/houmao/agents/*`, using `/state/detail` for rich inspection, `/requests` for transport-neutral prompt or interrupt submission, `/gateway/*` for post-launch gateway lifecycle, and `/turns/*` for durable headless turn inspection.
+7. Move follow-up tooling toward the persisted `houmao_server_rest` artifacts and the `/houmao/agents/*` API instead of standalone CAO endpoints.
 
-## 9. Roll Back If Needed
+## 10. Roll Back If Needed
 
-Rollback remains straightforward because the Houmao server pair is an additive adoption path in this repository:
+Rollback remains pairwise:
 
 - stop `houmao-server`
 - stop using `houmao-srv-ctrl`
 - return operators to `cao-server + cao`
 
-What you should not do during rollback is keep one side on Houmao and the other side on raw CAO. The supported story is pairwise in both directions:
+Do not keep one side on Houmao and the other side on raw CAO. The supported story is pairwise in both directions:
 
 - adopt the pair together
 - roll back from the pair together

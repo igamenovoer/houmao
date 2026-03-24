@@ -6,6 +6,7 @@ from pathlib import Path
 
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.cao.rest_client import CaoRestClient
+from houmao.server.config import HoumaoServerConfig
 from houmao.server.client import HoumaoServerClient
 
 from ..models import CaoParsingMode, LaunchPlan
@@ -40,6 +41,7 @@ class HoumaoServerRestSession(CaoRestSession):
         client = HoumaoServerClient(api_base_url, timeout_seconds=timeout_seconds)
         try:
             health = client.health_extended()
+            current_instance = client.current_instance()
         except Exception as exc:
             raise BackendExecutionError(
                 f"Failed to reach `houmao-server` at {api_base_url}: {exc}"
@@ -49,6 +51,16 @@ class HoumaoServerRestSession(CaoRestSession):
                 "backend='houmao_server_rest' requires a real `houmao-server`; "
                 "mixed usage with raw `cao-server` is unsupported."
             )
+
+        resolved_profile_store_dir = profile_store_dir
+        if resolved_profile_store_dir is None and existing_state is None:
+            server_root = Path(current_instance.server_root).expanduser().resolve()
+            derived_config = HoumaoServerConfig(api_base_url=api_base_url)
+            if derived_config.server_root != server_root:
+                derived_config = derived_config.model_copy(
+                    update={"runtime_root": server_root.parent.parent}
+                )
+            resolved_profile_store_dir = derived_config.compatibility_agent_store_dir
 
         super().__init__(
             launch_plan=launch_plan,
@@ -65,11 +77,21 @@ class HoumaoServerRestSession(CaoRestSession):
             agent_def_dir=agent_def_dir,
             agent_identity=agent_identity,
             tmux_session_name=tmux_session_name,
-            profile_store_dir=profile_store_dir,
+            profile_store_dir=resolved_profile_store_dir,
             poll_interval_seconds=poll_interval_seconds,
             timeout_seconds=timeout_seconds,
             prepend_role_text=prepend_role_text,
             append_role_text=append_role_text,
             substitutions=substitutions,
             existing_state=existing_state,
+        )
+
+    def _preflight_start_terminal(self) -> None:
+        """Require only the tool executable for pair-backed compatibility startup."""
+
+        from .cao_rest import _ensure_required_executable
+
+        _ensure_required_executable(
+            executable=self._plan.executable,
+            flow=f"pair-backed `{self._plan.tool}` flow",
         )

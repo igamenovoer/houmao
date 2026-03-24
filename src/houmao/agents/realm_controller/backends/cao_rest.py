@@ -1652,19 +1652,24 @@ class CaoRestSession:
 
         self.terminate()
 
+    def _preflight_start_terminal(self) -> None:
+        """Require the runtime executables needed by CAO-backed startup."""
+
+        _ensure_required_executable(
+            executable="cao-server",
+            flow="CAO-backed runtime flow",
+        )
+        _ensure_required_executable(
+            executable=self._plan.executable,
+            flow=f"CAO-backed `{self._plan.tool}` flow",
+        )
+
     def _start_terminal(self, *, session_name: str) -> str:
         launch_env = self._build_tmux_launch_env()
 
         bootstrap_window: _TmuxWindowRecord | None = None
         try:
-            _ensure_required_executable(
-                executable="cao-server",
-                flow="CAO-backed runtime flow",
-            )
-            _ensure_required_executable(
-                executable=self._plan.executable,
-                flow=f"CAO-backed `{self._plan.tool}` flow",
-            )
+            self._preflight_start_terminal()
             self._client.health()
             _ensure_tmux_available()
             _create_tmux_session(
