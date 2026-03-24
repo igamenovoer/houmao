@@ -64,6 +64,8 @@ Verified areas:
   - `install`
   - `launch`
   - `launch --headless`
+  - `agent-gateway attach --agent <agent-ref> --port <public-port>`
+  - `agent-gateway attach` current-session resolution from stable tmux-published gateway metadata
 - terminal-backed launch follow-up behavior:
   - session discovery
   - runtime artifact materialization
@@ -89,6 +91,10 @@ Representative files:
 - [`tests/unit/agents/realm_controller/test_schema_and_manifest.py`](../../../tests/unit/agents/realm_controller/test_schema_and_manifest.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../tests/unit/agents/realm_controller/test_gateway_support.py)
 - [`tests/unit/srv_ctrl/test_runtime_artifacts.py`](../../../tests/unit/srv_ctrl/test_runtime_artifacts.py)
+- [`tests/unit/srv_ctrl/test_commands.py`](../../../tests/unit/srv_ctrl/test_commands.py)
+- [`tests/unit/server/test_service.py`](../../../tests/unit/server/test_service.py)
+- [`tests/integration/server/test_managed_agent_gateway_contract.py`](../../../tests/integration/server/test_managed_agent_gateway_contract.py)
+- [`tests/integration/agents/realm_controller/test_gateway_runtime_contract.py`](../../../tests/integration/agents/realm_controller/test_gateway_runtime_contract.py)
 
 ## Commands Run
 

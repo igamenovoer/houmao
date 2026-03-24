@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,15 +10,18 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.cao.models import (
     CaoSessionDetail,
     CaoSessionInfo,
     CaoSessionTerminalSummary,
     CaoTerminal,
 )
+from houmao.cao.rest_client import CaoApiError
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoInstallAgentProfileRequest,
+    HoumaoManagedAgentIdentity,
     HoumaoRegisterLaunchRequest,
 )
 from houmao.srv_ctrl.commands.main import cli
@@ -71,6 +75,8 @@ class _FakeHoumaoClient:
         self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
+        self.m_get_managed_agent_calls: list[str] = []
+        self.m_attach_managed_agent_gateway_calls: list[str] = []
 
     def list_sessions(self) -> list[_FakeSession]:
         return list(self.m_list_sessions_payload)
@@ -152,9 +158,44 @@ class _FakeHoumaoClient:
             },
         )()
 
+    def get_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
+        self.m_get_managed_agent_calls.append(agent_ref)
+        return HoumaoManagedAgentIdentity(
+            tracked_agent_id="tracked-cao-gpu",
+            transport="tui",
+            tool="codex",
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            runtime_session_id=None,
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path="/tmp/runtime/sessions/houmao_server_rest/cao-gpu/manifest.json",
+            session_root="/tmp/runtime/sessions/houmao_server_rest/cao-gpu",
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+
+    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_attach_managed_agent_gateway_calls.append(agent_ref)
+        return GatewayStatusV1(
+            attach_identity="houmao-server-rest-1",
+            backend="houmao_server_rest",
+            tmux_session_name="cao-gpu",
+            gateway_health="healthy",
+            managed_agent_connectivity="connected",
+            managed_agent_recovery="idle",
+            request_admission="open",
+            terminal_surface_eligibility="ready",
+            active_execution="idle",
+            queue_depth=0,
+            gateway_host="127.0.0.1",
+            gateway_port=43123,
+            managed_agent_instance_epoch=1,
+        )
+
 
 def test_top_level_command_inventory_reserves_pair_namespace() -> None:
-    assert set(cli.commands.keys()) == {"cao", "install", "launch"}
+    assert set(cli.commands.keys()) == {"agent-gateway", "cao", "install", "launch"}
 
 
 def test_cao_group_inventory_matches_pinned_upstream() -> None:
@@ -508,3 +549,165 @@ def test_launch_rejects_unsupported_pair_before_session_creation(
 
     assert result.exit_code != 0
     assert "unsupported pair" in result.output
+
+
+def test_agent_gateway_attach_explicit_resolves_alias_before_attach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair_checks: list[str] = []
+    client = _FakeHoumaoClient()
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
+        lambda *, base_url: pair_checks.append(base_url) or client,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agent-gateway", "attach", "--agent", "AGENTSYS gpu/1", "--port", "9999"],
+    )
+
+    assert result.exit_code == 0
+    assert pair_checks == ["http://127.0.0.1:9999"]
+    assert client.m_get_managed_agent_calls == ["AGENTSYS gpu/1"]
+    assert client.m_attach_managed_agent_gateway_calls == ["tracked-cao-gpu"]
+    assert json.loads(result.output)["gateway_port"] == 43123
+
+
+def test_agent_gateway_attach_current_session_uses_persisted_server_and_session_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _FakeHoumaoClient()
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    gateway_root = session_root / "gateway"
+    attach_path = gateway_root / "attach.json"
+    gateway_root.mkdir(parents=True, exist_ok=True)
+    attach_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "attach_identity": "houmao-server-rest-1",
+                "backend": "houmao_server_rest",
+                "tmux_session_name": "cao-gpu",
+                "working_directory": str(tmp_path.resolve()),
+                "backend_metadata": {
+                    "api_base_url": "http://127.0.0.1:9988",
+                    "session_name": "cao-gpu",
+                    "terminal_id": "abcd1234",
+                    "parsing_mode": "shadow_only",
+                    "tmux_window_name": "developer-1",
+                },
+                "manifest_path": str((session_root / "manifest.json").resolve()),
+                "agent_def_dir": str((session_root / "agent_def").resolve()),
+                "runtime_session_id": "houmao-server-rest-1",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
+        lambda *, base_url: client if base_url == "http://127.0.0.1:9988" else None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="cao-gpu\n",
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: {
+            ("cao-gpu", "AGENTSYS_GATEWAY_ATTACH_PATH"): str(attach_path.resolve()),
+            ("cao-gpu", "AGENTSYS_GATEWAY_ROOT"): str(gateway_root.resolve()),
+        }.get((session_name, variable_name)),
+    )
+
+    result = CliRunner().invoke(cli, ["agent-gateway", "attach"])
+
+    assert result.exit_code == 0
+    assert client.m_get_managed_agent_calls == ["cao-gpu"]
+    assert client.m_attach_managed_agent_gateway_calls == ["cao-gpu"]
+    assert json.loads(result.output)["gateway_host"] == "127.0.0.1"
+
+
+def test_agent_gateway_attach_current_session_fails_before_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _FakeHoumaoClient()
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    gateway_root = session_root / "gateway"
+    attach_path = gateway_root / "attach.json"
+    gateway_root.mkdir(parents=True, exist_ok=True)
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+    attach_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "attach_identity": "houmao-server-rest-1",
+                "backend": "houmao_server_rest",
+                "tmux_session_name": "cao-gpu",
+                "working_directory": str(tmp_path.resolve()),
+                "backend_metadata": {
+                    "api_base_url": "http://127.0.0.1:9988",
+                    "session_name": "cao-gpu",
+                    "terminal_id": "abcd1234",
+                    "parsing_mode": "shadow_only",
+                },
+                "manifest_path": str((session_root / "manifest.json").resolve()),
+                "agent_def_dir": str((session_root / "agent_def").resolve()),
+                "runtime_session_id": "houmao-server-rest-1",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _raise_not_found(agent_ref: str) -> object:
+        del agent_ref
+        raise CaoApiError(
+            method="GET",
+            url="http://127.0.0.1:9988/houmao/agents/cao-gpu",
+            status_code=404,
+            detail="Unknown managed agent `cao-gpu`.",
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
+        lambda *, base_url: client if base_url == "http://127.0.0.1:9988" else None,
+    )
+    monkeypatch.setattr(client, "get_managed_agent", _raise_not_found)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="cao-gpu\n",
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agent_gateway.read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: {
+            ("cao-gpu", "AGENTSYS_GATEWAY_ATTACH_PATH"): str(attach_path.resolve()),
+            ("cao-gpu", "AGENTSYS_GATEWAY_ROOT"): str(gateway_root.resolve()),
+        }.get((session_name, variable_name)),
+    )
+
+    result = CliRunner().invoke(cli, ["agent-gateway", "attach"])
+
+    assert result.exit_code != 0
+    assert "Unknown managed agent `cao-gpu`." in result.output

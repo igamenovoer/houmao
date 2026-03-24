@@ -116,6 +116,7 @@ _CANONICAL_STATUS_BY_BACKEND_STATUS: Final[dict[str, str]] = {
 _TMUX_WINDOW_FORMAT: Final[str] = "#{window_id}\t#{window_index}\t#{window_name}"
 _TMUX_WINDOW_RESOLVE_MAX_ATTEMPTS: Final[int] = 5
 _TMUX_WINDOW_RESOLVE_RETRY_SECONDS: Final[float] = 0.1
+_PRIMARY_AGENT_WINDOW_INDEX: Final[str] = "0"
 
 
 @dataclass
@@ -716,6 +717,16 @@ class CaoRestSession:
 
     def _resolve_control_input_tmux_window(self) -> _TmuxWindowRecord:
         """Resolve the tmux window using persisted state with live CAO fallback."""
+
+        if self.backend == "houmao_server_rest":
+            resolved_primary = _resolve_tmux_window_by_index(
+                session_name=self._session_name,
+                window_index=_PRIMARY_AGENT_WINDOW_INDEX,
+                max_attempts=1,
+                retry_sleep_seconds=0.0,
+            )
+            if resolved_primary is not None:
+                return resolved_primary
 
         persisted_window_name = (
             self._tmux_window_name.strip() if self._tmux_window_name is not None else None
@@ -2024,6 +2035,30 @@ def _resolve_tmux_window_by_name(
         windows = _list_tmux_windows(session_name=session_name)
         for window in windows:
             if window.window_name == window_name:
+                return window
+        if attempt + 1 < max_attempts and retry_sleep_seconds > 0:
+            time.sleep(retry_sleep_seconds)
+    return None
+
+
+def _resolve_tmux_window_by_index(
+    *,
+    session_name: str,
+    window_index: str,
+    max_attempts: int = _TMUX_WINDOW_RESOLVE_MAX_ATTEMPTS,
+    retry_sleep_seconds: float = _TMUX_WINDOW_RESOLVE_RETRY_SECONDS,
+) -> _TmuxWindowRecord | None:
+    """Resolve one tmux window by index with bounded retry semantics."""
+
+    if max_attempts <= 0:
+        raise BackendExecutionError("tmux window resolution requires max_attempts > 0")
+    if retry_sleep_seconds < 0:
+        raise BackendExecutionError("tmux window resolution requires retry_sleep_seconds >= 0")
+
+    for attempt in range(max_attempts):
+        windows = _list_tmux_windows(session_name=session_name)
+        for window in windows:
+            if window.window_index == window_index:
                 return window
         if attempt + 1 < max_attempts and retry_sleep_seconds > 0:
             time.sleep(retry_sleep_seconds)

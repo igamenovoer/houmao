@@ -168,6 +168,13 @@ Important attach behavior:
 - attach returns HTTP `409` when reconciliation is required or the underlying attach reports an already-in-use conflict
 - attach returns HTTP `503` when runtime control is not resumable or gateway startup fails for an unavailable reason
 
+For pair-managed `houmao_server_rest` sessions, operators normally reach this route through `houmao-srv-ctrl agent-gateway attach`.
+
+- explicit mode resolves `--agent` through the managed-agent alias space first and then calls the managed-agent gateway attach route
+- current-session mode runs inside the target tmux session, validates `AGENTSYS_GATEWAY_ATTACH_PATH` plus `AGENTSYS_GATEWAY_ROOT`, requires a readable `houmao_server_rest` attach contract, and uses its persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` as the authoritative route target
+- current-session attach is not ready until the delegated launch has both published stable gateway capability and completed managed-agent registration on that same persisted server
+- for same-session `houmao_server_rest` attach, tmux window `0` remains the contractual agent surface while any non-zero auxiliary gateway window remains implementation detail except for the exact live handle recorded in `gateway/run/current-instance.json`
+
 `POST /houmao/agents/{agent_ref}/gateway/detach` removes the live sidecar when one is attached and returns the updated gateway status. The managed agent remains gateway-capable after detach because stable attach metadata stays in place.
 
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails.

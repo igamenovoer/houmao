@@ -1239,6 +1239,37 @@ def test_cao_backend_startup_warns_when_terminal_window_name_never_resolves(
     assert "after 3 attempts" in warning
 
 
+def test_houmao_server_control_input_targets_reserved_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_session = object.__new__(CaoRestSession)
+    fake_session.backend = "houmao_server_rest"
+    fake_session._session_name = "AGENTSYS-gpu"
+    fake_session._tmux_window_name = "developer-1"
+
+    monkeypatch.setattr(
+        cao_rest_backend,
+        "_resolve_tmux_window_by_index",
+        lambda **kwargs: SimpleNamespace(
+            window_id="@1",
+            window_index="0",
+            window_name="developer-1",
+        ),
+    )
+    monkeypatch.setattr(
+        cao_rest_backend,
+        "_resolve_tmux_window_by_name",
+        lambda **kwargs: pytest.fail(
+            "houmao_server_rest should not fall back to window-name targeting"
+        ),
+    )
+
+    resolved = CaoRestSession._resolve_control_input_tmux_window(fake_session)
+
+    assert resolved.window_id == "@1"
+    assert resolved.window_index == "0"
+
+
 def test_cao_backend_resume_uses_existing_state(tmp_path: Path) -> None:
     state = CaoSessionState(
         api_base_url="http://localhost:9889",

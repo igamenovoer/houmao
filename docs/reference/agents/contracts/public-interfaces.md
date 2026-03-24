@@ -76,6 +76,13 @@ Publicly relevant details:
 - Gateway-capable sessions publish stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
 - Live gateway env vars appear only while a gateway instance is actually attached.
 
+Pair-managed note:
+
+- `attach-gateway` remains the repo runtime command surface, but the supported public pair command for `houmao_server_rest` is `houmao-srv-ctrl agent-gateway attach`
+- explicit pair attach resolves `--agent` through the managed-agent alias space on `houmao-server`
+- current-session pair attach validates the tmux-published attach contract and uses its persisted `api_base_url` plus `session_name` as the only route target
+- for pair-managed sessions, tmux window `0` remains the contractual agent surface while live gateway auxiliary windows are implementation detail except for the exact handle recorded in `gateway/run/current-instance.json`
+
 Representative `start-session` output for a gateway-capable session:
 
 ```json

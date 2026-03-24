@@ -72,6 +72,7 @@ pixi run houmao-srv-ctrl cao info
 pixi run houmao-srv-ctrl cao init
 pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex
+pixi run houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
 pixi run houmao-srv-ctrl cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
 pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
 pixi run houmao-srv-ctrl cao shutdown --all
@@ -138,8 +139,16 @@ Terminal-backed TUI launch through either surface still creates the underlying C
 - register the launched session in `houmao-server`
 - materialize a runtime-owned session root
 - write a manifest with `backend = "houmao_server_rest"`
+- publish stable gateway attachability through the shared runtime seam (`attach.json`, seeded `state.json`, queue/bootstrap assets, and tmux env pointers)
 - publish compatibility pointers when transitional registry flows need them
 - let `houmao-server` rediscover and continuously track the tmux-backed session from its registration seed
+
+Pair-managed gateway attach now stays post-launch and pair-owned:
+
+- explicit attach: `pixi run houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>`
+- current-session attach: run `pixi run houmao-srv-ctrl agent-gateway attach` from inside the target tmux session
+- current-session attach becomes valid only after the matching managed-agent registration succeeds on the persisted server
+- tmux window `0` remains the contractual agent surface for that pair-managed session, while any non-zero auxiliary gateway window remains non-contractual except for the exact live handle recorded in `gateway/run/current-instance.json`
 
 Native headless launch is now different:
 
@@ -170,6 +179,8 @@ That means:
 - the manifest points at `houmao-server`
 - runtime follow-up control should use the persisted Houmao server identity
 - the session should not be mentally modeled as plain `cao_rest` anymore
+- current-session pair attach should use the persisted attach contract and tmux env pointers instead of guessing another server or alias
+- same-session gateway lifecycle may create auxiliary non-zero tmux windows, but only window `0` is the contractual agent surface
 
 That statement does not apply to native headless launch. Headless agents keep their native runtime backend such as `claude_headless`; the new server-owned state for that path lives in the managed-agent authority subtree plus the `/houmao/agents/*` API.
 

@@ -56,9 +56,11 @@ class TmuxPaneRecord:
     pane_id: str
     session_name: str
     window_id: str
+    window_index: str
     window_name: str
     pane_index: str
     pane_active: bool
+    pane_dead: bool = False
     pane_pid: int | None = None
 
 
@@ -285,7 +287,8 @@ def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
             "-t",
             session_name,
             "-F",
-            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_index}\t#{pane_active}\t#{pane_pid}",
+            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}"
+            "\t#{pane_index}\t#{pane_active}\t#{pane_dead}\t#{pane_pid}",
         ]
     )
     if result.returncode != 0:
@@ -300,17 +303,19 @@ def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
         if not line:
             continue
         parts = line.split("\t")
-        if len(parts) not in {6, 7}:
+        if len(parts) not in {8, 9}:
             raise TmuxCommandError(f"Unexpected tmux pane output for `{session_name}`: {line}")
         panes.append(
             TmuxPaneRecord(
                 pane_id=parts[0],
                 session_name=parts[1],
                 window_id=parts[2],
-                window_name=parts[3],
-                pane_index=parts[4],
-                pane_active=parts[5] == "1",
-                pane_pid=int(parts[6]) if len(parts) == 7 and parts[6].isdigit() else None,
+                window_index=parts[3],
+                window_name=parts[4],
+                pane_index=parts[5],
+                pane_active=parts[6] == "1",
+                pane_dead=parts[7] == "1",
+                pane_pid=int(parts[8]) if len(parts) == 9 and parts[8].isdigit() else None,
             )
         )
     return tuple(panes)

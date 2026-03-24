@@ -117,6 +117,7 @@ from houmao.server.models import (
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentGatewaySummaryView,
+    HoumaoTrackedSessionIdentity,
     HoumaoManagedAgentTuiDetailView,
     HoumaoManagedAgentTurnView,
     HoumaoProbeSnapshot,
@@ -1346,6 +1347,7 @@ class HoumaoServerService:
             target = self.m_transport_resolver.resolve_target(
                 session_name=identity.tmux_session_name,
                 window_name=identity.tmux_window_name,
+                window_index=self._tracked_tui_target_window_index(identity),
             )
         except TmuxCommandError as exc:
             tracker.record_cycle(
@@ -1737,6 +1739,23 @@ class HoumaoServerService:
             agent_name=identity.agent_name,
             agent_id=identity.agent_id,
         )
+
+    def _tracked_tui_target_window_index(
+        self, identity: HoumaoTrackedSessionIdentity
+    ) -> str | None:
+        """Return the contractual tmux window index for one tracked TUI session."""
+
+        manifest_path_value = identity.manifest_path
+        if manifest_path_value is None:
+            return None
+        try:
+            handle = load_session_manifest(Path(manifest_path_value).expanduser().resolve())
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except (LaunchPlanError, SessionManifestError, OSError):
+            return None
+        if payload.backend == "houmao_server_rest":
+            return "0"
+        return None
 
     def _managed_identity_from_headless_handle(
         self,
@@ -2275,8 +2294,14 @@ class HoumaoServerService:
                 status_code=422,
                 detail="Managed TUI agent does not expose a runtime-owned session root for gateway operations.",
             )
-        status = self._gateway_status_for_session_root(Path(session_root))
         controller = self._controller_for_tui_tracker(tracker)
+        if controller is not None:
+            try:
+                status = controller.gateway_status()
+            except SessionManifestError:
+                status = self._gateway_status_for_session_root(Path(session_root))
+        else:
+            status = self._gateway_status_for_session_root(Path(session_root))
         return {
             "tracked_agent_id": resolved["tracked_agent_id"],
             "session_root": session_root,

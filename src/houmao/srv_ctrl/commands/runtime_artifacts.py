@@ -22,6 +22,12 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import RolePackage
+from houmao.agents.realm_controller.gateway_storage import (
+    GatewayCapabilityPublication,
+    ensure_gateway_capability,
+    publish_stable_gateway_env,
+)
+from houmao.agents.realm_controller.gateway_models import GatewayJsonObject
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -208,6 +214,30 @@ def materialize_delegated_launch(
             AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
         },
     )
+    gateway_paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="houmao_server_rest",
+            tool=tool,
+            session_id=session_root.name,
+            tmux_session_name=session_name,
+            working_directory=working_directory.resolve(),
+            backend_state=_backend_state_for_delegated_launch(
+                api_base_url=api_base_url,
+                session_name=session_name,
+                terminal_id=terminal_id,
+                tmux_window_name=tmux_window_name,
+                tool=tool,
+            ),
+            agent_def_dir=agent_def_dir,
+        )
+    )
+    publish_stable_gateway_env(
+        session_name=session_name,
+        attach_path=gateway_paths.attach_path,
+        gateway_root=gateway_paths.gateway_root,
+        set_env=set_tmux_session_environment,
+    )
 
     published_at = datetime.now(UTC)
     publish_live_agent_record(
@@ -231,6 +261,25 @@ def materialize_delegated_launch(
         )
     )
     return manifest_path, session_root, canonical_agent_name, agent_id
+
+
+def _backend_state_for_delegated_launch(
+    *,
+    api_base_url: str,
+    session_name: str,
+    terminal_id: str,
+    tmux_window_name: str | None,
+    tool: str,
+) -> GatewayJsonObject:
+    """Return strict backend state for delegated `houmao_server_rest` launches."""
+
+    return {
+        "api_base_url": api_base_url,
+        "session_name": session_name,
+        "terminal_id": terminal_id,
+        "parsing_mode": "shadow_only" if tool in {"claude", "codex"} else "cao_only",
+        **({"tmux_window_name": tmux_window_name} if tmux_window_name is not None else {}),
+    }
 
 
 def materialize_headless_launch_request(

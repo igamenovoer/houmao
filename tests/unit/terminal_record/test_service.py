@@ -141,8 +141,8 @@ def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
         terminal_record_service,
         "list_tmux_panes",
         lambda *, session_name: (
-            TmuxPaneRecord("%1", session_name, "@2", "developer-1", "0", True),
-            TmuxPaneRecord("%2", session_name, "@2", "developer-1", "1", False),
+            TmuxPaneRecord("%1", session_name, "@2", "1", "developer-1", "0", True),
+            TmuxPaneRecord("%2", session_name, "@2", "1", "developer-1", "1", False),
         ),
     )
 

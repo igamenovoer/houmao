@@ -25,6 +25,8 @@ That means session start or resume can create:
 
 It does not mean a live gateway is already running.
 
+Delegated `houmao-srv-ctrl launch` for `houmao_server_rest` now reuses the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
+
 ## Post-Launch Attach Is The Official Managed-Agent Path
 
 For the official managed-agent flow, launch and gateway lifecycle stay separate.
@@ -37,6 +39,43 @@ That means:
 - async mailbox demos and server-managed flows should treat this post-launch attach as the supported path.
 
 The same design works whether the attach action comes from runtime CLI control or from the server-managed `/houmao/agents/{agent_ref}/gateway/attach` route family.
+
+For pair-managed `houmao_server_rest`, current-session attach becomes valid only after two conditions hold at the same time:
+
+- the tmux session already publishes stable gateway pointers for that runtime-owned session
+- the same logical session is already registered under `/houmao/agents/*` on the persisted `api_base_url`
+
+Before registration completes, the seeded offline gateway artifacts may already exist, but no-`--agent` pair attach still fails because the managed-agent lookup is not ready yet.
+
+## Pair-Owned Managed-Agent Attach
+
+For pair-managed terminal sessions, the supported public CLI is `houmao-srv-ctrl agent-gateway attach`.
+
+Explicit target mode:
+
+```bash
+houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+```
+
+Current-session mode:
+
+```bash
+houmao-srv-ctrl agent-gateway attach
+```
+
+Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent attach route:
+
+- `AGENTSYS_GATEWAY_ATTACH_PATH` exists and points to a readable runtime-owned `attach.json`
+- `AGENTSYS_GATEWAY_ROOT` exists and matches the same runtime-owned gateway subtree
+- `attach.json.tmux_session_name` matches the current tmux session
+- `attach.json.backend == "houmao_server_rest"`
+- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` become the authoritative managed-agent attach target
+
+Important boundary:
+
+- `--port` is only valid with explicit `--agent` attach
+- no-`--agent` attach does not guess or re-resolve a different server target
+- stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 
 ## Runtime Auto-Attach Convenience
 
@@ -139,6 +178,23 @@ Effects:
 - stable attach metadata stays in place for later re-attach.
 
 `stop-session` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
+
+## Same-Session Gateway Windows
+
+For `houmao_server_rest`, live gateway attach runs the gateway inside the same tmux session in an auxiliary window instead of relying only on an unrelated detached process.
+
+Current behavior:
+
+- tmux window `0` stays reserved as the only contractual agent surface
+- the live gateway records its execution mode plus tmux window and pane handle in `gateway/run/current-instance.json`
+- detach, stale-runtime cleanup, and same-session reattach stop the recorded auxiliary window rather than rediscovering some other non-zero window heuristically
+- if the recorded execution handle ever claims window `0`, detach and cleanup refuse to kill it
+
+Non-zero windows remain intentionally non-contractual for operators and callers:
+
+- do not infer semantics from their names
+- do not assume stable ordering or counts
+- treat only the exact handle recorded for the current live gateway as authoritative
 
 ## Direct Runtime Control Versus Gateway Queueing
 

@@ -96,15 +96,22 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it |
 | `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material |
 | `<session-root>/gateway/` | gateway-capability publication | runtime and gateway lifecycle helpers | Session-owned gateway subtree | Stable path family for gateway-capable sessions | Subtree contents have mixed durability |
-| `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Stable attachability contract for the same logical session | Stable operator-facing artifact | Durable |
+| `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Stable attachability contract for the same logical session, including the authoritative `api_base_url` plus `session_name` target used by pair-managed current-session attach for `houmao_server_rest` | Stable operator-facing artifact | Durable |
 | `<session-root>/gateway/protocol-version.txt` | gateway-capability publication | runtime refresh if protocol changes | Local version marker for gateway artifacts | Stable path, simple payload | Durable |
 | `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints for later gateway starts | Stable operator-facing artifact | Durable |
-| `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status | Stable operator-facing artifact | Durable, but reflects current status |
+| `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status, seeded before first live attach | Stable operator-facing artifact | Durable, but reflects current status |
 | `<session-root>/gateway/queue.sqlite` | gateway-capability publication | live gateway process | Durable request queue state plus gateway-owned notifier audit history | Stable path, implementation-owned contents | Treat as durable while the session is active |
 | `<session-root>/gateway/events.jsonl` | gateway-capability publication | live gateway process | Append-only gateway event log | Stable path, implementation-owned contents | Safe to inspect; not the source of truth for queue state |
 | `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Append-only running log for lifecycle, queue execution, and notifier polling | Stable operator-facing artifact | Log-style cleanup only after the session is stopped |
-| `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process/binding snapshot | Current implementation detail | Ephemeral |
-| `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process | Current implementation detail | Ephemeral |
+| `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process and listener snapshot, including the authoritative same-session tmux execution handle for `houmao_server_rest` auxiliary-window mode | Current implementation detail with active lifecycle semantics | Ephemeral |
+| `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process; same-session mode still writes it, but detach and cleanup rely on the current-instance execution handle rather than pid alone | Current implementation detail | Ephemeral |
+
+Pair-managed `houmao_server_rest` notes:
+
+- delegated `houmao-srv-ctrl launch` now seeds the stable gateway subtree through the same runtime-owned gateway publication seam used by direct runtime flows
+- that means `attach.json`, `state.json`, queue/bootstrap files, and stable tmux env pointers can exist before any live gateway is attached
+- current-session `houmao-srv-ctrl agent-gateway attach` still remains invalid until the same logical session is registered under `/houmao/agents/*` on the persisted `api_base_url`
+- tmux window `0` is the only contractual agent surface; non-zero windows remain auxiliary and non-contractual except for the exact live gateway handle recorded in `gateway/run/current-instance.json`
 
 ## Mailbox Binding And Secret Lifecycle
 

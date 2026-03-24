@@ -37,7 +37,32 @@ houmao-srv-ctrl cao info --port 9889
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
 houmao-srv-ctrl cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
 houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
+houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+houmao-srv-ctrl agent-gateway attach
 ```
+
+## Pair-Managed Gateway Attach
+
+For pair-managed terminal sessions, the supported public attach command is `houmao-srv-ctrl agent-gateway attach`.
+
+Supported modes:
+
+- explicit target mode: `houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>`
+- current-session mode: run `houmao-srv-ctrl agent-gateway attach` from inside the tmux session that owns the managed agent
+
+Current-session mode is intentionally strict:
+
+- the tmux session must publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
+- those pointers must resolve to one readable runtime-owned `attach.json` and gateway root for the same tmux session
+- the attach contract must use `backend = "houmao_server_rest"`
+- persisted `backend_metadata.api_base_url` and `backend_metadata.session_name` are authoritative; no-`--agent` attach does not retarget to another server
+- current-session attach becomes valid only after delegated pair launch has both published gateway capability and completed managed-agent registration on that persisted `api_base_url`
+
+Pair-managed tmux topology is also intentionally narrow:
+
+- tmux window `0` is the only contractual agent surface for `houmao_server_rest`
+- same-session live gateway attach may create auxiliary non-zero windows inside that tmux session
+- those auxiliary windows are not public contract by name, count, or order; the only authoritative non-zero window handle is the one currently recorded in `gateway/run/current-instance.json` for the live gateway
 
 ## Architecture
 

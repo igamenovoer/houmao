@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import signal
 import socket
 import subprocess
@@ -49,8 +50,11 @@ from .backends.headless_base import (
 )
 from .backends.tmux_runtime import (
     TmuxCommandError,
+    TmuxPaneRecord,
     has_tmux_session as has_tmux_session_shared,
+    list_tmux_panes as list_tmux_panes_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    run_tmux as run_tmux_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -71,6 +75,7 @@ from .gateway_models import (
     BlueprintGatewayDefaults,
     GatewayAcceptedRequestV1,
     GatewayAttachContractV1,
+    GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
@@ -170,6 +175,12 @@ from .registry_storage import (
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
 )
+_PRIMARY_AGENT_WINDOW_INDEX = "0"
+_GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -197,6 +208,15 @@ class AgentIdentityResolution:
     canonical_agent_identity: str | None = None
     agent_def_dir: Path | None = None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _TmuxAuxiliaryWindowHandle:
+    """Resolved tmux-owned execution handle for one auxiliary gateway window."""
+
+    window_id: str
+    window_index: str
+    pane_id: str
 
 
 @dataclass(frozen=True)
@@ -367,11 +387,16 @@ class RuntimeSessionController:
             filesystem_root=filesystem_root,
         )
         try:
-            refreshed = bootstrap_resolved_mailbox(
+            bootstrapped = bootstrap_resolved_mailbox(
                 refreshed,
                 manifest_path_hint=self.manifest_path,
                 role_name=self.role_name,
             )
+            if not isinstance(bootstrapped, FilesystemMailboxResolvedConfig):
+                raise SessionManifestError(
+                    "Mailbox binding refresh returned an unexpected non-filesystem mailbox type."
+                )
+            refreshed = bootstrapped
         except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
 
@@ -2181,6 +2206,56 @@ def _detach_gateway_for_controller(controller: RuntimeSessionController) -> Gate
 
     paths = _require_gateway_paths_for_controller(controller)
     attach_contract = load_attach_contract(paths.attach_path)
+    try:
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        current_instance = None
+    session_name = controller._require_tmux_session_name()
+    if current_instance is not None and current_instance.execution_mode == "tmux_auxiliary_window":
+        try:
+            was_running = _same_session_gateway_is_alive(
+                session_name=session_name,
+                current_instance=current_instance,
+            )
+        except TmuxCommandError as exc:
+            return GatewayControlResult(
+                status="error",
+                action="gateway_detach",
+                detail=f"Failed to inspect gateway tmux pane state: {exc}",
+                gateway_root=str(paths.gateway_root),
+            )
+        try:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=True,
+            )
+        except GatewayAttachError as exc:
+            return GatewayControlResult(
+                status="error",
+                action="gateway_detach",
+                detail=str(exc),
+                gateway_root=str(paths.gateway_root),
+            )
+        delete_gateway_current_instance(paths)
+        _clear_stale_gateway_runtime_state(
+            controller=controller,
+            paths=paths,
+            attach_contract=attach_contract,
+        )
+        controller.gateway_host = None
+        controller.gateway_port = None
+        return GatewayControlResult(
+            status="ok",
+            action="gateway_detach",
+            detail=(
+                "Detached live gateway instance."
+                if was_running
+                else "Cleared stale or absent live gateway bindings."
+            ),
+            gateway_root=str(paths.gateway_root),
+        )
+
     listener = _live_gateway_listener_from_status(paths)
     pid = read_pid_file(paths.pid_path)
     was_running = pid is not None and is_pid_running(pid)
@@ -2310,6 +2385,29 @@ def _validated_gateway_client_for_controller(
 
     session_name = controller._require_tmux_session_name()
     attach_contract = load_attach_contract(paths.attach_path)
+    try:
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        current_instance = None
+    if current_instance is not None and current_instance.execution_mode == "tmux_auxiliary_window":
+        try:
+            live_same_session = _same_session_gateway_is_alive(
+                session_name=session_name,
+                current_instance=current_instance,
+            )
+        except TmuxCommandError as exc:
+            raise GatewayDiscoveryError(
+                f"Failed to inspect same-session gateway tmux pane state: {exc}"
+            ) from exc
+        if not live_same_session:
+            _clear_stale_gateway_runtime_state(
+                controller=controller,
+                paths=paths,
+                attach_contract=attach_contract,
+            )
+            raise GatewayNoLiveInstanceError(
+                f"No live gateway is attached for session `{session_name}`."
+            )
     host_value = _read_optional_tmux_session_env_var(
         session_name=session_name,
         variable_name=AGENT_GATEWAY_HOST_ENV_VAR,
@@ -2445,6 +2543,235 @@ def _resolve_gateway_listener(
     return cast(GatewayHost, host_candidate), port_candidate
 
 
+def _controller_uses_same_session_gateway(controller: RuntimeSessionController) -> bool:
+    """Return whether the controller should host the gateway in the agent tmux session."""
+
+    return controller.launch_plan.backend == "houmao_server_rest"
+
+
+def _find_tmux_pane(
+    *,
+    session_name: str,
+    pane_id: str,
+) -> TmuxPaneRecord | None:
+    """Return one tmux pane record by id when present."""
+
+    for pane in list_tmux_panes_shared(session_name=session_name):
+        if pane.pane_id == pane_id:
+            return pane
+    return None
+
+
+def _same_session_gateway_is_alive(
+    *,
+    session_name: str,
+    current_instance: GatewayCurrentInstanceV1,
+) -> bool:
+    """Return whether the recorded same-session gateway pane is still alive."""
+
+    if current_instance.execution_mode != "tmux_auxiliary_window":
+        return True
+    pane_id = current_instance.tmux_pane_id
+    if pane_id is None:
+        return False
+    pane = _find_tmux_pane(session_name=session_name, pane_id=pane_id)
+    if pane is None:
+        return False
+    return not pane.pane_dead
+
+
+def _stop_same_session_gateway_surface(
+    *,
+    session_name: str,
+    current_instance: GatewayCurrentInstanceV1,
+    strict: bool,
+) -> bool:
+    """Stop one recorded same-session gateway tmux surface."""
+
+    if current_instance.execution_mode != "tmux_auxiliary_window":
+        return False
+    window_id = current_instance.tmux_window_id
+    window_index = current_instance.tmux_window_index
+    pane_id = current_instance.tmux_pane_id
+    if window_id is None or pane_id is None:
+        return False
+    if window_index == _PRIMARY_AGENT_WINDOW_INDEX:
+        if strict:
+            raise GatewayAttachError("Refusing to stop the reserved agent window `0`.")
+        return False
+    try:
+        result = run_tmux_shared(["kill-window", "-t", window_id])
+    except TmuxCommandError as exc:
+        if strict:
+            raise GatewayAttachError(
+                f"Failed to stop gateway tmux window `{window_id}`: {exc}"
+            ) from exc
+        return False
+    if result.returncode != 0:
+        detail = tmux_error_detail_shared(result).lower()
+        if (
+            "can't find window" in detail
+            or "can't find pane" in detail
+            or "no server running" in detail
+        ):
+            return False
+        if strict:
+            raise GatewayAttachError(
+                f"Failed to stop gateway tmux window `{window_id}`: "
+                f"{tmux_error_detail_shared(result) or 'unknown tmux error'}"
+            )
+        return False
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if _find_tmux_pane(session_name=session_name, pane_id=pane_id) is None:
+            return True
+        time.sleep(0.1)
+    if strict:
+        raise GatewayAttachError(
+            f"Timed out waiting for gateway tmux pane `{pane_id}` to stop after killing "
+            f"window `{window_id}`."
+        )
+    return False
+
+
+def _same_session_gateway_shell_command(
+    *,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    port: int,
+) -> str:
+    """Return the shell command used to launch a gateway in an auxiliary tmux window."""
+
+    gateway_module = "houmao.agents.realm_controller.gateway_service"
+    exports = (
+        f"export {_GATEWAY_EXECUTION_MODE_ENV_VAR}=tmux_auxiliary_window; "
+        f'export {_GATEWAY_TMUX_PANE_ID_ENV_VAR}="$TMUX_PANE"; '
+        f'export {_GATEWAY_TMUX_WINDOW_ID_ENV_VAR}="$(tmux display-message -p -t '
+        f"'$TMUX_PANE' '#{{window_id}}')\"; "
+        f'export {_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR}="$(tmux display-message -p -t '
+        f"'$TMUX_PANE' '#{{window_index}}')\"; "
+        "export PYTHONUNBUFFERED=1; "
+        "set -o pipefail; "
+    )
+    gateway_command = " ".join(
+        shlex.quote(value)
+        for value in (
+            sys.executable,
+            "-m",
+            gateway_module,
+            "--gateway-root",
+            str(paths.gateway_root),
+            "--host",
+            host,
+            "--port",
+            str(port),
+        )
+    )
+    log_target = shlex.quote(str(paths.log_path))
+    return f"{exports}{gateway_command} 2>&1 | tee -a {log_target}; exit ${{PIPESTATUS[0]}}"
+
+
+def _launch_same_session_gateway_window(
+    *,
+    controller: RuntimeSessionController,
+    session_name: str,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    port: int,
+) -> _TmuxAuxiliaryWindowHandle:
+    """Launch one same-session gateway window and return its tmux execution handle."""
+
+    command = _same_session_gateway_shell_command(paths=paths, host=host, port=port)
+    try:
+        result = run_tmux_shared(
+            [
+                "new-window",
+                "-d",
+                "-P",
+                "-F",
+                "#{window_id}\t#{window_index}\t#{pane_id}",
+                "-t",
+                session_name,
+                "-n",
+                _GATEWAY_AUXILIARY_WINDOW_NAME,
+                "-c",
+                str(controller.launch_plan.working_directory),
+                "bash",
+                "-lc",
+                command,
+            ]
+        )
+    except TmuxCommandError as exc:
+        raise GatewayAttachError(f"Failed to create gateway tmux window: {exc}") from exc
+    if result.returncode != 0:
+        raise GatewayAttachError(
+            "Failed to create gateway tmux window: "
+            f"{tmux_error_detail_shared(result) or 'unknown tmux error'}"
+        )
+    parts = (result.stdout or "").strip().split("\t")
+    if len(parts) != 3:
+        raise GatewayAttachError(
+            f"Unexpected tmux new-window output while launching gateway: {result.stdout!r}"
+        )
+    handle = _TmuxAuxiliaryWindowHandle(
+        window_id=parts[0],
+        window_index=parts[1],
+        pane_id=parts[2],
+    )
+    if handle.window_index == _PRIMARY_AGENT_WINDOW_INDEX:
+        raise GatewayAttachError("Gateway auxiliary window unexpectedly used reserved window `0`.")
+    return handle
+
+
+def _wait_for_same_session_gateway_endpoint(
+    *,
+    session_name: str,
+    handle: _TmuxAuxiliaryWindowHandle,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    requested_port: int,
+    deadline: float,
+) -> GatewayEndpoint:
+    """Wait until the tmux-hosted gateway publishes its live execution state."""
+
+    while time.monotonic() < deadline:
+        pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
+        if pane is None or pane.pane_dead:
+            raise GatewayAttachError(
+                _gateway_process_start_failure_detail(
+                    log_path=paths.log_path,
+                    host=host,
+                    port=requested_port,
+                )
+            )
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            time.sleep(0.1)
+            continue
+        if current_instance.execution_mode != "tmux_auxiliary_window":
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_window_id != handle.window_id:
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_pane_id != handle.pane_id:
+            time.sleep(0.1)
+            continue
+        if requested_port not in {0, current_instance.port}:
+            raise GatewayAttachError(
+                "Gateway startup published a listener port that does not match the "
+                f"requested port {requested_port}."
+            )
+        return GatewayEndpoint(host=host, port=current_instance.port)
+    if requested_port == 0:
+        raise GatewayAttachError("Timed out waiting for gateway startup to publish its bound port.")
+    raise GatewayAttachError(
+        f"Timed out waiting for gateway startup to publish listener {host}:{requested_port}."
+    )
+
+
 def _start_gateway_process(
     *,
     controller: RuntimeSessionController,
@@ -2473,6 +2800,92 @@ def _start_gateway_process(
     """
 
     session_name = controller._require_tmux_session_name()
+    if _controller_uses_same_session_gateway(controller):
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            current_instance = None
+        if current_instance is not None:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=False,
+            )
+        handle = _launch_same_session_gateway_window(
+            controller=controller,
+            session_name=session_name,
+            paths=paths,
+            host=host,
+            port=port,
+        )
+        deadline = time.monotonic() + 10.0
+        try:
+            endpoint = _wait_for_same_session_gateway_endpoint(
+                session_name=session_name,
+                handle=handle,
+                paths=paths,
+                host=host,
+                requested_port=port,
+                deadline=deadline,
+            )
+            client = GatewayClient(endpoint=endpoint)
+            while time.monotonic() < deadline:
+                pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
+                if pane is None or pane.pane_dead:
+                    raise GatewayAttachError(
+                        _gateway_process_start_failure_detail(
+                            log_path=paths.log_path,
+                            host=host,
+                            port=port,
+                        )
+                    )
+                try:
+                    health = client.health()
+                except GatewayHttpError:
+                    time.sleep(0.1)
+                    continue
+                if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
+                    raise GatewayProtocolError(
+                        f"Gateway health returned incompatible protocol version "
+                        f"{health.protocol_version!r}."
+                    )
+                write_gateway_desired_config(
+                    paths.desired_config_path,
+                    GatewayDesiredConfigV1(
+                        desired_host=host,
+                        desired_port=endpoint.port,
+                    ),
+                )
+                write_attach_contract(
+                    paths.attach_path,
+                    load_attach_contract(paths.attach_path).model_copy(
+                        update={"desired_host": host, "desired_port": endpoint.port}
+                    ),
+                )
+                publish_live_gateway_env(
+                    session_name=session_name,
+                    live_bindings=build_live_gateway_bindings(
+                        host=host,
+                        port=endpoint.port,
+                        state_path=paths.state_path,
+                    ),
+                    set_env=set_tmux_session_environment_shared,
+                )
+                return endpoint.port
+            raise GatewayAttachError(
+                f"Timed out waiting for gateway health readiness on {host}:{endpoint.port}."
+            )
+        except Exception:
+            try:
+                _stop_same_session_gateway_surface(
+                    session_name=session_name,
+                    current_instance=load_gateway_current_instance(paths.current_instance_path),
+                    strict=False,
+                )
+            except SessionManifestError:
+                pass
+            raise
+
     log_stream = paths.log_path.open("a", encoding="utf-8")
     process = subprocess.Popen(
         [
@@ -2644,6 +3057,16 @@ def _clear_stale_gateway_runtime_state(
             )
         except TmuxCommandError:
             pass
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            current_instance = None
+        if current_instance is not None:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=False,
+            )
     delete_gateway_current_instance(paths)
     existing_epoch = 0
     try:
