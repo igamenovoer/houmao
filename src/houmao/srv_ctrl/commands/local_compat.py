@@ -155,7 +155,7 @@ def mcp_server_command() -> None:
 
     raise click.ClickException(
         "The standalone CAO MCP helper is not part of the supported Houmao pair. "
-        "Use `houmao-server` with `houmao-srv-ctrl launch` or `agent-gateway` instead."
+        "Use `houmao-server` with `houmao-srv-ctrl launch` or `agents gateway` instead."
     )
 
 

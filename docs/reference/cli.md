@@ -44,13 +44,19 @@ Useful `start-session` overrides:
 - `--mailbox-principal-id <principal-id>`
 - `--mailbox-address <full-address>`
 
-Useful `build-brain` override:
+Useful `build-brain` or `houmao-srv-ctrl brains build` override:
 
 - `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain instead of the default interactive posture
 
 The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctrl`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
 
-Within that pair, `houmao-srv-ctrl` is split deliberately: top-level `launch` and `install` are Houmao-owned pair commands, while `houmao-srv-ctrl cao ...` is the explicit CAO-compatible namespace.
+Within that pair, `houmao-srv-ctrl` is split deliberately:
+
+- top-level `launch` and `install` remain Houmao-owned pair shortcuts
+- `agents` is the server-backed managed-agent command family
+- `brains` is the local brain-construction family
+- `admin` is the local maintenance family
+- `houmao-srv-ctrl cao ...` remains the explicit CAO-compatible namespace
 
 That `cao` namespace is also Houmao-owned in the supported pair:
 
@@ -60,10 +66,14 @@ That `cao` namespace is also Houmao-owned in the supported pair:
 
 For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
 
-- `houmao-srv-ctrl agent-gateway attach --agent <agent-ref> --port <public-port>` for explicit managed-agent targeting
-- `houmao-srv-ctrl agent-gateway attach` from inside the target tmux session for current-session attach
+- `houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>` for explicit managed-agent targeting
+- `houmao-srv-ctrl agents gateway attach` from inside the target tmux session for current-session attach
 
 Current-session attach requires the target tmux session to publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`, and it becomes valid only after the matching managed-agent registration exists on the persisted `api_base_url`.
+
+For ordinary pair-native prompt submission, prefer `houmao-srv-ctrl agents prompt <agent-ref> --prompt "..."`. Use `houmao-srv-ctrl agents gateway prompt <agent-ref> --prompt "..."` only when you explicitly want live-gateway admission and queue semantics.
+
+For pair-owned mailbox follow-up, use `houmao-srv-ctrl agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-srv-ctrl brains build ...` and `houmao-srv-ctrl admin cleanup-registry ...`.
 
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 

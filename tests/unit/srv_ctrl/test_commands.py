@@ -22,6 +22,9 @@ from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoInstallAgentProfileRequest,
     HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailReplyRequest,
+    HoumaoManagedAgentMailSendRequest,
     HoumaoRegisterLaunchRequest,
 )
 from houmao.srv_ctrl.commands.main import cli
@@ -69,6 +72,7 @@ class _FakeSession:
 class _FakeHoumaoClient:
     def __init__(self) -> None:
         self.m_list_sessions_payload: list[_FakeSession] = [_FakeSession(id="cao-gpu")]
+        self.m_list_managed_agents_calls = 0
         self.m_get_session_calls: list[str] = []
         self.m_create_session_calls: list[dict[str, object]] = []
         self.m_delete_session_calls: list[str] = []
@@ -76,10 +80,42 @@ class _FakeHoumaoClient:
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
         self.m_get_managed_agent_calls: list[str] = []
+        self.m_get_managed_agent_state_calls: list[str] = []
+        self.m_get_managed_agent_state_detail_calls: list[str] = []
+        self.m_get_managed_agent_history_calls: list[tuple[str, int | None]] = []
+        self.m_submit_managed_agent_request_calls: list[tuple[str, object]] = []
+        self.m_interrupt_managed_agent_calls: list[str] = []
+        self.m_stop_managed_agent_calls: list[str] = []
         self.m_attach_managed_agent_gateway_calls: list[str] = []
+        self.m_get_managed_agent_gateway_status_calls: list[str] = []
+        self.m_detach_managed_agent_gateway_calls: list[str] = []
+        self.m_submit_managed_agent_gateway_request_calls: list[tuple[str, object]] = []
+        self.m_get_managed_agent_mail_status_calls: list[str] = []
+        self.m_check_managed_agent_mail_calls: list[
+            tuple[str, HoumaoManagedAgentMailCheckRequest]
+        ] = []
+        self.m_send_managed_agent_mail_calls: list[
+            tuple[str, HoumaoManagedAgentMailSendRequest]
+        ] = []
+        self.m_reply_managed_agent_mail_calls: list[
+            tuple[str, HoumaoManagedAgentMailReplyRequest]
+        ] = []
+        self.m_submit_headless_turn_calls: list[tuple[str, object]] = []
+        self.m_get_headless_turn_status_calls: list[tuple[str, str]] = []
+        self.m_get_headless_turn_events_calls: list[tuple[str, str]] = []
+        self.m_get_headless_turn_artifact_text_calls: list[tuple[str, str, str]] = []
 
     def list_sessions(self) -> list[_FakeSession]:
         return list(self.m_list_sessions_payload)
+
+    def list_managed_agents(self) -> dict[str, object]:
+        self.m_list_managed_agents_calls += 1
+        return {
+            "agents": [
+                self.get_managed_agent("cao-gpu").model_dump(mode="json"),
+                self.get_managed_agent("headless-agent").model_dump(mode="json"),
+            ]
+        }
 
     def create_session(
         self,
@@ -160,6 +196,21 @@ class _FakeHoumaoClient:
 
     def get_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentIdentity:
         self.m_get_managed_agent_calls.append(agent_ref)
+        if agent_ref in {"headless-agent", "claude-headless-1"}:
+            return HoumaoManagedAgentIdentity(
+                tracked_agent_id="claude-headless-1",
+                transport="headless",
+                tool="claude",
+                session_name=None,
+                terminal_id=None,
+                runtime_session_id="claude-headless-1",
+                tmux_session_name="AGENTSYS-headless",
+                tmux_window_name="agent",
+                manifest_path="/tmp/runtime/sessions/claude_headless/claude-headless-1/manifest.json",
+                session_root="/tmp/runtime/sessions/claude_headless/claude-headless-1",
+                agent_name="AGENTSYS-headless",
+                agent_id="headless-agent-id",
+            )
         return HoumaoManagedAgentIdentity(
             tracked_agent_id="tracked-cao-gpu",
             transport="tui",
@@ -174,6 +225,109 @@ class _FakeHoumaoClient:
             agent_name="AGENTSYS-gpu",
             agent_id="agent-1234",
         )
+
+    def get_managed_agent_state(self, agent_ref: str) -> dict[str, object]:
+        self.m_get_managed_agent_state_calls.append(agent_ref)
+        identity = self.get_managed_agent(agent_ref)
+        return {
+            "tracked_agent_id": identity.tracked_agent_id,
+            "identity": identity.model_dump(mode="json"),
+            "availability": "available",
+            "turn": {"phase": "ready", "active_turn_id": None},
+            "last_turn": {
+                "result": "none",
+                "turn_id": None,
+                "turn_index": None,
+                "updated_at_utc": None,
+            },
+            "diagnostics": [],
+            "mailbox": None,
+            "gateway": None,
+        }
+
+    def get_managed_agent_state_detail(self, agent_ref: str) -> dict[str, object]:
+        self.m_get_managed_agent_state_detail_calls.append(agent_ref)
+        state = self.get_managed_agent_state(agent_ref)
+        return {
+            "tracked_agent_id": state["tracked_agent_id"],
+            "identity": state["identity"],
+            "summary_state": state,
+            "detail": {
+                "transport": state["identity"]["transport"],
+                "runtime_resumable": True,
+                "tmux_session_live": True,
+                "can_accept_prompt_now": True,
+                "interruptible": False,
+                "turn": state["turn"],
+                "last_turn": state["last_turn"],
+                "active_turn_started_at_utc": None,
+                "active_turn_interrupt_requested_at_utc": None,
+                "last_turn_status": None,
+                "last_turn_started_at_utc": None,
+                "last_turn_completed_at_utc": None,
+                "last_turn_completion_source": None,
+                "last_turn_returncode": None,
+                "last_turn_history_summary": None,
+                "last_turn_error": None,
+                "mailbox": None,
+                "gateway": None,
+                "diagnostics": [],
+            },
+        }
+
+    def get_managed_agent_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        self.m_get_managed_agent_history_calls.append((agent_ref, limit))
+        return {
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "entries": [
+                {
+                    "recorded_at_utc": "2026-03-24T16:00:00+00:00",
+                    "summary": f"history-limit={limit}",
+                    "availability": "available",
+                    "turn_phase": "ready",
+                    "last_turn_result": "none",
+                    "turn_id": None,
+                }
+            ],
+        }
+
+    def submit_managed_agent_request(
+        self, agent_ref: str, request_model: object
+    ) -> dict[str, object]:
+        self.m_submit_managed_agent_request_calls.append((agent_ref, request_model))
+        return {
+            "success": True,
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "request_id": "mreq-123",
+            "request_kind": getattr(request_model, "request_kind", "submit_prompt"),
+            "disposition": "accepted",
+            "detail": "accepted",
+            "headless_turn_id": None,
+            "headless_turn_index": None,
+        }
+
+    def interrupt_managed_agent(self, agent_ref: str) -> dict[str, object]:
+        self.m_interrupt_managed_agent_calls.append(agent_ref)
+        return {
+            "success": True,
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "detail": "interrupted",
+            "turn_id": None,
+        }
+
+    def stop_managed_agent(self, agent_ref: str) -> dict[str, object]:
+        self.m_stop_managed_agent_calls.append(agent_ref)
+        return {
+            "success": True,
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "detail": "stopped",
+            "turn_id": None,
+        }
 
     def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         self.m_attach_managed_agent_gateway_calls.append(agent_ref)
@@ -193,9 +347,166 @@ class _FakeHoumaoClient:
             managed_agent_instance_epoch=1,
         )
 
+    def get_managed_agent_gateway_status(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_get_managed_agent_gateway_status_calls.append(agent_ref)
+        return self.attach_managed_agent_gateway(agent_ref)
+
+    def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        self.m_detach_managed_agent_gateway_calls.append(agent_ref)
+        return self.attach_managed_agent_gateway(agent_ref)
+
+    def submit_managed_agent_gateway_request(
+        self, agent_ref: str, request_model: object
+    ) -> dict[str, object]:
+        self.m_submit_managed_agent_gateway_request_calls.append((agent_ref, request_model))
+        return {
+            "request_id": "greq-123",
+            "request_kind": getattr(request_model, "kind", "submit_prompt"),
+            "state": "accepted",
+            "accepted_at_utc": "2026-03-24T16:00:00+00:00",
+            "queue_depth": 1,
+            "managed_agent_instance_epoch": 1,
+        }
+
+    def get_managed_agent_mail_status(self, agent_ref: str) -> dict[str, object]:
+        self.m_get_managed_agent_mail_status_calls.append(agent_ref)
+        return {
+            "schema_version": 1,
+            "transport": "filesystem",
+            "principal_id": "agent-1234",
+            "address": "agent@agents.localhost",
+            "bindings_version": "v1",
+        }
+
+    def check_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailCheckRequest,
+    ) -> dict[str, object]:
+        self.m_check_managed_agent_mail_calls.append((agent_ref, request_model))
+        return {
+            "schema_version": 1,
+            "transport": "filesystem",
+            "principal_id": "agent-1234",
+            "address": "agent@agents.localhost",
+            "unread_only": request_model.unread_only,
+            "message_count": 0,
+            "unread_count": 0,
+            "messages": [],
+        }
+
+    def send_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailSendRequest,
+    ) -> dict[str, object]:
+        self.m_send_managed_agent_mail_calls.append((agent_ref, request_model))
+        return {
+            "schema_version": 1,
+            "operation": "send",
+            "transport": "filesystem",
+            "principal_id": "agent-1234",
+            "address": "agent@agents.localhost",
+            "message": {
+                "message_ref": "msg-123",
+                "thread_ref": "thread-1",
+                "created_at_utc": "2026-03-24T16:00:00+00:00",
+                "subject": request_model.subject,
+                "unread": False,
+                "body_preview": request_model.body_content,
+                "body_text": request_model.body_content,
+                "sender": {"address": "agent@agents.localhost"},
+                "to": [{"address": request_model.to[0]}],
+                "cc": [],
+                "reply_to": [],
+                "attachments": [],
+            },
+        }
+
+    def reply_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailReplyRequest,
+    ) -> dict[str, object]:
+        self.m_reply_managed_agent_mail_calls.append((agent_ref, request_model))
+        return {
+            "schema_version": 1,
+            "operation": "reply",
+            "transport": "filesystem",
+            "principal_id": "agent-1234",
+            "address": "agent@agents.localhost",
+            "message": {
+                "message_ref": request_model.message_ref,
+                "thread_ref": "thread-1",
+                "created_at_utc": "2026-03-24T16:00:00+00:00",
+                "subject": "reply",
+                "unread": False,
+                "body_preview": request_model.body_content,
+                "body_text": request_model.body_content,
+                "sender": {"address": "agent@agents.localhost"},
+                "to": [{"address": "peer@agents.localhost"}],
+                "cc": [],
+                "reply_to": [],
+                "attachments": [],
+            },
+        }
+
+    def submit_headless_turn(self, agent_ref: str, request_model: object) -> dict[str, object]:
+        self.m_submit_headless_turn_calls.append((agent_ref, request_model))
+        return {
+            "success": True,
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "turn_id": "turn-123",
+            "turn_index": 1,
+            "status": "active",
+            "detail": "accepted",
+        }
+
+    def get_headless_turn_status(self, agent_ref: str, turn_id: str) -> dict[str, object]:
+        self.m_get_headless_turn_status_calls.append((agent_ref, turn_id))
+        return {
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "turn_id": turn_id,
+            "turn_index": 1,
+            "status": "completed",
+            "detail": "done",
+            "started_at_utc": "2026-03-24T16:00:00+00:00",
+            "completed_at_utc": "2026-03-24T16:01:00+00:00",
+            "completion_source": "tmux_wait_for",
+            "returncode": 0,
+        }
+
+    def get_headless_turn_events(self, agent_ref: str, turn_id: str) -> dict[str, object]:
+        self.m_get_headless_turn_events_calls.append((agent_ref, turn_id))
+        return {
+            "tracked_agent_id": self.get_managed_agent(agent_ref).tracked_agent_id,
+            "turn_id": turn_id,
+            "entries": [],
+        }
+
+    def get_headless_turn_artifact_text(
+        self,
+        agent_ref: str,
+        turn_id: str,
+        *,
+        artifact_name: str,
+    ) -> str:
+        self.m_get_headless_turn_artifact_text_calls.append((agent_ref, turn_id, artifact_name))
+        return f"{artifact_name}:{turn_id}\n"
+
 
 def test_top_level_command_inventory_reserves_pair_namespace() -> None:
-    assert set(cli.commands.keys()) == {"agent-gateway", "cao", "install", "launch"}
+    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "cao", "install", "launch"}
+
+
+def test_top_level_help_advertises_native_families_and_retires_agent_gateway() -> None:
+    result = CliRunner().invoke(cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "agents" in result.output
+    assert "brains" in result.output
+    assert "admin" in result.output
+    assert "agent-gateway" not in result.output
 
 
 def test_cao_group_inventory_matches_pinned_upstream() -> None:
@@ -567,20 +878,20 @@ def test_launch_rejects_unsupported_pair_before_session_creation(
     assert "unsupported pair" in result.output
 
 
-def test_agent_gateway_attach_explicit_resolves_alias_before_attach(
+def test_agents_gateway_attach_explicit_resolves_alias_before_attach(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pair_checks: list[str] = []
     client = _FakeHoumaoClient()
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
-        lambda *, base_url: pair_checks.append(base_url) or client,
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_pair_client",
+        lambda *, port=None: pair_checks.append(f"http://127.0.0.1:{port or 9889}") or client,
     )
 
     result = CliRunner().invoke(
         cli,
-        ["agent-gateway", "attach", "--agent", "AGENTSYS gpu/1", "--port", "9999"],
+        ["agents", "gateway", "attach", "AGENTSYS gpu/1", "--port", "9999"],
     )
 
     assert result.exit_code == 0
@@ -590,7 +901,7 @@ def test_agent_gateway_attach_explicit_resolves_alias_before_attach(
     assert json.loads(result.output)["gateway_port"] == 43123
 
 
-def test_agent_gateway_attach_current_session_uses_persisted_server_and_session_alias(
+def test_agents_gateway_attach_current_session_uses_persisted_server_and_session_alias(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -628,11 +939,11 @@ def test_agent_gateway_attach_current_session_uses_persisted_server_and_session_
     (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
+        "houmao.srv_ctrl.commands.agents.gateway.require_supported_houmao_pair",
         lambda *, base_url: client if base_url == "http://127.0.0.1:9988" else None,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.subprocess.run",
+        "houmao.srv_ctrl.commands.agents.gateway.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args,
             returncode=0,
@@ -641,14 +952,14 @@ def test_agent_gateway_attach_current_session_uses_persisted_server_and_session_
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.read_tmux_session_environment_value",
+        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
         lambda *, session_name, variable_name: {
             ("cao-gpu", "AGENTSYS_GATEWAY_ATTACH_PATH"): str(attach_path.resolve()),
             ("cao-gpu", "AGENTSYS_GATEWAY_ROOT"): str(gateway_root.resolve()),
         }.get((session_name, variable_name)),
     )
 
-    result = CliRunner().invoke(cli, ["agent-gateway", "attach"])
+    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
 
     assert result.exit_code == 0
     assert client.m_get_managed_agent_calls == ["cao-gpu"]
@@ -656,7 +967,7 @@ def test_agent_gateway_attach_current_session_uses_persisted_server_and_session_
     assert json.loads(result.output)["gateway_host"] == "127.0.0.1"
 
 
-def test_agent_gateway_attach_current_session_fails_before_registration(
+def test_agents_gateway_attach_current_session_fails_before_registration(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -702,12 +1013,12 @@ def test_agent_gateway_attach_current_session_fails_before_registration(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.require_supported_houmao_pair",
+        "houmao.srv_ctrl.commands.agents.gateway.require_supported_houmao_pair",
         lambda *, base_url: client if base_url == "http://127.0.0.1:9988" else None,
     )
     monkeypatch.setattr(client, "get_managed_agent", _raise_not_found)
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.subprocess.run",
+        "houmao.srv_ctrl.commands.agents.gateway.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args,
             returncode=0,
@@ -716,14 +1027,213 @@ def test_agent_gateway_attach_current_session_fails_before_registration(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agent_gateway.read_tmux_session_environment_value",
+        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
         lambda *, session_name, variable_name: {
             ("cao-gpu", "AGENTSYS_GATEWAY_ATTACH_PATH"): str(attach_path.resolve()),
             ("cao-gpu", "AGENTSYS_GATEWAY_ROOT"): str(gateway_root.resolve()),
         }.get((session_name, variable_name)),
     )
 
-    result = CliRunner().invoke(cli, ["agent-gateway", "attach"])
+    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
 
     assert result.exit_code != 0
     assert "Unknown managed agent `cao-gpu`." in result.output
+
+
+def test_agent_gateway_command_is_retired() -> None:
+    result = CliRunner().invoke(cli, ["agent-gateway", "attach"])
+
+    assert result.exit_code != 0
+    assert "No such command 'agent-gateway'" in result.output
+
+
+def test_agents_list_show_and_prompt_route_through_pair_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeHoumaoClient()
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_pair_client",
+        lambda *, port=None: client,
+    )
+
+    list_result = CliRunner().invoke(cli, ["agents", "list"])
+    show_result = CliRunner().invoke(cli, ["agents", "show", "cao-gpu"])
+    prompt_result = CliRunner().invoke(cli, ["agents", "prompt", "cao-gpu", "--prompt", "hello"])
+    interrupt_result = CliRunner().invoke(cli, ["agents", "interrupt", "cao-gpu"])
+
+    assert list_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert prompt_result.exit_code == 0
+    assert interrupt_result.exit_code == 0
+    assert client.m_list_managed_agents_calls == 1
+    assert client.m_get_managed_agent_state_detail_calls == ["cao-gpu"]
+    assert client.m_submit_managed_agent_request_calls[0][0] == "cao-gpu"
+    assert client.m_submit_managed_agent_request_calls[1][0] == "cao-gpu"
+    assert getattr(client.m_submit_managed_agent_request_calls[1][1], "request_kind") == "interrupt"
+    assert json.loads(prompt_result.output)["request_id"] == "mreq-123"
+
+
+def test_agents_gateway_prompt_routes_through_gateway_request_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeHoumaoClient()
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_pair_client",
+        lambda *, port=None: client,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "gateway", "prompt", "cao-gpu", "--prompt", "hello"],
+    )
+
+    assert result.exit_code == 0
+    assert client.m_get_managed_agent_calls == ["cao-gpu"]
+    agent_ref, request_model = client.m_submit_managed_agent_gateway_request_calls[0]
+    assert agent_ref == "tracked-cao-gpu"
+    assert request_model.kind == "submit_prompt"
+    assert json.loads(result.output)["request_id"] == "greq-123"
+
+
+def test_agents_mail_send_routes_through_pair_mail_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _FakeHoumaoClient()
+    attachment = tmp_path / "note.txt"
+    attachment.write_text("hello\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.resolve_pair_client",
+        lambda *, port=None: client,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "mail",
+            "send",
+            "cao-gpu",
+            "--to",
+            "peer@agents.localhost",
+            "--subject",
+            "status",
+            "--body-content",
+            "hello",
+            "--attach",
+            str(attachment),
+        ],
+    )
+
+    assert result.exit_code == 0
+    agent_ref, request_model = client.m_send_managed_agent_mail_calls[0]
+    assert agent_ref == "tracked-cao-gpu"
+    assert request_model.attachments[0].path == str(attachment.resolve())
+    assert json.loads(result.output)["operation"] == "send"
+
+
+def test_agents_turn_submit_routes_for_headless_and_rejects_tui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeHoumaoClient()
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.turn.resolve_pair_client",
+        lambda *, port=None: client,
+    )
+
+    success = CliRunner().invoke(
+        cli,
+        ["agents", "turn", "submit", "headless-agent", "--prompt", "hello"],
+    )
+    failure = CliRunner().invoke(
+        cli,
+        ["agents", "turn", "submit", "cao-gpu", "--prompt", "hello"],
+    )
+
+    assert success.exit_code == 0
+    assert client.m_submit_headless_turn_calls[0][0] == "claude-headless-1"
+    assert json.loads(success.output)["turn_id"] == "turn-123"
+    assert failure.exit_code != 0
+    assert "TUI-backed agents" in failure.output
+
+
+def test_brains_build_routes_to_local_build_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded: list[object] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.brains.build_brain_home",
+        lambda request: (
+            recorded.append(request)
+            or type(
+                "BuildResult",
+                (),
+                {
+                    "home_id": "brain-1",
+                    "home_path": tmp_path / "brain-home",
+                    "manifest_path": tmp_path / "brain-home" / "manifest.json",
+                    "launch_helper_path": tmp_path / "brain-home" / "launch.sh",
+                },
+            )()
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "brains",
+            "build",
+            "--agent-def-dir",
+            "agents",
+            "--tool",
+            "codex",
+            "--skill",
+            "skills/mailbox",
+            "--config-profile",
+            "dev",
+            "--cred-profile",
+            "openai",
+        ],
+    )
+
+    assert result.exit_code == 0
+    request = recorded[0]
+    assert request.tool == "codex"
+    assert request.skills == ["skills/mailbox"]
+    assert request.config_profile == "dev"
+    assert request.credential_profile == "openai"
+    assert json.loads(result.output)["home_id"] == "brain-1"
+
+
+def test_admin_cleanup_registry_routes_to_local_maintenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.admin.cleanup_stale_live_agent_records",
+        lambda grace_period: type(
+            "CleanupResult",
+            (),
+            {
+                "registry_root": Path("/tmp/runtime/live_agents"),
+                "removed_agent_ids": ("stale-agent",),
+                "preserved_agent_ids": ("live-agent",),
+                "failed_agent_ids": (),
+            },
+        )(),
+    )
+
+    result = CliRunner().invoke(cli, ["admin", "cleanup-registry", "--grace-seconds", "0"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "failed_agent_ids": [],
+        "failed_count": 0,
+        "grace_seconds": 0,
+        "preserved_agent_ids": ["live-agent"],
+        "preserved_count": 1,
+        "registry_root": "/tmp/runtime/live_agents",
+        "removed_agent_ids": ["stale-agent"],
+        "removed_count": 1,
+    }

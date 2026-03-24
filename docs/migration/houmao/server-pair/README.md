@@ -40,7 +40,9 @@ Implemented CLI scope includes:
 - top-level pair commands:
   - `install`
   - `launch`
-  - `agent-gateway attach`
+  - `agents`
+  - `brains`
+  - `admin`
 - explicit CAO-compatible namespace under `houmao-srv-ctrl cao`:
   - `flow`
   - `info`
@@ -55,6 +57,9 @@ Implemented CLI scope includes:
 - explicit launch provider coverage for `kiro_cli`, `claude_code`, `codex`, `gemini_cli`, `kimi_cli`, and `q_cli`
 - terminal-backed launch follow-up registration back into `houmao-server`
 - native top-level `launch --headless` translation into the Houmao headless launch API
+- `agents gateway attach` current-session and explicit-target flows
+- `agents prompt`, `agents mail ...`, and `agents turn ...` for covered pair-native follow-up workflows
+- local `brains build` and `admin cleanup-registry` wrappers for non-server authority
 
 ### Runtime Integration
 

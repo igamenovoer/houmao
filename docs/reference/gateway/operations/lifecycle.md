@@ -45,22 +45,22 @@ For pair-managed `houmao_server_rest`, current-session attach becomes valid only
 - the tmux session already publishes stable gateway pointers for that runtime-owned session
 - the same logical session is already registered under `/houmao/agents/*` on the persisted `api_base_url`
 
-Before registration completes, the seeded offline gateway artifacts may already exist, but no-`--agent` pair attach still fails because the managed-agent lookup is not ready yet.
+Before registration completes, the seeded offline gateway artifacts may already exist, but current-session pair attach still fails because the managed-agent lookup is not ready yet.
 
 ## Pair-Owned Managed-Agent Attach
 
-For pair-managed terminal sessions, the supported public CLI is `houmao-srv-ctrl agent-gateway attach`.
+For pair-managed terminal sessions, the supported public CLI is `houmao-srv-ctrl agents gateway attach`.
 
 Explicit target mode:
 
 ```bash
-houmao-srv-ctrl agent-gateway attach --agent cao-gpu --port 9889
+houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
 ```
 
 Current-session mode:
 
 ```bash
-houmao-srv-ctrl agent-gateway attach
+houmao-srv-ctrl agents gateway attach
 ```
 
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent attach route:
@@ -73,8 +73,8 @@ Current-session mode must run inside the target tmux session and validates all o
 
 Important boundary:
 
-- `--port` is only valid with explicit `--agent` attach
-- no-`--agent` attach does not guess or re-resolve a different server target
+- `--port` is only valid with explicit `<agent-ref>` attach
+- current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 
 ## Runtime Auto-Attach Convenience

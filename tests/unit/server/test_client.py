@@ -3,12 +3,21 @@ from __future__ import annotations
 from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessLaunchResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayRequestAcceptedResponse,
+    HoumaoManagedAgentGatewayRequestCreate,
+    HoumaoManagedAgentMailActionResponse,
+    HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailReplyRequest,
+    HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentStateResponse,
@@ -339,6 +348,45 @@ def test_submit_managed_agent_request_posts_typed_json_body(monkeypatch) -> None
     }
 
 
+def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoManagedAgentGatewayRequestCreate(
+        kind="submit_prompt",
+        payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "request_id": "greq-123",
+        "request_kind": "submit_prompt",
+        "state": "accepted",
+        "accepted_at_utc": "2026-03-24T16:00:00+00:00",
+        "queue_depth": 1,
+        "managed_agent_instance_epoch": 2,
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentGatewayRequestAcceptedResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.submit_managed_agent_gateway_request("AGENTSYS gpu/1", request_model)
+
+    assert response.request_id == "greq-123"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/requests",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
 def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
     request_model = GatewayMailNotifierPutV1(interval_seconds=60)
@@ -375,6 +423,145 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
         "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
+
+
+def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "schema_version": 1,
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "bindings_version": "v1",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailStatusResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.get_managed_agent_mail_status("AGENTSYS gpu/1")
+
+    assert response.principal_id == "agent-1234"
+    assert recorded == {
+        "method": "GET",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/status",
+        "kwargs": {},
+    }
+
+
+def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5)
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "schema_version": 1,
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "unread_only": True,
+        "message_count": 0,
+        "unread_count": 0,
+        "messages": [],
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailCheckResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.check_managed_agent_mail("AGENTSYS gpu/1", request_model)
+
+    assert response.unread_only is True
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/check",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: list[dict[str, object]] = []
+    send_request = HoumaoManagedAgentMailSendRequest(
+        to=["peer@agents.localhost"],
+        subject="status",
+        body_content="hello",
+    )
+    reply_request = HoumaoManagedAgentMailReplyRequest(
+        message_ref="msg-123",
+        body_content="reply",
+    )
+    response_payload = {
+        "schema_version": 1,
+        "operation": "send",
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "message": {
+            "message_ref": "msg-123",
+            "thread_ref": "thread-1",
+            "created_at_utc": "2026-03-24T16:00:00+00:00",
+            "subject": "status",
+            "unread": False,
+            "body_preview": "hello",
+            "body_text": "hello",
+            "sender": {"address": "agent@agents.localhost"},
+            "to": [{"address": "peer@agents.localhost"}],
+            "cc": [],
+            "reply_to": [],
+            "attachments": [],
+        },
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailActionResponse],
+        **kwargs,
+    ):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        payload = dict(response_payload)
+        if path.endswith("/reply"):
+            payload["operation"] = "reply"
+        return model.model_validate(payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    send_response = client.send_managed_agent_mail("AGENTSYS gpu/1", send_request)
+    reply_response = client.reply_managed_agent_mail("AGENTSYS gpu/1", reply_request)
+
+    assert send_response.operation == "send"
+    assert reply_response.operation == "reply"
+    assert recorded == [
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/send",
+            "kwargs": {"json_body": send_request.model_dump(mode="json")},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/reply",
+            "kwargs": {"json_body": reply_request.model_dump(mode="json")},
+        },
+    ]
 
 
 def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:

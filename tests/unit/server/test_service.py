@@ -10,6 +10,14 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayAttachContractV1,
+)
+from houmao.agents.realm_controller.gateway_storage import (
+    gateway_paths_from_session_root,
+    write_attach_contract,
+)
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
@@ -27,6 +35,8 @@ from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
     HoumaoInstallAgentProfileRequest,
+    HoumaoManagedAgentGatewayRequestCreate,
+    HoumaoManagedAgentMailCheckRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -374,6 +384,32 @@ def _write_process_metadata(
     process_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
+def _write_offline_gateway_attach_contract(session_root: Path) -> None:
+    """Write one valid offline gateway attach contract for tests."""
+
+    paths = gateway_paths_from_session_root(session_root=session_root.resolve())
+    paths.gateway_root.mkdir(parents=True, exist_ok=True)
+    write_attach_contract(
+        paths.attach_path,
+        GatewayAttachContractV1(
+            attach_identity=f"{session_root.name}-attach",
+            backend="houmao_server_rest",
+            tmux_session_name=session_root.name,
+            working_directory=str(session_root.resolve()),
+            backend_metadata=GatewayAttachBackendMetadataHoumaoServerV1(
+                api_base_url="http://127.0.0.1:9889",
+                session_name=session_root.name,
+                terminal_id="abcd1234",
+                parsing_mode="shadow_only",
+                tmux_window_name="developer-1",
+            ),
+            manifest_path=str((session_root / "manifest.json").resolve()),
+            agent_def_dir=str((session_root / "agent_def").resolve()),
+            runtime_session_id=session_root.name,
+        ),
+    )
+
+
 def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_path: Path) -> None:
     transport = _FakeTransport(
         {
@@ -436,6 +472,128 @@ def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_p
     )
     payload = json.loads(registration_path.read_text(encoding="utf-8"))
     assert payload["terminal_id"] == "abcd1234"
+
+
+def test_stop_managed_agent_deletes_pair_managed_tui_session(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        {
+            ("DELETE", "/sessions/cao-gpu", ()): _json_response(
+                {"success": True, "detail": "session deleted"}
+            )
+        }
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    session_root.mkdir(parents=True, exist_ok=True)
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    response = service.stop_managed_agent("cao-gpu")
+
+    assert response.success is True
+    assert response.tracked_agent_id == "cao-gpu"
+    assert response.detail == "session deleted"
+    assert transport.m_calls == [("DELETE", "/sessions/cao-gpu", ())]
+    with pytest.raises(HTTPException, match="Unknown terminal"):
+        service.terminal_state("abcd1234")
+
+
+def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    _write_offline_gateway_attach_contract(session_root)
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(HTTPException, match="No live gateway is attached") as exc_info:
+        service.submit_managed_agent_gateway_request(
+            "cao-gpu",
+            HoumaoManagedAgentGatewayRequestCreate(
+                kind="submit_prompt",
+                payload={"prompt": "hello"},
+            ),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=None,
+            session_root=None,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="does not expose pair-owned mailbox capability",
+    ) as exc_info:
+        service.check_managed_agent_mail(
+            "cao-gpu",
+            HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+        )
+
+    assert exc_info.value.status_code == 503
 
 
 def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
@@ -845,7 +1003,10 @@ def test_install_agent_profile_returns_explicit_server_owned_failure(
     install_error = type(
         "InstallError",
         (Exception,),
-        {"status_code": 502, "detail": "Pair-owned install failed through the compatibility store."},
+        {
+            "status_code": 502,
+            "detail": "Pair-owned install failed through the compatibility store.",
+        },
     )()
     control_core = _FakeControlCore(
         install_error=install_error,
