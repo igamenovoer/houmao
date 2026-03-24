@@ -46,6 +46,21 @@ This capability SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-
 - **THEN** `houmao-srv-ctrl` accepts that command pattern with CAO-compatible behavior
 - **AND THEN** the operator does not need top-level CAO verb compatibility to access the explicit compatibility surface
 
+### Requirement: Session-backed compatibility commands use Houmao-owned pair authority
+When a supported `houmao-srv-ctrl cao ...` command creates, inspects, mutates, or shuts down a session in the supported pair, `houmao-srv-ctrl` SHALL execute that behavior through Houmao-owned pair APIs rather than through an external `cao` subprocess.
+
+This requirement applies at minimum to `houmao-srv-ctrl cao launch`, `houmao-srv-ctrl cao info`, `houmao-srv-ctrl cao shutdown`, and `houmao-srv-ctrl cao install`.
+
+#### Scenario: Namespaced compatibility launch uses the pair authority directly
+- **WHEN** an operator runs `houmao-srv-ctrl cao launch ...` against the supported pair
+- **THEN** `houmao-srv-ctrl` launches the session through Houmao-owned pair authority
+- **AND THEN** it does not shell out to an external `cao` executable to complete the launch
+
+#### Scenario: Namespaced compatibility info stays within the supported pair
+- **WHEN** an operator runs `houmao-srv-ctrl cao info`
+- **THEN** `houmao-srv-ctrl` reads compatibility-significant session information through Houmao-owned pair authority
+- **AND THEN** the command does not require a raw `cao-server` deployment as its supported target
+
 ### Requirement: `houmao-srv-ctrl` compatibility is pinned to one exact CAO source of truth
 For this capability, the CAO CLI compatibility source of truth SHALL be pinned to:
 
@@ -95,6 +110,25 @@ This additive-only restriction SHALL apply to the `cao` namespace. It SHALL NOT 
 - **THEN** that command may use Houmao-defined semantics, defaults, or output
 - **AND THEN** the CAO additive-only rule remains scoped to `houmao-srv-ctrl cao ...`
 
+### Requirement: Pair compatibility launch preserves the current provider surface explicitly
+The supported pair SHALL preserve the current compatibility launch provider identifiers accepted by `houmao-srv-ctrl launch` and `houmao-srv-ctrl cao launch` in v1.
+
+At minimum, that preserved provider surface SHALL include:
+
+- `kiro_cli`
+- `claude_code`
+- `codex`
+- `gemini_cli`
+- `kimi_cli`
+- `q_cli`
+
+If a later change intentionally narrows or retires any of those provider identifiers, it SHALL do so explicitly rather than as an implicit side effect of removing CAO.
+
+#### Scenario: Namespaced compatibility launch preserves a non-headless provider id
+- **WHEN** an operator runs `houmao-srv-ctrl cao launch --provider q_cli ...` against the supported pair
+- **THEN** `houmao-srv-ctrl` accepts that current compatibility provider identifier through Houmao-owned pair authority
+- **AND THEN** the command does not require an external `cao` subprocess to preserve that launch surface
+
 ### Requirement: Session-backed `houmao-srv-ctrl cao` wrappers preserve compatibility-significant script-facing behavior
 When `houmao-srv-ctrl` implements a session-backed CAO-compatible command under the explicit `cao` namespace as a repo-owned wrapper rather than blind passthrough, that wrapper SHALL preserve upstream-compatible exit-code behavior and compatibility-significant stdout or stderr behavior wherever upstream CAO already exposes machine-readable or script-consumed output.
 
@@ -112,24 +146,24 @@ This requirement SHALL NOT force byte-for-byte parity for every human-oriented l
 - **THEN** the command may still satisfy the explicit compatibility namespace contract
 - **AND THEN** the wrapper continues preserving upstream-compatible exit codes and script-facing output behavior
 
-### Requirement: Most CAO-compatible CLI work delegates to the installed `cao` executable
-For CAO-compatible commands that do not depend on pair-owned public server routing or Houmao-owned post-command side effects, `houmao-srv-ctrl` SHALL be allowed to call the installed `cao` executable internally rather than re-implementing CAO CLI behavior natively.
+### Requirement: Most CAO-compatible CLI work uses Houmao-owned compatibility implementations
+The supported `houmao-srv-ctrl cao ...` command family SHALL be implemented by Houmao-owned compatibility code rather than by delegating to an installed `cao` executable.
 
-For CAO-compatible commands that do depend on the explicit pair boundary or Houmao-owned follow-up behavior, `houmao-srv-ctrl` SHALL be allowed to use repo-owned compatibility wrappers instead of blind subprocess passthrough.
+For session-backed compatibility commands, `houmao-srv-ctrl` SHALL use pair-aware implementations over the supported `houmao-server` boundary.
 
-At minimum, local-only compatibility commands such as `houmao-srv-ctrl cao init`, `houmao-srv-ctrl cao flow`, and `houmao-srv-ctrl cao mcp-server` MAY remain delegated to the installed `cao` executable.
+For local-only compatibility commands that remain part of the documented command family, `houmao-srv-ctrl` SHALL use Houmao-owned compatibility helpers rather than shelling out to external `cao`.
 
-At minimum, server-backed compatibility commands such as `houmao-srv-ctrl cao launch`, `houmao-srv-ctrl cao info`, and `houmao-srv-ctrl cao shutdown` MAY use pair-aware implementations over the supported `houmao-server` boundary instead of blind passthrough.
+The supported pair SHALL NOT require `cao` to be installed on `PATH` in order for the documented `houmao-srv-ctrl cao ...` surface to work.
 
-#### Scenario: Local-only compatibility command may delegate to installed `cao`
-- **WHEN** an operator invokes a local-only compatibility command such as `houmao-srv-ctrl cao flow list`
-- **THEN** `houmao-srv-ctrl` may delegate that command to the installed `cao` executable internally
-- **AND THEN** the operator receives the delegated command result through `houmao-srv-ctrl`
+#### Scenario: Local-only compatibility command works without installed `cao`
+- **WHEN** an operator invokes a documented local-only compatibility command such as `houmao-srv-ctrl cao flow list`
+- **THEN** `houmao-srv-ctrl` satisfies that command through Houmao-owned compatibility code
+- **AND THEN** the operator does not need `cao` installed on `PATH`
 
-#### Scenario: Server-backed compatibility command may use a pair-aware wrapper
+#### Scenario: Server-backed compatibility command uses a pair-aware wrapper
 - **WHEN** an operator invokes a server-backed compatibility command such as `houmao-srv-ctrl cao info`
-- **THEN** `houmao-srv-ctrl` may satisfy that CAO-compatible UX through a repo-owned pair-aware implementation
-- **AND THEN** the command does not need blind subprocess passthrough to remain part of the supported compatibility surface
+- **THEN** `houmao-srv-ctrl` satisfies that CAO-compatible UX through a repo-owned pair-aware implementation
+- **AND THEN** the command does not depend on blind subprocess passthrough to remain part of the supported compatibility surface
 
 ### Requirement: Agent-creating CLI flows register live agents with `houmao-server`
 When a session-backed `houmao-srv-ctrl` launch flow creates or launches a live agent session inside the supported Houmao pair, `houmao-srv-ctrl` SHALL register the resulting live agent with `houmao-server`.
@@ -163,16 +197,6 @@ At minimum, that materialization SHALL:
 - **THEN** `houmao-srv-ctrl` materializes a Houmao-owned session root and manifest for that launched session
 - **AND THEN** later discovery, gateway, or mailbox follow-up flows can point back to those artifacts instead of depending on a separate server-only truth
 
-### Requirement: CLI-side registration does not require native Houmao launch ownership in v1
-The shallow-cut CLI registration flow SHALL allow `houmao-server` to learn about agents launched through delegated CAO CLI behavior without requiring Houmao to own the full launch implementation natively.
-
-Future native Houmao launch implementations MAY replace that delegation later without changing the public `houmao-srv-ctrl` compatibility name.
-
-#### Scenario: Future native replacement does not require renaming the CLI
-- **WHEN** a future version stops delegating `launch` to `cao`
-- **THEN** the public command remains `houmao-srv-ctrl launch`
-- **AND THEN** operators do not need to switch back to `cao` naming to use the evolved Houmao implementation
-
 ### Requirement: `houmao-srv-ctrl launch --headless` targets `houmao-server` native headless launch
 When an operator invokes top-level `houmao-srv-ctrl launch` with the additive `--headless` flag against a supported Houmao pair, `houmao-srv-ctrl` SHALL treat that invocation as a Houmao-owned native headless launch path rather than delegating that headless case to CAO compatibility behavior.
 
@@ -195,50 +219,52 @@ The explicit compatibility command `houmao-srv-ctrl cao launch` SHALL remain a C
 - **AND THEN** it does not redefine the top-level `launch --headless` contract as a CAO compatibility feature
 
 ### Requirement: `houmao-srv-ctrl` compatibility SHALL be verified against a real `cao` CLI
-The implementation SHALL include verification that compares the explicit `houmao-srv-ctrl cao ...` command surface to the pinned `cao` source and exercises the commands that remain delegated through real `cao` execution where delegation is still part of the design.
+The implementation SHALL include verification that compares the explicit `houmao-srv-ctrl cao ...` command surface to the pinned CAO source and exercises the compatibility commands through the Houmao-owned implementations that replace external `cao` delegation.
 
-For compatibility commands implemented as repo-owned pair-aware wrappers, verification SHALL focus on whether `houmao-srv-ctrl` preserves the CAO-compatible command shape and compatibility-significant behavior while operating through the supported pair boundary.
+Where a real CAO CLI invocation remains the most direct parity oracle, verification MAY use it as an oracle. The supported product path SHALL NOT depend on that CLI being present.
 
 That compatibility verification SHALL cover at minimum:
 
 - command availability under the `cao` namespace
 - argument parsing for the CAO-compatible command family
-- real `cao` delegation where delegation remains part of the design
+- script-facing exit-code and machine-readable output behavior
 - pair-aware wrapper behavior where explicit pair routing replaces blind passthrough
+- local compatibility-helper behavior for namespaced commands that remain local-only
 - supported-pair enforcement where Houmao intentionally rejects mixed-pair usage
 
 Houmao-owned CLI behavior SHALL be tested directly and more strictly. That verification SHALL cover at minimum:
 
 - native headless top-level `launch --headless`
 - session-backed top-level `launch` registration and runtime artifact materialization
+- namespaced compatibility launch/info/shutdown/install through the pair
 - top-level `install` routing through `houmao-server`
 
-#### Scenario: Compatibility verification catches `cao` namespace regressions
+#### Scenario: Compatibility verification catches namespace regressions
 - **WHEN** a `houmao-srv-ctrl cao` command changes in a way that breaks CAO-compatible invocation shape or compatibility-significant behavior
 - **THEN** compatibility verification detects the divergence
 - **AND THEN** the implementation can reject that change before claiming namespaced CAO compatibility
 
-#### Scenario: Houmao-owned top-level verification catches pair-command regressions
-- **WHEN** a top-level Houmao-owned command changes in a way that breaks pair launch or install behavior
+#### Scenario: Houmao-owned verification catches pair-command regressions
+- **WHEN** a top-level or namespaced Houmao-owned command changes in a way that breaks pair launch, install, or compatibility-wrapper behavior
 - **THEN** direct Houmao behavior verification detects the regression
-- **AND THEN** the implementation can reject that change even if some delegated compatibility commands still work
+- **AND THEN** the implementation can reject that change even though no external `cao` subprocess is involved
 
 ### Requirement: Pair-targeted install routes through `houmao-server`
 Top-level `houmao-srv-ctrl install` SHALL route through `houmao-server` rather than mutating whichever ambient local `HOME` happens to be active.
 
 At minimum, top-level `houmao-srv-ctrl install` SHALL target the selected public `houmao-server` listener by its configured or default base URL, and it SHALL verify the supported pair before performing the install.
 
-The explicit compatibility command `houmao-srv-ctrl cao install` MAY remain available for raw local CAO-compatible install behavior, but that compatibility path SHALL be distinct from the canonical top-level pair install workflow.
+The explicit compatibility command `houmao-srv-ctrl cao install` SHALL preserve the CAO-compatible invocation shape but SHALL resolve through the same Houmao-owned compatibility install authority rather than requiring a raw local CAO install path.
 
 #### Scenario: Top-level install uses the public pair authority
 - **WHEN** an operator runs `houmao-srv-ctrl install projection-demo --provider codex`
-- **THEN** `houmao-srv-ctrl` targets the selected `houmao-server` instance rather than performing a local raw CAO install by default
-- **AND THEN** the install mutates that server's child-managed profile state without requiring the caller to know any hidden child-home path
+- **THEN** `houmao-srv-ctrl` targets the selected `houmao-server` instance rather than performing a local raw CAO install
+- **AND THEN** the install mutates that server's Houmao-managed compatibility profile state without requiring the caller to know any hidden storage path
 
-#### Scenario: Compatibility install remains explicit and separate
-- **WHEN** an operator intentionally wants raw CAO-compatible local install behavior
-- **THEN** the operator uses `houmao-srv-ctrl cao install ...`
-- **AND THEN** the canonical top-level install workflow remains Houmao-owned and pair-targeted
+#### Scenario: Namespaced compatibility install keeps CAO shape without external CAO state
+- **WHEN** an operator runs `houmao-srv-ctrl cao install projection-demo --provider codex`
+- **THEN** `houmao-srv-ctrl` accepts the CAO-compatible command shape
+- **AND THEN** the implementation resolves that install through Houmao-owned compatibility install behavior instead of mutating an external CAO home
 
 ### Requirement: Delegated launch preserves authoritative tmux window identity
 When `houmao-srv-ctrl launch` completes successfully inside the supported pair, it SHALL recover tmux window identity from the pair authority's session-detail response and SHALL persist that window identity into Houmao-owned registration and runtime artifacts whenever the metadata is available.

@@ -127,43 +127,40 @@ The system SHALL apply the selected role package as the initial tool instruction
 - **THEN** the system does not replay role bootstrap content unless the caller explicitly starts a new session
 
 ### Requirement: Optional CAO backend via REST boundary
-The system SHALL optionally support launching and driving sessions via CAO
-using CAO's REST API, without requiring the core runtime to depend on CAO
-internals.
+The system SHALL optionally support CAO-compatible session control through a REST boundary without requiring the core runtime to depend on CAO internals.
 
-For supported loopback CAO base URLs (`http://localhost:<port>`,
-`http://127.0.0.1:<port>` with explicit ports), runtime-owned CAO HTTP
-communication SHALL bypass ambient proxy environment variables by default by
-ensuring loopback entries exist in `NO_PROXY`/`no_proxy`.
+For supported operator workflows after this change, that CAO-compatible control SHALL be reached through the Houmao-owned pair authority rather than through public `houmao-cli` flows that create or control standalone `cao_rest` sessions.
 
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
-or `no_proxy` and will respect caller-provided values (for example, to enable
-traffic-watching development proxies).
+The runtime MAY retain internal CAO-compatible adapter code for parity, debugging, or transition purposes, but public runtime-management CLI entrypoints that would create or control standalone CAO-backed sessions SHALL fail fast with explicit migration guidance to `houmao-server` and `houmao-srv-ctrl`.
 
-When starting a CAO-backed session, the runtime SHALL pass the resolved working directory through to CAO as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or the launcher home.
+That public deprecation guard SHALL reject deprecated `backend="cao_rest"` operator selections at the CLI entrypoint layer before standalone runtime-session construction begins.
 
-#### Scenario: CAO-backed session launch and messaging
-- **WHEN** a developer starts a CAO-backed session and provides a CAO API base URL at session start
-- **THEN** the system creates a CAO session/terminal using the resolved working directory, sends prompts, and fetches replies using CAO REST endpoints
-- **AND THEN** the system persists the CAO API base URL and terminal identity in the session manifest
-- **AND THEN** subsequent prompt and stop operations target the CAO terminal using only the persisted session manifest fields (no CAO base URL override)
+For supported loopback compatibility authorities (`http://localhost:<port>`,
+`http://127.0.0.1:<port>` with explicit ports), runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
-#### Scenario: Loopback CAO runtime communication bypasses caller proxy env on a non-default port
-- **WHEN** a developer starts or resumes a CAO-backed session using loopback CAO base URL `http://127.0.0.1:9991`
-- **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
-- **THEN** runtime-owned CAO HTTP communication bypasses those proxy endpoints by default
-- **AND THEN** loopback CAO connectivity depends on local CAO availability rather than external proxy availability
+When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
-#### Scenario: Preserve mode respects caller `NO_PROXY` for loopback
-- **WHEN** a developer starts or resumes a CAO-backed session using a supported loopback CAO base URL
-- **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
-- **THEN** runtime-owned CAO HTTP communication uses caller-provided proxy and `NO_PROXY` settings
+When the runtime uses a pair-backed compatibility authority internally, it SHALL pass the resolved working directory through to that authority as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or a deprecated launcher home.
 
-#### Scenario: CAO-backed launch does not reject a workdir outside launcher home
-- **WHEN** a developer starts a CAO-backed session whose resolved workdir is outside the launcher home or user home tree
-- **AND WHEN** the installed CAO server accepts that workdir
-- **THEN** the runtime passes the resolved workdir through to CAO
-- **AND THEN** the runtime does not fail solely because that workdir is outside those home paths
+#### Scenario: Deprecated raw CAO-backed runtime start fails with migration guidance
+- **WHEN** a developer invokes `houmao-cli` in a way that would start a standalone `cao_rest` session
+- **THEN** the command exits non-zero with explicit guidance to use `houmao-server` and `houmao-srv-ctrl`
+- **AND THEN** it does not create a new standalone CAO-backed session as a supported operator workflow
+
+#### Scenario: CLI rejects deprecated backend selection before runtime construction
+- **WHEN** a developer runs `houmao-cli start-session --backend cao_rest ...`
+- **THEN** the CLI rejects that request with migration guidance before constructing a standalone `CaoRestSession`
+- **AND THEN** internal parity or debugging code paths are not implied to be removed by that public CLI rejection
+
+#### Scenario: Deprecated raw CAO-backed runtime control fails with migration guidance
+- **WHEN** a developer invokes a runtime-management CLI command that would send input to, interrupt, or stop a standalone `cao_rest` session through the deprecated public path
+- **THEN** the command exits non-zero with explicit guidance to move to the supported pair
+- **AND THEN** it does not silently fall back to mutating standalone CAO state behind the user's back
+
+#### Scenario: Loopback pair-compatible communication bypasses caller proxy env by default
+- **WHEN** a developer starts or resumes a pair-backed compatibility session using loopback authority `http://127.0.0.1:9990`
+- **AND WHEN** caller environment includes `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`
+- **THEN** runtime-owned HTTP communication to that loopback compatibility authority bypasses those proxy endpoints by default
 
 ### Requirement: Mailbox enablement is resolved before session start and persisted for resume
 The runtime SHALL enable mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
