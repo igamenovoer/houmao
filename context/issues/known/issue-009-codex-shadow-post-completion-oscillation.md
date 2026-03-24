@@ -8,7 +8,7 @@ Known as of 2026-03-18.
 
 ## Summary
 
-In a live `scripts/demo/cao-dual-shadow-watch/run_demo.sh` session, Codex completed a real prompt, printed a final summary, and returned to a visible prompt surface, but the shadow-watch monitor did not settle. Instead, the monitor kept flipping Codex between active and complete states.
+In a live run of the now-retired CAO dual shadow-watch demo, Codex completed a real prompt, printed a final summary, and returned to a visible prompt surface, but the shadow-watch monitor did not settle. Instead, the monitor kept flipping Codex between active and complete states.
 
 The observed mixed state is internally contradictory:
 
@@ -27,13 +27,13 @@ That combination means the parser thinks the tool is still working while also cl
 
 ```bash
 RUN_ROOT="/tmp/cao-dual-shadow-watch-$(date -u +%Y%m%d-%H%M%SZ)"
-scripts/demo/cao-dual-shadow-watch/run_demo.sh start --run-root "$RUN_ROOT"
+# Historical reproduction used the retired CAO dual shadow-watch demo start command.
 ```
 
 2. Inspect the persisted state and attach to the printed Codex and monitor tmux sessions:
 
 ```bash
-scripts/demo/cao-dual-shadow-watch/run_demo.sh inspect --run-root "$RUN_ROOT" --json
+# Historical reproduction used the retired CAO dual shadow-watch demo inspect command.
 ```
 
 3. In the Codex session, submit:
@@ -128,7 +128,7 @@ So the core bug is not merely "Codex flickered once." The parser is producing a 
   - `_active_prompt_payload()`
   - `_is_processing_line()`
   - `_classify_surface_axes()`
-- `src/houmao/demo/cao_dual_shadow_watch/monitor.py`
+- the retired CAO dual shadow-watch monitor implementation
   - `AgentStateTracker.observe()`
   - `_is_submit_ready()`
   - `_classify_completion_surface()`

@@ -12,7 +12,7 @@ The repository currently implements tracked TUI semantics in multiple places, bu
 
 There are two different roles:
 
-1. An intentionally independent reference/demo tracker in `houmao.demo.cao_dual_shadow_watch`, used to present and validate what correct state tracking should look like.
+1. An intentionally independent reference/demo tracker in the now-retired CAO dual shadow-watch demo, used to present and validate what correct state tracking should look like.
 2. The official/runtime tracking path, which is currently fragmented across:
    - `houmao.server.tui.tracking`
    - `houmao.terminal_record.service`
@@ -31,13 +31,13 @@ The design flaw is not that the demo tracker exists independently. That independ
 
 ### 1. Generic recorder depends on the independent demo tracker
 
-`src/houmao/terminal_record/service.py` imports:
+Runtime-adjacent tooling and tests historically imported:
 
-- `houmao.demo.cao_dual_shadow_watch.models.AgentSessionState`
-- `houmao.demo.cao_dual_shadow_watch.models.MonitorObservation`
-- `houmao.demo.cao_dual_shadow_watch.monitor.AgentStateTracker`
+- the retired dual-watch demo `AgentSessionState`
+- the retired dual-watch demo `MonitorObservation`
+- the retired dual-watch demo `AgentStateTracker`
 
-Its `analyze_terminal_record()` path then emits replay output using demo tracker fields such as `readiness_state` and `completion_state`.
+That coupling let replay-oriented validation reuse demo tracker fields such as `readiness_state` and `completion_state`.
 
 ### 2. Official live contract already moved to a different vocabulary
 
@@ -70,14 +70,13 @@ At the same time, generic/runtime tooling reaches upward into the intentionally 
 ## Affected Code
 
 - `src/houmao/terminal_record/service.py`
-- `src/houmao/demo/cao_dual_shadow_watch/monitor.py`
-- `src/houmao/demo/cao_dual_shadow_watch/models.py`
+- the retired CAO dual-watch demo tracker module
 - `src/houmao/server/tui/tracking.py`
 - `src/houmao/server/models.py`
 - `src/houmao/explore/claude_code_state_tracking/models.py`
 - `src/houmao/explore/claude_code_state_tracking/state_reducer.py`
 - `src/houmao/server/__init__.py`
-- `src/houmao/demo/cao_dual_shadow_watch/__init__.py`
+- the retired CAO dual-watch demo package export surface
 
 ## Design Direction
 
@@ -115,7 +114,7 @@ The live server layer should remain responsible for:
 2. Extract neutral tracked-state models and reduction logic for the official/runtime path below `houmao.server.tui`.
 3. Rework recorder replay to emit the official tracked-state vocabulary or a mechanically derived replay form of it.
 4. Rework the explore harness to consume the shared official/runtime tracking core instead of mirroring semantics independently.
-5. Preserve `cao_dual_shadow_watch` as an intentionally independent reference implementation rather than folding it into the official/runtime core.
+5. Preserve the boundary between independent reference tracking and the official/runtime core rather than folding the two together.
 6. Keep lazy package exports as hygiene, but treat them as a symptom fix rather than the architectural fix.
 
 ## Related Specs

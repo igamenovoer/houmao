@@ -26,8 +26,7 @@ rg -n -- "^(from|import) agent_system_dissect" src tests scripts
 
 ```bash
 scripts/demo/cao-server-launcher/run_demo.sh
-scripts/demo/cao-codex-session/run_demo.sh
-scripts/demo/cao-claude-session/run_demo.sh
+scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh
 scripts/demo/gemini-headless-session/run_demo.sh
 ```
 

@@ -1,6 +1,0 @@
-Give me a long response so I can interrupt it:
-
-- Provide exactly 120 numbered lines.
-- Each line should be 6-12 words.
-- Topic: practical debugging habits for command line tools.
-- Do not use markdown tables.

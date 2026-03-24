@@ -85,8 +85,7 @@ Archived changes copied to `openspec/changes/archive/`:
   - `rg -n -- "^(from|import) agent_system_dissect" src tests scripts` -> no matches
 - Demo workflows:
   - `scripts/demo/cao-server-launcher/run_demo.sh` -> pass
-  - `scripts/demo/cao-codex-session/run_demo.sh` -> skipped (missing credentials), exit 0
-  - `scripts/demo/cao-claude-session/run_demo.sh` -> skipped (missing credentials), exit 0
+  - legacy CAO session smoke demos -> skipped (missing credentials), exit 0
   - `scripts/demo/gemini-headless-session/run_demo.sh` -> skipped (missing credentials), exit 0
 - Packaging:
   - `pixi run python -m build --sdist --wheel` -> pass
