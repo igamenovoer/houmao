@@ -150,8 +150,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_float,
         default=DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
         help=(
-            "Demo-owned compatibility provider-readiness timeout passed to "
-            "`houmao-server serve`."
+            "Demo-owned compatibility provider-readiness timeout passed to `houmao-server serve`."
         ),
     )
     parser.add_argument(

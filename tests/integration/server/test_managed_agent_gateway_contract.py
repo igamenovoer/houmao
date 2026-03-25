@@ -41,7 +41,11 @@ from houmao.agents.realm_controller.manifest import (
     default_manifest_path,
     write_session_manifest,
 )
-from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan, SessionControlResult
+from houmao.agents.realm_controller.models import (
+    LaunchPlan,
+    RoleInjectionPlan,
+    SessionControlResult,
+)
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
@@ -1223,8 +1227,10 @@ def test_server_managed_headless_gateway_flow_covers_registry_and_degraded_contr
                 assert accepted.disposition == "accepted"
                 assert accepted.headless_turn_id is not None
                 _wait_until(
-                    lambda: fake_session.prompt_calls
-                    == [("through-gateway", accepted.headless_turn_id)]
+                    lambda: (
+                        fake_session.prompt_calls
+                        == [("through-gateway", accepted.headless_turn_id)]
+                    )
                 )
 
             paths.state_path.write_text(

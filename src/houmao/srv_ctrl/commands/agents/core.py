@@ -11,7 +11,11 @@ from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.runtime import start_runtime_session
-from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    LaunchPlanError,
+    LaunchPolicyResolutionError,
+    SessionManifestError,
+)
 
 from .gateway import gateway_group
 from .mail import mail_group
@@ -43,6 +47,24 @@ _PROVIDERS_REQUIRING_WORKSPACE_ACCESS = frozenset(
         "gemini_cli",
     }
 )
+
+
+def _format_launch_policy_resolution_error(
+    *,
+    runtime_backend: str,
+    error: LaunchPolicyResolutionError,
+) -> str:
+    """Return one operator-facing launch-policy compatibility failure message."""
+
+    return (
+        "Managed agent launch selected runtime backend "
+        f"`{runtime_backend}`, but provider startup did not begin because launch-policy "
+        "compatibility blocked startup "
+        f"(requested_operator_prompt_mode={error.requested_operator_prompt_mode!r}, "
+        f"tool={error.tool!r}, policy_backend={error.policy_backend!r}, "
+        f"detected_version={error.detected_version!r}). "
+        f"Detail: {error.detail}"
+    )
 
 
 @click.group(name="agents")
@@ -86,6 +108,7 @@ def launch_agents_command(
         if not click.confirm("Do you trust all the actions in this folder?", default=True):
             raise click.ClickException("Launch cancelled by user.")
 
+    resolved_backend_name = "unknown"
     try:
         target = resolve_native_launch_target(
             selector=agents,
@@ -102,20 +125,33 @@ def launch_agents_command(
                 credential_profile=target.recipe.credential_profile,
                 recipe_path=target.recipe_path,
                 recipe_launch_overrides=target.recipe.launch_overrides,
+                operator_prompt_mode=target.recipe.operator_prompt_mode,
                 mailbox=target.recipe.mailbox,
                 agent_name=target.recipe.default_agent_name,
             )
         )
+        resolved_backend = backend_for_tool(
+            target.tool,
+            prefer_local_interactive=not headless,
+        )
+        resolved_backend_name = resolved_backend
         controller = start_runtime_session(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
-            backend=backend_for_tool(target.tool),
+            backend=resolved_backend,
             working_directory=working_directory,
             agent_identity=target.recipe.default_agent_name,
             agent_id=None,
             tmux_session_name=session_name,
         )
+    except LaunchPolicyResolutionError as exc:
+        raise click.ClickException(
+            _format_launch_policy_resolution_error(
+                runtime_backend=resolved_backend_name,
+                error=exc,
+            )
+        ) from exc
     except (
         FileNotFoundError,
         LaunchPlanError,

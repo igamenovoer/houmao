@@ -8,9 +8,7 @@ strategies:
       - claude_headless
       - cao_rest
       - houmao_server_rest
-    version_range:
-      min_inclusive: 2.1.81
-      max_exclusive: 2.1.82
+    supported_versions: ">=2.1.81,<2.1.84"
     minimal_inputs:
       credential_forms:
         - ANTHROPIC_API_KEY

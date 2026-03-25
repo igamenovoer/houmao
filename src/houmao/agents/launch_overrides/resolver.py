@@ -16,6 +16,7 @@ from houmao.agents.launch_overrides.models import (
 )
 
 _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] = {
+    "raw_launch": (),
     "codex_headless": ("-c", "app-server", "exec", "resume", "--json"),
     "codex_app_server": ("app-server",),
     "claude_headless": ("-p", "--append-system-prompt", "--output-format", "--resume"),

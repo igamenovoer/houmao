@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 
 OperatorPromptMode = Literal["interactive", "unattended"]
@@ -22,6 +25,29 @@ LaunchPolicySelectionSource = Literal["registry", "env_override"]
 
 class LaunchPolicyError(RuntimeError):
     """Raised when launch-policy resolution or application fails."""
+
+
+class LaunchPolicyCompatibilityError(LaunchPolicyError):
+    """Raised when unattended strategy compatibility cannot be satisfied."""
+
+    def __init__(
+        self,
+        *,
+        tool: str,
+        backend: LaunchSurface,
+        detected_version: str,
+        requested_operator_prompt_mode: OperatorPromptMode,
+        reason: str,
+    ) -> None:
+        self.tool = tool
+        self.backend = backend
+        self.detected_version = detected_version
+        self.requested_operator_prompt_mode = requested_operator_prompt_mode
+        self.reason = reason
+        super().__init__(
+            f"{reason} for tool={tool!r}, backend={backend!r}, version={detected_version!r}, "
+            f"requested_operator_prompt_mode={requested_operator_prompt_mode!r}."
+        )
 
 
 @dataclass(frozen=True, order=True)
@@ -49,28 +75,48 @@ class ToolVersion:
 
 
 @dataclass(frozen=True)
-class VersionRange:
-    """Closed-open version range for one strategy."""
+class SupportedVersionSpec:
+    """Dependency-style supported-version declaration for one strategy."""
 
-    min_inclusive: ToolVersion | None = None
-    max_exclusive: ToolVersion | None = None
+    raw: str
+    _specifier_set: SpecifierSet = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Validate and cache the supported-version declaration."""
+
+        cleaned = self.raw.strip()
+        if not cleaned:
+            raise LaunchPolicyError("supported_versions must not be empty.")
+        try:
+            specifier_set = SpecifierSet(cleaned)
+        except InvalidSpecifier as exc:
+            raise LaunchPolicyError(
+                f"Unsupported supported_versions specifier `{cleaned}`."
+            ) from exc
+        object.__setattr__(self, "raw", cleaned)
+        object.__setattr__(self, "_specifier_set", specifier_set)
+
+    @classmethod
+    def parse(cls, value: str) -> "SupportedVersionSpec":
+        """Parse one dependency-style supported-version declaration."""
+
+        return cls(raw=value)
 
     def contains(self, version: ToolVersion) -> bool:
-        """Return whether one tool version matches the range."""
+        """Return whether one tool version matches the declaration."""
 
-        if self.min_inclusive is not None and version < self.min_inclusive:
-            return False
-        if self.max_exclusive is not None and version >= self.max_exclusive:
-            return False
-        return True
+        try:
+            parsed_version = Version(version.raw)
+        except InvalidVersion as exc:
+            raise LaunchPolicyError(
+                f"Could not convert tool version `{version.raw}` into a dependency-style version."
+            ) from exc
+        return parsed_version in self._specifier_set
 
-    def to_payload(self) -> dict[str, str | None]:
+    def to_payload(self) -> str:
         """Return a JSON-serializable payload."""
 
-        return {
-            "min_inclusive": self.min_inclusive.raw if self.min_inclusive is not None else None,
-            "max_exclusive": self.max_exclusive.raw if self.max_exclusive is not None else None,
-        }
+        return self.raw
 
 
 @dataclass(frozen=True)
@@ -140,7 +186,7 @@ class LaunchPolicyStrategy:
     strategy_id: str
     operator_prompt_mode: OperatorPromptMode
     backends: tuple[LaunchSurface, ...]
-    version_range: VersionRange
+    supported_versions: SupportedVersionSpec
     minimal_inputs: MinimalInputContract
     evidence: tuple[StrategyEvidence, ...]
     owned_paths: tuple[OwnedPathSpec, ...]
@@ -153,7 +199,7 @@ class LaunchPolicyStrategy:
             "strategy_id": self.strategy_id,
             "operator_prompt_mode": self.operator_prompt_mode,
             "backends": list(self.backends),
-            "version_range": self.version_range.to_payload(),
+            "supported_versions": self.supported_versions.to_payload(),
             "minimal_inputs": self.minimal_inputs.to_payload(),
             "evidence": [item.to_payload() for item in self.evidence],
             "owned_paths": [item.to_payload() for item in self.owned_paths],

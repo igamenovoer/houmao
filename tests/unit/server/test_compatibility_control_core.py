@@ -80,7 +80,9 @@ def test_initialize_terminal_uses_default_compatibility_timing_config(
     monkeypatch.setattr("houmao.server.control_core.core.time.sleep", sleep_calls.append)
     tmux = _FakeTmuxController()
     adapter = _FakeAdapter("codex")
-    core = CompatibilityControlCore(config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux)
+    core = CompatibilityControlCore(
+        config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux
+    )
 
     core._initialize_terminal(
         terminal_record=_sample_terminal_record(tmp_path),
@@ -161,7 +163,9 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
     monkeypatch.setattr("houmao.server.control_core.core.time.sleep", lambda _seconds: None)
     tmux = _FakeTmuxController()
     adapter = _FakeAdapter("claude_code")
-    core = CompatibilityControlCore(config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux)
+    core = CompatibilityControlCore(
+        config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux
+    )
 
     core._initialize_terminal(
         terminal_record=_sample_terminal_record(tmp_path),
@@ -189,7 +193,9 @@ def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
     tmp_path: Path,
 ) -> None:
     tmux = _FakeTmuxController()
-    core = CompatibilityControlCore(config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux)
+    core = CompatibilityControlCore(
+        config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux
+    )
     capture: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -200,7 +206,9 @@ def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
             tool="codex",
             working_directory=tmp_path,
             agent_def_dir=(tmp_path / "agents").resolve(),
-            recipe_path=(tmp_path / "agents" / "brains" / "brain-recipes" / "codex" / "x.yaml").resolve(),
+            recipe_path=(
+                tmp_path / "agents" / "brains" / "brain-recipes" / "codex" / "x.yaml"
+            ).resolve(),
             recipe=SimpleNamespace(
                 tool="codex",
                 skills=[],
@@ -248,9 +256,7 @@ def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
 
 def _prepared_profile(provider_id: str) -> PreparedNativeCompatibilityLaunch:
     launch_home = (
-        Path("/tmp")
-        / "houmao-test-launch-home"
-        / ("codex" if provider_id == "codex" else "claude")
+        Path("/tmp") / "houmao-test-launch-home" / ("codex" if provider_id == "codex" else "claude")
     ).resolve()
     home_env_var = "CODEX_HOME" if provider_id == "codex" else "CLAUDE_CONFIG_DIR"
     env = (

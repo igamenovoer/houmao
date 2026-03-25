@@ -59,7 +59,9 @@ def run_suite(config: SuiteConfig) -> dict[str, Any]:
     if config.output_root is not None:
         demo_output_dir = config.output_root.resolve()
     else:
-        demo_output_dir = (pack_paths.runs_dir / f"legacy-manual-shim-{_timestamp_slug()}").resolve()
+        demo_output_dir = (
+            pack_paths.runs_dir / f"legacy-manual-shim-{_timestamp_slug()}"
+        ).resolve()
     auto_demo(
         pack_paths=pack_paths,
         demo_output_dir=demo_output_dir,
@@ -82,7 +84,9 @@ def run_suite(config: SuiteConfig) -> dict[str, Any]:
     return {
         "suite": "houmao-server-agent-api-live-suite-shim",
         "run_root": str(demo_output_dir),
-        "selected_lanes": [lane.lane_id for lane in _resolve_selected_lanes(config.selected_lane_ids)],
+        "selected_lanes": [
+            lane.lane_id for lane in _resolve_selected_lanes(config.selected_lane_ids)
+        ],
     }
 
 

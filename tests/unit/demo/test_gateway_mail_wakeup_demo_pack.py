@@ -265,7 +265,9 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
     calls: list[list[str]] = []
 
     home_path = tmp_path / "demo-output" / "runtime" / "homes" / "codex" / "home-gateway-demo"
-    session_root = tmp_path / "demo-output" / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"
+    session_root = (
+        tmp_path / "demo-output" / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"
+    )
 
     def fake_resolve_server_context(
         *,
@@ -317,7 +319,9 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
             return {
                 "home_id": "home-gateway-demo",
                 "home_path": str(home_path),
-                "manifest_path": str(tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml"),
+                "manifest_path": str(
+                    tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml"
+                ),
                 "launch_helper_path": str(home_path / "launch.sh"),
             }
         if command == "start-session":
@@ -409,7 +413,9 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
 
     monkeypatch.setattr(HELPERS, "_resolve_server_context", fake_resolve_server_context)
     monkeypatch.setattr(HELPERS, "_run_realm_controller_json", fake_run_realm_controller_json)
-    monkeypatch.setattr(HELPERS, "_resolve_managed_agent_identity", fake_resolve_managed_agent_identity)
+    monkeypatch.setattr(
+        HELPERS, "_resolve_managed_agent_identity", fake_resolve_managed_agent_identity
+    )
     monkeypatch.setattr(HELPERS, "HoumaoServerClient", FakeServerClient)
     monkeypatch.setattr(HELPERS, "_notifier_status_payload", fake_notifier_status_payload)
 
@@ -731,7 +737,9 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         "brain_build": {},
         "project_mailbox_skills": {
             "skills_target": str(demo_output_dir / "project" / "skills"),
-            "hidden_mailbox_dir": str(demo_output_dir / "project" / "skills" / ".system" / "mailbox"),
+            "hidden_mailbox_dir": str(
+                demo_output_dir / "project" / "skills" / ".system" / "mailbox"
+            ),
             "visible_mailbox_dir": str(demo_output_dir / "project" / "skills" / "mailbox"),
         },
         "session": {},
@@ -743,7 +751,9 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
             "terminal_id": "abcd1234",
             "tmux_session_name": "gateway-demo",
             "manifest_path": str(session_manifest_path),
-            "session_root": str(demo_output_dir / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"),
+            "session_root": str(
+                demo_output_dir / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"
+            ),
             "agent_name": "AGENTSYS-gateway-mailbox-agent",
             "agent_id": "agent-gateway-mailbox-agent",
         },
@@ -846,7 +856,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["server"]["server_root"] == "<SERVER_ROOT>"
     assert sanitized["server"]["current_instance_path"] == "<SERVER_CURRENT_INSTANCE_PATH>"
     assert sanitized["managed_agent"]["tracked_agent_id"] == "<TRACKED_AGENT_ID>"
-    assert sanitized["project_mailbox_skills"]["visible_mailbox_dir"] == "<PROJECT_VISIBLE_MAILBOX_SKILLS_DIR>"
+    assert (
+        sanitized["project_mailbox_skills"]["visible_mailbox_dir"]
+        == "<PROJECT_VISIBLE_MAILBOX_SKILLS_DIR>"
+    )
     assert sanitized["notifier_status"]["state_source"] == "<STATE_SOURCE>"
     assert sanitized["mailbox_state"]["local_sqlite_path"] == "<MAILBOX_LOCAL_SQLITE_PATH>"
     assert (

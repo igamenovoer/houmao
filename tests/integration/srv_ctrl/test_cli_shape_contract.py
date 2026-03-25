@@ -18,6 +18,17 @@ from click.testing import CliRunner
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
 from houmao.agents.realm_controller.models import LaunchPlan, SessionControlResult
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+from houmao.server.models import (
+    HoumaoRecentTransition,
+    HoumaoStabilityMetadata,
+    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSessionIdentity,
+    HoumaoTrackedSurface,
+    HoumaoTrackedTurn,
+)
 from houmao.server.client import HoumaoServerClient
 from houmao.srv_ctrl.commands.main import cli
 
@@ -150,10 +161,88 @@ class _FakeHeadlessSession:
         return
 
 
-def _install_fake_headless_runtime(
+class _FakeLocalInteractiveSession(_FakeHeadlessSession):
+    """Small fake tmux-backed local interactive backend."""
+
+    def __init__(self, *, tmux_session_name: str, launch_plan: LaunchPlan) -> None:
+        super().__init__(tmux_session_name=tmux_session_name, launch_plan=launch_plan)
+        self.backend = "local_interactive"
+        self.m_state = HeadlessSessionState(
+            session_id=None,
+            turn_index=0,
+            role_bootstrap_applied=True,
+            working_directory=str(launch_plan.working_directory),
+            tmux_session_name=tmux_session_name,
+        )
+
+
+class _FakeSingleSessionTrackingRuntime:
+    """Small fake tracker used by local interactive CLI integration tests."""
+
+    def __init__(self, *, identity: HoumaoTrackedSessionIdentity, **_: object) -> None:
+        self.m_identity = identity
+
+    def refresh_once(self) -> HoumaoTerminalStateResponse:
+        """Return one ready tracked-state sample."""
+
+        return HoumaoTerminalStateResponse(
+            terminal_id="abcd1234",
+            tracked_session=self.m_identity,
+            diagnostics=HoumaoTrackedDiagnostics(
+                availability="available",
+                transport_state="tmux_up",
+                process_state="tui_up",
+                parse_status="parsed",
+            ),
+            probe_snapshot=None,
+            parsed_surface=None,
+            surface=HoumaoTrackedSurface(
+                accepting_input="yes",
+                editing_input="no",
+                ready_posture="yes",
+            ),
+            turn=HoumaoTrackedTurn(phase="ready"),
+            last_turn=HoumaoTrackedLastTurn(
+                result="none",
+                source="none",
+                updated_at_utc="2026-01-01T00:00:00+00:00",
+            ),
+            stability=HoumaoStabilityMetadata(
+                signature="ready",
+                stable=True,
+                stable_for_seconds=2.0,
+                stable_since_utc="2026-01-01T00:00:00+00:00",
+            ),
+            recent_transitions=[],
+        )
+
+    def history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+        """Return one bounded tracked history payload."""
+
+        del limit
+        return HoumaoTerminalHistoryResponse(
+            terminal_id="abcd1234",
+            tracked_session_id=self.m_identity.tracked_session_id,
+            entries=[
+                HoumaoRecentTransition(
+                    recorded_at_utc="2026-01-01T00:00:00+00:00",
+                    summary="ready",
+                    diagnostics_availability="available",
+                    turn_phase="ready",
+                    last_turn_result="none",
+                    last_turn_source="none",
+                    transport_state="tmux_up",
+                    process_state="tui_up",
+                    parse_status="parsed",
+                )
+            ],
+        )
+
+
+def _install_fake_tmux_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Patch runtime backend creation to use the fake headless backend."""
+    """Patch runtime backend creation to use fake tmux-backed backends."""
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
@@ -161,7 +250,11 @@ def _install_fake_headless_runtime(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
-        lambda **kwargs: _FakeHeadlessSession(
+        lambda **kwargs: (
+            _FakeLocalInteractiveSession
+            if kwargs["launch_plan"].backend == "local_interactive"
+            else _FakeHeadlessSession
+        )(
             tmux_session_name=str(
                 kwargs.get("agent_identity")
                 or kwargs["resume_state"].backend_state["tmux_session_name"]
@@ -172,6 +265,10 @@ def _install_fake_headless_runtime(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.SingleSessionTrackingRuntime",
+        _FakeSingleSessionTrackingRuntime,
     )
 
 
@@ -267,7 +364,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    _install_fake_headless_runtime(monkeypatch)
+    _install_fake_tmux_runtime(monkeypatch)
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
@@ -283,6 +380,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
                 config_profile="default",
                 credential_profile="default",
                 launch_overrides=None,
+                operator_prompt_mode=None,
                 mailbox=None,
                 default_agent_name="gpu",
             ),
@@ -337,6 +435,79 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     assert resolve_live_agent_record("AGENTSYS-gpu") is None
 
 
+def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Default `agents launch` should publish and resolve local interactive TUI control."""
+
+    agent_def_dir = tmp_path / "agent-def"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    _install_fake_tmux_runtime(monkeypatch)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: SimpleNamespace(
+            tool="claude",
+            agent_def_dir=agent_def_dir.resolve(),
+            role_name="r",
+            recipe=SimpleNamespace(
+                tool="claude",
+                skills=[],
+                config_profile="default",
+                credential_profile="default",
+                launch_overrides=None,
+                operator_prompt_mode=None,
+                mailbox=None,
+                default_agent_name="gpu",
+            ),
+            recipe_path=(tmp_path / "recipe.yaml").resolve(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: SimpleNamespace(manifest_path=brain_manifest_path),
+    )
+
+    runner = CliRunner()
+
+    launch_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu",
+            "--provider",
+            "claude_code",
+            "--yolo",
+        ],
+    )
+
+    assert launch_result.exit_code == 0, launch_result.output
+    assert "Managed agent launch complete:" in launch_result.output
+    record = resolve_live_agent_record("AGENTSYS-gpu")
+    assert record is not None
+    assert record.identity.backend == "local_interactive"
+
+    state_result = runner.invoke(cli, ["agents", "state", "AGENTSYS-gpu"])
+    assert state_result.exit_code == 0, state_result.output
+    state_payload = json.loads(state_result.output)
+    assert state_payload["identity"]["transport"] == "tui"
+    assert state_payload["identity"]["terminal_id"] == "abcd1234"
+    assert state_payload["availability"] == "available"
+
+    stop_result = runner.invoke(cli, ["agents", "stop", "AGENTSYS-gpu"])
+    assert stop_result.exit_code == 0, stop_result.output
+    stop_payload = json.loads(stop_result.output)
+    assert stop_payload["success"] is True
+    assert resolve_live_agent_record("AGENTSYS-gpu") is None
+
+
 def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     tmp_path: Path,
 ) -> None:
@@ -345,7 +516,9 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     port = _pick_unused_loopback_port()
     api_base_url = f"http://127.0.0.1:{port}"
     runtime_root = (tmp_path / "runtime").resolve()
-    start_result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
+    start_result = _run_houmao_mgr_server_start(
+        api_base_url=api_base_url, runtime_root=runtime_root
+    )
     assert start_result.returncode == 0, start_result.stderr
     start_payload = json.loads(start_result.stdout)
     assert start_payload["success"] is True
@@ -366,7 +539,9 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     assert status_payload["api_base_url"] == api_base_url
     assert status_payload["active_session_count"] == 0
 
-    reuse_result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
+    reuse_result = _run_houmao_mgr_server_start(
+        api_base_url=api_base_url, runtime_root=runtime_root
+    )
     assert reuse_result.returncode == 0, reuse_result.stderr
     reuse_payload = json.loads(reuse_result.stdout)
     assert reuse_payload["success"] is True

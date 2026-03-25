@@ -226,7 +226,9 @@ def _state_from_runtime(
     return state
 
 
-def _require_active_state(state: PersistedDemoState | None, *, command_name: str) -> PersistedDemoState:
+def _require_active_state(
+    state: PersistedDemoState | None, *, command_name: str
+) -> PersistedDemoState:
     """Require one active persisted demo state."""
 
     if state is None:
@@ -238,7 +240,9 @@ def _require_active_state(state: PersistedDemoState | None, *, command_name: str
     return state
 
 
-def _config_payload(config: SuiteConfig, *, pack_dir: Path, demo_output_dir: Path) -> dict[str, Any]:
+def _config_payload(
+    config: SuiteConfig, *, pack_dir: Path, demo_output_dir: Path
+) -> dict[str, Any]:
     """Build one JSON-ready config payload for the run root."""
 
     return {
@@ -318,7 +322,9 @@ def preflight_demo(
         "output_root_safe": True,
     }
     if missing:
-        raise SuiteError("Live-suite preflight failed before server startup:\n- " + "\n- ".join(missing))
+        raise SuiteError(
+            "Live-suite preflight failed before server startup:\n- " + "\n- ".join(missing)
+        )
     return payload
 
 
@@ -343,7 +349,10 @@ def start_demo(
         fixtures=fixtures,
         selected_lanes=selected_lanes,
     )
-    _write_json(paths.control_dir / "config.json", _config_payload(config, pack_dir=pack_paths.pack_dir, demo_output_dir=paths.run_root))
+    _write_json(
+        paths.control_dir / "config.json",
+        _config_payload(config, pack_dir=pack_paths.pack_dir, demo_output_dir=paths.run_root),
+    )
     _write_json(paths.control_dir / "preflight.json", preflight_report)
 
     state = PersistedDemoState(
@@ -362,13 +371,17 @@ def start_demo(
             "verify_complete": False,
             "stop_complete": False,
         },
-        config=_config_payload(config, pack_dir=pack_paths.pack_dir, demo_output_dir=paths.run_root),
+        config=_config_payload(
+            config, pack_dir=pack_paths.pack_dir, demo_output_dir=paths.run_root
+        ),
         preflight=preflight_report,
     )
     save_demo_state(_state_path(paths.run_root), state)
 
     if missing:
-        raise SuiteError("Live-suite preflight failed before server startup:\n- " + "\n- ".join(missing))
+        raise SuiteError(
+            "Live-suite preflight failed before server startup:\n- " + "\n- ".join(missing)
+        )
 
     lane_runtimes = _prepare_lane_runtimes(
         fixtures=fixtures,
@@ -409,7 +422,10 @@ def start_demo(
         cleanup_results = _cleanup_lanes(client=client, lane_runtimes=lane_runtimes)
         shutdown_result = _stop_suite_server(server_info, timeout_seconds=10.0)
         _write_json(paths.server_dir / "shutdown.json", shutdown_result)
-        _write_json(paths.control_dir / "stop_result.json", {"lanes": cleanup_results, "server": shutdown_result})
+        _write_json(
+            paths.control_dir / "stop_result.json",
+            {"lanes": cleanup_results, "server": shutdown_result},
+        )
         raise SuiteError(str(exc)) from exc
 
     state.active = True
@@ -461,7 +477,9 @@ def inspect_demo(
                 method="GET",
                 path=f"/houmao/terminals/{lane_runtime.terminal_id}/state",
                 request_payload=None,
-                callback=lambda terminal_id=lane_runtime.terminal_id: client.terminal_state(terminal_id),
+                callback=lambda terminal_id=lane_runtime.terminal_id: client.terminal_state(
+                    terminal_id
+                ),
             )
             dialog_tail = ""
             parsed_surface = getattr(terminal_state, "parsed_surface", None)
@@ -514,15 +532,15 @@ def prompt_demo(
         output_root=Path(state.run_root),
         port=None,
         compat_http_timeout_seconds=float(state.config.get("compat_http_timeout_seconds", 20.0)),
-        compat_create_timeout_seconds=float(state.config.get("compat_create_timeout_seconds", 90.0)),
+        compat_create_timeout_seconds=float(
+            state.config.get("compat_create_timeout_seconds", 90.0)
+        ),
         compat_provider_ready_timeout_seconds=float(
             state.config.get("compat_provider_ready_timeout_seconds", 90.0)
         ),
         health_timeout_seconds=float(state.config.get("health_timeout_seconds", 30.0)),
         prompt_timeout_seconds=float(state.config.get("prompt_timeout_seconds", 120.0)),
-        prompt_poll_interval_seconds=float(
-            state.config.get("prompt_poll_interval_seconds", 2.0)
-        ),
+        prompt_poll_interval_seconds=float(state.config.get("prompt_poll_interval_seconds", 2.0)),
         history_limit=int(state.config.get("history_limit", DEFAULT_HISTORY_LIMIT)),
     )
     client = HoumaoServerClient(
@@ -547,7 +565,11 @@ def prompt_demo(
     return {
         "run_root": str(Path(state.run_root).resolve()),
         "targeted_lanes": targeted,
-        "lanes": {lane.definition.lane_id: lane.prompt_verification for lane in lane_runtimes if lane.definition.lane_id in requested_lane_ids},
+        "lanes": {
+            lane.definition.lane_id: lane.prompt_verification
+            for lane in lane_runtimes
+            if lane.definition.lane_id in requested_lane_ids
+        },
     }
 
 
@@ -569,15 +591,15 @@ def interrupt_demo(
         pack_dir=Path(state.pack_dir),
         output_root=Path(state.run_root),
         compat_http_timeout_seconds=float(state.config.get("compat_http_timeout_seconds", 20.0)),
-        compat_create_timeout_seconds=float(state.config.get("compat_create_timeout_seconds", 90.0)),
+        compat_create_timeout_seconds=float(
+            state.config.get("compat_create_timeout_seconds", 90.0)
+        ),
         compat_provider_ready_timeout_seconds=float(
             state.config.get("compat_provider_ready_timeout_seconds", 90.0)
         ),
         health_timeout_seconds=float(state.config.get("health_timeout_seconds", 30.0)),
         prompt_timeout_seconds=float(state.config.get("prompt_timeout_seconds", 120.0)),
-        prompt_poll_interval_seconds=float(
-            state.config.get("prompt_poll_interval_seconds", 2.0)
-        ),
+        prompt_poll_interval_seconds=float(state.config.get("prompt_poll_interval_seconds", 2.0)),
         history_limit=int(state.config.get("history_limit", DEFAULT_HISTORY_LIMIT)),
     )
     client = HoumaoServerClient(
@@ -601,7 +623,11 @@ def interrupt_demo(
     return {
         "run_root": str(Path(state.run_root).resolve()),
         "targeted_lanes": targeted,
-        "lanes": {lane.definition.lane_id: lane.interrupt_verification for lane in lane_runtimes if lane.definition.lane_id in requested_lane_ids},
+        "lanes": {
+            lane.definition.lane_id: lane.interrupt_verification
+            for lane in lane_runtimes
+            if lane.definition.lane_id in requested_lane_ids
+        },
     }
 
 

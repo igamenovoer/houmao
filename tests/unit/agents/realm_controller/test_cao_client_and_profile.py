@@ -361,7 +361,9 @@ def test_cao_rest_client_default_create_operations_use_split_timeout_budget(
     def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
         captured.append((req.get_method(), req.full_url, float(timeout)))
         if req.full_url.endswith("/health"):
-            return _FakeResponse(status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"})
+            return _FakeResponse(
+                status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"}
+            )
         return _FakeResponse(
             status=200,
             payload={
@@ -405,7 +407,9 @@ def test_cao_rest_client_explicit_timeout_override_leaves_lightweight_requests_n
     def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
         captured.append((req.get_method(), req.full_url, float(timeout)))
         if req.full_url.endswith("/health"):
-            return _FakeResponse(status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"})
+            return _FakeResponse(
+                status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"}
+            )
         return _FakeResponse(
             status=200,
             payload={

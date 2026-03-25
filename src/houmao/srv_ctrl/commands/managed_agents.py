@@ -52,8 +52,10 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.cao.rest_client import CaoApiError
+from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
+    HoumaoErrorDetail,
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoHeadlessTurnEvent,
     HoumaoHeadlessTurnEventsResponse,
@@ -72,10 +74,15 @@ from houmao.server.models import (
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTuiDetailView,
     HoumaoManagedAgentTurnView,
+    ManagedAgentAvailability,
     ManagedAgentLastTurnResult,
     ManagedAgentTransportKind,
     ManagedAgentTurnStatus,
+    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedSessionIdentity,
 )
 
 from .common import (
@@ -87,6 +94,11 @@ from .common import (
 )
 
 _HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "gemini_headless"})
+_SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
+    "claude": ("claude", "claude-code"),
+    "codex": ("codex",),
+    "gemini": ("gemini",),
+}
 
 
 @dataclass(frozen=True)
@@ -130,7 +142,9 @@ def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
     for identity in _list_registry_identities():
         merged[_identity_merge_key(identity)] = identity
 
-    pair_client: HoumaoServerClient | None = _optional_pair_client(base_url=resolve_server_base_url())
+    pair_client: HoumaoServerClient | None = _optional_pair_client(
+        base_url=resolve_server_base_url()
+    )
     if pair_client is not None:
         for identity in pair_request(pair_client.list_managed_agents).agents:
             merged[_identity_merge_key(identity)] = identity
@@ -201,6 +215,12 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_state, target.agent_ref)
     assert target.controller is not None
+    if target.identity.transport == "tui":
+        tracked_state = _refresh_local_tui_state(controller=target.controller)
+        return _local_tui_state_response_from_state(
+            controller=target.controller,
+            tracked_state=tracked_state,
+        )
     return _local_headless_state_response(
         controller=target.controller,
         identity=target.identity,
@@ -214,6 +234,19 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_state_detail, target.agent_ref)
     assert target.controller is not None
+    if target.identity.transport == "tui":
+        tracked_state = _refresh_local_tui_state(controller=target.controller)
+        summary_state = _local_tui_state_response_from_state(
+            controller=target.controller,
+            tracked_state=tracked_state,
+        )
+        tui_detail = _local_tui_detail_response_from_state(tracked_state=tracked_state)
+        return HoumaoManagedAgentDetailResponse(
+            tracked_agent_id=summary_state.tracked_agent_id,
+            identity=summary_state.identity,
+            summary_state=summary_state,
+            detail=tui_detail,
+        )
     summary_state = _local_headless_state_response(
         controller=target.controller,
         identity=target.identity,
@@ -244,6 +277,10 @@ def managed_agent_history_payload(
         return pair_request(target.client.get_managed_agent_history, target.agent_ref, limit=limit)
 
     assert target.controller is not None
+    if target.identity.transport == "tui":
+        runtime = _local_tui_runtime_for_controller(target.controller)
+        runtime.refresh_once()
+        return _local_tui_history_response(raw_history=runtime.history(limit=limit))
     entries = [
         HoumaoManagedAgentHistoryEntry(
             recorded_at_utc=snapshot.completed_at_utc or snapshot.started_at_utc,
@@ -871,6 +908,189 @@ def _local_mailbox_summary(
         principal_id=mailbox.principal_id,
         address=mailbox.address,
     )
+
+
+def _local_tui_runtime_for_controller(
+    controller: RuntimeSessionController,
+) -> SingleSessionTrackingRuntime:
+    """Return one ephemeral single-session tracker for a local TUI controller."""
+
+    return SingleSessionTrackingRuntime(
+        identity=_tracked_tui_identity_for_controller(controller),
+        supported_tui_processes=_SUPPORTED_LOCAL_TUI_PROCESSES,
+    )
+
+
+def _tracked_tui_identity_for_controller(
+    controller: RuntimeSessionController,
+) -> HoumaoTrackedSessionIdentity:
+    """Build one tracked-session identity for local TUI discovery."""
+
+    tracked_agent_id = (
+        controller.agent_id or controller.agent_identity or controller.manifest_path.parent.name
+    )
+    tmux_session_name = (
+        controller.tmux_session_name
+        or controller.agent_identity
+        or controller.manifest_path.parent.name
+    )
+    return HoumaoTrackedSessionIdentity(
+        tracked_session_id=tracked_agent_id,
+        session_name=tmux_session_name,
+        tool=controller.launch_plan.tool,
+        tmux_session_name=tmux_session_name,
+        tmux_window_name="agent",
+        agent_name=controller.agent_identity,
+        agent_id=controller.agent_id,
+        manifest_path=str(controller.manifest_path),
+        session_root=str(controller.manifest_path.parent),
+    )
+
+
+def _refresh_local_tui_state(
+    *,
+    controller: RuntimeSessionController,
+) -> HoumaoTerminalStateResponse:
+    """Poll one local interactive session once and return the tracked state."""
+
+    return _local_tui_runtime_for_controller(controller).refresh_once()
+
+
+def _local_tui_state_response_from_state(
+    *,
+    controller: RuntimeSessionController,
+    tracked_state: HoumaoTerminalStateResponse,
+) -> HoumaoManagedAgentStateResponse:
+    """Project one local TUI tracked-state sample into managed-agent summary state."""
+
+    diagnostics = _tracked_errors(tracked_state=tracked_state)
+    turn_phase = tracked_state.turn.phase
+    return HoumaoManagedAgentStateResponse(
+        tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
+        identity=_managed_identity_from_local_tui_state(
+            controller=controller,
+            tracked_state=tracked_state,
+        ),
+        availability=_availability_from_local_tui_state(tracked_state),
+        turn=HoumaoManagedAgentTurnView(
+            phase=turn_phase,
+            active_turn_id=(
+                f"tui-anchor:{tracked_state.tracked_session.tracked_session_id}"
+                if turn_phase == "active"
+                else None
+            ),
+        ),
+        last_turn=HoumaoManagedAgentLastTurnView(
+            result=tracked_state.last_turn.result,
+            turn_id=None,
+            turn_index=None,
+            updated_at_utc=tracked_state.last_turn.updated_at_utc,
+        ),
+        diagnostics=diagnostics,
+        mailbox=_local_mailbox_summary(controller),
+        gateway=_local_gateway_summary(controller),
+    )
+
+
+def _local_tui_detail_response_from_state(
+    *,
+    tracked_state: HoumaoTerminalStateResponse,
+) -> HoumaoManagedAgentTuiDetailView:
+    """Project one local TUI tracked-state sample into managed-agent detail."""
+
+    terminal_id = tracked_state.terminal_id
+    return HoumaoManagedAgentTuiDetailView(
+        terminal_id=terminal_id,
+        canonical_terminal_state_route=f"/houmao/terminals/{terminal_id}/state",
+        canonical_terminal_history_route=f"/houmao/terminals/{terminal_id}/history",
+        diagnostics=tracked_state.diagnostics,
+        probe_snapshot=tracked_state.probe_snapshot,
+        parsed_surface=tracked_state.parsed_surface,
+        surface=tracked_state.surface,
+        stability=tracked_state.stability,
+    )
+
+
+def _local_tui_history_response(
+    *,
+    raw_history: HoumaoTerminalHistoryResponse,
+) -> HoumaoManagedAgentHistoryResponse:
+    """Project one local TUI tracker history into managed-agent history."""
+
+    return HoumaoManagedAgentHistoryResponse(
+        tracked_agent_id=raw_history.tracked_session_id,
+        entries=[
+            HoumaoManagedAgentHistoryEntry(
+                recorded_at_utc=entry.recorded_at_utc,
+                summary=entry.summary,
+                availability=_availability_from_local_tui_transition(entry),
+                turn_phase=entry.turn_phase,
+                last_turn_result=entry.last_turn_result,
+                turn_id=None,
+            )
+            for entry in raw_history.entries
+        ],
+    )
+
+
+def _managed_identity_from_local_tui_state(
+    *,
+    controller: RuntimeSessionController,
+    tracked_state: HoumaoTerminalStateResponse,
+) -> HoumaoManagedAgentIdentity:
+    """Project one local tracked TUI identity into the shared managed-agent model."""
+
+    tracked = tracked_state.tracked_session
+    return HoumaoManagedAgentIdentity(
+        tracked_agent_id=tracked.tracked_session_id,
+        transport="tui",
+        tool=tracked.tool,
+        session_name=tracked.session_name,
+        terminal_id=tracked_state.terminal_id,
+        runtime_session_id=controller.manifest_path.parent.name,
+        tmux_session_name=tracked.tmux_session_name,
+        tmux_window_name=tracked.tmux_window_name,
+        manifest_path=tracked.manifest_path or str(controller.manifest_path),
+        session_root=tracked.session_root or str(controller.manifest_path.parent),
+        agent_name=tracked.agent_name or controller.agent_identity,
+        agent_id=tracked.agent_id or controller.agent_id,
+    )
+
+
+def _availability_from_local_tui_state(
+    tracked_state: HoumaoTerminalStateResponse,
+) -> ManagedAgentAvailability:
+    """Map one TUI tracked-state sample into the coarse managed-agent availability."""
+
+    if tracked_state.diagnostics.availability == "error":
+        return "error"
+    if tracked_state.diagnostics.availability in {"unavailable", "tui_down"}:
+        return "unavailable"
+    return "available"
+
+
+def _availability_from_local_tui_transition(
+    entry: object,
+) -> ManagedAgentAvailability:
+    """Map one tracked TUI history transition into the coarse availability enum."""
+
+    diagnostics_availability = getattr(entry, "diagnostics_availability", "unknown")
+    if diagnostics_availability == "error":
+        return "error"
+    if diagnostics_availability in {"unavailable", "tui_down"}:
+        return "unavailable"
+    return "available"
+
+
+def _tracked_errors(*, tracked_state: HoumaoTerminalStateResponse) -> list[HoumaoErrorDetail]:
+    """Return surfaced probe / parse errors from one tracked TUI sample."""
+
+    diagnostics: list[HoumaoErrorDetail] = []
+    if tracked_state.diagnostics.probe_error is not None:
+        diagnostics.append(tracked_state.diagnostics.probe_error)
+    if tracked_state.diagnostics.parse_error is not None:
+        diagnostics.append(tracked_state.diagnostics.parse_error)
+    return diagnostics
 
 
 def _local_headless_state_response(

@@ -505,10 +505,11 @@ class CompatibilityControlCore:
                 f"export {home_selector_env_var}="
                 f"{shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}"
             )
-        compatibility_home_env_var = _COMPAT_HOME_ENV_BY_PROVIDER.get(
-            adapter.provider_id
-        )
-        if compatibility_home_env_var is not None and compatibility_home_env_var != home_selector_env_var:
+        compatibility_home_env_var = _COMPAT_HOME_ENV_BY_PROVIDER.get(adapter.provider_id)
+        if (
+            compatibility_home_env_var is not None
+            and compatibility_home_env_var != home_selector_env_var
+        ):
             launch_exports.append(
                 f"export {compatibility_home_env_var}="
                 f"{shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}"
@@ -560,9 +561,7 @@ class CompatibilityControlCore:
             )
             manifest = load_brain_manifest(build_result.manifest_path)
             role_name = (
-                resolved_target.role_name
-                if resolved_target.role_name is not None
-                else "brain-only"
+                resolved_target.role_name if resolved_target.role_name is not None else "brain-only"
             )
             role_path = (
                 resolved_target.role_prompt_path
@@ -674,7 +673,10 @@ class CompatibilityControlCore:
             )
         if resolved_provider == "kiro_cli":
             artifact_path = (
-                launch_plan.home_path / ".kiro" / "agents" / f"{profile.name.replace('/', '__')}.json"
+                launch_plan.home_path
+                / ".kiro"
+                / "agents"
+                / f"{profile.name.replace('/', '__')}.json"
             )
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text(

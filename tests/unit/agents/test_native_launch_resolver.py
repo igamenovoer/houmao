@@ -37,11 +37,7 @@ def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
     recipe_path = (
-        agent_def_dir
-        / "brains"
-        / "brain-recipes"
-        / "claude"
-        / "gpu-kernel-coder-default.yaml"
+        agent_def_dir / "brains" / "brain-recipes" / "claude" / "gpu-kernel-coder-default.yaml"
     )
     recipe_path.parent.mkdir(parents=True, exist_ok=True)
     recipe_path.write_text(
@@ -82,11 +78,7 @@ def test_resolve_native_launch_target_treats_missing_role_as_brain_only(
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
     recipe_path = (
-        agent_def_dir
-        / "brains"
-        / "brain-recipes"
-        / "codex"
-        / "gpu-kernel-coder-default.yaml"
+        agent_def_dir / "brains" / "brain-recipes" / "codex" / "gpu-kernel-coder-default.yaml"
     )
     recipe_path.parent.mkdir(parents=True, exist_ok=True)
     recipe_path.write_text(
