@@ -26,6 +26,7 @@ houmao-cli = "houmao.cli:main"
 houmao-cao-server = "houmao.cao_cli:main"
 houmao-server = "houmao.server.cli:main"
 houmao-mgr = "houmao.srv_ctrl.cli:main"
+houmao-passive-server = "houmao.passive_server.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/igamenovoer/houmao"
