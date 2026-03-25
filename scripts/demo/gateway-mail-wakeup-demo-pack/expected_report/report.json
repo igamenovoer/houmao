@@ -2,46 +2,30 @@
   "agent_def_dir": "<AGENT_DEF_DIR>",
   "artifacts": {
     "brain_build": "<ARTIFACT_PATH:brain_build>",
-    "cao_start": "<ARTIFACT_PATH:cao_start>",
     "gateway_attach": "<ARTIFACT_PATH:gateway_attach>",
     "idle_wait": "<ARTIFACT_PATH:idle_wait>",
     "inspect": "<ARTIFACT_PATH:inspect>",
     "notifier_enable": "<ARTIFACT_PATH:notifier_enable>",
     "report": "<ARTIFACT_PATH:report>",
     "report_sanitized": "<ARTIFACT_PATH:report_sanitized>",
+    "server_start": "<ARTIFACT_PATH:server_start>",
     "session_start": "<ARTIFACT_PATH:session_start>"
   },
-  "cao": {
-    "artifact_dir": "<CAO_ARTIFACT_DIR>",
-    "base_url": "http://localhost:9889",
-    "healthy": true,
-    "home_dir": "<CAO_HOME_DIR>",
-    "launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
-    "launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
-    "log_file": "<CAO_LOG_FILE>",
-    "managed": true,
-    "message": "started",
-    "ownership_file": "<CAO_OWNERSHIP_FILE>",
-    "ownership_verified": true,
-    "profile_store": "<CAO_PROFILE_STORE>",
-    "recovery_attempted": false,
-    "reused_existing_process": false,
-    "runtime_root": "<CAO_RUNTIME_ROOT>",
-    "started_current_run": true
-  },
   "checks": {
-    "cao_managed": true,
     "gateway_attached": true,
     "mailbox_local_sqlite_present": true,
     "mailbox_unread_present": true,
+    "managed_agent_resolved": true,
     "notifier_enabled": true,
     "notifier_enqueued_wakeup": true,
     "notifier_poll_error_free": true,
     "output_file_contains_timestamp": true,
     "output_file_exists": true,
     "output_file_newer_than_delivery": true,
+    "project_mailbox_skill_surface_present": true,
     "queue_completed_notifier_request": true,
     "queue_has_notifier_request": true,
+    "server_managed": true,
     "shared_mailbox_index_present": true
   },
   "demo": "gateway-mail-wakeup-demo-pack",
@@ -61,6 +45,18 @@
         "thread_id": "<THREAD_ID>"
       }
     ]
+  },
+  "managed_agent": {
+    "agent_id": "agent-gateway-mailbox-agent",
+    "agent_name": "AGENTSYS-gateway-mailbox-agent",
+    "manifest_path": "<BRAIN_MANIFEST_PATH>",
+    "session_name": "<SESSION_NAME>",
+    "session_root": "<ABSOLUTE_PATH>",
+    "terminal_id": "<TERMINAL_ID>",
+    "tmux_session_name": "<TMUX_SESSION_NAME>",
+    "tool": "codex",
+    "tracked_agent_id": "<TRACKED_AGENT_ID>",
+    "transport": "tui"
   },
   "notifier_audit": {
     "rows": "<RAW_NOTIFIER_AUDIT_ROWS>",
@@ -85,8 +81,8 @@
     "last_notification_at_utc": "<TIMESTAMP>",
     "last_poll_at_utc": "<TIMESTAMP>",
     "state_source": "<STATE_SOURCE>",
-    "supported": true,
-    "support_error": null
+    "support_error": null,
+    "supported": true
   },
   "output_file": {
     "content": "<OUTPUT_FILE_CONTENT>",
@@ -102,14 +98,13 @@
       "mailbox_address": "AGENTSYS-gateway-mailbox-agent@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent"
     },
-    "agent_def_dir": "tests/fixtures/agents",
+    "agent_def_dir": "<AGENT_DEF_DIR>",
     "automatic": {
       "idle_timeout_seconds": 180,
       "output_file_relative_path": "outputs/wakeup-time.txt",
       "output_timeout_seconds": 180
     },
-    "backend": "cao_rest",
-    "cao_base_url": "http://localhost:9889",
+    "backend": "houmao_server_rest",
     "delivery": {
       "body_file": "inputs/wake_up_message.md",
       "sender_address": "AGENTSYS-mail-injector@agents.localhost",
@@ -122,9 +117,15 @@
       "idle_poll_interval_seconds": 3,
       "notifier_interval_seconds": 1
     },
+    "houmao_base_url": "http://127.0.0.1:9889",
     "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
     "schema_version": 1,
     "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox"
+  },
+  "project_mailbox_skills": {
+    "hidden_mailbox_dir": "<PROJECT_HIDDEN_MAILBOX_SKILLS_DIR>",
+    "skills_target": "<PROJECT_SKILLS_ROOT>",
+    "visible_mailbox_dir": "<PROJECT_VISIBLE_MAILBOX_SKILLS_DIR>"
   },
   "project_workdir": "<PROJECT_WORKDIR>",
   "queue_state": {
@@ -137,6 +138,20 @@
     "request_rows": "<NOTIFIER_REQUEST_ROWS>"
   },
   "runtime_root": "<RUNTIME_ROOT>",
+  "server": {
+    "api_base_url": "http://127.0.0.1:9889",
+    "current_instance_path": "<SERVER_CURRENT_INSTANCE_PATH>",
+    "healthy": true,
+    "managed": true,
+    "message": "started demo-owned houmao-server",
+    "pid": 4242,
+    "reused_existing_process": false,
+    "runtime_root": "<RUNTIME_ROOT>",
+    "server_root": "<SERVER_ROOT>",
+    "started_current_run": true,
+    "stderr_log_path": "<SERVER_STDERR_LOG_PATH>",
+    "stdout_log_path": "<SERVER_STDOUT_LOG_PATH>"
+  },
   "session_manifest": "<SESSION_MANIFEST_PATH>",
   "steps": {
     "brain_build": {
@@ -147,27 +162,32 @@
     },
     "gateway_attach": {
       "action": "gateway_attach",
+      "active_execution": "idle",
+      "attach_identity": "gateway-demo",
+      "backend": "houmao_server_rest",
       "detail": "<GATEWAY_ATTACH_DETAIL>",
+      "gateway_health": "healthy",
       "gateway_host": "127.0.0.1",
       "gateway_port": "<GATEWAY_PORT>",
       "gateway_root": "<GATEWAY_ROOT>",
-      "status": "ok"
+      "managed_agent_connectivity": "connected",
+      "managed_agent_instance_epoch": 1,
+      "managed_agent_instance_id": "<TRACKED_AGENT_ID>",
+      "managed_agent_recovery": "idle",
+      "managed_agent_ref": "<TRACKED_AGENT_ID>",
+      "protocol_version": "v1",
+      "queue_depth": 0,
+      "request_admission": "open",
+      "schema_version": 1,
+      "status": "ok",
+      "terminal_surface_eligibility": "ready",
+      "tmux_session_name": "<TMUX_SESSION_NAME>"
     },
     "idle_wait": "<IDLE_WAIT>",
     "last_delivery": {
-      "body_preview": "<BODY_PREVIEW>",
       "created_at_utc": "<TIMESTAMP>",
       "index": 1,
-      "message_id": "<MESSAGE_ID>",
-      "payload_file": "<DELIVERY_PAYLOAD_PATH>",
-      "result": {
-        "canonical_path": "<ABSOLUTE_PATH>",
-        "message_id": "<MESSAGE_ID>",
-        "ok": true,
-        "recipient_count": 1
-      },
-      "staged_message_path": "<STAGED_MESSAGE_PATH>",
-      "subject": "Gateway wake-up demo"
+      "message_id": "<MESSAGE_ID>"
     },
     "notifier_enable": {
       "enabled": true,
@@ -176,13 +196,27 @@
       "last_notification_at_utc": "<TIMESTAMP>",
       "last_poll_at_utc": "<TIMESTAMP>",
       "state_source": "<STATE_SOURCE>",
-      "supported": true,
-      "support_error": null
+      "support_error": null,
+      "supported": true
+    },
+    "server_start": {
+      "api_base_url": "http://127.0.0.1:9889",
+      "current_instance_path": "<SERVER_CURRENT_INSTANCE_PATH>",
+      "healthy": true,
+      "managed": true,
+      "message": "started demo-owned houmao-server",
+      "pid": 4242,
+      "reused_existing_process": false,
+      "runtime_root": "<RUNTIME_ROOT>",
+      "server_root": "<SERVER_ROOT>",
+      "started_current_run": true,
+      "stderr_log_path": "<SERVER_STDERR_LOG_PATH>",
+      "stdout_log_path": "<SERVER_STDOUT_LOG_PATH>"
     },
     "session_start": {
       "agent_identity": "AGENTSYS-gateway-mailbox-agent",
       "agent_name": "AGENTSYS-gateway-mailbox-agent",
-      "backend": "cao_rest",
+      "backend": "houmao_server_rest",
       "job_dir": "<JOB_DIR>",
       "mailbox": {
         "address": "AGENTSYS-gateway-mailbox-agent@agents.localhost",

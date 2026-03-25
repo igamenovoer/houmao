@@ -52,11 +52,30 @@ HELPERS = _helper_module()
 PACK_DIR = _repo_root() / "scripts" / "demo" / "gateway-mail-wakeup-demo-pack"
 
 
+class _Dumpable:
+    """Minimal stand-in for Pydantic models that expose `model_dump()`."""
+
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.m_payload = payload
+
+    def model_dump(self, mode: str = "json") -> dict[str, object]:
+        del mode
+        return dict(self.m_payload)
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     """Write one JSON payload to disk."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_runtime_mailbox_skill_tree(home_path: Path) -> None:
+    """Create one runtime mailbox skill tree for project-local staging tests."""
+
+    source = home_path / "skills" / ".system" / "mailbox"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "README.md").write_text("Runtime mailbox instructions\n", encoding="utf-8")
 
 
 def _deliver_unread_mailbox_message(mailbox_root: Path, *, message_id: str, subject: str) -> None:
@@ -124,7 +143,8 @@ def test_tracked_demo_parameters_parse_and_render_paths() -> None:
 
     parameters = HELPERS.load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
 
-    assert parameters.backend == "cao_rest"
+    assert parameters.backend == "houmao_server_rest"
+    assert parameters.houmao_base_url == "http://127.0.0.1:9889"
     assert parameters.project_fixture == "tests/fixtures/dummy-projects/mailbox-demo-python"
     assert parameters.agent.blueprint == "blueprints/mailbox-demo-codex.yaml"
     assert parameters.delivery.body_file == "inputs/wake_up_message.md"
@@ -217,6 +237,25 @@ def test_ensure_project_workdir_from_fixture_rejects_stale_unmanaged_directory(
         )
 
 
+def test_stage_project_mailbox_skills_exposes_visible_project_surface(tmp_path: Path) -> None:
+    """Mailbox skill staging should project visible docs into the copied project."""
+
+    project_workdir = tmp_path / "project"
+    project_workdir.mkdir(parents=True)
+    home_path = tmp_path / "runtime-home"
+    _write_runtime_mailbox_skill_tree(home_path)
+
+    payload = HELPERS.stage_project_mailbox_skills(
+        project_workdir=project_workdir,
+        brain_build_payload={"home_path": str(home_path)},
+    )
+
+    assert Path(payload["hidden_mailbox_dir"]).is_dir()
+    assert Path(payload["visible_mailbox_dir"]).is_dir()
+    assert (project_workdir / "skills" / ".system" / "mailbox" / "README.md").is_file()
+    assert (project_workdir / "skills" / "mailbox" / "README.md").is_file()
+
+
 def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -225,18 +264,41 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
 
     calls: list[list[str]] = []
 
-    def fake_resolve_cao_context(
+    home_path = tmp_path / "demo-output" / "runtime" / "homes" / "codex" / "home-gateway-demo"
+    session_root = tmp_path / "demo-output" / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"
+
+    def fake_resolve_server_context(
         *,
         repo_root: Path,
         demo_output_dir: Path,
-        cao_base_url: str,
-        cao_profile_store: str | None,
+        houmao_base_url: str,
     ) -> dict[str, object]:
-        del repo_root, demo_output_dir, cao_base_url, cao_profile_store
+        del repo_root, demo_output_dir
         return {
             "managed": True,
-            "base_url": "http://localhost:9889",
-            "profile_store": str(tmp_path / "cao-profile-store"),
+            "api_base_url": houmao_base_url,
+            "runtime_root": str(tmp_path / "demo-output" / "server" / "runtime"),
+            "server_root": str(
+                tmp_path
+                / "demo-output"
+                / "server"
+                / "runtime"
+                / "houmao_servers"
+                / "127.0.0.1-9889"
+            ),
+            "current_instance_path": str(
+                tmp_path
+                / "demo-output"
+                / "server"
+                / "runtime"
+                / "houmao_servers"
+                / "127.0.0.1-9889"
+                / "run"
+                / "current-instance.json"
+            ),
+            "stdout_log_path": str(tmp_path / "demo-output" / "server" / "logs" / "stdout.log"),
+            "stderr_log_path": str(tmp_path / "demo-output" / "server" / "logs" / "stderr.log"),
+            "pid": 4242,
         }
 
     def fake_run_realm_controller_json(
@@ -251,19 +313,19 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
         calls.append(list(args))
         command = args[0]
         if command == "build-brain":
+            _write_runtime_mailbox_skill_tree(home_path)
             return {
-                "manifest_path": str(
-                    tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml"
-                )
+                "home_id": "home-gateway-demo",
+                "home_path": str(home_path),
+                "manifest_path": str(tmp_path / "demo-output" / "runtime" / "manifests" / "agent.yaml"),
+                "launch_helper_path": str(home_path / "launch.sh"),
             }
         if command == "start-session":
             return {
-                "session_manifest": str(
-                    tmp_path / "demo-output" / "runtime" / "sessions" / "agent.json"
-                ),
+                "session_manifest": str(session_root / "manifest.json"),
                 "agent_identity": "AGENTSYS-gateway-mailbox-agent",
                 "agent_name": "AGENTSYS-gateway-mailbox-agent",
-                "backend": "cao_rest",
+                "backend": "houmao_server_rest",
                 "tool": "codex",
                 "mailbox": {
                     "transport": "filesystem",
@@ -273,16 +335,58 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
                     "bindings_version": "2026-03-18T00:00:00Z",
                 },
             }
-        if command == "attach-gateway":
-            return {
-                "status": "ok",
-                "action": "gateway_attach",
-                "detail": "attached",
-                "gateway_root": str(tmp_path / "demo-output" / "gateway-root"),
-                "gateway_host": "127.0.0.1",
-                "gateway_port": 43123,
-            }
         raise AssertionError(f"unexpected realm-controller command: {args}")
+
+    def fake_resolve_managed_agent_identity(
+        *,
+        api_base_url: str,
+        session_manifest_path: Path,
+        timeout_seconds: float = 15.0,
+    ) -> dict[str, object]:
+        del timeout_seconds
+        assert api_base_url == "http://127.0.0.1:9889"
+        assert session_manifest_path == session_root / "manifest.json"
+        return {
+            "tracked_agent_id": "tracked-gateway-mailbox-agent",
+            "transport": "tui",
+            "tool": "codex",
+            "session_name": "gateway-demo",
+            "terminal_id": "abcd1234",
+            "tmux_session_name": "gateway-demo",
+            "manifest_path": str(session_root / "manifest.json"),
+            "session_root": str(session_root),
+            "agent_name": "AGENTSYS-gateway-mailbox-agent",
+            "agent_id": "agent-gateway-mailbox-agent",
+            "session_manifest": str(session_root / "manifest.json"),
+        }
+
+    class FakeServerClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            del timeout_seconds
+            assert base_url == "http://127.0.0.1:9889"
+
+        def attach_managed_agent_gateway(self, agent_ref: str) -> _Dumpable:
+            assert agent_ref == "tracked-gateway-mailbox-agent"
+            return _Dumpable(
+                {
+                    "schema_version": 1,
+                    "protocol_version": "v1",
+                    "attach_identity": "gateway-demo",
+                    "backend": "houmao_server_rest",
+                    "tmux_session_name": "gateway-demo",
+                    "gateway_health": "healthy",
+                    "managed_agent_connectivity": "connected",
+                    "managed_agent_recovery": "idle",
+                    "request_admission": "open",
+                    "terminal_surface_eligibility": "ready",
+                    "active_execution": "idle",
+                    "queue_depth": 0,
+                    "gateway_host": "127.0.0.1",
+                    "gateway_port": 43123,
+                    "managed_agent_instance_epoch": 1,
+                    "managed_agent_instance_id": "tracked-gateway-mailbox-agent",
+                }
+            )
 
     def fake_notifier_status_payload(
         *,
@@ -300,11 +404,13 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
             "last_poll_at_utc": None,
             "last_notification_at_utc": None,
             "last_error": None,
-            "state_source": "sqlite_fallback",
+            "state_source": "server_managed_agent",
         }
 
-    monkeypatch.setattr(HELPERS, "_resolve_cao_context", fake_resolve_cao_context)
+    monkeypatch.setattr(HELPERS, "_resolve_server_context", fake_resolve_server_context)
     monkeypatch.setattr(HELPERS, "_run_realm_controller_json", fake_run_realm_controller_json)
+    monkeypatch.setattr(HELPERS, "_resolve_managed_agent_identity", fake_resolve_managed_agent_identity)
+    monkeypatch.setattr(HELPERS, "HoumaoServerClient", FakeServerClient)
     monkeypatch.setattr(HELPERS, "_notifier_status_payload", fake_notifier_status_payload)
 
     demo_output_dir = tmp_path / "demo-output"
@@ -316,7 +422,7 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
         jobs_dir=None,
     )
 
-    build_args, start_args, attach_args = calls
+    build_args, start_args = calls
     project_workdir = demo_output_dir / "project"
 
     assert state["project_fixture"] == str(
@@ -324,11 +430,17 @@ def test_start_demo_uses_dummy_project_and_mailbox_demo_defaults(
     )
     assert (project_workdir / ".houmao-demo-project.json").is_file()
     assert HELPERS.is_standalone_git_repo(project_workdir=project_workdir) is True
+    assert (project_workdir / "skills" / "mailbox" / "README.md").is_file()
     assert "--blueprint" in build_args
     assert build_args[build_args.index("--blueprint") + 1] == "blueprints/mailbox-demo-codex.yaml"
     assert start_args[start_args.index("--blueprint") + 1] == "blueprints/mailbox-demo-codex.yaml"
+    assert start_args[start_args.index("--backend") + 1] == "houmao_server_rest"
+    assert start_args[start_args.index("--houmao-base-url") + 1] == "http://127.0.0.1:9889"
     assert start_args[start_args.index("--workdir") + 1] == str(project_workdir)
-    assert attach_args[0] == "attach-gateway"
+    assert state["server"]["api_base_url"] == "http://127.0.0.1:9889"
+    assert state["managed_agent"]["tracked_agent_id"] == "tracked-gateway-mailbox-agent"
+    assert state["gateway"]["managed_agent_ref"] == "tracked-gateway-mailbox-agent"
+    assert state["gateway"]["gateway_root"] == str(session_root / "gateway")
 
 
 def test_summarize_notifier_audit_records_captures_stable_outcome_summary(tmp_path: Path) -> None:
@@ -414,6 +526,11 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     layout.deliveries_dir.mkdir(parents=True, exist_ok=True)
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     gateway_root.mkdir(parents=True, exist_ok=True)
+    (demo_output_dir / "project" / "skills" / "mailbox").mkdir(parents=True, exist_ok=True)
+    (demo_output_dir / "project" / "skills" / "mailbox" / "README.md").write_text(
+        "Project mailbox instructions\n",
+        encoding="utf-8",
+    )
     _deliver_unread_mailbox_message(
         mailbox_root,
         message_id=message_id,
@@ -503,6 +620,33 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         encoding="utf-8",
     )
     _write_json(
+        layout.server_start_path,
+        {
+            "managed": True,
+            "api_base_url": "http://127.0.0.1:9889",
+            "runtime_root": str(demo_output_dir / "server" / "runtime"),
+            "server_root": str(
+                demo_output_dir / "server" / "runtime" / "houmao_servers" / "127.0.0.1-9889"
+            ),
+            "current_instance_path": str(
+                demo_output_dir
+                / "server"
+                / "runtime"
+                / "houmao_servers"
+                / "127.0.0.1-9889"
+                / "run"
+                / "current-instance.json"
+            ),
+            "stdout_log_path": str(demo_output_dir / "server" / "logs" / "stdout.log"),
+            "stderr_log_path": str(demo_output_dir / "server" / "logs" / "stderr.log"),
+            "pid": 4242,
+            "healthy": True,
+            "started_current_run": True,
+            "reused_existing_process": False,
+            "message": "started demo-owned houmao-server",
+        },
+    )
+    _write_json(
         layout.brain_build_path,
         {
             "home_id": "home-gateway-demo",
@@ -517,7 +661,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         layout.session_start_path,
         {
             "session_manifest": str(session_manifest_path),
-            "backend": "cao_rest",
+            "backend": "houmao_server_rest",
             "tool": "codex",
             "agent_identity": "AGENTSYS-gateway-mailbox-agent",
             "agent_name": "AGENTSYS-gateway-mailbox-agent",
@@ -538,10 +682,25 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         {
             "status": "ok",
             "action": "gateway_attach",
-            "detail": "attached",
+            "detail": "attached via demo-owned houmao-server managed-agent control",
             "gateway_root": str(gateway_root),
+            "managed_agent_ref": "tracked-gateway-mailbox-agent",
+            "schema_version": 1,
+            "protocol_version": "v1",
+            "attach_identity": "gateway-demo",
+            "backend": "houmao_server_rest",
+            "tmux_session_name": "gateway-demo",
+            "gateway_health": "healthy",
+            "managed_agent_connectivity": "connected",
+            "managed_agent_recovery": "idle",
+            "request_admission": "open",
+            "terminal_surface_eligibility": "ready",
+            "active_execution": "idle",
+            "queue_depth": 0,
             "gateway_host": "127.0.0.1",
             "gateway_port": 43123,
+            "managed_agent_instance_epoch": 1,
+            "managed_agent_instance_id": "tracked-gateway-mailbox-agent",
         },
     )
     _write_json(
@@ -554,7 +713,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
             "last_poll_at_utc": "2026-03-16T10:00:03+00:00",
             "last_notification_at_utc": "2026-03-16T10:00:03+00:00",
             "last_error": None,
-            "state_source": "sqlite_fallback",
+            "state_source": "server_managed_agent",
         },
     )
 
@@ -568,64 +727,26 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         "mailbox_root": str(mailbox_root),
         "agent_def_dir": str(tmp_path / "repo" / "tests" / "fixtures" / "agents"),
         "jobs_dir": None,
-        "cao": {
-            "managed": True,
-            "base_url": "http://localhost:9889",
-            "launcher_config_path": str(demo_output_dir / "cao" / "launcher.toml"),
-            "runtime_root": str(demo_output_dir / "cao" / "runtime"),
-            "home_dir": str(
-                demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "home"
-            ),
-            "profile_store": str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "home"
-                / ".aws"
-                / "cli-agent-orchestrator"
-                / "agent-store"
-            ),
-            "artifact_dir": str(
-                demo_output_dir / "cao" / "runtime" / "cao_servers" / "localhost-9889" / "launcher"
-            ),
-            "log_file": str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "launcher"
-                / "cao-server.log"
-            ),
-            "launcher_result_file": str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "launcher"
-                / "launcher_result.json"
-            ),
-            "ownership_file": str(
-                demo_output_dir
-                / "cao"
-                / "runtime"
-                / "cao_servers"
-                / "localhost-9889"
-                / "launcher"
-                / "ownership.json"
-            ),
-            "healthy": True,
-            "started_current_run": True,
-            "reused_existing_process": False,
-            "ownership_verified": True,
-            "recovery_attempted": False,
-            "message": "started",
-        },
+        "server": json.loads(layout.server_start_path.read_text(encoding="utf-8")),
         "brain_build": {},
+        "project_mailbox_skills": {
+            "skills_target": str(demo_output_dir / "project" / "skills"),
+            "hidden_mailbox_dir": str(demo_output_dir / "project" / "skills" / ".system" / "mailbox"),
+            "visible_mailbox_dir": str(demo_output_dir / "project" / "skills" / "mailbox"),
+        },
         "session": {},
+        "managed_agent": {
+            "tracked_agent_id": "tracked-gateway-mailbox-agent",
+            "transport": "tui",
+            "tool": "codex",
+            "session_name": "gateway-demo",
+            "terminal_id": "abcd1234",
+            "tmux_session_name": "gateway-demo",
+            "manifest_path": str(session_manifest_path),
+            "session_root": str(demo_output_dir / "runtime" / "sessions" / "houmao_server_rest" / "gateway-demo"),
+            "agent_name": "AGENTSYS-gateway-mailbox-agent",
+            "agent_id": "agent-gateway-mailbox-agent",
+        },
         "gateway": {},
         "output_file_path": str(output_file_path),
         "message_counter": 1,
@@ -640,22 +761,73 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     state["gateway"] = json.loads(layout.gateway_attach_path.read_text(encoding="utf-8"))
     _write_json(layout.state_path, state)
 
-    report = HELPERS.build_report(
-        output_path=layout.report_path,
-        parameters_path=parameters_path,
-        state_path=layout.state_path,
-    )
+    class FakeServerClient:
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            del timeout_seconds
+            assert base_url == "http://127.0.0.1:9889"
+
+        def get_managed_agent_state(self, agent_ref: str) -> _Dumpable:
+            assert agent_ref == "tracked-gateway-mailbox-agent"
+            return _Dumpable(
+                {
+                    "tracked_agent_id": "tracked-gateway-mailbox-agent",
+                    "identity": dict(state["managed_agent"]),
+                    "availability": "available",
+                    "turn": {"phase": "ready", "active_turn_id": None},
+                    "last_turn": {
+                        "result": "success",
+                        "turn_id": None,
+                        "turn_index": None,
+                        "updated_at_utc": "2026-03-16T10:00:04Z",
+                    },
+                    "diagnostics": [],
+                    "mailbox": {
+                        "transport": "filesystem",
+                        "principal_id": "AGENTSYS-gateway-mailbox-agent",
+                        "address": "AGENTSYS-gateway-mailbox-agent@agents.localhost",
+                    },
+                    "gateway": {
+                        "gateway_health": "healthy",
+                        "managed_agent_connectivity": "connected",
+                        "managed_agent_recovery": "idle",
+                        "request_admission": "open",
+                        "active_execution": "idle",
+                        "queue_depth": 0,
+                        "gateway_host": "127.0.0.1",
+                        "gateway_port": 43123,
+                    },
+                }
+            )
+
+        def get_managed_agent_gateway_status(self, agent_ref: str) -> _Dumpable:
+            assert agent_ref == "tracked-gateway-mailbox-agent"
+            return _Dumpable(json.loads(layout.gateway_attach_path.read_text(encoding="utf-8")))
+
+        def get_managed_agent_gateway_mail_notifier(self, agent_ref: str) -> _Dumpable:
+            assert agent_ref == "tracked-gateway-mailbox-agent"
+            return _Dumpable(json.loads(layout.notifier_enable_path.read_text(encoding="utf-8")))
+
+    from unittest.mock import patch
+
+    with patch.object(HELPERS, "HoumaoServerClient", FakeServerClient):
+        report = HELPERS.build_report(
+            output_path=layout.report_path,
+            parameters_path=parameters_path,
+            state_path=layout.state_path,
+        )
 
     assert (
         report["parameters"]["project_fixture"]
         == "tests/fixtures/dummy-projects/mailbox-demo-python"
     )
     assert report["parameters"]["agent"]["blueprint"] == "blueprints/mailbox-demo-codex.yaml"
-    assert report["checks"]["cao_managed"] is True
+    assert report["checks"]["server_managed"] is True
+    assert report["checks"]["managed_agent_resolved"] is True
     assert report["checks"]["gateway_attached"] is True
     assert report["checks"]["notifier_enabled"] is True
     assert report["checks"]["notifier_enqueued_wakeup"] is True
     assert report["checks"]["notifier_poll_error_free"] is True
+    assert report["checks"]["project_mailbox_skill_surface_present"] is True
     assert report["checks"]["queue_has_notifier_request"] is True
     assert report["checks"]["queue_completed_notifier_request"] is True
     assert report["checks"]["output_file_exists"] is True
@@ -671,8 +843,10 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["runtime_root"] == "<RUNTIME_ROOT>"
     assert sanitized["mailbox_root"] == "<MAILBOX_ROOT>"
     assert sanitized["agent_def_dir"] == "<AGENT_DEF_DIR>"
-    assert sanitized["cao"]["launcher_config_path"] == "<CAO_LAUNCHER_CONFIG_PATH>"
-    assert sanitized["cao"]["profile_store"] == "<CAO_PROFILE_STORE>"
+    assert sanitized["server"]["server_root"] == "<SERVER_ROOT>"
+    assert sanitized["server"]["current_instance_path"] == "<SERVER_CURRENT_INSTANCE_PATH>"
+    assert sanitized["managed_agent"]["tracked_agent_id"] == "<TRACKED_AGENT_ID>"
+    assert sanitized["project_mailbox_skills"]["visible_mailbox_dir"] == "<PROJECT_VISIBLE_MAILBOX_SKILLS_DIR>"
     assert sanitized["notifier_status"]["state_source"] == "<STATE_SOURCE>"
     assert sanitized["mailbox_state"]["local_sqlite_path"] == "<MAILBOX_LOCAL_SQLITE_PATH>"
     assert (
@@ -684,12 +858,20 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
     assert sanitized["notifier_audit"]["rows"] == "<RAW_NOTIFIER_AUDIT_ROWS>"
     assert sanitized["notifier_audit"]["summary"]["total_rows"] == "<ROW_COUNT>"
     assert sanitized["notifier_audit"]["summary"]["observed_outcomes"] == "<OUTCOME_SET>"
+    assert sanitized["steps"]["server_start"]["server_root"] == "<SERVER_ROOT>"
     assert sanitized["steps"]["brain_build"]["manifest_path"] == "<BRAIN_MANIFEST_PATH>"
     assert sanitized["steps"]["brain_build"]["home_id"] == "<BRAIN_HOME_ID>"
     assert sanitized["steps"]["session_start"]["session_manifest"] == "<SESSION_MANIFEST_PATH>"
+    assert sanitized["steps"]["session_start"]["backend"] == "houmao_server_rest"
     assert sanitized["steps"]["gateway_attach"]["gateway_root"] == "<GATEWAY_ROOT>"
     assert sanitized["steps"]["gateway_attach"]["gateway_port"] == "<GATEWAY_PORT>"
+    assert sanitized["steps"]["gateway_attach"]["managed_agent_ref"] == "<TRACKED_AGENT_ID>"
     assert sanitized["steps"]["last_delivery"]["message_id"] == "<MESSAGE_ID>"
+
+    expected_snapshot = json.loads(
+        (PACK_DIR / "expected_report" / "report.json").read_text(encoding="utf-8")
+    )
+    assert sanitized == expected_snapshot
 
 
 def test_verify_sanitized_report_detects_mismatch() -> None:

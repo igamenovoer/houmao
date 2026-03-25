@@ -3,8 +3,8 @@
   "demo_id": "gateway-mail-wakeup-demo-pack",
   "agent_def_dir": "tests/fixtures/agents",
   "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
-  "backend": "cao_rest",
-  "cao_base_url": "http://localhost:9889",
+  "backend": "houmao_server_rest",
+  "houmao_base_url": "http://127.0.0.1:9889",
   "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
   "agent": {
     "blueprint": "blueprints/mailbox-demo-codex.yaml",
