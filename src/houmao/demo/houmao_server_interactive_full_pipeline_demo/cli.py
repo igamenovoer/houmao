@@ -165,8 +165,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_float,
         default=DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
         help=(
-            "Demo-owned detached compatibility create timeout passed to "
-            "`houmao-mgr cao launch --headless`."
+            "Demo-owned native headless launch create timeout passed to the "
+            "`houmao-server` launch request."
         ),
     )
 

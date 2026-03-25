@@ -45,6 +45,8 @@ Typical local start:
 pixi run houmao-mgr server start --api-base-url http://127.0.0.1:9889
 ```
 
+That command now detaches by default, waits for server health, and prints one JSON startup result. Use `pixi run houmao-mgr server start --foreground ...` when you intentionally want attached foreground startup.
+
 Optional controls:
 
 ```bash
@@ -63,6 +65,7 @@ What changes when you do this:
 - live terminal tracking remains server-owned and runs from direct tmux/process observation
 - session-backed launch resolves native selectors at launch time from the effective agent-definition root
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
+- detached startup logs are written under `<runtime-root>/houmao_servers/<host>-<port>/logs/`
 
 ## 4. Switch Service-Management Commands To `houmao-mgr`
 

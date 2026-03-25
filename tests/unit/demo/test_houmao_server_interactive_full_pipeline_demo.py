@@ -189,7 +189,9 @@ def test_demo_pack_agents_entry_exists_as_demo_local_agent_root() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     demo_agent_def_dir = _demo_agent_def_symlink(repo_root)
 
+    assert demo_agent_def_dir.is_symlink()
     assert demo_agent_def_dir.is_dir()
+    assert demo_agent_def_dir.resolve() == _fixture_agent_def_dir(repo_root).resolve()
 
 
 def test_demo_agent_def_dir_path_preserves_demo_local_symlink_path(tmp_path: Path) -> None:
@@ -272,6 +274,7 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
     env = _demo_env(repo_root)
     agent_def_dir = _seed_demo_agent_def_symlink(repo_root)
+    captured: dict[str, object] = {}
 
     # Mock _launch_native_session to return a synchronous headless launch response
     def _fake_launch_native_session(
@@ -283,6 +286,7 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
         runtime_root: Path,
     ) -> HoumaoHeadlessLaunchResponse:
         # Use requested session name directly (native launch doesn't add cao- prefix)
+        captured["create_timeout_seconds"] = getattr(client, "create_timeout_seconds", None)
         session_name = requested_session_name or "alice"
         return HoumaoHeadlessLaunchResponse(
             success=True,
@@ -354,11 +358,21 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     assert payload.state.agent_identity == "AGENTSYS-alice"
     assert payload.state.tracked_agent_id == "tracked-alice"
     assert payload.state.houmao_server.session_name == "alice"
+    assert captured["create_timeout_seconds"] == env.compat_create_timeout_seconds
     assert loaded.session_manifest_path.endswith("manifest.json")
     assert loaded.runtime_root == str(paths.runtime_root)
     assert loaded.registry_root == str(paths.registry_root)
     assert loaded.jobs_root == str(paths.jobs_root)
     assert loaded.agent_def_dir == str(agent_def_dir)
+
+
+def test_cli_help_describes_native_headless_launch_timeout() -> None:
+    """The CLI help should describe the current native headless launch budget."""
+
+    help_text = demo_cli._build_parser().format_help().lower()
+
+    assert "native headless launch create timeout" in help_text
+    assert "houmao-mgr cao launch" not in help_text
 
 
 def test_send_turn_targets_session_name_backed_agent_ref(

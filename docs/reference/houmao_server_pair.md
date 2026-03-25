@@ -32,6 +32,7 @@ Representative usage:
 
 ```bash
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
+houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
@@ -46,7 +47,9 @@ houmao-mgr admin cleanup-registry --grace-seconds 0
 
 ## Server Startup Controls
 
-`houmao-mgr server start` and `houmao-server serve` share the same server startup flag surface. That server-owned startup chain exposes:
+`houmao-mgr server start` is detached by default. It starts or reuses `houmao-server`, waits for health, emits one JSON startup result, and returns the terminal to the operator. Use `--foreground` when you intentionally want the old attached `houmao-server serve` behavior in the current process.
+
+`houmao-mgr server start` and `houmao-server serve` still share the same server startup flag surface. That server-owned startup chain exposes:
 
 - `--compat-shell-ready-timeout-seconds` with default `10.0`
 - `--compat-shell-ready-poll-interval-seconds` with default `0.5`
@@ -64,6 +67,18 @@ houmao-mgr server start \
   --compat-provider-ready-timeout-seconds 90 \
   --compat-codex-warmup-seconds 0
 ```
+
+Detached startup result fields:
+
+- `success`, `running`, `mode`, `api_base_url`, and `detail`
+- `pid`, `server_root`, `started_at_utc`, and `current_instance` when a server instance is known
+- `reused_existing` when the command reports an already-healthy listener instead of spawning a duplicate process
+- `log_paths.stdout` and `log_paths.stderr`, which point at the owned files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`
+
+If detached startup fails before health, inspect:
+
+- `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stdout.log`
+- `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stderr.log`
 
 Retired standalone surfaces:
 

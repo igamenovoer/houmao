@@ -10,3 +10,11 @@
 	path = extern/tracked/tailmux
 	url = https://github.com/imsight-forks/tailmux.git
 	branch = hz-dev
+[submodule "extern/tracked/houmao-test-workspace-1"]
+	path = extern/tracked/houmao-test-workspace-1
+	url = https://github.com/igamenovoer/houmao-test-workspace-1.git
+	branch = main
+[submodule "extern/tracked/houmao-test-workspace-2"]
+	path = extern/tracked/houmao-test-workspace-2
+	url = https://github.com/igamenovoer/houmao-test-workspace-2.git
+	branch = main

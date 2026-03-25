@@ -9,9 +9,9 @@ Usage:
   $(basename "$0") [-y] [--provider <claude_code|codex>] [--help]
 
 Launch or replace the interactive session with the fixed demo session-name
-\`alice\`. The detached compatibility launch resolves that to the
-CAO-compatible \`cao-alice\` session while the demo keeps the operator-facing
-override stable. Demo-owned compatibility startup timeout overrides may be
+\`alice\`. The current native launch flow keeps that value as the persisted
+session name while the demo still derives the operator-facing
+\`AGENTSYS-alice\` identity from it. Demo-owned startup timeout overrides may be
 provided through the same environment variables supported by \`run_demo.sh\`.
 
 Delegates to:

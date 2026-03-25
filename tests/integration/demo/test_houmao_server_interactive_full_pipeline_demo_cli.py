@@ -126,8 +126,13 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         return _terminal_snapshot(result="none" if payload == "before" else "success")
 
     class _FakeClient:
-        def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
-            del base_url, timeout_seconds
+        def __init__(
+            self,
+            base_url: str,
+            timeout_seconds: float = 5.0,
+            create_timeout_seconds: float = 90.0,
+        ) -> None:
+            del base_url, timeout_seconds, create_timeout_seconds
 
         def submit_managed_agent_request(
             self, agent_ref: str, request_model: object

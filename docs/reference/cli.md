@@ -64,8 +64,11 @@ The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` ar
 Useful pair runtime controls:
 
 - `houmao-mgr agents launch --agents <selector> --provider <provider>` performs local brain build plus launch without requiring a running `houmao-server`.
+- `houmao-mgr server start` is detached by default, emits one structured startup result, and accepts `--foreground` when you want the server attached to the current terminal.
 - `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
 - `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
+
+Detached startup results include `success`, `running`, `mode`, `api_base_url`, `detail`, and server identity fields when available. On failed detached startup, inspect the owned log files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`.
 
 For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
 

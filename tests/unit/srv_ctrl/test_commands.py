@@ -10,6 +10,10 @@ from click.testing import CliRunner
 
 from houmao.server.models import HoumaoCurrentInstance, HoumaoHealthResponse
 from houmao.srv_ctrl.commands.main import cli
+from houmao.srv_ctrl.server_startup import (
+    HoumaoDetachedServerStartResult,
+    HoumaoServerStartLogPaths,
+)
 
 
 class _FakeSession:
@@ -67,6 +71,88 @@ def test_server_status_reports_no_server_running(monkeypatch: pytest.MonkeyPatch
         "detail": "No houmao-server is running.",
         "running": False,
     }
+
+
+def test_server_start_defaults_to_detached_startup_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_start_detached(config: object) -> HoumaoDetachedServerStartResult:
+        captured["config"] = config
+        return HoumaoDetachedServerStartResult(
+            success=True,
+            running=True,
+            api_base_url="http://127.0.0.1:9999",
+            detail="Started houmao-server.",
+            pid=123,
+            server_root=str((tmp_path / "runtime").resolve()),
+            reused_existing=False,
+            log_paths=HoumaoServerStartLogPaths(
+                stdout=str((tmp_path / "stdout.log").resolve()),
+                stderr=str((tmp_path / "stderr.log").resolve()),
+            ),
+        )
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.server.start_detached_server", _fake_start_detached)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "server",
+            "start",
+            "--api-base-url",
+            "http://127.0.0.1:9999",
+            "--runtime-root",
+            str((tmp_path / "runtime").resolve()),
+            "--no-startup-child",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["success"] is True
+    assert payload["running"] is True
+    assert payload["mode"] == "background"
+    assert payload["api_base_url"] == "http://127.0.0.1:9999"
+    assert payload["pid"] == 123
+    assert payload["reused_existing"] is False
+    assert payload["log_paths"]["stdout"].endswith("stdout.log")
+    assert captured["config"] is not None
+
+
+def test_server_start_foreground_keeps_direct_run_server_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.server.start_detached_server",
+        lambda config: (_ for _ in ()).throw(AssertionError("detached start should not run")),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.server.run_server",
+        lambda **kwargs: run_calls.append(kwargs),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "server",
+            "start",
+            "--foreground",
+            "--api-base-url",
+            "http://127.0.0.1:9998",
+            "--no-startup-child",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+    assert len(run_calls) == 1
+    assert run_calls[0]["api_base_url"] == "http://127.0.0.1:9998"
+    assert run_calls[0]["startup_child"] is False
 
 
 def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
