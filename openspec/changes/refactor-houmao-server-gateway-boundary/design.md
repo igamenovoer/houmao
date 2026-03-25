@@ -42,6 +42,7 @@ This refactor is intended to make that split explicit without forcing gateway to
 - Replacing the managed-agent HTTP route family with a new public route tree in this phase.
 - Changing the external payload shapes of managed-agent state, detail, or request routes more than necessary for the boundary split.
 - Eliminating direct runtime-managed non-server workflows.
+- Integrating the deprecated `CompatibilityControlCore` / CAO compatibility path into the new managed-agent control-plane seam in this phase.
 
 ## Decisions
 
@@ -86,17 +87,31 @@ Alternatives considered:
 - Move shared naming and registry logic into the gateway.
   Rejected because those are shared concerns and do not belong to a per-agent sidecar.
 
-### Decision: Public managed-agent routes stay stable, but their backing implementation becomes capability-aware
+### Decision: Public managed-agent routes stay stable, and route dispatch goes through one internal `ManagedAgentControlPlane` seam
 
-The public managed-agent routes under `/houmao/agents/*` will remain the official external contract in this phase. The server will internally choose a control provider for each request:
+The public managed-agent routes under `/houmao/agents/*` will remain the official external contract in this phase. After alias resolution, `houmao-server` will internally resolve one `ManagedAgentControlPlane` for each managed-agent interaction.
 
-- prefer a gateway-backed provider when an eligible live gateway is attached and healthy for that agent,
-- otherwise use a direct fallback provider.
+This seam is an internal server contract, not a new public capability surface, and it is intentionally distinct from the deprecated CAO compatibility `CompatibilityProviderAdapter` naming already used elsewhere in the repository.
+
+The `ManagedAgentControlPlane` seam is responsible for:
+
+- summary, detail, and history projection for one managed agent,
+- transport-neutral request submission and interrupt handling for one managed agent,
+- gateway summary projection for one managed agent, and
+- headless turn-admission hooks for managed headless agents.
+
+In this phase, the server will choose between two implementations:
+
+- a gateway-backed `ManagedAgentControlPlane` when an eligible live gateway is attached, healthy, and able to satisfy the current live-state or control request, or
+- a direct fallback `ManagedAgentControlPlane` when gateway-backed control is unavailable and direct fallback remains supported and safe for that agent.
+
+If neither implementation can safely satisfy the current request, `houmao-server` will preserve the current `409` / `503` semantics rather than inventing a new caller-visible route family or treating stale gateway state as authoritative.
 
 This applies to:
 
 - transport-neutral managed-agent request submission,
 - managed-agent state and detail projection,
+- managed-agent history projection,
 - gateway summary projection,
 - terminal-keyed compatibility projections for TUI agents where the public route still belongs to `houmao-server`.
 
@@ -115,6 +130,48 @@ Alternatives considered:
 - Keep explicit `/gateway/requests` as the only gateway-backed path and leave ordinary `/requests` always direct.
   Rejected because the default managed-agent path should automatically benefit from attached gateway features.
 
+### Decision: Gateway-backed live state projection uses the live gateway HTTP surface
+
+When `houmao-server` projects gateway-owned live state for an attached agent, it will consume that state through versioned live gateway HTTP read endpoints over the existing loopback gateway boundary.
+
+This means:
+
+- `GatewayClient` will be extended with read methods for the live control state needed by server projection,
+- `GatewayService` will expose the corresponding versioned read routes,
+- gateway-owned files under the session root may remain durability or capability artifacts, but they will not become the authoritative live-state read path for `houmao-server`.
+
+Rationale:
+
+- The gateway already has a concrete HTTP boundary and client implementation in the current codebase.
+- The change already states that authoritative live state stays in the active control plane's memory.
+- Using the existing loopback HTTP boundary keeps the server and gateway decoupled and avoids making the server reconstruct live state from gateway-private file layouts.
+
+Alternatives considered:
+
+- Read gateway-owned live state directly from session-root files.
+  Rejected because it would couple the server to the gateway's private disk layout and would conflict with the design choice that authoritative live state remains in memory of the active control plane.
+- Use an in-process call path whenever the server and gateway are co-located.
+  Rejected because it would weaken the sidecar boundary and create a second mechanism for the same projection path.
+
+### Decision: Shared TUI tracking ownership helpers are factored into neutral shared modules
+
+The reusable tracking reduction core already lives under `houmao.shared_tui_tracking`, but the remaining ownership-layer helpers currently live under `houmao.server.tui`. In this change, any tracking ownership or supervision helpers that both the gateway and the direct `houmao-server` fallback need will be moved or refactored into neutral shared modules layered over `houmao.shared_tui_tracking`.
+
+The gateway will not depend on `houmao.server.tui` as a package-local implementation detail in order to become the tracking owner for attached managed TUI agents.
+
+Rationale:
+
+- The gateway and the direct server fallback both need one shared tracking behavior, not duplicated ownership code.
+- `houmao.shared_tui_tracking` already provides a natural lower-level shared boundary for this extraction.
+- This avoids baking a server-package dependency into the per-agent gateway.
+
+Alternatives considered:
+
+- Leave gateway-owned tracking implemented by importing `houmao.server.tui` directly.
+  Rejected because it keeps the ownership boundary blurred and couples the gateway to server-local package structure.
+- Reimplement tracking ownership logic separately inside the gateway.
+  Rejected because the change is specifically trying to unify tracker behavior rather than fork it.
+
 ### Decision: Attached-agent TUI tracking authority moves to the gateway, with direct server fallback when no gateway is attached
 
 For TUI-backed managed agents with an attached gateway, the gateway becomes the authoritative owner of:
@@ -130,6 +187,12 @@ This means the central server is no longer the only continuous watch owner for T
 
 - attached gateway, when present,
 - otherwise direct server fallback.
+
+Attach, detach, and gateway-health transitions in v1 will use single-owner handoff semantics:
+
+- exactly one control plane is authoritative for tracked state for a given agent at a time,
+- the system MAY serve last-known tracked state during a brief transition window while the new owner becomes current, and
+- the design does not require atomic cross-process state transfer in this phase.
 
 Rationale:
 
@@ -161,7 +224,10 @@ For server-managed headless agents with an attached gateway, the gateway becomes
 - stable public route identity,
 - session-root and manifest pointers,
 - shared-registry publication for server-created agents,
+- durable headless turn identity issuance and active-turn record creation before gateway-backed live admission begins,
 - durable inspection surfaces such as turn identity, turn artifacts, and turn history projections.
+
+Gateway-backed headless execution will reconcile completion and terminal status back into the same server-owned turn store. If a provisionally created server-owned turn cannot be admitted by the attached gateway, the server will reject that submission without leaving an active managed turn behind.
 
 In other words, the gateway becomes the live per-agent controller, while the server remains the durable shared authority and projection layer. When no gateway is attached, the server continues to use the existing direct headless execution path as the fallback provider.
 
@@ -184,6 +250,8 @@ The shared registry stays pointer-oriented, but its publisher depends on who own
 
 - For direct runtime-owned sessions outside server-owned admission, runtime remains the registry publisher.
 - For agents created or admitted through `houmao-server`, the server becomes the registry writer and refresher.
+
+Publisher selection will be persisted in runtime-readable session or authority metadata so both runtime and `houmao-server` consult the same signal before publish, refresh, or teardown. Publisher identity will not be inferred from current registry contents alone.
 
 The registry record contents remain pointer-oriented and secret-free. This change does not move queue state, mailbox content, or live gateway internals into the registry.
 
@@ -245,29 +313,45 @@ Alternatives considered:
 - Require clients to contact gateway endpoints directly for live state.
   Rejected because it breaks the shared coordination plane model and leaks sidecar topology to callers.
 
+### Decision: CAO compatibility remains outside the new managed-agent seam in this phase
+
+`CompatibilityControlCore` and its provider adapters remain a separate, already-deprecated compatibility path in this phase. They are not folded into `ManagedAgentControlPlane`, and the boundary split in this change applies only to managed TUI and managed headless agent ownership.
+
+Rationale:
+
+- The review correctly identified that the CAO path is architecturally distinct in the current codebase.
+- Folding a deprecated path into this seam would broaden the refactor without materially improving the managed-agent boundary the change is trying to fix.
+- Excluding it explicitly is clearer than leaving it implicit.
+
+Alternatives considered:
+
+- Fold CAO compatibility into the new seam as a third implementation immediately.
+  Rejected because it adds scope to a large refactor and spends effort on a deprecated path.
+
 ## Risks / Trade-offs
 
-- [Risk] Gateway-backed and direct fallback modes could drift semantically over time. -> Mitigation: define one internal control-provider contract and keep server route projections shared across both implementations.
+- [Risk] Gateway-backed and direct fallback modes could drift semantically over time. -> Mitigation: define one internal `ManagedAgentControlPlane` contract and keep server route projections shared across both implementations.
 - [Risk] Headless durable turn inspection could become inconsistent if live gateway control and server turn persistence diverge. -> Mitigation: keep `houmao-server` as the durable public turn catalog and require gateway-backed headless execution to feed the same durable projection path.
 - [Risk] Moving TUI tracking out of the server could break terminal-keyed compatibility routes. -> Mitigation: keep those routes server-owned and serve them from gateway-backed tracked-state projections when a gateway is attached.
 - [Risk] Registry publication can race if both runtime and server believe they are responsible. -> Mitigation: make publisher selection explicit from creation authority and keep the non-publisher on pointer publication only.
 - [Risk] Optional gateway behavior increases implementation complexity because every control path has two modes. -> Mitigation: keep the public route shapes stable, centralize mode selection in the server, and constrain the direct path to degraded but supported fallback semantics.
+- [Risk] Gateway-health transitions could otherwise leave callers observing stale or duplicated live TUI state. -> Mitigation: use single-owner handoff semantics, allow only a brief last-known-state window during transition, and never allow two authoritative trackers for one agent at once.
 - [Risk] Attached gateway lifecycle actions such as restart or kill could accidentally redefine the contractual agent surface. -> Mitigation: keep the gateway as a sidecar over the stable runtime session root and preserve the existing contractual agent surface rules for TUI and headless sessions.
 
 ## Migration Plan
 
-1. Introduce an internal control-provider seam in `houmao-server` that can select gateway-backed or direct fallback execution per agent.
-2. Extend gateway-owned per-agent state so an attached gateway can publish tracked TUI state, live execution posture, queue state, and lifecycle posture for one agent.
-3. Switch managed-agent state, detail, and terminal-facing TUI projections to consume gateway-owned state when a gateway is attached, while preserving direct fallback when no gateway is present.
-4. Move attached-agent headless live admission and lifecycle handling behind the gateway-backed provider while retaining server-owned durable turn inspection surfaces.
-5. Shift registry publication for server-created or server-admitted agents from runtime-owned publication to `houmao-server`, while preserving runtime publication for direct runtime-owned workflows.
-6. Update route docs, CLI guidance, and tests so the public surface still points at `houmao-server` while attached gateways provide richer behavior behind that surface.
+1. Introduce an internal `ManagedAgentControlPlane` seam in `houmao-server` with explicit selection rules for healthy gateway-backed control, safe direct fallback, and current `409` / `503` degradation semantics.
+2. Extend the gateway with versioned HTTP read endpoints for live control state and refactor any shared tracking ownership helpers needed beyond `houmao.shared_tui_tracking` into neutral shared modules usable by both the gateway and the direct server fallback.
+3. Switch managed-agent state, detail, history, and terminal-facing TUI projections to consume gateway-owned state over the gateway HTTP surface when a gateway is attached and healthy, while preserving direct fallback when no gateway is present.
+4. Move attached-agent headless live admission and lifecycle handling behind the gateway-backed control plane while retaining server-owned durable turn creation, turn identity, and turn reconciliation surfaces.
+5. Persist explicit publisher-selection metadata and shift registry publication for server-created or server-admitted agents from runtime-owned publication to `houmao-server`, while preserving runtime publication for direct runtime-owned workflows.
+6. Update targeted docs, CLI guidance, and tests so the public surface still points at `houmao-server`, attached gateways provide richer behavior behind that surface, and CAO compatibility remains out of scope for this seam in phase 1.
 
 Rollback strategy:
 
 - keep the public managed-agent and terminal route shapes unchanged;
 - keep direct fallback implementations available while the gateway-backed path is introduced;
-- if the gateway-backed path proves unstable, disable gateway-backed provider selection and fall back to direct server-backed behavior without requiring data migration of registry, manifests, or gateway roots.
+- if the gateway-backed path proves unstable, disable gateway-backed `ManagedAgentControlPlane` selection and fall back to direct server-backed behavior without requiring data migration of registry, manifests, or gateway roots.
 
 ## Open Questions
 
