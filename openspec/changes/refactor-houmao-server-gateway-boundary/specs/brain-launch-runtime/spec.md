@@ -3,6 +3,8 @@
 ### Requirement: Runtime-owned tmux-backed sessions publish shared-registry discovery records
 When the runtime starts or resumes control of a runtime-owned tmux-backed session whose shared-registry publisher is the runtime, it SHALL publish or refresh a shared-registry record for that live session under the effective shared-registry root's `live_agents/` directory.
 
+The runtime SHALL determine whether it is the selected shared-registry publisher from explicit runtime-readable publisher metadata associated with that live session or authority record, rather than inferring publisher identity from the current registry contents alone.
+
 By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
 
 When `AGENTSYS_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
@@ -31,6 +33,7 @@ For sessions created or admitted through `houmao-server`-owned authority, the ru
 
 #### Scenario: Server-managed session continues pointer publication while deferring registry publication
 - **WHEN** the runtime starts or resumes a tmux-backed session that has been created or admitted through `houmao-server`-owned authority
+- **AND WHEN** the session's publisher metadata selects `houmao-server` as the shared-registry writer
 - **THEN** the runtime still publishes the stable manifest, session-root, tmux, and gateway-capability pointers for that session
 - **AND THEN** shared-registry publication for that session is allowed to be delegated to `houmao-server` rather than remaining owned by the runtime
 

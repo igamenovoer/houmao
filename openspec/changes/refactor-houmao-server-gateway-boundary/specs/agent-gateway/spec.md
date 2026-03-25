@@ -31,7 +31,9 @@ When no eligible live gateway is attached, this requirement does not prevent the
 - **AND THEN** the central server remains the public facade and durable projection layer rather than the sole live per-agent admission owner for that attached agent
 
 ### Requirement: Gateway control roots publish read-optimized per-agent live control state
-For an attached managed agent, the gateway control root SHALL publish read-optimized per-agent live control state sufficient for `houmao-server` and other pair-owned consumers to project current gateway-backed posture without reconstructing it from queue internals or raw tmux probing.
+For an attached managed agent, the gateway SHALL expose read-optimized per-agent live control state through its versioned live HTTP surface so `houmao-server` and other pair-owned consumers can project current gateway-backed posture without reconstructing it from queue internals or raw tmux probing.
+
+Those HTTP read surfaces MAY be backed by gateway control-root storage, but `houmao-server` SHALL consume attached-agent live control state through the gateway API rather than treating files under the session root as the authoritative live-state source.
 
 For attached TUI agents, that published live control state SHALL include:
 
@@ -58,3 +60,8 @@ Those read-optimized gateway-backed state artifacts or equivalent gateway-owned 
 - **WHEN** `houmao-server` serves managed-agent or terminal-facing state for an attached agent
 - **THEN** it may consume the gateway-owned read-optimized live control state for that agent
 - **AND THEN** it does not need to create a second conflicting per-agent live-state authority for the same attached agent inside the central server
+
+#### Scenario: Server reads attached-agent live posture through gateway HTTP endpoints
+- **WHEN** `houmao-server` needs current gateway-backed live state for one attached managed agent
+- **THEN** it reads that state through the live gateway HTTP surface for that agent
+- **AND THEN** it does not treat gateway-private session-root files as the authoritative live-state transport
