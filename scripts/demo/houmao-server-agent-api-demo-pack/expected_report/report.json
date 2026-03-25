@@ -1,0 +1,170 @@
+{
+  "active": true,
+  "generated_at_utc": "<TIMESTAMP>",
+  "lanes": {
+    "claude-headless": {
+      "interrupt": {
+        "disposition": null,
+        "follow_up_state_captured": false,
+        "history_captured_after": false,
+        "request_kind": null,
+        "requested": false
+      },
+      "prompt": {
+        "disposition": "accepted",
+        "headless_turn_status": "completed",
+        "headless_turn_terminal": true,
+        "prompt_text": "<PROMPT_TEXT>",
+        "request_kind": "submit_prompt",
+        "requested": true,
+        "state_progress_observed": true
+      },
+      "route": {
+        "detail_transport": "headless",
+        "history_captured": true,
+        "identity_present": true
+      },
+      "stop": {
+        "attempted": false,
+        "managed_stop_error": null,
+        "managed_stop_status": null
+      },
+      "tool": "claude",
+      "transport": "headless"
+    },
+    "claude-tui": {
+      "interrupt": {
+        "disposition": null,
+        "follow_up_state_captured": false,
+        "history_captured_after": false,
+        "request_kind": null,
+        "requested": false
+      },
+      "prompt": {
+        "disposition": "accepted",
+        "headless_turn_status": null,
+        "headless_turn_terminal": null,
+        "prompt_text": "<PROMPT_TEXT>",
+        "request_kind": "submit_prompt",
+        "requested": true,
+        "state_progress_observed": true
+      },
+      "route": {
+        "detail_transport": "tui",
+        "history_captured": true,
+        "identity_present": true
+      },
+      "stop": {
+        "attempted": false,
+        "managed_stop_error": null,
+        "managed_stop_status": null
+      },
+      "tool": "claude",
+      "transport": "tui"
+    },
+    "codex-headless": {
+      "interrupt": {
+        "disposition": null,
+        "follow_up_state_captured": false,
+        "history_captured_after": false,
+        "request_kind": null,
+        "requested": false
+      },
+      "prompt": {
+        "disposition": "accepted",
+        "headless_turn_status": "completed",
+        "headless_turn_terminal": true,
+        "prompt_text": "<PROMPT_TEXT>",
+        "request_kind": "submit_prompt",
+        "requested": true,
+        "state_progress_observed": true
+      },
+      "route": {
+        "detail_transport": "headless",
+        "history_captured": true,
+        "identity_present": true
+      },
+      "stop": {
+        "attempted": false,
+        "managed_stop_error": null,
+        "managed_stop_status": null
+      },
+      "tool": "codex",
+      "transport": "headless"
+    },
+    "codex-tui": {
+      "interrupt": {
+        "disposition": null,
+        "follow_up_state_captured": false,
+        "history_captured_after": false,
+        "request_kind": null,
+        "requested": false
+      },
+      "prompt": {
+        "disposition": "accepted",
+        "headless_turn_status": null,
+        "headless_turn_terminal": null,
+        "prompt_text": "<PROMPT_TEXT>",
+        "request_kind": "submit_prompt",
+        "requested": true,
+        "state_progress_observed": true
+      },
+      "route": {
+        "detail_transport": "tui",
+        "history_captured": true,
+        "identity_present": true
+      },
+      "stop": {
+        "attempted": false,
+        "managed_stop_error": null,
+        "managed_stop_status": null
+      },
+      "tool": "codex",
+      "transport": "tui"
+    }
+  },
+  "pack": "houmao-server-agent-api-demo-pack",
+  "pack_dir": "<ABSOLUTE_PATH>",
+  "preflight": {
+    "available_executables": [
+      "claude",
+      "codex",
+      "tmux"
+    ],
+    "checked_executables": [
+      "claude",
+      "codex",
+      "tmux"
+    ],
+    "credentials_present": true,
+    "missing": []
+  },
+  "repo_root": "<ABSOLUTE_PATH>",
+  "run_root": "<ABSOLUTE_PATH>",
+  "selected_lanes": [
+    "claude-tui",
+    "codex-tui",
+    "claude-headless",
+    "codex-headless"
+  ],
+  "server": {
+    "api_base_url": "<API_BASE_URL>",
+    "credentials_present": true,
+    "health_status": "ok",
+    "pid": "<PID>"
+  },
+  "shared_routes": {
+    "expected_agent_count": 4,
+    "history_limit": 20,
+    "listed_agent_count": 4,
+    "missing_agent_count": 0
+  },
+  "steps": {
+    "inspect_complete": true,
+    "interrupt_complete": false,
+    "prompt_complete": true,
+    "start_complete": true,
+    "stop_complete": false,
+    "verify_complete": true
+  }
+}

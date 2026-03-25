@@ -1,4 +1,4 @@
-"""Manual entrypoint for the houmao-server managed-agent API live suite."""
+"""Legacy manual entrypoint shim for the moved agent API demo pack."""
 
 from __future__ import annotations
 

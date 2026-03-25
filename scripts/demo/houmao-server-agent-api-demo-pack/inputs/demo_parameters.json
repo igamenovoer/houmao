@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "demo_id": "houmao-server-agent-api-demo-pack",
+  "default_lanes": [
+    "claude-tui",
+    "codex-tui",
+    "claude-headless",
+    "codex-headless"
+  ],
+  "interrupt_case_lanes": [
+    "claude-tui",
+    "codex-headless"
+  ],
+  "default_prompt_file": "prompt.txt",
+  "interrupt_prompt_file": "interrupt_prompt.txt"
+}

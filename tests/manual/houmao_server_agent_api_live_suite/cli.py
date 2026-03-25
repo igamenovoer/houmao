@@ -1,4 +1,4 @@
-"""CLI entrypoint for the houmao-server managed-agent API live suite."""
+"""Legacy CLI shim for the moved Houmao-server agent API demo pack."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from houmao_server_agent_api_live_suite.suite import LANE_IDS, SuiteConfig, Suit
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the manual live-suite CLI parser."""
+    """Build the legacy manual-shim CLI parser."""
 
     parser = argparse.ArgumentParser(
         description=(
-            "Run the manual houmao-server managed-agent API live suite against "
-            "real Claude/Codex TUI and headless lanes."
+            "Compatibility shim for the moved houmao-server managed-agent API "
+            "demo pack. Prefer scripts/demo/houmao-server-agent-api-demo-pack/."
         )
     )
     parser.add_argument(
@@ -29,8 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Override the suite run root. When omitted, artifacts are written "
-            "under tmp/tests/houmao-server-agent-api-live-suite/<timestamp>/."
+            "Override the demo-pack run root. When omitted, the compatibility "
+            "shim writes under scripts/demo/houmao-server-agent-api-demo-pack/outputs/runs/."
         ),
     )
     parser.add_argument(
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the manual live suite and return the process exit code."""
+    """Run the legacy manual shim and return the process exit code."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -107,6 +107,10 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc))
         return 1
 
+    print(
+        "manual-houmao-server-agent-api-live-suite=DEPRECATED "
+        "(canonical path: scripts/demo/houmao-server-agent-api-demo-pack/run_demo.sh auto)"
+    )
     print("manual-houmao-server-agent-api-live-suite=PASS")
     print(f"run_root={summary['run_root']}")
     print(f"selected_lanes={','.join(summary['selected_lanes'])}")

@@ -1,8 +1,10 @@
 # Houmao Server Agent API Live Suite
 
-`tests/manual/manual_houmao_server_agent_api_live_suite.py` is the canonical operator-run live suite for direct `houmao-server` managed-agent API verification.
+`scripts/demo/houmao-server-agent-api-demo-pack/` is the canonical operator-run validator for direct `houmao-server` managed-agent API verification.
 
-It starts one suite-owned `houmao-server`, provisions the selected managed-agent lanes without a gateway, exercises the public `/houmao/agents/*` routes directly, and preserves launch, request, stop, and shutdown evidence under one run root.
+It starts one demo-owned `houmao-server`, provisions the selected managed-agent lanes without a gateway, exercises the public `/houmao/agents/*` routes directly, preserves launch/request/stop/shutdown evidence under one run root, and compares a sanitized report against a tracked expected snapshot.
+
+The old `tests/manual/manual_houmao_server_agent_api_live_suite.py` entrypoint remains only as a compatibility shim. It is no longer the canonical documented workflow.
 
 ## Supported Lanes
 
@@ -18,13 +20,13 @@ When `--lane` is omitted, the suite runs all four lanes in one aggregate pass.
 Run every lane with the default repo-local artifact root:
 
 ```bash
-pixi run python tests/manual/manual_houmao_server_agent_api_live_suite.py
+scripts/demo/houmao-server-agent-api-demo-pack/run_demo.sh auto
 ```
 
 Run only one subset of lanes:
 
 ```bash
-pixi run python tests/manual/manual_houmao_server_agent_api_live_suite.py \
+scripts/demo/houmao-server-agent-api-demo-pack/run_demo.sh start \
   --lane claude-tui \
   --lane codex-headless
 ```
@@ -32,16 +34,23 @@ pixi run python tests/manual/manual_houmao_server_agent_api_live_suite.py \
 Override the run root:
 
 ```bash
-pixi run python tests/manual/manual_houmao_server_agent_api_live_suite.py \
-  --output-root /tmp/houmao-server-api-live-suite-run
+scripts/demo/houmao-server-agent-api-demo-pack/run_demo.sh auto \
+  --demo-output-dir /tmp/houmao-server-api-live-suite-run
 ```
 
 Raise the TUI provisioning budget when real provider startup is slow:
 
 ```bash
-pixi run python tests/manual/manual_houmao_server_agent_api_live_suite.py \
+scripts/demo/houmao-server-agent-api-demo-pack/run_demo.sh auto \
   --compat-create-timeout-seconds 120 \
   --compat-provider-ready-timeout-seconds 120
+```
+
+Run the named HTT/autotest harness:
+
+```bash
+scripts/demo/houmao-server-agent-api-demo-pack/autotest/run_autotest.sh \
+  --case real-agent-all-lanes-auto
 ```
 
 ## Prerequisites
@@ -56,19 +65,18 @@ Required executables:
 
 Tracked fixture assets:
 
-- compatibility profile: `tests/fixtures/agents/compatibility-profiles/server-api-smoke.md`
-- role: `tests/fixtures/agents/roles/server-api-smoke/`
-- recipes and blueprints under `tests/fixtures/agents/brains/brain-recipes/*/server-api-smoke-default.yaml` and `tests/fixtures/agents/blueprints/server-api-smoke-*.yaml`
-- copied dummy-project source: `tests/fixtures/dummy-projects/mailbox-demo-python/`
+- role: `scripts/demo/houmao-server-agent-api-demo-pack/agents/roles/server-api-smoke/`
+- recipes and blueprints under `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/brain-recipes/*/server-api-smoke-default.yaml` and `scripts/demo/houmao-server-agent-api-demo-pack/agents/blueprints/server-api-smoke-*.yaml`
+- copied dummy-project source: `scripts/demo/houmao-server-agent-api-demo-pack/inputs/project-template/`
 
 Credential expectations:
 
-- Claude lanes read the tracked local credential profile at `tests/fixtures/agents/brains/api-creds/claude/personal-a-default/env/vars.env` and require `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`.
+- Claude lanes read the local-only pack profile at `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/api-creds/claude/personal-a-default/env/vars.env` and require `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`.
 - Codex lanes run in API-key mode for this suite version and use the tracked `yunwu-openai` fixture pair:
-  `tests/fixtures/agents/brains/cli-configs/codex/yunwu-openai/config.toml`
-  `tests/fixtures/agents/brains/api-creds/codex/yunwu-openai/env/vars.env`
+  `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/cli-configs/codex/yunwu-openai/config.toml`
+  `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/api-creds/codex/yunwu-openai/env/vars.env`
   The env file must set `OPENAI_API_KEY`. `OPENAI_BASE_URL` and `OPENAI_ORG_ID` remain optional pass-through values when your local profile needs them.
-- The suite injects the selected env vars into the suite-owned `houmao-server` process for TUI lanes and reuses the same tracked credential profiles for headless launch materialization.
+- The suite injects the selected env vars into the suite-owned `houmao-server` process for TUI lanes and reuses the same local pack credential profiles for headless launch materialization.
 
 ## Timeouts
 
@@ -84,25 +92,31 @@ The initial TUI create/provider-ready default is 90 seconds.
 
 ## Artifact Layout
 
-Without `--output-root`, runs are staged under:
+Without `--demo-output-dir`, runs are staged under:
 
 ```text
-tmp/tests/houmao-server-agent-api-live-suite/<timestamp>/
+scripts/demo/houmao-server-agent-api-demo-pack/outputs/runs/<timestamp>/
 ```
 
 Important artifacts:
 
-- `config.json`: resolved invocation and timeout settings
-- `preflight.json`: prerequisite and fixture checks
-- `summary.json`: final suite status plus per-lane summaries
+- `control/config.json`: resolved invocation and timeout settings
+- `control/preflight.json`: prerequisite and fixture checks
+- `control/shared_routes.json`: `GET /houmao/agents` verification snapshot
+- `control/report.json`: raw verification report
+- `control/report.sanitized.json`: sanitized verification report
+- `control/verify_result.json`: expected-report comparison result
+- `control/stop_result.json`: per-lane stop plus owned-server shutdown evidence
 - `server/start.json`: selected API base URL, owned roots, and current-instance snapshot
 - `server/shutdown.json`: owned-server shutdown evidence
 - `http/*.json`: suite-level HTTP snapshots such as health and `GET /houmao/agents`
 - `lanes/<lane-id>/launch.json`: launch metadata and managed identity details
 - `lanes/<lane-id>/route-verification.json`: `GET /houmao/agents/*` verification snapshots
 - `lanes/<lane-id>/prompt-verification.json`: `POST /requests` admission plus post-request state evidence
+- `lanes/<lane-id>/interrupt-verification.json`: interrupt request and follow-up evidence when `interrupt` is used
 - `lanes/<lane-id>/stop.json`: stop-route and best-effort cleanup results
 - `lanes/<lane-id>/http/*.json`: per-lane request/response snapshots
 - `lanes/<lane-id>/headless-turns/<turn-id>/`: durable turn status, events, `stdout.txt`, and `stderr.txt` for headless lanes that return a turn handle
+- `logs/autotest/<case-id>/`: per-phase HTT case stdout/stderr logs
 
 The suite preserves the run root after both success and failure so operators can inspect the evidence without rerunning the live flow.
