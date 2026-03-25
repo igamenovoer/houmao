@@ -14,7 +14,9 @@ At minimum, that directory SHALL contain:
 - `send_prompt.sh`
 - `stop_demo.sh`
 
-The pack SHALL also own the tracked compatibility-profile source needed for pair-managed startup.
+The pack SHALL also own tracked native agent-definition inputs needed for pair-managed startup.
+
+The supported demo startup contract SHALL NOT depend on `tests/fixtures/agents/` as the source for those launch assets.
 
 The pack SHALL implement its own workflow and SHALL NOT delegate post-launch interaction to the older CAO interactive demo pack.
 
@@ -24,14 +26,16 @@ The pack SHALL implement its own workflow and SHALL NOT delegate post-launch int
 - **AND THEN** the pack-owned startup assets needed for pair-managed launch are present
 - **AND THEN** the pack can be understood and run from that directory without depending on sibling demo wrappers for its core workflow
 
-### Requirement: Demo startup SHALL use pair-managed `houmao-mgr` install and launch with a demo-owned `houmao-server`
-The startup workflow SHALL install one tracked compatibility profile into the demo-owned server through top-level `houmao-mgr install`, launch one detached TUI session through the explicit compatibility surface `houmao-mgr cao launch --headless`, and persist the selected demo variant in local demo state.
+### Requirement: Demo startup SHALL use pair-managed native-selector launch with a demo-owned `houmao-server`
+The startup workflow SHALL resolve one tracked native launch selector under a demo-owned non-test agent-definition root, launch one detached TUI session through the explicit compatibility surface `houmao-mgr cao launch --headless`, and persist the selected demo variant in local demo state.
+
+Demo startup SHALL NOT require a separate `houmao-mgr install` step or a tracked compatibility profile Markdown file as its startup source of truth.
 
 The demo SHALL provision one demo-owned `houmao-server` listener on loopback for the run and SHALL persist the resolved `api_base_url` in demo state rather than assuming an unrelated server instance already exists.
 
 The demo SHALL provision a demo-owned working tree for the session under the run root rather than pointing the launched session directly at the repository checkout.
 
-The pair install and detached launch subprocesses SHALL run with the same demo-owned runtime, registry, jobs, and home roots used for that run, so delegated artifacts and related state remain owned by the run root rather than ambient Houmao directories.
+The detached launch subprocess SHALL run with the same demo-owned runtime, registry, jobs, and home roots used for that run, so delegated artifacts and related state remain owned by the run root rather than ambient Houmao directories.
 
 Demo startup SHALL use explicit demo-owned compatibility startup budgets rather than relying on the generic pair defaults. At minimum, the demo-owned startup profile SHALL include:
 
@@ -46,9 +50,11 @@ The demo SHALL expose a startup override surface for those demo-owned compatibil
 
 When the operator does not provide a provider override, startup SHALL use `claude_code` as the implicit default provider.
 
-When the operator provides `--provider codex`, startup SHALL launch the Codex-backed interactive variant through the same tracked compatibility profile.
+When the operator provides `--provider codex`, startup SHALL launch the Codex-backed interactive variant through the same tracked native launch selector.
 
-The tracked compatibility profile used by startup SHALL be `gpu-kernel-coder`.
+The tracked native launch selector used by startup SHALL be `gpu-kernel-coder`.
+
+In the first cut, that selector SHALL resolve through the selected tool lane's recipe store rather than through blueprint-by-name matching.
 
 When the operator provides `--session-name`, startup SHALL use that value for the detached compatibility launch and SHALL derive the persisted `agent_identity` from it.
 
@@ -65,10 +71,11 @@ The persisted startup state SHALL include at minimum:
 - `terminal_id`
 - `agent_ref`
 
-#### Scenario: Default startup uses the tracked Claude provider and detached compatibility launch
+#### Scenario: Default startup uses the tracked Claude provider and detached native-selector launch
 - **WHEN** the operator runs the demo startup command without a provider override
-- **THEN** the demo installs the tracked `gpu-kernel-coder` profile through top-level `houmao-mgr install`
-- **AND THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **AND THEN** startup resolves the tracked `gpu-kernel-coder` selector from native agent-definition inputs instead of running `houmao-mgr install`
+- **AND THEN** those startup assets come from the demo-owned non-test agent-definition source rather than `tests/fixtures/agents/`
 - **AND THEN** the demo-owned `houmao-server` startup uses the documented demo compatibility startup budgets instead of generic pair defaults
 - **AND THEN** the detached launch uses the documented demo create-timeout budget instead of the generic pair default
 - **AND THEN** the delegated session uses `provider = claude_code`
@@ -78,8 +85,9 @@ The persisted startup state SHALL include at minimum:
 
 #### Scenario: Startup accepts an explicit Codex provider
 - **WHEN** the operator runs startup with `--provider codex`
-- **THEN** the demo installs the tracked `gpu-kernel-coder` profile through top-level `houmao-mgr install`
-- **AND THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **AND THEN** startup resolves the tracked `gpu-kernel-coder` selector from native agent-definition inputs instead of compatibility profile install state
+- **AND THEN** those startup assets come from the demo-owned non-test agent-definition source rather than `tests/fixtures/agents/`
 - **AND THEN** the demo-owned `houmao-server` startup uses the documented demo compatibility startup budgets, including the demo Codex warmup override
 - **AND THEN** the delegated session uses `provider = codex`
 - **AND THEN** persisted startup state records `tool = codex`
@@ -93,7 +101,7 @@ The persisted startup state SHALL include at minimum:
 
 #### Scenario: Pair startup remains owned by the demo run root
 - **WHEN** the operator starts the demo for a fresh run root
-- **THEN** the pair install and detached launch commands run with demo-owned runtime, registry, jobs, and home roots
+- **THEN** the detached launch command runs with demo-owned runtime, registry, jobs, and home roots
 - **AND THEN** delegated launch artifacts for that run are written under the selected run root rather than ambient Houmao directories
 
 #### Scenario: Operator overrides demo compatibility startup budgets
@@ -216,4 +224,3 @@ During partial-start cleanup before managed-agent registration is guaranteed, th
 - **WHEN** the operator runs stop and the recorded managed agent no longer exists on the selected `houmao-server`
 - **THEN** the demo exits gracefully for that stale-session condition
 - **AND THEN** it updates local demo state to inactive
-
