@@ -99,6 +99,8 @@ pixi run python -m houmao.agents.realm_controller detach-gateway \
   --agent-identity AGENTSYS-gpu
 ```
 
+The same runtime gateway commands also apply to runtime-owned `local_interactive` sessions used by serverless local agents. When a live gateway is attached, prompt and interrupt requests resume that local tmux-backed runtime authority through the gateway instead of falling back to direct CLI control.
+
 `gateway-send-prompt` and `gateway-interrupt` require a live attached gateway and fail explicitly when the session is only gateway-capable. Legacy direct-control commands such as `send-prompt` still work for sessions that have no live gateway attached.
 
 ## Agent Definition Directory Resolution

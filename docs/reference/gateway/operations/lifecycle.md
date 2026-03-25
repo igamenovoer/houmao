@@ -235,7 +235,7 @@ tail -f <session-root>/gateway/logs/gateway.log
 ## Current Implementation Notes
 
 - A session can be gateway-capable even when `gateway-status` reports `gateway_health=not_attached`.
-- Runtime-owned live attach currently supports REST-backed sessions (`cao_rest`, `houmao_server_rest`) and runtime-owned native headless backends whose execution adapters are implemented.
+- Runtime-owned live attach currently supports `local_interactive`, REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless backends whose execution adapters are implemented.
 - Server-managed native headless agents use the same post-launch attach model, but the live gateway routes prompt and interrupt work back through `/houmao/agents/{agent_ref}/requests` instead of resuming the headless session privately.
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
 - Desired host and port are rewritten after successful live attach so later starts can reuse the actual bound listener.

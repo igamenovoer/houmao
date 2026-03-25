@@ -75,6 +75,27 @@ def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
+def _sample_local_interactive_plan(tmp_path: Path) -> LaunchPlan:
+    return LaunchPlan(
+        backend="local_interactive",
+        tool="claude",
+        executable="claude",
+        args=["--dangerously-skip-permissions"],
+        working_directory=tmp_path,
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env={"ANTHROPIC_API_KEY": "secret"},
+        env_var_names=["ANTHROPIC_API_KEY"],
+        role_injection=RoleInjectionPlan(
+            method="native_append_system_prompt",
+            role_name="gpu-kernel-coder",
+            prompt="Be precise",
+            bootstrap_message="bootstrap",
+        ),
+        metadata={},
+    )
+
+
 def _sample_houmao_plan(tmp_path: Path) -> LaunchPlan:
     return LaunchPlan(
         backend="houmao_server_rest",
@@ -247,6 +268,34 @@ def test_cao_manifest_round_trip_persists_optional_tmux_window_name(
     assert loaded.payload["tmux_session_name"] == "AGENTSYS-gpu"
     assert loaded.payload["cao"]["tmux_window_name"] == "developer-1"
     assert loaded.payload["backend_state"]["tmux_window_name"] == "developer-1"
+
+
+def test_local_interactive_manifest_round_trip_uses_dedicated_backend_section(
+    tmp_path: Path,
+) -> None:
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_local_interactive_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-claude"),
+            backend_state={
+                "turn_index": 2,
+                "role_bootstrap_applied": True,
+                "working_directory": str(tmp_path),
+                "tmux_session_name": "AGENTSYS-claude",
+            },
+        )
+    )
+
+    path = tmp_path / "local-interactive-session.json"
+    write_session_manifest(path, payload)
+    loaded = load_session_manifest(path)
+
+    assert loaded.payload["backend"] == "local_interactive"
+    assert loaded.payload["local_interactive"]["turn_index"] == 2
+    assert loaded.payload["local_interactive"]["role_bootstrap_applied"] is True
+    assert "headless" not in loaded.payload or loaded.payload["headless"] is None
 
 
 def test_houmao_manifest_round_trip_uses_dedicated_backend_section(tmp_path: Path) -> None:

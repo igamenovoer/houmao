@@ -73,7 +73,7 @@ Representative `houmao_server_rest` attach contract used by pair-managed current
 Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
-- Live attach and request execution currently support runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`) and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
+- Live attach and request execution currently support runtime-owned `local_interactive` sessions, runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
 - Native headless attach metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
 

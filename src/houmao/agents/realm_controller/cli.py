@@ -140,6 +140,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--backend",
         choices=[
+            "local_interactive",
             "codex_headless",
             "codex_app_server",
             "claude_headless",

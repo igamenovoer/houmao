@@ -27,6 +27,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
     GatewayRequestCreateV1,
+    GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.agents.realm_controller.gateway_service import (
@@ -88,6 +89,26 @@ def _sample_headless_plan(tmp_path: Path) -> LaunchPlan:
         env_var_names=[],
         role_injection=RoleInjectionPlan(
             method="native_append_system_prompt",
+            role_name="role",
+            prompt="role prompt",
+        ),
+        metadata={},
+    )
+
+
+def _sample_local_interactive_plan(tmp_path: Path) -> LaunchPlan:
+    return LaunchPlan(
+        backend="local_interactive",
+        tool="codex",
+        executable="codex",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions",
             role_name="role",
             prompt="role prompt",
         ),
@@ -419,6 +440,161 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     assert captured_attach["controller"] is controller
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 0
+
+
+def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _write(manifest_path, "{}\n")
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                }
+            )
+            or 43123
+        ),
+    )
+
+    controller.ensure_gateway_capability()
+    result = controller.attach_gateway()
+
+    assert result.status == "ok"
+    assert result.action == "gateway_attach"
+    assert result.gateway_host == "127.0.0.1"
+    assert result.gateway_port == 43123
+    assert captured_attach["controller"] is controller
+    assert captured_attach["host"] == "127.0.0.1"
+    assert captured_attach["port"] == 0
+
+
+def test_gateway_service_routes_local_interactive_prompts_through_runtime_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+        assert status.managed_agent_connectivity == "connected"
+        assert status.terminal_surface_eligibility == "ready"
+        assert status.request_admission == "open"
+
+        accepted = runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(
+                    prompt="hello",
+                    turn_id="turn-local-123",
+                ),
+            )
+        )
+        assert accepted.request_kind == "submit_prompt"
+        assert fake_session.started_event.wait(timeout=2.0)
+    finally:
+        fake_session.release_event.set()
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == [("hello", "turn-local-123")]
+    assert fake_controller.persist_manifest_calls == [False]
+
+
+def test_gateway_service_routes_local_interactive_interrupts_through_runtime_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+        assert status.managed_agent_connectivity == "connected"
+        assert status.request_admission == "open"
+
+        accepted = runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="interrupt",
+                payload=GatewayRequestPayloadInterruptV1(),
+            )
+        )
+        assert accepted.request_kind == "interrupt"
+        assert fake_controller.interrupted_event.wait(timeout=2.0)
+    finally:
+        runtime.shutdown()
+
+    assert fake_controller.interrupt_calls == 1
 
 
 def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(
@@ -951,15 +1127,58 @@ def _seed_headless_gateway_root(
     return paths.gateway_root
 
 
+def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    backend_state = {
+        "turn_index": 2,
+        "role_bootstrap_applied": True,
+        "working_directory": str(tmp_path),
+        "tmux_session_name": "AGENTSYS-local",
+    }
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_local_interactive_plan(tmp_path),
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="AGENTSYS-local",
+            agent_id=derive_agent_id_from_name("AGENTSYS-local"),
+            tmux_session_name="AGENTSYS-local",
+            backend_state=backend_state,
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="local_interactive",
+            tool="codex",
+            session_id="local-interactive-1",
+            tmux_session_name="AGENTSYS-local",
+            working_directory=tmp_path,
+            backend_state=backend_state,
+            agent_def_dir=tmp_path / "agents",
+        )
+    )
+    return paths.gateway_root
+
+
 class _FakeGatewayHeadlessSession:
-    def __init__(self, *, block_prompt: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        block_prompt: bool = False,
+        tmux_session_name: str = "AGENTSYS-headless",
+        session_id: str | None = "claude-session-1",
+        backend: str = "claude_headless",
+    ) -> None:
+        self.backend = backend
         self.state = type(
             "State",
             (),
             {
                 "turn_index": 0,
-                "tmux_session_name": "AGENTSYS-headless",
-                "session_id": "claude-session-1",
+                "tmux_session_name": tmux_session_name,
+                "session_id": session_id,
             },
         )()
         self.prompt_calls: list[tuple[str, str | None]] = []
@@ -985,11 +1204,15 @@ class _FakeGatewayHeadlessController:
     def __init__(self, session: _FakeGatewayHeadlessSession) -> None:
         self.backend_session = session
         self.persist_manifest_calls: list[bool] = []
+        self.interrupt_calls = 0
+        self.interrupted_event = threading.Event()
 
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         self.persist_manifest_calls.append(refresh_registry)
 
     def interrupt(self) -> SessionControlResult:
+        self.interrupt_calls += 1
+        self.interrupted_event.set()
         return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
 
 

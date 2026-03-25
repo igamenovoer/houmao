@@ -15,6 +15,7 @@ from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 
 BackendKind = Literal[
+    "local_interactive",
     "codex_headless",
     "codex_app_server",
     "claude_headless",

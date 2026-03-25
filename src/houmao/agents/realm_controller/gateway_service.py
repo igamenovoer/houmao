@@ -310,22 +310,28 @@ class _RestBackedGatewayAdapter:
 
 
 class _LocalHeadlessGatewayAdapter:
-    """Execution adapter for runtime-owned local headless sessions."""
+    """Execution adapter for runtime-owned local tmux-backed sessions."""
 
     def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
         """Resume local runtime authority from the strict attach contract."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if attach_contract.backend not in {
+            "local_interactive",
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+        }:
             raise GatewayError(
-                "Local headless gateway adapter only supports native headless backends, got "
+                "Local tmux gateway adapter only supports native tmux-backed backends, got "
                 f"{attach_contract.backend!r}."
             )
         manifest_path_value = attach_contract.manifest_path
         agent_def_dir_value = attach_contract.agent_def_dir
         if manifest_path_value is None or agent_def_dir_value is None:
             raise GatewayError(
-                "Headless gateway attach requires manifest_path and agent_def_dir in the attach contract."
+                "Local tmux gateway attach requires manifest_path and agent_def_dir in the "
+                "attach contract."
             )
         self.m_manifest_path = Path(manifest_path_value).expanduser().resolve()
         self.m_agent_def_dir = Path(agent_def_dir_value).expanduser().resolve()
@@ -339,7 +345,7 @@ class _LocalHeadlessGatewayAdapter:
         return self.m_attach_contract
 
     def inspect_target(self) -> _GatewayTargetState:
-        """Return current execution posture for the local headless target."""
+        """Return current execution posture for the local tmux-backed target."""
 
         connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
         if connected:
@@ -356,21 +362,26 @@ class _LocalHeadlessGatewayAdapter:
         )
 
     def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
-        """Submit one prompt through resumed local headless runtime control."""
+        """Submit one prompt through resumed local tmux-backed runtime control."""
 
         self._require_live_tmux_session()
         try:
             controller = self._resume_controller()
             backend_session = controller.backend_session
+            # `LocalInteractiveSession` currently satisfies this resumable boundary by
+            # subclassing `HeadlessInteractiveSession`.
             if not isinstance(backend_session, HeadlessInteractiveSession):
-                raise GatewayError("Resumed headless controller is missing a headless backend.")
+                raise GatewayError(
+                    "Resumed local tmux-backed controller is missing a resumable "
+                    "interactive backend."
+                )
             backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
             controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
-            raise GatewayError(f"Local headless prompt submission failed: {exc}") from exc
+            raise GatewayError(f"Local tmux-backed prompt submission failed: {exc}") from exc
 
     def interrupt(self) -> None:
-        """Interrupt one resumed local headless runtime."""
+        """Interrupt one resumed local tmux-backed runtime."""
 
         self._require_live_tmux_session()
         result = self._resume_controller().interrupt()
@@ -388,15 +399,17 @@ class _LocalHeadlessGatewayAdapter:
                 session_manifest_path=self.m_manifest_path,
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
-            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+            raise GatewayError(
+                f"Failed to resume runtime-owned local tmux-backed session: {exc}"
+            ) from exc
         return self.m_controller
 
     def _require_live_tmux_session(self) -> None:
-        """Require the headless tmux session to still be live."""
+        """Require the tmux session to still be live."""
 
         if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
             raise GatewayError(
-                f"Headless tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
+                f"Tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
             )
 
 
@@ -490,7 +503,12 @@ def _build_gateway_execution_adapter(
 
     if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
         return _RestBackedGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+    if attach_contract.backend in {
+        "local_interactive",
+        "claude_headless",
+        "codex_headless",
+        "gemini_headless",
+    }:
         return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
     raise GatewayError(
         f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."

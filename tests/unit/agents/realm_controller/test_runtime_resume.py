@@ -177,6 +177,53 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
         )
 
 
+def test_resume_local_interactive_uses_persisted_tmux_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="claude",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 2,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "AGENTSYS-r",
+        },
+    )
+    session_path = tmp_path / "session-local-interactive.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeLocalInteractiveSession:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.publish_stable_gateway_env",
+        lambda **kwargs: None,
+    )
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert captured["state"].turn_index == 2
+    assert captured["state"].tmux_session_name == "AGENTSYS-r"
+    assert controller.launch_plan.backend == "local_interactive"
+
+
 def test_resume_cao_uses_manifest_api_base_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

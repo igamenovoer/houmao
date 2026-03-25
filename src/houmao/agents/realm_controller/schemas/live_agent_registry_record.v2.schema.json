@@ -4,12 +4,12 @@
       "additionalProperties": false,
       "description": "Stable and live gateway metadata published into the registry.",
       "properties": {
-        "gateway_root": {
-          "title": "Gateway Root",
-          "type": "string"
-        },
         "attach_path": {
           "title": "Attach Path",
+          "type": "string"
+        },
+        "gateway_root": {
+          "title": "Gateway Root",
           "type": "string"
         },
         "host": {
@@ -40,18 +40,6 @@
           "default": null,
           "title": "Port"
         },
-        "state_path": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "State Path"
-        },
         "protocol_version": {
           "anyOf": [
             {
@@ -64,6 +52,18 @@
           ],
           "default": null,
           "title": "Protocol Version"
+        },
+        "state_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Path"
         }
       },
       "required": [
@@ -79,6 +79,7 @@
       "properties": {
         "backend": {
           "enum": [
+            "local_interactive",
             "codex_headless",
             "codex_app_server",
             "claude_headless",
@@ -105,25 +106,25 @@
       "additionalProperties": false,
       "description": "Filesystem mailbox identity metadata for one live published session.",
       "properties": {
-        "transport": {
-          "const": "filesystem",
-          "title": "Transport",
-          "type": "string"
-        },
-        "principal_id": {
-          "title": "Principal Id",
-          "type": "string"
-        },
         "address": {
           "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
           "type": "string"
         },
         "filesystem_root": {
           "title": "Filesystem Root",
           "type": "string"
         },
-        "bindings_version": {
-          "title": "Bindings Version",
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
           "type": "string"
         }
       },
@@ -141,15 +142,6 @@
       "additionalProperties": false,
       "description": "Stalwart mailbox identity metadata for one live published session.",
       "properties": {
-        "transport": {
-          "const": "stalwart",
-          "title": "Transport",
-          "type": "string"
-        },
-        "principal_id": {
-          "title": "Principal Id",
-          "type": "string"
-        },
         "address": {
           "title": "Address",
           "type": "string"
@@ -158,20 +150,29 @@
           "title": "Bindings Version",
           "type": "string"
         },
-        "jmap_url": {
-          "title": "Jmap Url",
+        "credential_ref": {
+          "title": "Credential Ref",
           "type": "string"
         },
-        "management_url": {
-          "title": "Management Url",
+        "jmap_url": {
+          "title": "Jmap Url",
           "type": "string"
         },
         "login_identity": {
           "title": "Login Identity",
           "type": "string"
         },
-        "credential_ref": {
-          "title": "Credential Ref",
+        "management_url": {
+          "title": "Management Url",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "transport": {
+          "const": "stalwart",
+          "title": "Transport",
           "type": "string"
         }
       },
@@ -192,6 +193,18 @@
       "additionalProperties": false,
       "description": "Pointers to runtime-owned state for one live session.",
       "properties": {
+        "agent_def_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Def Dir"
+        },
         "manifest_path": {
           "title": "Manifest Path",
           "type": "string"
@@ -207,18 +220,6 @@
           ],
           "default": null,
           "title": "Session Root"
-        },
-        "agent_def_dir": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Agent Def Dir"
         }
       },
       "required": [
@@ -252,39 +253,13 @@
   "additionalProperties": false,
   "description": "Shared-registry ``record.json`` contract for one live published agent.",
   "properties": {
-    "schema_version": {
-      "default": 2,
-      "title": "Schema Version",
-      "type": "integer"
-    },
-    "agent_name": {
-      "title": "Agent Name",
-      "type": "string"
-    },
     "agent_id": {
       "title": "Agent Id",
       "type": "string"
     },
-    "generation_id": {
-      "title": "Generation Id",
+    "agent_name": {
+      "title": "Agent Name",
       "type": "string"
-    },
-    "published_at": {
-      "title": "Published At",
-      "type": "string"
-    },
-    "lease_expires_at": {
-      "title": "Lease Expires At",
-      "type": "string"
-    },
-    "identity": {
-      "$ref": "#/$defs/RegistryIdentityV1"
-    },
-    "runtime": {
-      "$ref": "#/$defs/RegistryRuntimeV1"
-    },
-    "terminal": {
-      "$ref": "#/$defs/RegistryTerminalV1"
     },
     "gateway": {
       "anyOf": [
@@ -296,6 +271,17 @@
         }
       ],
       "default": null
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "identity": {
+      "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "lease_expires_at": {
+      "title": "Lease Expires At",
+      "type": "string"
     },
     "mailbox": {
       "anyOf": [
@@ -322,6 +308,21 @@
       ],
       "default": null,
       "title": "Mailbox"
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RegistryRuntimeV1"
+    },
+    "schema_version": {
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "terminal": {
+      "$ref": "#/$defs/RegistryTerminalV1"
     }
   },
   "required": [
