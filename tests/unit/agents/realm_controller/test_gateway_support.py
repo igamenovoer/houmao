@@ -69,6 +69,17 @@ from houmao.mailbox.stalwart import (
     runtime_stalwart_credential_path,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.server.models import (
+    HoumaoRecentTransition,
+    HoumaoStabilityMetadata,
+    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSessionIdentity,
+    HoumaoTrackedSurface,
+    HoumaoTrackedTurn,
+)
 
 
 def _write(path: Path, text: str) -> None:
@@ -514,6 +525,11 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
         lambda *, session_name: session_name == "AGENTSYS-local",
     )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -539,12 +555,19 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
         )
         assert accepted.request_kind == "submit_prompt"
         assert fake_session.started_event.wait(timeout=2.0)
+        for _ in range(40):
+            if _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]:
+                break
+            time.sleep(0.05)
+        assert _FakeGatewayTrackingRuntime.m_started_session_ids == ["local-interactive-1"]
+        assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
     finally:
         fake_session.release_event.set()
         runtime.shutdown()
 
     assert fake_session.prompt_calls == [("hello", "turn-local-123")]
     assert fake_controller.persist_manifest_calls == [False]
+    assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
 
 
 def test_gateway_service_routes_local_interactive_interrupts_through_runtime_control(
@@ -595,6 +618,111 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
         runtime.shutdown()
 
     assert fake_controller.interrupt_calls == 1
+
+
+def test_gateway_service_builds_local_interactive_tui_tracking_identity_without_manifest_enrichment(
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    manifest_path.unlink()
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    identity = runtime._tui_tracking_identity_locked()
+
+    assert identity is not None
+    assert identity.tracked_session_id == "local-interactive-1"
+    assert identity.session_name == "local-interactive-1"
+    assert identity.tool == "codex"
+    assert identity.tmux_session_name == "AGENTSYS-local"
+    assert identity.tmux_window_name is None
+    assert identity.terminal_aliases == []
+    assert identity.agent_name is None
+    assert identity.agent_id is None
+    assert identity.manifest_path == str(manifest_path)
+
+
+def test_gateway_service_exposes_local_interactive_tui_tracking_routes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        assert _FakeGatewayTrackingRuntime.m_started_session_ids == ["local-interactive-1"]
+        identity = _FakeGatewayTrackingRuntime.m_identities[0]
+        assert identity.tracked_session_id == "local-interactive-1"
+        assert identity.session_name == "local-interactive-1"
+        assert identity.tmux_session_name == "AGENTSYS-local"
+        assert identity.tmux_window_name is None
+        assert identity.terminal_aliases == []
+        assert identity.agent_name == "AGENTSYS-local"
+        assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
+
+        state_response = client.get("/v1/control/tui/state")
+        assert state_response.status_code == 200
+        assert state_response.json()["terminal_id"] == "local-interactive-1"
+        assert (
+            state_response.json()["tracked_session"]["tracked_session_id"] == "local-interactive-1"
+        )
+        assert state_response.json()["tracked_session"]["terminal_aliases"] == []
+
+        history_response = client.get("/v1/control/tui/history", params={"limit": 3})
+        assert history_response.status_code == 200
+        assert history_response.json()["terminal_id"] == "local-interactive-1"
+        assert history_response.json()["tracked_session_id"] == "local-interactive-1"
+        assert history_response.json()["entries"][0]["summary"] == "limit=3"
+
+        note_response = client.post(
+            "/v1/control/tui/note-prompt",
+            json=GatewayRequestPayloadSubmitPromptV1(
+                prompt="route-note",
+                turn_id="turn-route",
+            ).model_dump(mode="json"),
+        )
+        assert note_response.status_code == 200
+        assert note_response.json()["terminal_id"] == "local-interactive-1"
+        assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["route-note"]
+    finally:
+        runtime.shutdown()
+
+    assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
 
 
 def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(
@@ -1214,6 +1342,107 @@ class _FakeGatewayHeadlessController:
         self.interrupt_calls += 1
         self.interrupted_event.set()
         return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+
+def _tracked_terminal_id(identity: HoumaoTrackedSessionIdentity) -> str:
+    if identity.terminal_aliases:
+        return identity.terminal_aliases[0]
+    return identity.tracked_session_id
+
+
+def _sample_gateway_tracked_state(
+    identity: HoumaoTrackedSessionIdentity,
+) -> HoumaoTerminalStateResponse:
+    terminal_id = _tracked_terminal_id(identity)
+    return HoumaoTerminalStateResponse(
+        terminal_id=terminal_id,
+        tracked_session=identity,
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="available",
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_error=None,
+            parse_error=None,
+        ),
+        probe_snapshot=None,
+        parsed_surface=None,
+        surface=HoumaoTrackedSurface(
+            accepting_input="yes",
+            editing_input="no",
+            ready_posture="yes",
+        ),
+        turn=HoumaoTrackedTurn(phase="ready"),
+        last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
+        stability=HoumaoStabilityMetadata(
+            signature="local-interactive-ready",
+            stable=True,
+            stable_for_seconds=3.0,
+            stable_since_utc="2026-03-25T18:00:00+00:00",
+        ),
+        recent_transitions=[],
+    )
+
+
+def _sample_gateway_tracked_history(
+    identity: HoumaoTrackedSessionIdentity,
+    *,
+    limit: int,
+) -> HoumaoTerminalHistoryResponse:
+    terminal_id = _tracked_terminal_id(identity)
+    return HoumaoTerminalHistoryResponse(
+        terminal_id=terminal_id,
+        tracked_session_id=identity.tracked_session_id,
+        entries=[
+            HoumaoRecentTransition(
+                recorded_at_utc="2026-03-25T18:00:00+00:00",
+                summary=f"limit={limit}",
+                changed_fields=["turn_phase"],
+                diagnostics_availability="available",
+                turn_phase="ready",
+                last_turn_result="none",
+                last_turn_source="none",
+                transport_state="tmux_up",
+                process_state="tui_up",
+                parse_status="parsed",
+                operator_status="ready",
+            )
+        ],
+    )
+
+
+class _FakeGatewayTrackingRuntime:
+    m_identities: list[HoumaoTrackedSessionIdentity] = []
+    m_started_session_ids: list[str] = []
+    m_stopped_session_ids: list[str] = []
+    m_prompt_notes: list[str] = []
+
+    def __init__(self, *, identity: HoumaoTrackedSessionIdentity, **_: object) -> None:
+        self.m_identity = identity
+        type(self).m_identities.append(identity)
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.m_identities = []
+        cls.m_started_session_ids = []
+        cls.m_stopped_session_ids = []
+        cls.m_prompt_notes = []
+
+    def start(self) -> None:
+        type(self).m_started_session_ids.append(self.m_identity.tracked_session_id)
+
+    def stop(self) -> None:
+        type(self).m_stopped_session_ids.append(self.m_identity.tracked_session_id)
+
+    def current_state(self) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state(self.m_identity)
+
+    def history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+        return _sample_gateway_tracked_history(self.m_identity, limit=limit)
+
+    def note_prompt_submission(self, *, message: str) -> HoumaoTerminalStateResponse:
+        type(self).m_prompt_notes.append(message)
+        return _sample_gateway_tracked_state(self.m_identity)
 
 
 def _seed_cao_gateway_root_with_stalwart_mailbox(
