@@ -1714,25 +1714,39 @@ class GatewayServiceRuntime:
     def _tui_tracking_identity_locked(self) -> HoumaoTrackedSessionIdentity | None:
         """Build the tracked-session identity for gateway-owned TUI tracking."""
 
-        if self.m_attach_contract.backend not in {"cao_rest", "houmao_server_rest"}:
-            return None
-
         metadata = self.m_attach_contract.backend_metadata
+        tracked_session_id: str
         session_name: str
-        terminal_id: str
         tmux_window_name: str | None
+        terminal_aliases: list[str]
+        tool = "codex"
         if isinstance(metadata, GatewayAttachBackendMetadataCaoV1):
+            if self.m_attach_contract.backend != "cao_rest":
+                return None
+            tracked_session_id = self.m_attach_contract.attach_identity
             session_name = self.m_attach_contract.attach_identity
-            terminal_id = metadata.terminal_id
             tmux_window_name = metadata.tmux_window_name
+            terminal_aliases = [metadata.terminal_id]
         elif isinstance(metadata, GatewayAttachBackendMetadataHoumaoServerV1):
+            if self.m_attach_contract.backend != "houmao_server_rest":
+                return None
+            tracked_session_id = metadata.session_name
             session_name = metadata.session_name
-            terminal_id = metadata.terminal_id
             tmux_window_name = metadata.tmux_window_name
+            terminal_aliases = [metadata.terminal_id]
+        elif isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1):
+            if self.m_attach_contract.backend != "local_interactive":
+                return None
+            tracked_session_id = (
+                self.m_attach_contract.runtime_session_id or self.m_attach_contract.attach_identity
+            )
+            session_name = tracked_session_id
+            tmux_window_name = None
+            terminal_aliases = []
+            tool = metadata.tool
         else:
             return None
 
-        tool = "codex"
         observed_tool_version: str | None = None
         agent_name: str | None = None
         agent_id: str | None = None
@@ -1754,13 +1768,13 @@ class GatewayServiceRuntime:
                 agent_id = payload.agent_id
 
         return HoumaoTrackedSessionIdentity(
-            tracked_session_id=session_name,
+            tracked_session_id=tracked_session_id,
             session_name=session_name,
             tool=tool,
             observed_tool_version=observed_tool_version,
             tmux_session_name=self.m_attach_contract.tmux_session_name,
             tmux_window_name=tmux_window_name,
-            terminal_aliases=[terminal_id],
+            terminal_aliases=terminal_aliases,
             agent_name=agent_name,
             agent_id=agent_id,
             manifest_path=self.m_attach_contract.manifest_path,

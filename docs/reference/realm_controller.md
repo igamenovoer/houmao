@@ -101,6 +101,8 @@ pixi run python -m houmao.agents.realm_controller detach-gateway \
 
 The same runtime gateway commands also apply to runtime-owned `local_interactive` sessions used by serverless local agents. When a live gateway is attached, prompt and interrupt requests resume that local tmux-backed runtime authority through the gateway instead of falling back to direct CLI control.
 
+Attached `local_interactive` gateways also expose the gateway-owned TUI tracking routes for that same session: `GET /v1/control/tui/state`, `GET /v1/control/tui/history`, and `POST /v1/control/tui/note-prompt`. On that path the public `terminal_id` falls back to the runtime session id because there is no CAO-style terminal alias.
+
 `gateway-send-prompt` and `gateway-interrupt` require a live attached gateway and fail explicitly when the session is only gateway-capable. Legacy direct-control commands such as `send-prompt` still work for sessions that have no live gateway attached.
 
 ## Agent Definition Directory Resolution

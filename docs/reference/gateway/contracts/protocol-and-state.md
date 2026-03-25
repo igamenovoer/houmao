@@ -74,6 +74,7 @@ Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach and request execution currently support runtime-owned `local_interactive` sessions, runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
+- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable attach metadata and uses the runtime session id as the public `terminal_id` compatibility value because no CAO terminal alias exists on that path.
 - Native headless attach metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
 
@@ -108,6 +109,10 @@ Current v1 routes:
 
 - `GET /health`
 - `GET /v1/status`
+- `GET /v1/control/tui/state`
+- `GET /v1/control/tui/history`
+- `POST /v1/control/tui/note-prompt`
+- `GET /v1/control/headless/state`
 - `POST /v1/requests`
 - `GET /v1/mail/status`
 - `POST /v1/mail/check`
@@ -228,6 +233,36 @@ Observable current error semantics:
 - unavailable managed-agent admission returns HTTP `503`.
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
+
+### `GET /v1/control/tui/state`
+
+This route returns the gateway-owned live `HoumaoTerminalStateResponse` for one attached TUI-backed session.
+
+Current availability rules:
+
+- attached runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`),
+- attached runtime-owned `local_interactive` sessions, and
+- HTTP `422` for attached backends that do not have a gateway-owned TUI tracker.
+
+For attached `local_interactive`, the gateway synthesizes tracked identity from `attach.json.runtime_session_id` (falling back to `attach_identity`), keeps `terminal_aliases` empty, and therefore exposes the runtime session id as the public `terminal_id` on this route.
+
+### `GET /v1/control/tui/history`
+
+This route returns the gateway-owned live `HoumaoTerminalHistoryResponse` for the same tracked TUI session.
+
+The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
+
+### `POST /v1/control/tui/note-prompt`
+
+This route records explicit-input evidence on the gateway-owned tracker for the attached session and returns the updated `HoumaoTerminalStateResponse`.
+
+It accepts the same payload shape as prompt submission (`GatewayRequestPayloadSubmitPromptV1`), but only the `prompt` value is consumed by the tracker. Successful `submit_prompt` execution through `POST /v1/requests` already records this prompt note automatically, so callers only need this route when they must preserve explicit-input provenance without routing the prompt through the gateway request queue.
+
+### `GET /v1/control/headless/state`
+
+This route returns the read-optimized `GatewayHeadlessControlStateV1` for attached native headless backends.
+
+`local_interactive` sessions do not use this route. When attached, they expose gateway-owned live TUI state through `/v1/control/tui/*` instead.
 
 ### `GET /v1/mail/status`
 
