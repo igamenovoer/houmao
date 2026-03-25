@@ -1458,7 +1458,12 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
     manifest_path = (
-        tmp_path / "runtime" / "sessions" / "claude_headless" / "claude-headless-1" / "manifest.json"
+        tmp_path
+        / "runtime"
+        / "sessions"
+        / "claude_headless"
+        / "claude-headless-1"
+        / "manifest.json"
     )
     workdir.mkdir()
     agent_def_dir.mkdir()

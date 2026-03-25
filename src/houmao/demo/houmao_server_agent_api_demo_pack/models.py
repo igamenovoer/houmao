@@ -93,9 +93,7 @@ class PersistedDemoState:
             config=dict(payload.get("config", {})),
             preflight=dict(payload.get("preflight", {})),
             server=dict(payload.get("server", {})),
-            lanes={
-                str(key): dict(value) for key, value in dict(payload.get("lanes", {})).items()
-            },
+            lanes={str(key): dict(value) for key, value in dict(payload.get("lanes", {})).items()},
             failure=payload.get("failure"),
             shared_routes=(
                 None

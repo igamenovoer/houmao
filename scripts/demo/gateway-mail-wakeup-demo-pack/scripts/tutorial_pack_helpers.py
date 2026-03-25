@@ -1278,8 +1278,7 @@ def _resolve_managed_agent_identity(
         identity_payload["session_manifest"] = str(session_manifest_path.resolve())
         return identity_payload
     raise RuntimeError(
-        "timed out resolving the managed-agent identity for the started session: "
-        f"{last_error}"
+        f"timed out resolving the managed-agent identity for the started session: {last_error}"
     )
 
 
@@ -1438,7 +1437,10 @@ def _wait_for_idle(
         if client is not None and managed_agent_ref is not None:
             try:
                 managed_state = client.get_managed_agent_state(managed_agent_ref)
-                if managed_state.availability == "available" and managed_state.turn.phase == "ready":
+                if (
+                    managed_state.availability == "available"
+                    and managed_state.turn.phase == "ready"
+                ):
                     return {
                         "ok": True,
                         "state_source": "server_state",
@@ -1950,7 +1952,9 @@ def build_report(
     checks = {
         "server_managed": bool(_require_mapping(state["server"], context="server").get("managed")),
         "managed_agent_resolved": bool(
-            _require_mapping(state["managed_agent"], context="managed_agent").get("tracked_agent_id")
+            _require_mapping(state["managed_agent"], context="managed_agent").get(
+                "tracked_agent_id"
+            )
         ),
         "gateway_attached": bool(
             _require_mapping(state["gateway"], context="gateway").get("gateway_root")
@@ -2233,7 +2237,9 @@ def start_demo(
         env=env,
     )
     session_manifest_path = Path(
-        _require_non_empty_string(session_payload.get("session_manifest"), context="session_manifest")
+        _require_non_empty_string(
+            session_payload.get("session_manifest"), context="session_manifest"
+        )
     )
     managed_agent_identity = _resolve_managed_agent_identity(
         api_base_url=_require_non_empty_string(
@@ -2457,7 +2463,9 @@ def stop_demo(*, repo_root: Path, demo_output_dir: Path) -> dict[str, Any]:
         client = _server_client_from_state(state)
         managed_agent_ref = _managed_agent_ref_from_state(state)
         if client is None or managed_agent_ref is None:
-            raise RuntimeError("managed-agent stop requires persisted server and managed-agent state")
+            raise RuntimeError(
+                "managed-agent stop requires persisted server and managed-agent state"
+            )
         stop_payloads["managed_agent_stop"] = client.stop_managed_agent(
             managed_agent_ref
         ).model_dump(mode="json")

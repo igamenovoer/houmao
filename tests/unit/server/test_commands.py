@@ -18,7 +18,9 @@ def test_serve_command_accepts_compatibility_timing_options(
         return config
 
     monkeypatch.setattr("houmao.server.commands.serve.build_config", _build_config)
-    monkeypatch.setattr("houmao.server.commands.serve.create_app", lambda *, config: {"config": config})
+    monkeypatch.setattr(
+        "houmao.server.commands.serve.create_app", lambda *, config: {"config": config}
+    )
     monkeypatch.setattr(
         "houmao.server.commands.serve.uvicorn.run",
         lambda app, host, port, log_level: captured.update(

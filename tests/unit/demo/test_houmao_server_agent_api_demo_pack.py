@@ -82,9 +82,18 @@ def test_start_suite_server_uses_pack_owned_agent_def_dir_and_timeout_flags(
     fixture_paths = FixturePaths(
         repo_root=tmp_path,
         pack_dir=tmp_path / "scripts" / "demo" / "houmao-server-agent-api-demo-pack",
-        agent_def_dir=tmp_path / "scripts" / "demo" / "houmao-server-agent-api-demo-pack" / "agents",
+        agent_def_dir=tmp_path
+        / "scripts"
+        / "demo"
+        / "houmao-server-agent-api-demo-pack"
+        / "agents",
         compatibility_profile_path=None,
-        dummy_project_fixture=tmp_path / "scripts" / "demo" / "houmao-server-agent-api-demo-pack" / "inputs" / "project-template",
+        dummy_project_fixture=tmp_path
+        / "scripts"
+        / "demo"
+        / "houmao-server-agent-api-demo-pack"
+        / "inputs"
+        / "project-template",
     )
     for path in (
         fixture_paths.pack_dir,
@@ -258,9 +267,7 @@ def test_autotest_harness_preflight_dispatches_and_writes_result(tmp_path: Path)
     """The pack-local autotest harness should dispatch the preflight case contract."""
 
     repo_root = Path(__file__).resolve().parents[3]
-    pack_dir = (
-        repo_root / "scripts" / "demo" / "houmao-server-agent-api-demo-pack"
-    ).resolve()
+    pack_dir = (repo_root / "scripts" / "demo" / "houmao-server-agent-api-demo-pack").resolve()
     harness_path = (pack_dir / "autotest" / "run_autotest.sh").resolve()
     fake_bin_dir = (tmp_path / "fake-bin").resolve()
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
@@ -289,29 +296,19 @@ def test_autotest_harness_preflight_dispatches_and_writes_result(tmp_path: Path)
     assert result.returncode == 0, result.stderr
     case_result = json.loads(
         (
-            demo_output_dir
-            / "control"
-            / "autotest"
-            / "case-real-agent-preflight.result.json"
+            demo_output_dir / "control" / "autotest" / "case-real-agent-preflight.result.json"
         ).read_text(encoding="utf-8")
     )
     preflight_payload = json.loads(
         (
-            demo_output_dir
-            / "control"
-            / "autotest"
-            / "case-real-agent-preflight.preflight.json"
+            demo_output_dir / "control" / "autotest" / "case-real-agent-preflight.preflight.json"
         ).read_text(encoding="utf-8")
     )
 
     assert case_result["status"] == "passed"
     assert preflight_payload["ok"] is True
     assert (
-        demo_output_dir
-        / "logs"
-        / "autotest"
-        / "real-agent-preflight"
-        / "01-preflight.command.txt"
+        demo_output_dir / "logs" / "autotest" / "real-agent-preflight" / "01-preflight.command.txt"
     ).is_file()
     command_log = command_log_path.read_text(encoding="utf-8").splitlines()
     helper_script = str(pack_dir / "scripts" / "demo_pack_helpers.py")
@@ -422,9 +419,9 @@ def _seed_pack_fixture_tree(
     ).write_text("\n".join(env_lines) + "\n", encoding="utf-8")
 
     if tool == "claude":
-        (
-            agent_def_dir / "brains" / "api-creds" / "claude" / credential_profile / "files"
-        ).mkdir(parents=True, exist_ok=True)
+        (agent_def_dir / "brains" / "api-creds" / "claude" / credential_profile / "files").mkdir(
+            parents=True, exist_ok=True
+        )
         (
             agent_def_dir
             / "brains"
@@ -444,7 +441,7 @@ def _seed_pack_fixture_tree(
         (
             agent_def_dir / "brains" / "cli-configs" / "codex" / config_profile / "config.toml"
         ).write_text(
-            "[model_providers.openai]\nname = \"fixture\"\n",
+            '[model_providers.openai]\nname = "fixture"\n',
             encoding="utf-8",
         )
 
@@ -679,13 +676,13 @@ def _write_fake_pixi(path: Path, command_log_path: Path) -> None:
                 f"printf '%s\\n' \"$*\" >> {command_log_path}",
                 'if [[ "${1:-}" == "run" && "${2:-}" == "python" && "${3:-}" == "-" ]]; then',
                 "  shift 2",
-                f"  exec {sys.executable} \"$@\"",
+                f'  exec {sys.executable} "$@"',
                 "fi",
                 'if [[ "${1:-}" == "run" && "${2:-}" == "python" && "${3:-}" == *"/scripts/demo_pack_helpers.py" && "${4:-}" == "preflight" ]]; then',
-                "  printf '{\"ok\": true, \"mode\": \"fake-preflight\"}\\n'",
+                '  printf \'{"ok": true, "mode": "fake-preflight"}\\n\'',
                 "  exit 0",
                 "fi",
-                "echo \"unsupported fake pixi invocation: $*\" >&2",
+                'echo "unsupported fake pixi invocation: $*" >&2',
                 "exit 1",
             ]
         )

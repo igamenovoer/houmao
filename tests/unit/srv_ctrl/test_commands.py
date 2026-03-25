@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
+from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
 from houmao.server.models import HoumaoCurrentInstance, HoumaoHealthResponse
 from houmao.srv_ctrl.commands.main import cli
 from houmao.srv_ctrl.server_startup import (
@@ -95,7 +96,9 @@ def test_server_start_defaults_to_detached_startup_result(
             ),
         )
 
-    monkeypatch.setattr("houmao.srv_ctrl.commands.server.start_detached_server", _fake_start_detached)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.server.start_detached_server", _fake_start_detached
+    )
 
     result = CliRunner().invoke(
         cli,
@@ -179,6 +182,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     tmp_path: Path,
 ) -> None:
     attach_calls: list[list[str]] = []
+    captured: dict[str, object] = {}
     working_directory = tmp_path.resolve()
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
@@ -193,6 +197,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             config_profile="default",
             credential_profile="default",
             launch_overrides=None,
+            operator_prompt_mode="unattended",
             mailbox=None,
             default_agent_name="AGENTSYS-gpu",
         ),
@@ -212,11 +217,11 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
+        lambda request: (captured.setdefault("build_request", request), build_result)[1],
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: controller,
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.subprocess.run",
@@ -244,7 +249,221 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     assert "Managed agent launch complete:" in result.output
     assert "agent=agent-1234" in result.output
     assert f"manifest={controller.manifest_path}" in result.output
+    assert captured["build_request"].operator_prompt_mode == "unattended"
+    assert captured["start_kwargs"]["backend"] == "local_interactive"
     assert attach_calls == [["tmux", "attach-session", "-t", "gpu-session"]]
+
+
+def test_agents_launch_headless_keeps_native_headless_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = SimpleNamespace(
+        tool="claude",
+        agent_def_dir=working_directory / "agents",
+        role_name="researcher",
+        recipe=SimpleNamespace(
+            tool="claude",
+            skills=[],
+            config_profile="default",
+            credential_profile="default",
+            launch_overrides=None,
+            operator_prompt_mode=None,
+            mailbox=None,
+            default_agent_name="AGENTSYS-claude",
+        ),
+        recipe_path=working_directory / "recipe.yaml",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-claude",
+        agent_identity="AGENTSYS-claude",
+        tmux_session_name="AGENTSYS-claude",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.subprocess.run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("tmux attach should not run")),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--provider",
+            "claude_code",
+            "--headless",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["start_kwargs"]["backend"] == "claude_headless"
+
+
+def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = SimpleNamespace(
+        tool="claude",
+        agent_def_dir=working_directory / "agents",
+        role_name="researcher",
+        recipe=SimpleNamespace(
+            tool="claude",
+            skills=[],
+            config_profile="default",
+            credential_profile="default",
+            launch_overrides=None,
+            operator_prompt_mode="unattended",
+            mailbox=None,
+            default_agent_name="AGENTSYS-claude",
+        ),
+        recipe_path=working_directory / "recipe.yaml",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            LaunchPolicyResolutionError(
+                requested_operator_prompt_mode="unattended",
+                tool="claude",
+                policy_backend="raw_launch",
+                detected_version="2.1.83",
+                detail=(
+                    "No compatible unattended launch strategy exists for tool='claude', "
+                    "backend='raw_launch', version='2.1.83', "
+                    "requested_operator_prompt_mode='unattended'."
+                ),
+            )
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--provider",
+            "claude_code",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "runtime backend `local_interactive`" in result.output
+    assert "provider startup did not begin" in result.output
+    assert "requested_operator_prompt_mode='unattended'" in result.output
+    assert "policy_backend='raw_launch'" in result.output
+    assert "detected_version='2.1.83'" in result.output
+
+
+def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = SimpleNamespace(
+        tool="claude",
+        agent_def_dir=working_directory / "agents",
+        role_name="researcher",
+        recipe=SimpleNamespace(
+            tool="claude",
+            skills=[],
+            config_profile="default",
+            credential_profile="default",
+            launch_overrides=None,
+            operator_prompt_mode="unattended",
+            mailbox=None,
+            default_agent_name="AGENTSYS-claude",
+        ),
+        recipe_path=working_directory / "recipe.yaml",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            LaunchPolicyResolutionError(
+                requested_operator_prompt_mode="unattended",
+                tool="claude",
+                policy_backend="claude_headless",
+                detected_version="2.1.83",
+                detail=(
+                    "No compatible unattended launch strategy exists for tool='claude', "
+                    "backend='claude_headless', version='2.1.83', "
+                    "requested_operator_prompt_mode='unattended'."
+                ),
+            )
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--provider",
+            "claude_code",
+            "--headless",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "runtime backend `claude_headless`" in result.output
+    assert "provider startup did not begin" in result.output
+    assert "policy_backend='claude_headless'" in result.output
+    assert "detected_version='2.1.83'" in result.output
 
 
 def test_agents_launch_rejects_unsupported_provider() -> None:

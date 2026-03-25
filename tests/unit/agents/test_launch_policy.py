@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
 
 import pytest
 
-from houmao.agents.launch_policy import apply_launch_policy
-from houmao.agents.launch_policy.models import LaunchPolicyError, LaunchPolicyRequest
+from houmao.agents.launch_policy import apply_launch_policy, detect_tool_version
+from houmao.agents.launch_policy.engine import load_registry_documents
+from houmao.agents.launch_policy.models import (
+    LaunchPolicyError,
+    LaunchPolicyRequest,
+    SupportedVersionSpec,
+    ToolVersion,
+)
 
 
 def _stub_version(
@@ -115,11 +122,13 @@ wire_api = "responses"
     assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
 
 
+@pytest.mark.parametrize("version_output", ["2.1.81 (Claude Code)", "2.1.83 (Claude Code)"])
 def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    version_output: str,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.81 (Claude Code)")
+    _stub_version(monkeypatch, output=version_output)
     home = tmp_path / "claude-home"
     api_key = "sk-live-abcdefghijklmnopqrstuvwxyz1234567890"
 
@@ -161,6 +170,19 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
         is True
     )
     assert api_key not in state_text
+
+
+def test_supported_version_spec_uses_dependency_style_matching() -> None:
+    spec = SupportedVersionSpec.parse(">=2.1.81,<2.1.84")
+
+    assert spec.contains(ToolVersion.parse("2.1.81"))
+    assert spec.contains(ToolVersion.parse("2.1.83"))
+    assert not spec.contains(ToolVersion.parse("2.1.84"))
+
+
+def test_supported_version_spec_rejects_invalid_specifier() -> None:
+    with pytest.raises(LaunchPolicyError, match="Unsupported supported_versions specifier"):
+        SupportedVersionSpec.parse("latest")
 
 
 def test_unattended_strategy_override_is_transient(
@@ -214,3 +236,27 @@ def test_unattended_launch_fails_closed_for_unknown_version(
                 env={},
             )
         )
+
+
+@pytest.mark.parametrize("backend", ["raw_launch", "claude_headless"])
+def test_installed_claude_version_is_covered_by_declared_supported_versions_when_available(
+    backend: str,
+) -> None:
+    if shutil.which("claude") is None:
+        pytest.skip("claude is not available on PATH")
+
+    detected_version = detect_tool_version(executable="claude")
+    matches = [
+        strategy
+        for document in load_registry_documents(tool="claude")
+        for strategy in document.strategies
+        if strategy.operator_prompt_mode == "unattended"
+        and backend in strategy.backends
+        and strategy.supported_versions.contains(detected_version)
+    ]
+
+    assert len(matches) == 1, (
+        "Installed Claude version is not covered by exactly one declared unattended strategy "
+        f"for backend={backend!r}: version={detected_version.raw!r}, "
+        f"matches={[item.strategy_id for item in matches]!r}"
+    )

@@ -77,8 +77,7 @@ def resolve_native_launch_target(
     recipe = load_brain_recipe(recipe_path)
     if recipe.tool != resolved_tool:
         raise ValueError(
-            f"Resolved recipe `{recipe_path}` targets tool `{recipe.tool}`, "
-            f"not `{resolved_tool}`."
+            f"Resolved recipe `{recipe_path}` targets tool `{recipe.tool}`, not `{resolved_tool}`."
         )
 
     role_name, role_prompt, role_prompt_path = _resolve_optional_role(
@@ -121,8 +120,7 @@ def _resolve_recipe_path(
         if candidate.is_file():
             return candidate.resolve()
     raise FileNotFoundError(
-        "Could not resolve a native brain recipe for "
-        f"`{selector}` under `{recipe_root}`."
+        f"Could not resolve a native brain recipe for `{selector}` under `{recipe_root}`."
     )
 
 
@@ -156,12 +154,12 @@ def _resolve_path_like_recipe_path(*, selector: str, agent_def_dir: Path) -> Pat
     for candidate in candidates:
         if candidate.is_file():
             return candidate.resolve()
-    raise FileNotFoundError(
-        f"Could not resolve native recipe path from selector `{selector}`."
-    )
+    raise FileNotFoundError(f"Could not resolve native recipe path from selector `{selector}`.")
 
 
-def _resolve_optional_role(*, selector: str, agent_def_dir: Path) -> tuple[str | None, str, Path | None]:
+def _resolve_optional_role(
+    *, selector: str, agent_def_dir: Path
+) -> tuple[str | None, str, Path | None]:
     """Resolve one optional role binding for a native launch selector."""
 
     role_candidate = _safe_role_name(selector)
@@ -173,8 +171,7 @@ def _resolve_optional_role(*, selector: str, agent_def_dir: Path) -> tuple[str |
 
 def _safe_role_name(value: str) -> str:
     stripped = "".join(
-        character if character.isalnum() or character in {"-", "_"} else "-"
-        for character in value
+        character if character.isalnum() or character in {"-", "_"} else "-" for character in value
     )
     stripped = stripped.strip("-_")
     return stripped or "brain-only"

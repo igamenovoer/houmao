@@ -91,11 +91,7 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
     agent_def_dir = (
-        repo_root
-        / "scripts"
-        / "demo"
-        / "houmao-server-interactive-full-pipeline-demo"
-        / "agents"
+        repo_root / "scripts" / "demo" / "houmao-server-interactive-full-pipeline-demo" / "agents"
     )
     fixture_agent_def_dir = repo_root / "tests" / "fixtures" / "agents"
     fixture_agent_def_dir.mkdir(parents=True, exist_ok=True)
@@ -168,7 +164,9 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         runtime_root: Path,
     ) -> HoumaoHeadlessLaunchResponse:
         session_name = requested_session_name or "alice"
-        manifest_path = runtime_root / "sessions" / "houmao_server_rest" / session_name / "manifest.json"
+        manifest_path = (
+            runtime_root / "sessions" / "houmao_server_rest" / session_name / "manifest.json"
+        )
         session_root = runtime_root / "sessions" / "houmao_server_rest" / session_name
         return HoumaoHeadlessLaunchResponse(
             success=True,

@@ -1361,12 +1361,12 @@ def _wait_for_post_request_state(
         latest_state = cast(
             HoumaoManagedAgentStateResponse,
             _record_route_call(
-            recorder=lane_runtime.http_recorder,
-            label="state-poll",
-            method="GET",
-            path=f"/houmao/agents/{tracked_agent_id}/state",
-            request_payload=None,
-            callback=lambda: client.get_managed_agent_state(tracked_agent_id),
+                recorder=lane_runtime.http_recorder,
+                label="state-poll",
+                method="GET",
+                path=f"/houmao/agents/{tracked_agent_id}/state",
+                request_payload=None,
+                callback=lambda: client.get_managed_agent_state(tracked_agent_id),
             ),
         )
         if _is_observable_post_request_progress(

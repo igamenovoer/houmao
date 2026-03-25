@@ -218,9 +218,7 @@ def build_report(
             "api_base_url": server_payload.get("api_base_url"),
             "pid": server_payload.get("pid"),
             "health_status": health_payload.get("status"),
-            "credentials_present": bool(
-                list(server_payload.get("credential_env_var_names", []))
-            ),
+            "credentials_present": bool(list(server_payload.get("credential_env_var_names", []))),
         },
         "shared_routes": (
             None

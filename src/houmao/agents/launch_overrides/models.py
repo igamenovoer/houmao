@@ -7,6 +7,7 @@ from typing import Final, Literal, TypeAlias, cast
 
 LaunchArgsMode: TypeAlias = Literal["append", "replace"]
 SupportedLaunchBackend: TypeAlias = Literal[
+    "raw_launch",
     "codex_headless",
     "codex_app_server",
     "claude_headless",
@@ -20,6 +21,7 @@ JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
 _SUPPORTED_LAUNCH_BACKENDS: Final[frozenset[str]] = frozenset(
     {
+        "raw_launch",
         "codex_headless",
         "codex_app_server",
         "claude_headless",

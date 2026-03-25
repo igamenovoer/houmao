@@ -9,9 +9,7 @@ strategies:
       - codex_app_server
       - cao_rest
       - houmao_server_rest
-    version_range:
-      min_inclusive: 0.116.0
-      max_exclusive: 0.117.0
+    supported_versions: ">=0.116.0,<0.117.0"
     minimal_inputs:
       credential_forms:
         - auth.json
@@ -69,4 +67,3 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: codex.ensure_model_migration_state
-

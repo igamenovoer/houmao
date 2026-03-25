@@ -233,8 +233,7 @@ def _wait_for_detached_server(
                 current_instance=current_instance,
                 reused_existing=False,
                 detail=(
-                    f"Started houmao-server at {config.api_base_url} "
-                    f"(pid={current_instance.pid})."
+                    f"Started houmao-server at {config.api_base_url} (pid={current_instance.pid})."
                 ),
                 log_paths=log_paths,
             )
