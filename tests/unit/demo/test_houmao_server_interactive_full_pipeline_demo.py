@@ -12,6 +12,10 @@ import houmao.demo.houmao_server_interactive_full_pipeline_demo.commands as demo
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
 from houmao.cao.rest_client import CaoApiError
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
+    DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
+    DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
+    DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
+    DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
     DemoEnvironment,
     DemoPaths,
     DemoState,
@@ -43,6 +47,10 @@ def _demo_env(repo_root: Path) -> DemoEnvironment:
         request_settle_timeout_seconds=2.0,
         request_poll_interval_seconds=0.01,
         server_stop_timeout_seconds=2.0,
+        compat_shell_ready_timeout_seconds=DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
+        compat_provider_ready_timeout_seconds=DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
+        compat_codex_warmup_seconds=DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
+        compat_create_timeout_seconds=DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
     )
 
 
@@ -233,6 +241,7 @@ def test_launch_pair_session_uses_public_detached_compat_command_and_env(
         requested_session_name="alice",
         workdir=workdir,
         env=launch_env,
+        compat_create_timeout_seconds=180.0,
     )
 
     assert captured["args"] == [
@@ -249,11 +258,69 @@ def test_launch_pair_session_uses_public_detached_compat_command_and_env(
         "codex",
         "--port",
         "19989",
+        "--compat-create-timeout-seconds",
+        "180.0",
         "--session-name",
         "alice",
     ]
     assert captured["cwd"] == str(workdir.resolve())
     assert captured["env"] == launch_env
+
+
+def test_start_server_process_passes_demo_owned_compatibility_startup_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Demo-owned server startup should forward explicit compatibility timing overrides."""
+
+    captured: dict[str, object] = {}
+    paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    paths.workspace_root.mkdir(parents=True, exist_ok=True)
+
+    class _FakeProcess:
+        pid = 4242
+
+    def _fake_popen(*args: object, **kwargs: object) -> _FakeProcess:
+        captured["args"] = args[0]
+        captured["cwd"] = kwargs["cwd"]
+        captured["env"] = kwargs["env"]
+        captured["start_new_session"] = kwargs["start_new_session"]
+        return _FakeProcess()
+
+    monkeypatch.setattr(demo_commands.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(demo_commands, "_wait_for_server_health", lambda **kwargs: None)
+
+    process = demo_commands._start_server_process(
+        api_base_url="http://127.0.0.1:19989",
+        paths=paths,
+        timeout_seconds=5.0,
+        env={"HOME": "/demo/server/home"},
+        compat_shell_ready_timeout_seconds=20.0,
+        compat_provider_ready_timeout_seconds=120.0,
+        compat_codex_warmup_seconds=10.0,
+    )
+
+    assert process.pid == 4242
+    assert captured["args"] == [
+        demo_commands.sys.executable,
+        "-m",
+        "houmao.server",
+        "serve",
+        "--api-base-url",
+        "http://127.0.0.1:19989",
+        "--runtime-root",
+        str(paths.server_runtime_root),
+        "--compat-shell-ready-timeout-seconds",
+        "20.0",
+        "--compat-provider-ready-timeout-seconds",
+        "120.0",
+        "--compat-codex-warmup-seconds",
+        "10.0",
+    ]
+    assert captured["cwd"] == str(paths.workspace_root)
+    assert captured["env"] == {"HOME": "/demo/server/home"}
+    assert captured["start_new_session"] is True
 
 
 def test_start_demo_persists_manifest_bridge_without_second_registration_post(
@@ -361,6 +428,7 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     assert payload.state.houmao_server.session_name == "cao-alice"
     assert loaded.session_manifest_path.endswith("manifest.json")
     assert captured_launch_kwargs["workdir"] == paths.workdir
+    assert captured_launch_kwargs["compat_create_timeout_seconds"] == 180.0
     launch_env = captured_launch_kwargs["env"]
     assert isinstance(launch_env, dict)
     assert launch_env["HOME"] == str(paths.server_home_dir)

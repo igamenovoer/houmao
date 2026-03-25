@@ -2,6 +2,13 @@
 
 This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server`, top-level `houmao-mgr install`, and detached `houmao-mgr cao launch --headless`, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
 
+The pack intentionally uses a demo-owned generous compatibility startup profile so detached launch stays reliable under automation and slow provider startup:
+
+- shell-ready timeout: `20s`
+- provider-ready timeout: `120s`
+- Codex warmup override: `10s`
+- detached compatibility create timeout: `180s`
+
 ## Prerequisites
 
 - `pixi`
@@ -28,6 +35,14 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/launch_alice.sh
 Start the Codex-backed variant:
 
 ```bash
+scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start --provider codex
+```
+
+Tune the demo-owned compatibility startup budget explicitly:
+
+```bash
+DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=180 \
+DEMO_COMPAT_CREATE_TIMEOUT_SECONDS=240 \
 scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start --provider codex
 ```
 
@@ -66,6 +81,8 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 3. Installs the tracked `gpu-kernel-coder` compatibility profile into that server through `houmao-mgr install`.
 4. Launches one detached delegated TUI session through `houmao-mgr cao launch --headless --yolo` without attaching the caller terminal.
 5. Waits for the delegated runtime manifest under the demo-owned run root, loads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
+
+The demo-owned server start command passes explicit compatibility startup overrides into `houmao-server serve`, and the detached launch command passes an explicit compatibility create timeout into `houmao-mgr cao launch --headless`. If you override one side for a slow environment, keep the detached create timeout larger than the bounded server startup chain.
 
 The persisted v1 route contract is:
 
@@ -117,3 +134,14 @@ Useful files inside one run root:
 - `runtime/sessions/houmao_server_rest/<session-name>/manifest.json`: delegated runtime manifest discovered after launch
 
 The shell wrappers resolve the active run from `tmp/demo/houmao-server-interactive-full-pipeline-demo/current_run_root.txt` unless `DEMO_WORKSPACE_ROOT` is set explicitly.
+
+Optional startup override environment variables forwarded by `run_demo.sh`:
+
+- `DEMO_SERVER_START_TIMEOUT_SECONDS`
+- `DEMO_REQUEST_SETTLE_TIMEOUT_SECONDS`
+- `DEMO_REQUEST_POLL_INTERVAL_SECONDS`
+- `DEMO_SERVER_STOP_TIMEOUT_SECONDS`
+- `DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS`
+- `DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS`
+- `DEMO_COMPAT_CODEX_WARMUP_SECONDS`
+- `DEMO_COMPAT_CREATE_TIMEOUT_SECONDS`

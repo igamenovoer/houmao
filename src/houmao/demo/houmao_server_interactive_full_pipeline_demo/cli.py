@@ -20,6 +20,10 @@ from houmao.demo.houmao_server_interactive_full_pipeline_demo.commands import (
 )
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     CURRENT_RUN_ROOT_FILENAME,
+    DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
+    DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
+    DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
+    DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
     DEFAULT_DEMO_ROOT_DIRNAME,
     DEFAULT_PROVIDER,
     DEFAULT_REQUEST_POLL_INTERVAL_SECONDS,
@@ -135,6 +139,36 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SERVER_STOP_TIMEOUT_SECONDS,
         help="Timeout budget while stopping the demo-owned server.",
     )
+    parser.add_argument(
+        "--compat-shell-ready-timeout-seconds",
+        type=_positive_float,
+        default=DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
+        help="Demo-owned compatibility shell-readiness timeout passed to `houmao-server serve`.",
+    )
+    parser.add_argument(
+        "--compat-provider-ready-timeout-seconds",
+        type=_positive_float,
+        default=DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
+        help=(
+            "Demo-owned compatibility provider-readiness timeout passed to "
+            "`houmao-server serve`."
+        ),
+    )
+    parser.add_argument(
+        "--compat-codex-warmup-seconds",
+        type=_non_negative_float,
+        default=DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
+        help="Demo-owned Codex warmup override passed to `houmao-server serve`.",
+    )
+    parser.add_argument(
+        "--compat-create-timeout-seconds",
+        type=_positive_float,
+        default=DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
+        help=(
+            "Demo-owned detached compatibility create timeout passed to "
+            "`houmao-mgr cao launch --headless`."
+        ),
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -201,6 +235,10 @@ def _resolve_demo_invocation(args: argparse.Namespace) -> DemoInvocation:
         request_settle_timeout_seconds=float(args.request_settle_timeout_seconds),
         request_poll_interval_seconds=float(args.request_poll_interval_seconds),
         server_stop_timeout_seconds=float(args.server_stop_timeout_seconds),
+        compat_shell_ready_timeout_seconds=float(args.compat_shell_ready_timeout_seconds),
+        compat_provider_ready_timeout_seconds=float(args.compat_provider_ready_timeout_seconds),
+        compat_codex_warmup_seconds=float(args.compat_codex_warmup_seconds),
+        compat_create_timeout_seconds=float(args.compat_create_timeout_seconds),
     )
     return DemoInvocation(paths=DemoPaths.from_workspace_root(workspace_root), env=env)
 
@@ -259,6 +297,24 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("value must be > 0")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    """Parse one positive floating-point CLI argument."""
+
+    parsed = float(value)
+    if parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be > 0")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    """Parse one non-negative floating-point CLI argument."""
+
+    parsed = float(value)
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("value must be >= 0")
     return parsed
 
 

@@ -33,6 +33,17 @@ The demo SHALL provision a demo-owned working tree for the session under the run
 
 The pair install and detached launch subprocesses SHALL run with the same demo-owned runtime, registry, jobs, and home roots used for that run, so delegated artifacts and related state remain owned by the run root rather than ambient Houmao directories.
 
+Demo startup SHALL use explicit demo-owned compatibility startup budgets rather than relying on the generic pair defaults. At minimum, the demo-owned startup profile SHALL include:
+
+- compatibility shell-ready timeout = `20s`
+- compatibility provider-ready timeout = `120s`
+- compatibility Codex warmup = `10s`
+- detached compatibility create timeout = `180s`
+
+The detached compatibility create timeout SHALL remain larger than the bounded demo-owned server compatibility startup chain.
+
+The demo SHALL expose a startup override surface for those demo-owned compatibility timeout values through the demo CLI and shell wrapper so automation can tune them without patching repository code.
+
 When the operator does not provide a provider override, startup SHALL use `claude_code` as the implicit default provider.
 
 When the operator provides `--provider codex`, startup SHALL launch the Codex-backed interactive variant through the same tracked compatibility profile.
@@ -58,6 +69,8 @@ The persisted startup state SHALL include at minimum:
 - **WHEN** the operator runs the demo startup command without a provider override
 - **THEN** the demo installs the tracked `gpu-kernel-coder` profile through top-level `houmao-mgr install`
 - **AND THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **AND THEN** the demo-owned `houmao-server` startup uses the documented demo compatibility startup budgets instead of generic pair defaults
+- **AND THEN** the detached launch uses the documented demo create-timeout budget instead of the generic pair default
 - **AND THEN** the delegated session uses `provider = claude_code`
 - **AND THEN** persisted startup state records `tool = claude`
 - **AND THEN** persisted startup state records `agent_profile = gpu-kernel-coder`
@@ -67,6 +80,7 @@ The persisted startup state SHALL include at minimum:
 - **WHEN** the operator runs startup with `--provider codex`
 - **THEN** the demo installs the tracked `gpu-kernel-coder` profile through top-level `houmao-mgr install`
 - **AND THEN** the demo launches the interactive session through `houmao-mgr cao launch --headless`
+- **AND THEN** the demo-owned `houmao-server` startup uses the documented demo compatibility startup budgets, including the demo Codex warmup override
 - **AND THEN** the delegated session uses `provider = codex`
 - **AND THEN** persisted startup state records `tool = codex`
 - **AND THEN** persisted startup state records `agent_profile = gpu-kernel-coder`
@@ -81,6 +95,11 @@ The persisted startup state SHALL include at minimum:
 - **WHEN** the operator starts the demo for a fresh run root
 - **THEN** the pair install and detached launch commands run with demo-owned runtime, registry, jobs, and home roots
 - **AND THEN** delegated launch artifacts for that run are written under the selected run root rather than ambient Houmao directories
+
+#### Scenario: Operator overrides demo compatibility startup budgets
+- **WHEN** the operator or automation supplies explicit demo startup timeout overrides
+- **THEN** the demo passes those override values into both the demo-owned `houmao-server` startup command and the detached `houmao-mgr cao launch --headless` command as appropriate
+- **AND THEN** the demo does not require source edits to tune the startup budget for slow environments
 
 ### Requirement: Startup SHALL rely on pair-managed delegated launch artifacts and auto-registration
 After the interactive pair launch succeeds, the demo SHALL discover the runtime-owned manifest and delegated session artifacts produced by `houmao-mgr cao launch --headless`.
