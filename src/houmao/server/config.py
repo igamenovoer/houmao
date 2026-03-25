@@ -32,6 +32,11 @@ class HoumaoServerConfig(BaseModel):
         default_factory=lambda: dict(_DEFAULT_SUPPORTED_TUI_PROCESSES)
     )
     child_startup_timeout_seconds: float = 15.0
+    compat_shell_ready_timeout_seconds: float = 10.0
+    compat_shell_ready_poll_interval_seconds: float = 0.5
+    compat_provider_ready_timeout_seconds: float = 45.0
+    compat_provider_ready_poll_interval_seconds: float = 1.0
+    compat_codex_warmup_seconds: float = 2.0
     startup_child: bool = True
 
     @field_validator("api_base_url")
@@ -50,11 +55,22 @@ class HoumaoServerConfig(BaseModel):
         "completion_stability_seconds",
         "unknown_to_stalled_timeout_seconds",
         "child_startup_timeout_seconds",
+        "compat_shell_ready_timeout_seconds",
+        "compat_shell_ready_poll_interval_seconds",
+        "compat_provider_ready_timeout_seconds",
+        "compat_provider_ready_poll_interval_seconds",
     )
     @classmethod
     def _validate_positive_float(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("must be > 0")
+        return value
+
+    @field_validator("compat_codex_warmup_seconds")
+    @classmethod
+    def _validate_non_negative_float(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("must be >= 0")
         return value
 
     @field_validator("recent_transition_limit")

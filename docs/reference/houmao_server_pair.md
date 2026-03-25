@@ -47,6 +47,55 @@ houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev
 houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
+## Compatibility Launch Timeouts
+
+Session-backed compatibility launch now has separate timeout budgets for lightweight client requests versus synchronous create operations.
+
+- Default compatibility request timeout: `15` seconds
+- Default compatibility create timeout for `POST /cao/sessions` and `POST /cao/sessions/{session_name}/terminals`: `75` seconds
+
+Operator overrides for session-backed launch:
+
+- `houmao-mgr launch ... --compat-http-timeout-seconds <seconds>`
+- `houmao-mgr launch ... --compat-create-timeout-seconds <seconds>`
+- `houmao-mgr cao launch ... --compat-http-timeout-seconds <seconds>`
+- `houmao-mgr cao launch ... --compat-create-timeout-seconds <seconds>`
+
+Environment fallback when those flags are omitted:
+
+- `HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS`
+- `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS`
+
+Precedence is `CLI flag > environment variable > built-in default`.
+
+These compatibility timeout controls apply only to session-backed launch. Top-level `houmao-mgr launch --headless` uses the native managed-headless route and rejects the compatibility-only timeout flags instead of silently ignoring them.
+
+`houmao-server` also owns the bounded synchronous waits inside compatibility session and terminal creation. The `serve` command now exposes:
+
+- `--compat-shell-ready-timeout-seconds` with default `10.0`
+- `--compat-shell-ready-poll-interval-seconds` with default `0.5`
+- `--compat-provider-ready-timeout-seconds` with default `45.0`
+- `--compat-provider-ready-poll-interval-seconds` with default `1.0`
+- `--compat-codex-warmup-seconds` with default `2.0`
+
+Setting `--compat-codex-warmup-seconds 0` disables the extra Codex warmup sleep. If you raise the server-side compatibility waits above the defaults, also raise `--compat-create-timeout-seconds` or `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS` so the client budget remains larger than the server's bounded startup chain.
+
+Example:
+
+```bash
+houmao-server serve \
+  --api-base-url http://127.0.0.1:9889 \
+  --compat-provider-ready-timeout-seconds 90 \
+  --compat-codex-warmup-seconds 0
+
+houmao-mgr cao launch \
+  --port 9889 \
+  --agents gpu-kernel-coder \
+  --provider codex \
+  --compat-create-timeout-seconds 90 \
+  --headless
+```
+
 Retired standalone surfaces:
 
 - `houmao-cao-server`

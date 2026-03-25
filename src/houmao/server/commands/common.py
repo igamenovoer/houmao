@@ -22,6 +22,11 @@ def build_config(
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
     supported_tui_processes: tuple[str, ...],
+    compat_shell_ready_timeout_seconds: float,
+    compat_shell_ready_poll_interval_seconds: float,
+    compat_provider_ready_timeout_seconds: float,
+    compat_provider_ready_poll_interval_seconds: float,
+    compat_codex_warmup_seconds: float,
     startup_child: bool,
 ) -> HoumaoServerConfig:
     """Build one validated server config from CLI inputs."""
@@ -39,6 +44,11 @@ def build_config(
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             supported_tui_processes=_parse_supported_tui_processes(supported_tui_processes),
+            compat_shell_ready_timeout_seconds=compat_shell_ready_timeout_seconds,
+            compat_shell_ready_poll_interval_seconds=compat_shell_ready_poll_interval_seconds,
+            compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
+            compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
+            compat_codex_warmup_seconds=compat_codex_warmup_seconds,
             startup_child=startup_child,
         )
     return HoumaoServerConfig(
@@ -49,6 +59,11 @@ def build_config(
         stability_threshold_seconds=stability_threshold_seconds,
         completion_stability_seconds=completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+        compat_shell_ready_timeout_seconds=compat_shell_ready_timeout_seconds,
+        compat_shell_ready_poll_interval_seconds=compat_shell_ready_poll_interval_seconds,
+        compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
+        compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
+        compat_codex_warmup_seconds=compat_codex_warmup_seconds,
         startup_child=startup_child,
     )
 

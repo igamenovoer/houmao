@@ -9,7 +9,11 @@ import click
 
 from houmao.cao.rest_client import CaoApiError
 
-from .common import require_supported_houmao_pair, resolve_server_base_url
+from .common import (
+    compatibility_launch_timeout_options,
+    require_supported_houmao_pair,
+    resolve_server_base_url,
+)
 from .install import install_command
 from .launch import (
     _launch_session_backed_pair_command,
@@ -56,6 +60,7 @@ def cao_group() -> None:
 )
 @click.option("--port", default=None, type=int, help="Server port to use")
 @click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation")
+@compatibility_launch_timeout_options
 def cao_launch_command(
     agents: str,
     session_name: str | None,
@@ -63,6 +68,8 @@ def cao_launch_command(
     provider: str,
     port: int | None,
     yolo: bool,
+    compat_http_timeout_seconds: float | None,
+    compat_create_timeout_seconds: float | None,
 ) -> None:
     """Launch one CAO-compatible session through the supported Houmao pair."""
 
@@ -90,6 +97,8 @@ def cao_launch_command(
         working_directory=working_directory,
         attach_to_tmux=not headless,
         emit_created_messages=True,
+        compat_http_timeout_seconds=compat_http_timeout_seconds,
+        compat_create_timeout_seconds=compat_create_timeout_seconds,
     )
 
 

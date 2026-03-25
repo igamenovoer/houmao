@@ -13,7 +13,9 @@ from houmao.cao.rest_client import CaoApiError
 from houmao.server.models import HoumaoRegisterLaunchRequest
 
 from .common import (
+    compatibility_launch_timeout_options,
     require_supported_houmao_pair,
+    resolve_compatibility_launch_timeouts,
     resolve_server_base_url,
 )
 from .runtime_artifacts import (
@@ -54,6 +56,7 @@ _PROVIDERS_REQUIRING_WORKSPACE_ACCESS = frozenset(
 )
 @click.option("--port", default=None, type=int, help="Server port to use")
 @click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation")
+@compatibility_launch_timeout_options
 def launch_command(
     agents: str,
     session_name: str | None,
@@ -61,6 +64,8 @@ def launch_command(
     provider: str,
     port: int | None,
     yolo: bool,
+    compat_http_timeout_seconds: float | None,
+    compat_create_timeout_seconds: float | None,
 ) -> None:
     """Launch through the supported Houmao pair."""
 
@@ -81,6 +86,10 @@ def launch_command(
             raise click.ClickException("Launch cancelled by user")
 
     if headless:
+        _reject_native_headless_compat_timeout_flags(
+            compat_http_timeout_seconds=compat_http_timeout_seconds,
+            compat_create_timeout_seconds=compat_create_timeout_seconds,
+        )
         base_url = resolve_server_base_url(port=port)
         client = require_supported_houmao_pair(base_url=base_url)
         try:
@@ -108,6 +117,8 @@ def launch_command(
         working_directory=working_directory,
         attach_to_tmux=True,
         emit_created_messages=False,
+        compat_http_timeout_seconds=compat_http_timeout_seconds,
+        compat_create_timeout_seconds=compat_create_timeout_seconds,
     )
 
 
@@ -139,11 +150,24 @@ def _launch_session_backed_pair_command(
     working_directory: Path,
     attach_to_tmux: bool,
     emit_created_messages: bool,
+    compat_http_timeout_seconds: float | None = None,
+    compat_create_timeout_seconds: float | None = None,
 ) -> None:
     """Create one TUI-backed CAO-compatible session through `houmao-server`."""
 
     base_url = resolve_server_base_url(port=port)
-    client = require_supported_houmao_pair(base_url=base_url)
+    resolved_http_timeout_seconds, resolved_create_timeout_seconds = (
+        resolve_compatibility_launch_timeouts(
+            compat_http_timeout_seconds=compat_http_timeout_seconds,
+            compat_create_timeout_seconds=compat_create_timeout_seconds,
+        )
+    )
+    client_kwargs: dict[str, float] = {}
+    if resolved_http_timeout_seconds is not None:
+        client_kwargs["timeout_seconds"] = resolved_http_timeout_seconds
+    if resolved_create_timeout_seconds is not None:
+        client_kwargs["create_timeout_seconds"] = resolved_create_timeout_seconds
+    client = require_supported_houmao_pair(base_url=base_url, **client_kwargs)
 
     try:
         terminal = client.create_session(
@@ -193,6 +217,21 @@ def _launch_session_backed_pair_command(
 
     if attach_to_tmux:
         subprocess.run(["tmux", "attach-session", "-t", terminal.session_name], check=False)
+
+
+def _reject_native_headless_compat_timeout_flags(
+    *,
+    compat_http_timeout_seconds: float | None,
+    compat_create_timeout_seconds: float | None,
+) -> None:
+    """Reject compatibility-only timeout flags for native headless launch."""
+
+    if compat_http_timeout_seconds is None and compat_create_timeout_seconds is None:
+        return
+    raise click.ClickException(
+        "Compatibility timeout flags only apply to session-backed launch. "
+        "Top-level `houmao-mgr launch --headless` uses the native headless route."
+    )
 
 
 def _find_terminal_summary(

@@ -13,7 +13,13 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierStatusV1,
     GatewayStatusV1,
 )
-from houmao.cao.rest_client import CaoApiError, CaoRestClient, _format_validation_error
+from houmao.cao.rest_client import (
+    DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
+    DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+    CaoApiError,
+    CaoRestClient,
+    _format_validation_error,
+)
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
 from houmao.cao.models import CaoSessionDetail, CaoSuccessResponse
 
@@ -57,10 +63,20 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 class HoumaoServerClient(CaoRestClient):
     """HTTP client for `houmao-server` compatibility and extension routes."""
 
-    def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+        create_timeout_seconds: float = DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
+    ) -> None:
         """Initialize the pair-owned server client."""
 
-        super().__init__(base_url, timeout_seconds=timeout_seconds, path_prefix="/cao")
+        super().__init__(
+            base_url,
+            timeout_seconds=timeout_seconds,
+            create_timeout_seconds=create_timeout_seconds,
+            path_prefix="/cao",
+        )
 
     def health_extended(self) -> HoumaoHealthResponse:
         """Call `GET /health` and parse Houmao extensions."""

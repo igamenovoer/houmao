@@ -187,8 +187,8 @@ class CompatibilityTmuxController:
         self,
         *,
         window_id: str,
-        timeout_seconds: float = 10.0,
-        polling_interval_seconds: float = 0.5,
+        timeout_seconds: float,
+        polling_interval_seconds: float,
     ) -> None:
         """Wait until one new shell surface looks stable enough for input."""
 

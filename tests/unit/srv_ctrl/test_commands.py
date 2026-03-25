@@ -811,6 +811,126 @@ def test_cao_launch_emits_compat_messages_and_registers_artifacts(
     assert "Terminal created: gpu" in result.output
 
 
+def test_launch_session_backed_accepts_compat_timeout_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pair_checks: list[dict[str, object]] = []
+    attach_calls: list[list[str]] = []
+    client = _FakeHoumaoClient()
+    manifest_path = tmp_path / "manifest.json"
+    session_root = tmp_path / "session-root"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    session_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.require_supported_houmao_pair",
+        lambda *, base_url, timeout_seconds=None, create_timeout_seconds=None: (
+            pair_checks.append(
+                {
+                    "base_url": base_url,
+                    "timeout_seconds": timeout_seconds,
+                    "create_timeout_seconds": create_timeout_seconds,
+                }
+            )
+            or client
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.subprocess.run",
+        lambda args, **kwargs: (
+            attach_calls.append(list(args)) or subprocess.CompletedProcess(args=args, returncode=0)
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.materialize_delegated_launch",
+        lambda **kwargs: (manifest_path, session_root, "AGENTSYS-gpu", "agent-1234"),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "codex",
+            "--yolo",
+            "--compat-http-timeout-seconds",
+            "7",
+            "--compat-create-timeout-seconds",
+            "91",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert pair_checks == [
+        {
+            "base_url": "http://127.0.0.1:9889",
+            "timeout_seconds": 7.0,
+            "create_timeout_seconds": 91.0,
+        }
+    ]
+    assert attach_calls == [["tmux", "attach-session", "-t", "cao-gpu"]]
+
+
+def test_cao_launch_uses_env_compat_timeout_defaults_when_flags_are_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pair_checks: list[dict[str, object]] = []
+    client = _FakeHoumaoClient()
+    manifest_path = tmp_path / "manifest.json"
+    session_root = tmp_path / "session-root"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    session_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS", "6")
+    monkeypatch.setenv("HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS", "93")
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.require_supported_houmao_pair",
+        lambda *, base_url, timeout_seconds=None, create_timeout_seconds=None: (
+            pair_checks.append(
+                {
+                    "base_url": base_url,
+                    "timeout_seconds": timeout_seconds,
+                    "create_timeout_seconds": create_timeout_seconds,
+                }
+            )
+            or client
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.launch.materialize_delegated_launch",
+        lambda **kwargs: (manifest_path, session_root, "AGENTSYS-gpu", "agent-1234"),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "cao",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "codex",
+            "--headless",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert pair_checks == [
+        {
+            "base_url": "http://127.0.0.1:9889",
+            "timeout_seconds": 6.0,
+            "create_timeout_seconds": 93.0,
+        }
+    ]
+
+
 def test_headless_launch_targets_native_houmao_server(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -856,6 +976,26 @@ def test_headless_launch_targets_native_houmao_server(
     assert pair_checks == ["http://127.0.0.1:9999"]
     assert client.m_headless_launch_requests == [request_model]
     assert "Houmao native headless launch complete: agent=claude-headless-1" in result.output
+
+
+def test_headless_launch_rejects_compat_timeout_flags() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "claude_code",
+            "--headless",
+            "--yolo",
+            "--compat-http-timeout-seconds",
+            "7",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Compatibility timeout flags only apply to session-backed launch." in result.output
 
 
 def test_launch_rejects_unsupported_pair_before_session_creation(
