@@ -16,8 +16,7 @@ Usage:
 Subcommands:
   start [--provider <claude_code|codex>] [--session-name <name>] [--port <port>] [--json]
       Start or replace the pair-managed interactive session through a demo-owned
-      \`houmao-server\` and detached
-      \`houmao-mgr cao launch --headless\`. The default provider is
+      \`houmao-server\` and its native headless launch API. The default provider is
       \`claude_code\`. Demo-owned generous compatibility startup defaults are
       applied unless overridden through the environment variables below.
   inspect [--json] [--with-dialog-tail <num-tail-chars>]
@@ -46,8 +45,8 @@ Environment defaults:
   DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=<override>
   DEMO_COMPAT_CODEX_WARMUP_SECONDS=<override>
   DEMO_COMPAT_CREATE_TIMEOUT_SECONDS=<override>
-      Override the demo-owned compatibility startup budgets passed to
-      \`houmao-server serve\` and detached \`houmao-mgr cao launch --headless\`.
+      Override the demo-owned startup budgets passed to \`houmao-server serve\`
+      and the native headless launch request.
 
 Flags:
   -y, --yes

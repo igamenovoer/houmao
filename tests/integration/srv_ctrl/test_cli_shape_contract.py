@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import socket
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -173,66 +175,86 @@ def _install_fake_headless_runtime(
     )
 
 
-def _start_houmao_mgr_server(*, api_base_url: str, runtime_root: Path) -> subprocess.Popen[str]:
-    """Start `houmao-mgr server start` in a detached subprocess."""
+def _run_houmao_mgr_command(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run one `houmao-mgr` subprocess through the package module entrypoint."""
 
     repo_root = _source_repo_root()
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from houmao.srv_ctrl.commands.main import main; "
-                "import sys; "
-                "raise SystemExit(main(sys.argv[1:]))"
-            ),
-            "server",
-            "start",
-            "--api-base-url",
-            api_base_url,
-            "--runtime-root",
-            str(runtime_root),
-            "--no-startup-child",
-        ],
+    return subprocess.run(
+        [sys.executable, "-m", "houmao.srv_ctrl", *args],
         cwd=repo_root,
         env=_python_subprocess_env(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        check=False,
     )
 
 
 def _wait_for_server_ready(
     *,
     api_base_url: str,
-    process: subprocess.Popen[str],
     timeout_seconds: float = 10.0,
-) -> None:
-    """Wait until the server health route responds or fail with subprocess logs."""
+) -> dict[str, object]:
+    """Wait until the server health and current-instance routes respond."""
 
     client = HoumaoServerClient(api_base_url, timeout_seconds=0.5)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            stdout, stderr = process.communicate(timeout=1)
-            raise AssertionError(
-                "houmao-mgr server start exited before becoming healthy.\n"
-                f"stdout:\n{stdout}\n"
-                f"stderr:\n{stderr}"
-            )
         try:
             health = client.health_extended()
+            current_instance = client.current_instance().model_dump(mode="json")
         except Exception:
             time.sleep(0.1)
             continue
         if health.houmao_service == "houmao-server":
+            return current_instance
+        time.sleep(0.1)
+    raise AssertionError(f"Timed out waiting for houmao-server health at {api_base_url}.")
+
+
+def _wait_for_server_stop(*, api_base_url: str, timeout_seconds: float = 10.0) -> None:
+    """Wait until the target server no longer responds."""
+
+    client = HoumaoServerClient(api_base_url, timeout_seconds=0.5)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            client.health_extended()
+        except Exception:
             return
         time.sleep(0.1)
-    process.kill()
-    stdout, stderr = process.communicate(timeout=1)
-    raise AssertionError(
-        f"Timed out waiting for houmao-server health.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    raise AssertionError(f"Timed out waiting for houmao-server shutdown at {api_base_url}.")
+
+
+def _run_houmao_mgr_server_start(
+    *,
+    api_base_url: str,
+    runtime_root: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Run `houmao-mgr server start` and capture its detached-start result."""
+
+    return _run_houmao_mgr_command(
+        "server",
+        "start",
+        "--api-base-url",
+        api_base_url,
+        "--runtime-root",
+        str(runtime_root),
+        "--no-startup-child",
     )
+
+
+class _BlockingHealthHandler(BaseHTTPRequestHandler):
+    """Small HTTP server that occupies the requested port without Houmao routes."""
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(b"not found")
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
+        return
 
 
 def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
@@ -323,45 +345,81 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     port = _pick_unused_loopback_port()
     api_base_url = f"http://127.0.0.1:{port}"
     runtime_root = (tmp_path / "runtime").resolve()
-    process = _start_houmao_mgr_server(api_base_url=api_base_url, runtime_root=runtime_root)
+    start_result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
+    assert start_result.returncode == 0, start_result.stderr
+    start_payload = json.loads(start_result.stdout)
+    assert start_payload["success"] is True
+    assert start_payload["running"] is True
+    assert start_payload["mode"] == "background"
+    assert start_payload["api_base_url"] == api_base_url
+    assert start_payload["reused_existing"] is False
+    assert start_payload["log_paths"]["stdout"].endswith("houmao-server.stdout.log")
+    live_instance = _wait_for_server_ready(api_base_url=api_base_url)
+    assert start_payload["current_instance"]["pid"] == live_instance["pid"]
+
+    runner = CliRunner()
+
+    status_result = runner.invoke(cli, ["server", "status", "--port", str(port)])
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["running"] is True
+    assert status_payload["api_base_url"] == api_base_url
+    assert status_payload["active_session_count"] == 0
+
+    reuse_result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
+    assert reuse_result.returncode == 0, reuse_result.stderr
+    reuse_payload = json.loads(reuse_result.stdout)
+    assert reuse_payload["success"] is True
+    assert reuse_payload["reused_existing"] is True
+    assert reuse_payload["pid"] == live_instance["pid"]
+
+    sessions_result = runner.invoke(cli, ["server", "sessions", "list", "--port", str(port)])
+    assert sessions_result.exit_code == 0, sessions_result.output
+    assert json.loads(sessions_result.output) == {"sessions": []}
+
+    shutdown_all_result = runner.invoke(
+        cli,
+        ["server", "sessions", "shutdown", "--all", "--port", str(port)],
+    )
+    assert shutdown_all_result.exit_code == 0, shutdown_all_result.output
+    assert json.loads(shutdown_all_result.output) == {
+        "detail": "No server sessions found to shutdown.",
+        "success": True,
+    }
+
+    stop_result = runner.invoke(cli, ["server", "stop", "--port", str(port)])
+    assert stop_result.exit_code == 0, stop_result.output
+    stop_payload = json.loads(stop_result.output)
+    assert stop_payload["success"] is True
+    assert stop_payload["api_base_url"] == api_base_url
+    _wait_for_server_stop(api_base_url=api_base_url)
+
+
+def test_houmao_mgr_server_start_reports_unsuccessful_detached_start(
+    tmp_path: Path,
+) -> None:
+    """Detached `server start` should report a failed start result when the child exits early."""
+
+    port = _pick_unused_loopback_port()
+    api_base_url = f"http://127.0.0.1:{port}"
+    runtime_root = (tmp_path / "runtime").resolve()
+    blocker = ThreadingHTTPServer(("127.0.0.1", port), _BlockingHealthHandler)
+    worker = threading.Thread(target=blocker.serve_forever, daemon=True)
+    worker.start()
     try:
-        _wait_for_server_ready(api_base_url=api_base_url, process=process)
-
-        runner = CliRunner()
-
-        status_result = runner.invoke(cli, ["server", "status", "--port", str(port)])
-        assert status_result.exit_code == 0, status_result.output
-        status_payload = json.loads(status_result.output)
-        assert status_payload["running"] is True
-        assert status_payload["api_base_url"] == api_base_url
-        assert status_payload["active_session_count"] == 0
-
-        sessions_result = runner.invoke(cli, ["server", "sessions", "list", "--port", str(port)])
-        assert sessions_result.exit_code == 0, sessions_result.output
-        assert json.loads(sessions_result.output) == {"sessions": []}
-
-        shutdown_all_result = runner.invoke(
-            cli,
-            ["server", "sessions", "shutdown", "--all", "--port", str(port)],
-        )
-        assert shutdown_all_result.exit_code == 0, shutdown_all_result.output
-        assert json.loads(shutdown_all_result.output) == {
-            "detail": "No server sessions found to shutdown.",
-            "success": True,
-        }
-
-        stop_result = runner.invoke(cli, ["server", "stop", "--port", str(port)])
-        assert stop_result.exit_code == 0, stop_result.output
-        stop_payload = json.loads(stop_result.output)
-        assert stop_payload["success"] is True
-        assert stop_payload["api_base_url"] == api_base_url
-
-        process.wait(timeout=10)
+        result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+        blocker.shutdown()
+        blocker.server_close()
+        worker.join(timeout=5)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert payload["running"] is False
+    assert payload["mode"] == "background"
+    assert payload["api_base_url"] == api_base_url
+    assert payload["log_paths"]["stderr"].endswith("houmao-server.stderr.log")
+    assert Path(payload["log_paths"]["stderr"]).exists()
+    assert payload["exit_code"] is not None
+    assert "exited before becoming healthy" in payload["detail"]

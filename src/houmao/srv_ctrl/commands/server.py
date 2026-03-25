@@ -6,6 +6,7 @@ import click
 
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.client import HoumaoServerClient
+from houmao.server.commands.common import build_config
 
 from .common import (
     emit_json,
@@ -14,6 +15,7 @@ from .common import (
     resolve_server_base_url,
 )
 from ...server.commands.serve import run_server, server_serve_options
+from ..server_startup import start_detached_server
 
 
 @click.group(name="server")
@@ -22,8 +24,14 @@ def server_group() -> None:
 
 
 @server_group.command(name="start")
+@click.option(
+    "--foreground",
+    is_flag=True,
+    help="Run the server in the current foreground process instead of detaching it.",
+)
 @server_serve_options
 def start_server_command(
+    foreground: bool,
     api_base_url: str,
     runtime_root: str | None,
     watch_poll_interval_seconds: float,
@@ -39,9 +47,28 @@ def start_server_command(
     compat_codex_warmup_seconds: float,
     startup_child: bool,
 ) -> None:
-    """Start `houmao-server` through the shared startup path."""
+    """Start `houmao-server` in detached or explicit foreground mode."""
 
-    run_server(
+    if foreground:
+        run_server(
+            api_base_url=api_base_url,
+            runtime_root=runtime_root,
+            watch_poll_interval_seconds=watch_poll_interval_seconds,
+            recent_transition_limit=recent_transition_limit,
+            stability_threshold_seconds=stability_threshold_seconds,
+            completion_stability_seconds=completion_stability_seconds,
+            unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+            supported_tui_processes=supported_tui_processes,
+            compat_shell_ready_timeout_seconds=compat_shell_ready_timeout_seconds,
+            compat_shell_ready_poll_interval_seconds=compat_shell_ready_poll_interval_seconds,
+            compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
+            compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
+            compat_codex_warmup_seconds=compat_codex_warmup_seconds,
+            startup_child=startup_child,
+        )
+        return
+
+    config = build_config(
         api_base_url=api_base_url,
         runtime_root=runtime_root,
         watch_poll_interval_seconds=watch_poll_interval_seconds,
@@ -57,6 +84,7 @@ def start_server_command(
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
         startup_child=startup_child,
     )
+    emit_json(start_detached_server(config))
 
 
 @server_group.command(name="status")

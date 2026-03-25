@@ -103,7 +103,11 @@ def start_demo(
             compat_codex_warmup_seconds=env.compat_codex_warmup_seconds,
         )
 
-        client = HoumaoServerClient(api_base_url, timeout_seconds=5.0)
+        client = HoumaoServerClient(
+            api_base_url,
+            timeout_seconds=5.0,
+            create_timeout_seconds=env.compat_create_timeout_seconds,
+        )
         launch_response = _launch_native_session(
             client=client,
             provider=provider,

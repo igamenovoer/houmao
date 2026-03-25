@@ -1,13 +1,13 @@
 # Houmao-Server Interactive Full-Pipeline Demo
 
-This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` and detached `houmao-mgr cao launch --headless`, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
+This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` and its native headless launch API, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
 
-The pack intentionally uses a demo-owned generous compatibility startup profile so detached launch stays reliable under automation and slow provider startup:
+The pack intentionally uses a demo-owned generous startup profile so detached launch stays reliable under automation and slow provider startup:
 
 - shell-ready timeout: `20s`
 - provider-ready timeout: `120s`
 - Codex warmup override: `10s`
-- detached compatibility create timeout: `180s`
+- native headless launch create-timeout: `180s`
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ The pack intentionally uses a demo-owned generous compatibility startup profile 
 - `tmux`
 - a working Claude Code or Codex CLI, depending on the selected provider
 
-The demo does not assume an operator-managed `houmao-server` is already running. Each `start` provisions a fresh run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, starts a loopback `houmao-server` owned by that run, resolves the tracked native selector from the demo pack's own `agents/` tree, and launches one detached delegated TUI session into a demo-owned git worktree.
+The demo does not assume an operator-managed `houmao-server` is already running. Each `start` provisions a fresh run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, starts a loopback `houmao-server` owned by that run, resolves the tracked native selector from the demo pack's `agents/` entry (a repository-tracked symlink to `tests/fixtures/agents/`), and launches one detached delegated TUI session into a demo-owned git worktree.
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ Start the Codex-backed variant:
 scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start --provider codex
 ```
 
-Tune the demo-owned compatibility startup budget explicitly:
+Tune the demo-owned startup budget explicitly:
 
 ```bash
 DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=180 \
@@ -79,15 +79,15 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 1. Creates a fresh run root and a demo-owned git worktree at `<run-root>/wktree`.
 2. Starts `sys.executable -m houmao.server serve` on a selected loopback port with demo-owned runtime, registry, jobs, and HOME roots.
 3. Resolves selector `gpu-kernel-coder` from the tracked native agent-definition root `scripts/demo/houmao-server-interactive-full-pipeline-demo/agents/`.
-4. Launches one detached delegated TUI session through `houmao-mgr cao launch --headless --yolo` without attaching the caller terminal.
-5. Waits for the delegated runtime manifest under the demo-owned run root, loads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
+4. Calls the demo-owned `houmao-server` native headless launch API to start one detached delegated TUI session without attaching the caller terminal.
+5. Uses the synchronous launch response to load the delegated runtime manifest under the demo-owned run root, reads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
 
-The demo-owned server start command passes explicit compatibility startup overrides into `houmao-server serve`, and the detached launch command passes an explicit compatibility create timeout into `houmao-mgr cao launch --headless`. If you override one side for a slow environment, keep the detached create timeout larger than the bounded server startup chain.
+The demo-owned server start command passes explicit compatibility startup overrides into `houmao-server serve`, and the native launch client uses an explicit create-timeout budget for the headless launch request. If you override one side for a slow environment, keep the launch create-timeout larger than the bounded server startup chain.
 
 The persisted v1 route contract is:
 
 - `agent_ref = session_name`
-- `session_name` is the CAO-compatible session name created by the pair, typically `cao-<name>`
+- `session_name` is the native launch session name returned by `houmao-server`, typically the requested `--session-name` when one is supplied
 - `agent_identity` is the canonicalized operator-facing identity derived from the explicit `--session-name` override when present, or from the resolved session name otherwise
 
 ## Route Split
@@ -110,11 +110,11 @@ The demo does not use post-launch `houmao-mgr agents ...`, `houmao-cli`, or any 
 
 ## `launch_alice.sh` Behavior
 
-`launch_alice.sh` forwards `--session-name alice` into startup. The pair-managed control core normalizes that to the CAO-compatible session name `cao-alice`, and the demo persists:
+`launch_alice.sh` forwards `--session-name alice` into startup. In the current native launch flow, that requested name remains the persisted server-facing session name, so the demo records:
 
 - `requested_session_name = "alice"`
-- `session_name = "cao-alice"`
-- `agent_ref = "cao-alice"`
+- `session_name = "alice"`
+- `agent_ref = "alice"`
 - `agent_identity = "AGENTSYS-alice"`
 
 This keeps the stable operator-facing override while preserving the current server-addressable session naming contract.
