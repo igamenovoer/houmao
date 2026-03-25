@@ -353,6 +353,92 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     assert payloads == [None, None, None, None, None, None]
 
 
+def test_cao_rest_client_default_create_operations_use_split_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, str, float]] = []
+
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        captured.append((req.get_method(), req.full_url, float(timeout)))
+        if req.full_url.endswith("/health"):
+            return _FakeResponse(status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"})
+        return _FakeResponse(
+            status=200,
+            payload={
+                "id": "a1b2c3d4",
+                "name": "developer-1",
+                "provider": "codex",
+                "session_name": "cao-gpu",
+                "agent_profile": "role_profile",
+                "status": "idle",
+            },
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+
+    client.health()
+    client.create_session(provider="codex", agent_profile="role_profile")
+    client.create_terminal("cao-gpu", provider="codex", agent_profile="role_profile")
+
+    assert captured == [
+        ("GET", "http://127.0.0.1:9991/health", 15.0),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions?provider=codex&agent_profile=role_profile",
+            75.0,
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions/cao-gpu/terminals?provider=codex&agent_profile=role_profile",
+            75.0,
+        ),
+    ]
+
+
+def test_cao_rest_client_explicit_timeout_override_leaves_lightweight_requests_narrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, str, float]] = []
+
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        captured.append((req.get_method(), req.full_url, float(timeout)))
+        if req.full_url.endswith("/health"):
+            return _FakeResponse(status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"})
+        return _FakeResponse(
+            status=200,
+            payload={
+                "id": "a1b2c3d4",
+                "name": "developer-1",
+                "provider": "codex",
+                "session_name": "cao-gpu",
+                "agent_profile": "role_profile",
+                "status": "idle",
+            },
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient(
+        "http://127.0.0.1:9991",
+        timeout_seconds=5.0,
+        create_timeout_seconds=90.0,
+    )
+
+    client.health()
+    client.create_session(provider="codex", agent_profile="role_profile")
+
+    assert captured == [
+        ("GET", "http://127.0.0.1:9991/health", 5.0),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions?provider=codex&agent_profile=role_profile",
+            90.0,
+        ),
+    ]
+
+
 def test_cao_rest_client_injects_loopback_no_proxy_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

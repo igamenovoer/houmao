@@ -66,6 +66,14 @@ That `cao` namespace is also Houmao-owned in the supported pair:
 - `cao flow` and `cao init` are local compatibility helpers
 - `cao mcp-server` is retired and fails explicitly with migration guidance
 
+Useful pair timeout overrides:
+
+- Session-backed `houmao-mgr launch` and `houmao-mgr cao launch` accept `--compat-http-timeout-seconds` and `--compat-create-timeout-seconds`.
+- When those flags are omitted, session-backed launch falls back to `HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS` and `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS`.
+- Those compatibility timeout flags do not apply to top-level native headless launch. `houmao-mgr launch --headless` rejects them explicitly.
+- `houmao-server serve` exposes `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds` for the server-owned synchronous compatibility startup chain.
+- If server-side compatibility waits are raised above the defaults, also raise the client create timeout so the session-backed launch caller does not time out first.
+
 For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
 
 - `houmao-mgr agents gateway attach <agent-ref> --port <public-port>` for explicit managed-agent targeting

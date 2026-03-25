@@ -50,6 +50,36 @@ from .common import build_config, path_option_help
     help="Repeat `tool=name1,name2` to override supported live TUI process detection.",
 )
 @click.option(
+    "--compat-shell-ready-timeout-seconds",
+    default=10.0,
+    type=click.FloatRange(min=0.0, min_open=True),
+    show_default=True,
+)
+@click.option(
+    "--compat-shell-ready-poll-interval-seconds",
+    default=0.5,
+    type=click.FloatRange(min=0.0, min_open=True),
+    show_default=True,
+)
+@click.option(
+    "--compat-provider-ready-timeout-seconds",
+    default=45.0,
+    type=click.FloatRange(min=0.0, min_open=True),
+    show_default=True,
+)
+@click.option(
+    "--compat-provider-ready-poll-interval-seconds",
+    default=1.0,
+    type=click.FloatRange(min=0.0, min_open=True),
+    show_default=True,
+)
+@click.option(
+    "--compat-codex-warmup-seconds",
+    default=2.0,
+    type=click.FloatRange(min=0.0),
+    show_default=True,
+)
+@click.option(
     "--startup-child/--no-startup-child",
     default=True,
     show_default=True,
@@ -63,6 +93,11 @@ def serve_command(
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
     supported_tui_processes: tuple[str, ...],
+    compat_shell_ready_timeout_seconds: float,
+    compat_shell_ready_poll_interval_seconds: float,
+    compat_provider_ready_timeout_seconds: float,
+    compat_provider_ready_poll_interval_seconds: float,
+    compat_codex_warmup_seconds: float,
     startup_child: bool,
 ) -> None:
     """Run the local Houmao HTTP server."""
@@ -76,6 +111,11 @@ def serve_command(
         completion_stability_seconds=completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
         supported_tui_processes=supported_tui_processes,
+        compat_shell_ready_timeout_seconds=compat_shell_ready_timeout_seconds,
+        compat_shell_ready_poll_interval_seconds=compat_shell_ready_poll_interval_seconds,
+        compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
+        compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
+        compat_codex_warmup_seconds=compat_codex_warmup_seconds,
         startup_child=startup_child,
     )
     uvicorn.run(

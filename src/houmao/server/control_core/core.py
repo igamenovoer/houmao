@@ -479,10 +479,15 @@ class CompatibilityControlCore:
                 detail="Compatibility provider profile preparation returned an invalid payload.",
             )
         typed_adapter = adapter
-        self.m_tmux.wait_for_shell(window_id=terminal_record.window_id)
+        self.m_tmux.wait_for_shell(
+            window_id=terminal_record.window_id,
+            timeout_seconds=self.m_config.compat_shell_ready_timeout_seconds,
+            polling_interval_seconds=self.m_config.compat_shell_ready_poll_interval_seconds,
+        )
         if getattr(typed_adapter, "provider_id", "") == "codex":
             self.m_tmux.send_command(window_id=terminal_record.window_id, command="echo ready")
-            time.sleep(2.0)
+            if self.m_config.compat_codex_warmup_seconds > 0:
+                time.sleep(self.m_config.compat_codex_warmup_seconds)
 
         profile = getattr(prepared, "profile")
         command = typed_adapter.build_command(
@@ -501,6 +506,8 @@ class CompatibilityControlCore:
             tmux=self.m_tmux,
             window_id=terminal_record.window_id,
             profile_name=terminal_record.agent_profile,
+            timeout_seconds=self.m_config.compat_provider_ready_timeout_seconds,
+            polling_interval_seconds=self.m_config.compat_provider_ready_poll_interval_seconds,
         )
 
     def _load_prepared_profile(self, *, profile_name: str, provider: str) -> object:

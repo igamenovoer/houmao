@@ -78,8 +78,8 @@ class CompatibilityProviderAdapter:
         tmux: CompatibilityTmuxController,
         window_id: str,
         profile_name: str,
-        timeout_seconds: float = 45.0,
-        polling_interval_seconds: float = 1.0,
+        timeout_seconds: float,
+        polling_interval_seconds: float,
     ) -> None:
         """Wait until the provider reaches an input-ready status."""
 

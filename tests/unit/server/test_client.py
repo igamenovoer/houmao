@@ -25,6 +25,15 @@ from houmao.server.models import (
 )
 
 
+def test_houmao_server_client_defaults_to_split_compatibility_timeout_budgets() -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+
+    assert client.base_url == "http://127.0.0.1:9889"
+    assert client.path_prefix == "/cao"
+    assert client.timeout_seconds == 15.0
+    assert client.create_timeout_seconds == 75.0
+
+
 def test_terminal_state_parses_simplified_tracked_state_contract(monkeypatch) -> None:
     payload = {
         "terminal_id": "abcd1234",
@@ -586,5 +595,5 @@ def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
     assert recorded == {
         "method": "GET",
         "path": "/sessions/cao-gpu",
-        "kwargs": {"params": None},
+        "kwargs": {"params": None, "timeout_seconds": None},
     }

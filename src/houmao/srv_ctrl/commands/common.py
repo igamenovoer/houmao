@@ -17,6 +17,8 @@ from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.server.client import HoumaoServerClient
 
 _CAO_DEFAULT_PORT = int(os.environ.get("CAO_PORT", "9889"))
+_COMPAT_HTTP_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS"
+_COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
 _ParamT = ParamSpec("_ParamT")
 _ReturnT = TypeVar("_ReturnT")
 
@@ -42,10 +44,20 @@ def resolve_pair_client(*, port: int | None = None) -> HoumaoServerClient:
     return require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
 
 
-def require_supported_houmao_pair(*, base_url: str) -> HoumaoServerClient:
+def require_supported_houmao_pair(
+    *,
+    base_url: str,
+    timeout_seconds: float | None = None,
+    create_timeout_seconds: float | None = None,
+) -> HoumaoServerClient:
     """Ensure the target server is a real `houmao-server`."""
 
-    client = HoumaoServerClient(base_url)
+    client_kwargs: dict[str, float] = {}
+    if timeout_seconds is not None:
+        client_kwargs["timeout_seconds"] = timeout_seconds
+    if create_timeout_seconds is not None:
+        client_kwargs["create_timeout_seconds"] = create_timeout_seconds
+    client = HoumaoServerClient(base_url, **client_kwargs)
     try:
         health = client.health_extended()
     except Exception as exc:
@@ -93,6 +105,49 @@ def pair_port_option(*, help_text: str = "Houmao server port to use") -> Callabl
     """Return the shared `--port` click option decorator."""
 
     return click.option("--port", default=None, type=int, help=help_text)
+
+
+def compatibility_launch_timeout_options(function: Callable) -> Callable:
+    """Attach shared compatibility launch timeout controls."""
+
+    function = click.option(
+        "--compat-create-timeout-seconds",
+        default=None,
+        type=click.FloatRange(min=0.0, min_open=True),
+        help=(
+            "Compatibility create timeout budget for session-backed launch. "
+            f"Falls back to `{_COMPAT_CREATE_TIMEOUT_ENV_VAR}`."
+        ),
+    )(function)
+    function = click.option(
+        "--compat-http-timeout-seconds",
+        default=None,
+        type=click.FloatRange(min=0.0, min_open=True),
+        help=(
+            "Compatibility request timeout budget for non-create requests during "
+            f"session-backed launch. Falls back to `{_COMPAT_HTTP_TIMEOUT_ENV_VAR}`."
+        ),
+    )(function)
+    return function
+
+
+def resolve_compatibility_launch_timeouts(
+    *,
+    compat_http_timeout_seconds: float | None,
+    compat_create_timeout_seconds: float | None,
+) -> tuple[float | None, float | None]:
+    """Resolve compatibility launch timeouts from flags or environment."""
+
+    return (
+        _resolve_optional_timeout_from_env(
+            explicit_value=compat_http_timeout_seconds,
+            env_var_name=_COMPAT_HTTP_TIMEOUT_ENV_VAR,
+        ),
+        _resolve_optional_timeout_from_env(
+            explicit_value=compat_create_timeout_seconds,
+            env_var_name=_COMPAT_CREATE_TIMEOUT_ENV_VAR,
+        ),
+    )
 
 
 def managed_agent_argument(function: Callable) -> Callable:
@@ -185,3 +240,27 @@ def resolve_managed_agent_identity(
     """Resolve one managed-agent identity through the pair authority."""
 
     return pair_request(client.get_managed_agent, require_managed_agent_ref(agent_ref))
+
+
+def _resolve_optional_timeout_from_env(
+    *,
+    explicit_value: float | None,
+    env_var_name: str,
+) -> float | None:
+    """Resolve one positive timeout override from CLI or environment."""
+
+    if explicit_value is not None:
+        return explicit_value
+    raw_value = os.environ.get(env_var_name)
+    if raw_value is None:
+        return None
+    stripped = raw_value.strip()
+    if not stripped:
+        return None
+    try:
+        resolved = float(stripped)
+    except ValueError as exc:
+        raise click.ClickException(f"`{env_var_name}` must be a positive float.") from exc
+    if resolved <= 0:
+        raise click.ClickException(f"`{env_var_name}` must be > 0.")
+    return resolved
