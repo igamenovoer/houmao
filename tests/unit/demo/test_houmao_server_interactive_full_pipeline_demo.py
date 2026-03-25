@@ -19,6 +19,11 @@ from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     ManagedAgentSnapshot,
     TerminalSnapshot,
 )
+from houmao.owned_paths import (
+    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+)
 from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentRequestAcceptedResponse,
@@ -199,6 +204,58 @@ def test_install_pair_profile_targets_public_pair_port(
     assert stdout_path.read_text(encoding="utf-8") == "ok\n"
 
 
+def test_launch_pair_session_uses_public_detached_compat_command_and_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Detached startup should invoke the public compatibility launch surface."""
+
+    captured: dict[str, object] = {}
+    workdir = tmp_path / "wktree"
+    launch_env = {
+        "HOME": "/demo/server/home",
+        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: "/demo/runtime",
+        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: "/demo/registry",
+        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: "/demo/jobs",
+    }
+
+    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        captured["args"] = args[0]
+        captured["cwd"] = kwargs["cwd"]
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(demo_commands.subprocess, "run", _fake_run)
+
+    demo_commands._launch_pair_session(
+        api_base_url="http://127.0.0.1:19989",
+        provider="codex",
+        requested_session_name="alice",
+        workdir=workdir,
+        env=launch_env,
+    )
+
+    assert captured["args"] == [
+        demo_commands.sys.executable,
+        "-m",
+        "houmao.srv_ctrl",
+        "cao",
+        "launch",
+        "--headless",
+        "--yolo",
+        "--agents",
+        "gpu-kernel-coder",
+        "--provider",
+        "codex",
+        "--port",
+        "19989",
+        "--session-name",
+        "alice",
+    ]
+    assert captured["cwd"] == str(workdir.resolve())
+    assert captured["env"] == launch_env
+
+
 def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -229,12 +286,18 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
         def list_sessions(self) -> list[object]:
             return [type("Session", (), {"id": "cao-alice"})()]
 
+    captured_launch_kwargs: dict[str, object] = {}
+
     monkeypatch.setattr(demo_commands, "_cleanup_existing_state_for_startup", lambda **kwargs: None)
     monkeypatch.setattr(
         demo_commands, "_start_server_process", lambda **kwargs: type("Proc", (), {"pid": 4242})()
     )
     monkeypatch.setattr(demo_commands, "_install_pair_profile", lambda **kwargs: None)
-    monkeypatch.setattr(demo_commands, "_launch_pair_session", lambda **kwargs: None)
+    monkeypatch.setattr(
+        demo_commands,
+        "_launch_pair_session",
+        lambda **kwargs: captured_launch_kwargs.update(kwargs),
+    )
     monkeypatch.setattr(
         demo_commands, "_wait_for_launched_session_name", lambda **kwargs: "cao-alice"
     )
@@ -297,6 +360,13 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     assert payload.state.tracked_agent_id == "tracked-cao-alice"
     assert payload.state.houmao_server.session_name == "cao-alice"
     assert loaded.session_manifest_path.endswith("manifest.json")
+    assert captured_launch_kwargs["workdir"] == paths.workdir
+    launch_env = captured_launch_kwargs["env"]
+    assert isinstance(launch_env, dict)
+    assert launch_env["HOME"] == str(paths.server_home_dir)
+    assert launch_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] == str(paths.runtime_root)
+    assert launch_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] == str(paths.registry_root)
+    assert launch_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] == str(paths.jobs_root)
 
 
 def test_send_turn_targets_session_name_backed_agent_ref(
@@ -413,26 +483,28 @@ def test_inspect_omits_dialog_tail_unless_requested(
     assert explicit_payload.dialog_tail_chars_requested == 80
 
 
-def test_stop_demo_tolerates_stale_remote_session_and_marks_state_inactive(
+def test_stop_demo_uses_managed_agent_stop_route_and_tolerates_stale_remote_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Stale session stop outcomes should still deactivate local demo state safely."""
+    """Managed-agent stale stop outcomes should still deactivate local demo state safely."""
 
     paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
     env = _demo_env(tmp_path / "repo")
     demo_commands.save_demo_state(paths.state_path, _demo_state(paths))
     killed_sessions: list[str] = []
+    captured: dict[str, object] = {}
 
     class _FakeClient:
         def __init__(self, base_url: str, timeout_seconds: float = 3.0) -> None:
             del base_url, timeout_seconds
 
-        def delete_session(self, session_name: str) -> object:
+        def stop_managed_agent(self, agent_ref: str) -> object:
+            captured["agent_ref"] = agent_ref
             raise CaoApiError(
-                method="DELETE",
-                url=f"http://127.0.0.1:19989/cao/sessions/{session_name}",
-                detail="session not found",
+                method="POST",
+                url=f"http://127.0.0.1:19989/houmao/agents/{agent_ref}/stop",
+                detail="managed agent not found",
                 status_code=404,
             )
 
@@ -454,6 +526,7 @@ def test_stop_demo_tolerates_stale_remote_session_and_marks_state_inactive(
     assert payload.session_delete_status == "stale_missing"
     assert payload.stale_session_tolerated is True
     assert payload.server_stop_status == "stopped"
+    assert captured["agent_ref"] == "cao-alice"
     assert killed_sessions == ["cao-alice"]
     assert updated_state is not None
     assert updated_state.active is False

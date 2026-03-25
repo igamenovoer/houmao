@@ -9,8 +9,9 @@ Usage:
   $(basename "$0") [-y] [--provider <claude_code|codex>] [--help]
 
 Launch or replace the interactive session with the fixed demo session-name
-\`alice\`. The pair-managed launch resolves that to the CAO-compatible
-\`cao-alice\` session while the demo keeps the operator-facing override stable.
+\`alice\`. The detached compatibility launch resolves that to the
+CAO-compatible \`cao-alice\` session while the demo keeps the operator-facing
+override stable.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh [-y] start --session-name alice [--provider <provider>]

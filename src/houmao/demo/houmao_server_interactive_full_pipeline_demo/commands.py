@@ -53,7 +53,6 @@ from houmao.server.models import (
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalStateResponse,
 )
-from houmao.srv_ctrl.commands.launch import _launch_session_backed_pair_command
 
 
 def start_demo(
@@ -109,6 +108,7 @@ def start_demo(
             provider=provider,
             requested_session_name=requested_session_name,
             workdir=paths.workdir,
+            env=runtime_env,
         )
         actual_session_name = _wait_for_launched_session_name(
             client=client,
@@ -693,30 +693,46 @@ def _launch_pair_session(
     provider: str,
     requested_session_name: str | None,
     workdir: Path,
+    env: dict[str, str],
 ) -> None:
-    """Launch one pair-managed TUI session without attaching the caller's terminal.
+    """Launch one detached TUI session through the public compatibility CLI."""
 
-    The public `houmao-mgr launch` command always attaches to tmux for TUI
-    sessions. The demo needs the same launch logic, but it must return control
-    to the wrapper immediately, so it reuses the underlying pair-native helper
-    with `attach_to_tmux=False`.
-    """
+    command = [
+        sys.executable,
+        "-m",
+        "houmao.srv_ctrl",
+        "cao",
+        "launch",
+        "--headless",
+        "--yolo",
+        "--agents",
+        DEFAULT_AGENT_PROFILE,
+        "--provider",
+        provider,
+        "--port",
+        api_base_url.rsplit(":", 1)[-1],
+    ]
+    if requested_session_name is not None and requested_session_name.strip():
+        command.extend(["--session-name", requested_session_name.strip()])
 
-    try:
-        _launch_session_backed_pair_command(
-            agents=DEFAULT_AGENT_PROFILE,
-            session_name=requested_session_name,
-            provider=provider,
-            port=int(api_base_url.rsplit(":", 1)[-1]),
-            working_directory=workdir.resolve(),
-            attach_to_tmux=False,
-            emit_created_messages=False,
+    result = subprocess.run(
+        command,
+        cwd=str(workdir.resolve()),
+        check=False,
+        capture_output=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or result.stdout.decode("utf-8", errors="replace").strip()
+            or "unknown launch error"
         )
-    except Exception as exc:
         raise DemoWorkflowError(
-            "Pair-managed session launch failed via the `houmao-mgr launch` implementation: "
-            f"{exc}"
-        ) from exc
+            "Pair-managed detached TUI launch failed via "
+            "`houmao-mgr cao launch --headless`: "
+            f"{detail}"
+        )
 
 
 def _wait_for_launched_session_name(
@@ -726,7 +742,7 @@ def _wait_for_launched_session_name(
     expected_session_name: str | None,
     timeout_seconds: float,
 ) -> str:
-    """Wait until the pair launch produces one new CAO-compatible session name."""
+    """Wait until detached compatibility launch produces one new CAO-compatible session name."""
 
     deadline = time.monotonic() + timeout_seconds
     last_error = "no new session appeared"
@@ -749,7 +765,8 @@ def _wait_for_launched_session_name(
             )
         time.sleep(0.25)
     raise DemoWorkflowError(
-        f"Timed out waiting for a new pair-managed session to appear: {last_error}"
+        "Timed out waiting for a new detached compatibility session to appear: "
+        f"{last_error}"
     )
 
 
@@ -855,8 +872,8 @@ def _wait_for_managed_agent_identity(
         )
         time.sleep(0.25)
     raise DemoWorkflowError(
-        "Timed out waiting for the pair-managed launch to become server-addressable without a "
-        f"second registration POST: {last_error}"
+        "Timed out waiting for the detached compatibility launch to become "
+        f"server-addressable without a second registration POST: {last_error}"
     )
 
 
@@ -1191,20 +1208,20 @@ def _stop_live_state(
     stale_tolerated = False
     try:
         client = HoumaoServerClient(state.api_base_url, timeout_seconds=3.0)
-        client.delete_session(state.session_name)
+        client.stop_managed_agent(state.agent_ref)
         _wait_for_session_absent(
             client=client,
             session_name=state.session_name,
             timeout_seconds=timeout_seconds,
         )
-        delete_status = "deleted"
+        delete_status = "stopped"
     except Exception as exc:
         if tolerate_stale and _is_stale_stop_error(exc):
             delete_status = "stale_missing"
             stale_tolerated = True
         else:
             raise DemoWorkflowError(
-                f"Failed to stop the server-backed session `{state.session_name}`: {exc}"
+                f"Failed to stop the managed demo agent `{state.agent_ref}`: {exc}"
             ) from exc
     finally:
         _best_effort_kill_tmux_session(state.session_name)

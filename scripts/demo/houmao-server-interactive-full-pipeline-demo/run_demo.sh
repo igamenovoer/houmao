@@ -15,8 +15,10 @@ Usage:
 
 Subcommands:
   start [--provider <claude_code|codex>] [--session-name <name>] [--port <port>] [--json]
-      Start or replace the pair-managed interactive session. The default
-      provider is \`claude_code\`.
+      Start or replace the pair-managed interactive session through a demo-owned
+      \`houmao-server\`, top-level \`houmao-mgr install\`, and detached
+      \`houmao-mgr cao launch --headless\`. The default provider is
+      \`claude_code\`.
   inspect [--json] [--with-dialog-tail <num-tail-chars>]
       Inspect the persisted demo state and live server-owned session routes.
   send-turn (--prompt <text> | --prompt-file <path>)
@@ -27,8 +29,9 @@ Subcommands:
       Generate a sanitized \`report.json\` from accepted request artifacts and
       server-tracked state evidence.
   stop
-      Tear down the active TUI session through the recorded \`houmao-server\`
-      authority and mark local state inactive.
+      Tear down the active TUI session through the recorded
+      \`POST /houmao/agents/{agent_ref}/stop\` route and mark local state
+      inactive.
 
 Environment defaults:
   DEMO_WORKSPACE_ROOT=<override>

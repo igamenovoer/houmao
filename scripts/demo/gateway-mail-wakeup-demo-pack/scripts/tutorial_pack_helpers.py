@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -23,6 +24,7 @@ from houmao.agents.realm_controller.gateway_client import GatewayClient, Gateway
 from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.agents.realm_controller.gateway_storage import (
     build_gateway_mail_notifier_status,
+    gateway_paths_from_session_root,
     read_gateway_mail_notifier_record,
     read_gateway_notifier_audit_records,
     write_gateway_mail_notifier_record,
@@ -30,19 +32,17 @@ from houmao.agents.realm_controller.gateway_storage import (
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
+    runtime_owned_session_root_from_manifest_path,
 )
-from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
-from houmao.cao.rest_client import CaoApiError, CaoRestClient
-from houmao.cao.server_launcher import (
-    load_cao_server_launcher_config,
-    resolve_cao_server_runtime_artifacts,
-)
+from houmao.agents.mailbox_runtime_support import project_runtime_mailbox_system_skills
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_local_sqlite_path,
 )
 from houmao.mailbox.managed import DeliveryRequest
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+from houmao.server.client import HoumaoServerClient
+from houmao.server.config import HoumaoServerConfig
 
 _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
@@ -56,13 +56,13 @@ _MANAGED_PROJECT_METADATA_NAME = ".houmao-demo-project.json"
 
 _ARTIFACT_FILENAMES = {
     "brain_build": "brain_build.json",
-    "cao_start": "cao_start.json",
     "gateway_attach": "gateway_attach.json",
     "idle_wait": "idle_wait.json",
     "inspect": "inspect.json",
     "notifier_enable": "notifier_enable.json",
     "report": "report.json",
     "report_sanitized": "report.sanitized.json",
+    "server_start": "server_start.json",
     "session_start": "session_start.json",
 }
 _PATH_PLACEHOLDERS = {
@@ -85,17 +85,17 @@ _PATH_PLACEHOLDERS = {
     "output_file_path": "<OUTPUT_FILE_PATH>",
     "payload_file": "<DELIVERY_PAYLOAD_PATH>",
     "staged_message_path": "<STAGED_MESSAGE_PATH>",
+    "skills_target": "<PROJECT_SKILLS_ROOT>",
+    "hidden_mailbox_dir": "<PROJECT_HIDDEN_MAILBOX_SKILLS_DIR>",
+    "visible_mailbox_dir": "<PROJECT_VISIBLE_MAILBOX_SKILLS_DIR>",
     "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
     "local_sqlite_path": "<MAILBOX_LOCAL_SQLITE_PATH>",
     "local_mailbox_dir": "<MAILBOX_LOCAL_DIR>",
-    "cao_launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
-    "cao_runtime_root": "<CAO_RUNTIME_ROOT>",
-    "cao_home_dir": "<CAO_HOME_DIR>",
-    "cao_profile_store": "<CAO_PROFILE_STORE>",
-    "cao_artifact_dir": "<CAO_ARTIFACT_DIR>",
-    "cao_log_file": "<CAO_LOG_FILE>",
-    "cao_launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
-    "cao_ownership_file": "<CAO_OWNERSHIP_FILE>",
+    "server_runtime_root": "<SERVER_RUNTIME_ROOT>",
+    "server_root": "<SERVER_ROOT>",
+    "current_instance_path": "<SERVER_CURRENT_INSTANCE_PATH>",
+    "stdout_log_path": "<SERVER_STDOUT_LOG_PATH>",
+    "stderr_log_path": "<SERVER_STDERR_LOG_PATH>",
 }
 _VALUE_PLACEHOLDERS = {
     "generated_at_utc": "<TIMESTAMP>",
@@ -182,7 +182,7 @@ class DemoParameters:
     agent_def_dir: str
     project_fixture: str
     backend: str
-    cao_base_url: str
+    houmao_base_url: str
     shared_mailbox_root_template: str
     agent: DemoAgent
     gateway: DemoGateway
@@ -197,10 +197,10 @@ class DemoLayout:
     demo_output_dir: Path
     project_workdir: Path
     runtime_root: Path
-    cao_dir: Path
-    cao_launcher_config_path: Path
-    cao_runtime_root: Path
-    cao_start_path: Path
+    server_dir: Path
+    server_runtime_root: Path
+    server_logs_dir: Path
+    server_start_path: Path
     inputs_dir: Path
     mailbox_root: Path
     deliveries_dir: Path
@@ -472,7 +472,9 @@ def load_demo_parameters(path: Path) -> DemoParameters:
             payload.get("project_fixture"), context="project_fixture"
         ),
         backend=_require_non_empty_string(payload.get("backend"), context="backend"),
-        cao_base_url=_require_non_empty_string(payload.get("cao_base_url"), context="cao_base_url"),
+        houmao_base_url=_require_non_empty_string(
+            payload.get("houmao_base_url"), context="houmao_base_url"
+        ),
         shared_mailbox_root_template=_require_non_empty_string(
             payload.get("shared_mailbox_root_template"),
             context="shared_mailbox_root_template",
@@ -482,8 +484,8 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         delivery=_delivery_from_payload(payload.get("delivery")),
         automatic=_automatic_from_payload(payload.get("automatic")),
     )
-    if parameters.backend != "cao_rest":
-        raise ValueError("demo parameters backend must be cao_rest")
+    if parameters.backend != "houmao_server_rest":
+        raise ValueError("demo parameters backend must be houmao_server_rest")
     if "{demo_output_dir}" not in parameters.shared_mailbox_root_template and (
         "{workspace_dir}" not in parameters.shared_mailbox_root_template
     ):
@@ -522,15 +524,15 @@ def build_demo_layout(*, demo_output_dir: Path) -> DemoLayout:
     """Build the demo-owned output layout for one run."""
 
     resolved_output_dir = demo_output_dir.resolve()
-    cao_dir = resolved_output_dir / "cao"
+    server_dir = resolved_output_dir / "server"
     return DemoLayout(
         demo_output_dir=resolved_output_dir,
         project_workdir=resolved_output_dir / "project",
         runtime_root=resolved_output_dir / "runtime",
-        cao_dir=cao_dir,
-        cao_launcher_config_path=cao_dir / "launcher.toml",
-        cao_runtime_root=cao_dir / "runtime",
-        cao_start_path=resolved_output_dir / _ARTIFACT_FILENAMES["cao_start"],
+        server_dir=server_dir,
+        server_runtime_root=server_dir / "runtime",
+        server_logs_dir=server_dir / "logs",
+        server_start_path=resolved_output_dir / _ARTIFACT_FILENAMES["server_start"],
         inputs_dir=resolved_output_dir / "inputs",
         mailbox_root=resolved_output_dir / "shared-mailbox",
         deliveries_dir=resolved_output_dir / "deliveries",
@@ -569,9 +571,9 @@ def _artifact_paths(layout: DemoLayout) -> dict[str, Path]:
     """Return the stable artifact-path mapping for the demo output directory."""
 
     return {
-        "cao_start": layout.cao_start_path,
         "brain_build": layout.brain_build_path,
         "session_start": layout.session_start_path,
+        "server_start": layout.server_start_path,
         "gateway_attach": layout.gateway_attach_path,
         "notifier_enable": layout.notifier_enable_path,
         "idle_wait": layout.idle_wait_path,
@@ -825,194 +827,269 @@ def ensure_project_workdir_from_fixture(
     return resolved_project_workdir
 
 
-def supports_loopback_cao_launcher_management(cao_base_url: str) -> bool:
-    """Return whether the base URL can use demo-local launcher management."""
+def _stage_project_mailbox_skill_tree(*, source_root: Path, skills_target: Path) -> None:
+    """Copy one mailbox skill tree into both hidden and visible project paths."""
 
-    return is_supported_loopback_cao_base_url(_normalize_cao_base_url(cao_base_url))
+    hidden_target = skills_target / ".system" / "mailbox"
+    visible_target = skills_target / "mailbox"
+    if source_root.resolve() != hidden_target.resolve():
+        shutil.copytree(source_root, hidden_target, dirs_exist_ok=True)
+    shutil.copytree(source_root, visible_target, dirs_exist_ok=True)
 
 
-def _default_launcher_runner(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
-    """Run one launcher CLI command via the repo Pixi environment."""
+def stage_project_mailbox_skills(
+    *,
+    project_workdir: Path,
+    brain_build_payload: dict[str, Any],
+) -> dict[str, str]:
+    """Stage runtime mailbox skill docs into the copied demo project."""
 
-    return subprocess.run(
+    skills_target = project_workdir / "skills"
+    if skills_target.exists() and not skills_target.is_dir():
+        raise RuntimeError(
+            f"demo project already contains a non-directory `skills` path: {skills_target}"
+        )
+    skills_target.mkdir(parents=True, exist_ok=True)
+
+    home_path = Path(
+        _require_non_empty_string(brain_build_payload.get("home_path"), context="home_path")
+    ).expanduser()
+    runtime_mailbox_source = home_path / "skills" / ".system" / "mailbox"
+    source_root = runtime_mailbox_source
+    if not source_root.is_dir():
+        project_runtime_mailbox_system_skills(skills_target)
+        source_root = skills_target / ".system" / "mailbox"
+    if not source_root.is_dir():
+        raise RuntimeError(
+            "runtime mailbox skill docs were not available under the built brain home or "
+            "the project-local fallback surface"
+        )
+
+    _stage_project_mailbox_skill_tree(source_root=source_root, skills_target=skills_target)
+    return {
+        "skills_target": str(skills_target.resolve()),
+        "hidden_mailbox_dir": str((skills_target / ".system" / "mailbox").resolve()),
+        "visible_mailbox_dir": str((skills_target / "mailbox").resolve()),
+    }
+
+
+def _normalize_houmao_base_url(value: str) -> str:
+    """Normalize one `houmao-server` API base URL."""
+
+    normalized = value.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme != "http":
+        raise ValueError("houmao-server base URL must use http")
+    if parsed.hostname is None or parsed.port is None:
+        raise ValueError("houmao-server base URL must include host and explicit port")
+    return f"http://{parsed.hostname}:{parsed.port}"
+
+
+def _server_config(*, demo_output_dir: Path, houmao_base_url: str) -> HoumaoServerConfig:
+    """Build the canonical server config for one demo output root."""
+
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    return HoumaoServerConfig(
+        api_base_url=_normalize_houmao_base_url(houmao_base_url),
+        runtime_root=layout.server_runtime_root,
+        startup_child=False,
+    )
+
+
+def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> None:
+    """Wait until the selected `houmao-server` reports healthy status."""
+
+    client = HoumaoServerClient(api_base_url, timeout_seconds=1.0)
+    deadline = time.monotonic() + timeout_seconds
+    last_error = "server did not become healthy"
+    while time.monotonic() < deadline:
+        try:
+            health = client.health_extended()
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(0.25)
+            continue
+        if health.status == "ok" and health.houmao_service == "houmao-server":
+            return
+        last_error = health.model_dump_json()
+        time.sleep(0.25)
+    raise RuntimeError(
+        f"timed out waiting for demo-owned houmao-server health at {api_base_url}: {last_error}"
+    )
+
+
+def _stop_process_group(
+    *,
+    pid: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Best-effort terminate one process group."""
+
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return {
+            "stopped": False,
+            "already_stopped": True,
+            "pid": pid,
+        }
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return {
+                "stopped": True,
+                "already_stopped": False,
+                "pid": pid,
+                "signal": "SIGTERM",
+            }
+        time.sleep(0.2)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return {
+            "stopped": True,
+            "already_stopped": False,
+            "pid": pid,
+            "signal": "SIGTERM",
+        }
+    return {
+        "stopped": True,
+        "already_stopped": False,
+        "pid": pid,
+        "signal": "SIGKILL",
+    }
+
+
+def start_demo_server(
+    *,
+    repo_root: Path,
+    demo_output_dir: Path,
+    houmao_base_url: str,
+) -> dict[str, Any]:
+    """Start or reuse demo-owned `houmao-server` and return one structured payload."""
+
+    normalized_base_url = _normalize_houmao_base_url(houmao_base_url)
+    config = _server_config(
+        demo_output_dir=demo_output_dir,
+        houmao_base_url=normalized_base_url,
+    )
+    layout = build_demo_layout(demo_output_dir=demo_output_dir)
+    client = HoumaoServerClient(normalized_base_url, timeout_seconds=1.0)
+    stdout_path = layout.server_logs_dir / "houmao-server.stdout.log"
+    stderr_path = layout.server_logs_dir / "houmao-server.stderr.log"
+
+    try:
+        health = client.health_extended()
+        instance = client.current_instance()
+    except Exception:
+        health = None
+        instance = None
+    else:
+        if instance.server_root != str(config.server_root):
+            raise RuntimeError(
+                "existing houmao-server does not belong to this demo output root: "
+                f"expected {config.server_root}, got {instance.server_root}"
+            )
+        return {
+            "managed": True,
+            "api_base_url": normalized_base_url,
+            "runtime_root": str(config.runtime_root),
+            "server_root": str(config.server_root),
+            "current_instance_path": str(config.current_instance_path),
+            "stdout_log_path": str(stdout_path),
+            "stderr_log_path": str(stderr_path),
+            "pid": instance.pid,
+            "healthy": health is not None and health.status == "ok",
+            "started_current_run": False,
+            "reused_existing_process": True,
+            "message": "reused existing demo-owned houmao-server",
+        }
+
+    layout.server_logs_dir.mkdir(parents=True, exist_ok=True)
+    stdout_handle = stdout_path.open("wb")
+    stderr_handle = stderr_path.open("wb")
+    process = subprocess.Popen(
         [
             "pixi",
             "run",
             "python",
             "-m",
-            "houmao.cao.tools.cao_server_launcher",
-            *args,
+            "houmao.server",
+            "serve",
+            "--api-base-url",
+            normalized_base_url,
+            "--runtime-root",
+            str(config.runtime_root),
+            "--no-startup-child",
         ],
         cwd=str(repo_root.resolve()),
-        check=False,
-        capture_output=True,
-        text=True,
+        stdout=stdout_handle,
+        stderr=stderr_handle,
+        start_new_session=True,
+        env=dict(os.environ),
     )
-
-
-def write_demo_cao_launcher_config(*, demo_output_dir: Path, cao_base_url: str) -> Path:
-    """Write the demo-local CAO launcher config and return its path."""
-
-    layout = build_demo_layout(demo_output_dir=demo_output_dir)
-    layout.cao_dir.mkdir(parents=True, exist_ok=True)
-    layout.cao_launcher_config_path.write_text(
-        "\n".join(
-            [
-                f'base_url = "{_normalize_cao_base_url(cao_base_url)}"',
-                'runtime_root = "runtime"',
-                'home_dir = ""',
-                'proxy_policy = "clear"',
-                "startup_timeout_seconds = 15",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return layout.cao_launcher_config_path
-
-
-def _launcher_json(
-    *,
-    repo_root: Path,
-    args: list[str],
-    accepted_exit_codes: set[int],
-    run_launcher: LauncherRunner,
-) -> dict[str, Any]:
-    """Run one launcher command and parse one JSON payload from stdout/stderr."""
-
-    result = run_launcher(args, repo_root.resolve())
-    if result.returncode not in accepted_exit_codes:
-        detail = result.stderr.strip() or result.stdout.strip() or "launcher command failed"
-        raise RuntimeError(detail)
-    payload_text = result.stdout.strip() or result.stderr.strip()
-    if not payload_text:
-        raise RuntimeError("launcher command returned no JSON payload")
+    stdout_handle.close()
+    stderr_handle.close()
     try:
-        payload = json.loads(payload_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"launcher returned malformed JSON: {exc}") from exc
-    return _require_mapping(payload, context="launcher result")
-
-
-def _ownership_verified(payload: dict[str, Any], *, artifact_dir: Path, base_url: str) -> bool:
-    """Return whether one launcher result payload carries matching ownership."""
-
-    ownership = payload.get("ownership")
-    if not isinstance(ownership, dict):
-        return False
-    return (
-        ownership.get("managed_by") == "houmao.cao.server_launcher"
-        and ownership.get("base_url") == base_url
-        and ownership.get("artifact_dir") == str(artifact_dir)
-    )
-
-
-def start_demo_cao(
-    *,
-    repo_root: Path,
-    demo_output_dir: Path,
-    cao_base_url: str,
-    run_launcher: LauncherRunner = _default_launcher_runner,
-) -> dict[str, Any]:
-    """Start or reuse demo-local loopback CAO and return one structured payload."""
-
-    normalized_base_url = _normalize_cao_base_url(cao_base_url)
-    if not supports_loopback_cao_launcher_management(normalized_base_url):
-        raise ValueError(
-            "demo-local CAO launcher management only supports loopback base URLs "
-            "with explicit ports"
+        _wait_for_server_health(api_base_url=normalized_base_url, timeout_seconds=15.0)
+        instance = client.current_instance()
+    except Exception:
+        _stop_process_group(pid=process.pid, timeout_seconds=5.0)
+        raise
+    if instance.server_root != str(config.server_root):
+        _stop_process_group(pid=process.pid, timeout_seconds=5.0)
+        raise RuntimeError(
+            "newly started houmao-server reported an unexpected server root: "
+            f"expected {config.server_root}, got {instance.server_root}"
         )
-
-    config_path = write_demo_cao_launcher_config(
-        demo_output_dir=demo_output_dir,
-        cao_base_url=normalized_base_url,
-    )
-    config = load_cao_server_launcher_config(config_path)
-    artifacts = resolve_cao_server_runtime_artifacts(config)
-    start_payload = _launcher_json(
-        repo_root=repo_root,
-        args=["start", "--config", str(config_path)],
-        accepted_exit_codes={0},
-        run_launcher=run_launcher,
-    )
-    ownership_verified = _ownership_verified(
-        start_payload,
-        artifact_dir=artifacts.artifact_dir,
-        base_url=normalized_base_url,
-    )
-
     return {
         "managed": True,
-        "base_url": normalized_base_url,
-        "launcher_config_path": str(config.config_path),
+        "api_base_url": normalized_base_url,
         "runtime_root": str(config.runtime_root),
-        "home_dir": str(artifacts.home_dir),
-        "profile_store": str(default_cao_profile_store(cao_home=artifacts.home_dir)),
-        "artifact_dir": str(artifacts.artifact_dir),
-        "log_file": str(artifacts.log_file),
-        "launcher_result_file": str(artifacts.launcher_result_file),
-        "ownership_file": str(artifacts.ownership_file),
-        "healthy": bool(start_payload.get("healthy")),
-        "started_current_run": bool(start_payload.get("started_new_process")),
-        "reused_existing_process": bool(start_payload.get("reused_existing_process")),
-        "ownership_verified": ownership_verified,
-        "recovery_attempted": False,
-        "message": _require_non_empty_string(start_payload.get("message"), context="message"),
+        "server_root": str(config.server_root),
+        "current_instance_path": str(config.current_instance_path),
+        "stdout_log_path": str(stdout_path),
+        "stderr_log_path": str(stderr_path),
+        "pid": instance.pid,
+        "healthy": True,
+        "started_current_run": True,
+        "reused_existing_process": False,
+        "message": "started demo-owned houmao-server",
     }
 
 
-def stop_demo_cao(
-    *,
-    repo_root: Path,
-    demo_output_dir: Path,
-    cao_base_url: str,
-    run_launcher: LauncherRunner = _default_launcher_runner,
-) -> dict[str, Any]:
-    """Stop demo-local CAO using the demo-owned launcher config."""
+def stop_demo_server(*, server: dict[str, Any]) -> dict[str, Any]:
+    """Stop one demo-owned `houmao-server` process when it is still live."""
 
-    del cao_base_url
-    config_path = build_demo_layout(demo_output_dir=demo_output_dir).cao_launcher_config_path
-    if not config_path.exists():
+    pid = int(server.get("pid", 0))
+    if pid <= 0:
         return {
-            "managed": False,
             "stopped": False,
             "already_stopped": True,
-            "message": f"demo-local launcher config not found: {config_path}",
+            "message": "server pid missing from persisted demo state",
         }
-    return _launcher_json(
-        repo_root=repo_root,
-        args=["stop", "--config", str(config_path)],
-        accepted_exit_codes={0, 2},
-        run_launcher=run_launcher,
-    )
+    payload = _stop_process_group(pid=pid, timeout_seconds=10.0)
+    payload["managed"] = bool(server.get("managed"))
+    payload["api_base_url"] = server.get("api_base_url")
+    return payload
 
 
-def _resolve_cao_context(
+def _resolve_server_context(
     *,
     repo_root: Path,
     demo_output_dir: Path,
-    cao_base_url: str,
-    cao_profile_store: str | None,
+    houmao_base_url: str,
 ) -> dict[str, Any]:
-    """Resolve the CAO execution context for the demo."""
+    """Resolve the demo-owned `houmao-server` execution context."""
 
-    normalized_base_url = _normalize_cao_base_url(cao_base_url)
-    if supports_loopback_cao_launcher_management(normalized_base_url):
-        return start_demo_cao(
-            repo_root=repo_root,
-            demo_output_dir=demo_output_dir,
-            cao_base_url=normalized_base_url,
-        )
-    if cao_profile_store is None or not cao_profile_store.strip():
-        raise DemoSkipError(
-            "external CAO requires explicit CAO_PROFILE_STORE for the wake-up demo pack"
-        )
-    return {
-        "managed": False,
-        "base_url": normalized_base_url,
-        "profile_store": str(Path(cao_profile_store).expanduser().resolve()),
-        "message": "using external CAO with explicit profile store",
-    }
+    normalized_base_url = _normalize_houmao_base_url(houmao_base_url)
+    return start_demo_server(
+        repo_root=repo_root,
+        demo_output_dir=demo_output_dir,
+        houmao_base_url=normalized_base_url,
+    )
 
 
 def _command_environment(*, jobs_dir: Path | None) -> dict[str, str]:
@@ -1101,7 +1178,7 @@ def _freshen_demo_output(
         layout.mailbox_root,
         layout.deliveries_dir,
         layout.output_dir,
-        layout.cao_dir,
+        layout.server_dir,
     ):
         if path.exists():
             shutil.rmtree(path)
@@ -1139,6 +1216,73 @@ def _gateway_endpoint_from_payload(payload: dict[str, Any]) -> GatewayEndpoint |
     return GatewayEndpoint(host=gateway_host, port=gateway_port)
 
 
+def _server_client_from_state(state: dict[str, Any]) -> HoumaoServerClient | None:
+    """Build one server client from persisted demo state when possible."""
+
+    server = state.get("server")
+    if not isinstance(server, dict):
+        return None
+    api_base_url = server.get("api_base_url")
+    if not isinstance(api_base_url, str) or not api_base_url.strip():
+        return None
+    return HoumaoServerClient(api_base_url, timeout_seconds=2.0)
+
+
+def _managed_agent_ref_from_state(state: dict[str, Any]) -> str | None:
+    """Return the tracked managed-agent reference from persisted demo state."""
+
+    managed_agent = state.get("managed_agent")
+    if not isinstance(managed_agent, dict):
+        return None
+    tracked_agent_id = managed_agent.get("tracked_agent_id")
+    if not isinstance(tracked_agent_id, str) or not tracked_agent_id.strip():
+        return None
+    return tracked_agent_id
+
+
+def _session_root_from_manifest_path(session_manifest_path: Path) -> Path:
+    """Resolve the runtime-owned session root from one session manifest path."""
+
+    session_root = runtime_owned_session_root_from_manifest_path(session_manifest_path.resolve())
+    if session_root is not None:
+        return session_root
+    return session_manifest_path.resolve().parent
+
+
+def _resolve_managed_agent_identity(
+    *,
+    api_base_url: str,
+    session_manifest_path: Path,
+    timeout_seconds: float = 15.0,
+) -> dict[str, Any]:
+    """Resolve one managed-agent identity for the just-started runtime session."""
+
+    client = HoumaoServerClient(api_base_url, timeout_seconds=2.0)
+    manifest = load_session_manifest(session_manifest_path)
+    payload = parse_session_manifest_payload(manifest.payload, source=str(manifest.path))
+    if payload.houmao_server is None:
+        raise RuntimeError(
+            "houmao-server-backed session manifest is missing the `houmao_server` state block"
+        )
+    session_name = payload.houmao_server.session_name
+    deadline = time.monotonic() + timeout_seconds
+    last_error = f"managed agent `{session_name}` not yet available"
+    while time.monotonic() < deadline:
+        try:
+            identity = client.get_managed_agent(session_name)
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(0.25)
+            continue
+        identity_payload = identity.model_dump(mode="json")
+        identity_payload["session_manifest"] = str(session_manifest_path.resolve())
+        return identity_payload
+    raise RuntimeError(
+        "timed out resolving the managed-agent identity for the started session: "
+        f"{last_error}"
+    )
+
+
 def _queue_path_from_state(state: dict[str, Any]) -> Path:
     """Return the durable queue path from the demo state."""
 
@@ -1162,6 +1306,24 @@ def _notifier_status_payload(
     disable: bool = False,
 ) -> dict[str, Any]:
     """Read or update notifier status with HTTP-first SQLite fallback behavior."""
+
+    client = _server_client_from_state(state)
+    managed_agent_ref = _managed_agent_ref_from_state(state)
+    if client is not None and managed_agent_ref is not None:
+        try:
+            if enable:
+                assert interval_seconds is not None
+                status = client.put_managed_agent_gateway_mail_notifier(
+                    managed_agent_ref,
+                    GatewayMailNotifierPutV1(interval_seconds=interval_seconds),
+                )
+            elif disable:
+                status = client.delete_managed_agent_gateway_mail_notifier(managed_agent_ref)
+            else:
+                status = client.get_managed_agent_gateway_mail_notifier(managed_agent_ref)
+            return {"state_source": "server_managed_agent", **status.model_dump(mode="json")}
+        except Exception:
+            pass
 
     endpoint = _gateway_endpoint_from_payload(_require_mapping(state["gateway"], context="gateway"))
     queue_path = _queue_path_from_state(state)
@@ -1209,11 +1371,26 @@ def _notifier_status_payload(
 
 def _gateway_status_payload(
     *,
-    repo_root: Path,
-    agent_def_dir: Path,
-    session_manifest_path: Path,
+    state: dict[str, Any] | None = None,
+    repo_root: Path | None = None,
+    agent_def_dir: Path | None = None,
+    session_manifest_path: Path | None = None,
 ) -> dict[str, Any] | None:
-    """Load the compact gateway status payload via CLI when possible."""
+    """Load the compact gateway status payload via server or CLI when possible."""
+
+    if state is not None:
+        client = _server_client_from_state(state)
+        managed_agent_ref = _managed_agent_ref_from_state(state)
+        if client is not None and managed_agent_ref is not None:
+            try:
+                status = client.get_managed_agent_gateway_status(managed_agent_ref)
+            except Exception:
+                pass
+            else:
+                return {"state_source": "server_managed_agent", **status.model_dump(mode="json")}
+
+    if repo_root is None or agent_def_dir is None or session_manifest_path is None:
+        return None
 
     temp_stdout = session_manifest_path.parent / ".gateway-status.tmp.json"
     temp_stderr = temp_stdout.with_suffix(".err")
@@ -1230,6 +1407,7 @@ def _gateway_status_payload(
             stdout_path=temp_stdout,
             env=None,
         )
+        payload.setdefault("state_source", "gateway_status_cli")
         return payload
     except Exception:
         return None
@@ -1245,33 +1423,35 @@ def _wait_for_idle(
     repo_root: Path,
     agent_def_dir: Path,
     session_manifest_path: Path,
-    cao_base_url: str,
+    state: dict[str, Any],
     poll_interval_seconds: int,
     timeout_seconds: int,
 ) -> dict[str, Any]:
     """Wait until the managed session appears idle."""
 
-    manifest = load_session_manifest(session_manifest_path)
-    payload = parse_session_manifest_payload(manifest.payload, source=str(manifest.path))
-    terminal_id = None if payload.cao is None else payload.cao.terminal_id
+    client = _server_client_from_state(state)
+    managed_agent_ref = _managed_agent_ref_from_state(state)
     deadline = time.monotonic() + timeout_seconds
 
     while time.monotonic() < deadline:
         checked_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
-        if terminal_id is not None:
+        if client is not None and managed_agent_ref is not None:
             try:
-                terminal = CaoRestClient(cao_base_url).get_terminal(terminal_id)
-                if terminal.status == "idle":
+                managed_state = client.get_managed_agent_state(managed_agent_ref)
+                if managed_state.availability == "available" and managed_state.turn.phase == "ready":
                     return {
                         "ok": True,
-                        "state_source": "cao",
+                        "state_source": "server_state",
                         "checked_at_utc": checked_at_utc,
-                        "terminal_status": terminal.status,
+                        "tracked_agent_id": managed_state.tracked_agent_id,
+                        "availability": managed_state.availability,
+                        "turn_phase": managed_state.turn.phase,
                     }
-            except CaoApiError:
+            except Exception:
                 pass
 
         gateway_status = _gateway_status_payload(
+            state=state,
             repo_root=repo_root,
             agent_def_dir=agent_def_dir,
             session_manifest_path=session_manifest_path,
@@ -1282,7 +1462,7 @@ def _wait_for_idle(
         ):
             return {
                 "ok": True,
-                "state_source": "gateway_status",
+                "state_source": str(gateway_status.get("state_source", "gateway_status")),
                 "checked_at_utc": checked_at_utc,
                 "gateway_status": gateway_status,
             }
@@ -1623,6 +1803,44 @@ def summarize_notifier_audit_records(rows: list[Any]) -> dict[str, Any]:
     }
 
 
+def _managed_agent_inspection_payload(state: dict[str, Any]) -> dict[str, Any]:
+    """Collect compact managed-agent inspection evidence via `houmao-server`."""
+
+    managed_agent_ref = _managed_agent_ref_from_state(state)
+    client = _server_client_from_state(state)
+    if client is None or managed_agent_ref is None:
+        return {
+            "identity": state.get("managed_agent"),
+            "state": {
+                "availability": "unavailable",
+                "detail": "managed-agent inspection unavailable",
+            },
+            "gateway_status": None,
+        }
+    try:
+        managed_state = client.get_managed_agent_state(managed_agent_ref).model_dump(mode="json")
+    except Exception as exc:
+        managed_state = {
+            "availability": "error",
+            "detail": str(exc),
+            "tracked_agent_id": managed_agent_ref,
+        }
+    try:
+        gateway_status = client.get_managed_agent_gateway_status(managed_agent_ref).model_dump(
+            mode="json"
+        )
+    except Exception as exc:
+        gateway_status = {
+            "gateway_health": "unavailable",
+            "detail": str(exc),
+        }
+    return {
+        "identity": state.get("managed_agent"),
+        "state": managed_state,
+        "gateway_status": gateway_status,
+    }
+
+
 def inspect_demo(*, state_path: Path, output_path: Path | None = None) -> dict[str, Any]:
     """Inspect the current demo artifacts and persist a raw inspection snapshot."""
 
@@ -1666,6 +1884,8 @@ def inspect_demo(*, state_path: Path, output_path: Path | None = None) -> dict[s
         "demo": state["demo_id"],
         "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "demo_output_dir": str(layout.demo_output_dir),
+        "server_state": state.get("server"),
+        "managed_agent": _managed_agent_inspection_payload(state),
         "gateway_state": {
             "gateway_root": str(gateway_root),
             "queue_path": str(queue_path),
@@ -1728,13 +1948,19 @@ def build_report(
     state_session = _require_mapping(state["session"], context="session")
 
     checks = {
-        "cao_managed": bool(_require_mapping(state["cao"], context="cao").get("managed")),
+        "server_managed": bool(_require_mapping(state["server"], context="server").get("managed")),
+        "managed_agent_resolved": bool(
+            _require_mapping(state["managed_agent"], context="managed_agent").get("tracked_agent_id")
+        ),
         "gateway_attached": bool(
             _require_mapping(state["gateway"], context="gateway").get("gateway_root")
         ),
         "notifier_enabled": bool(notifier_status.get("enabled")),
         "notifier_enqueued_wakeup": bool(audit_summary["has_enqueued"]),
         "notifier_poll_error_free": not bool(audit_summary["has_poll_error"]),
+        "project_mailbox_skill_surface_present": bool(
+            (Path(state["project_workdir"]) / "skills" / "mailbox").is_dir()
+        ),
         "shared_mailbox_index_present": Path(mailbox_state["shared_index_sqlite_path"]).is_file(),
         "mailbox_local_sqlite_present": Path(mailbox_state["local_sqlite_path"]).is_file(),
         "mailbox_unread_present": int(mailbox_state["unread_count"]) > 0,
@@ -1780,9 +2006,12 @@ def build_report(
         "mailbox_root": state["mailbox_root"],
         "agent_def_dir": state["agent_def_dir"],
         "parameters": parameters_to_payload(parameters),
-        "cao": state["cao"],
+        "server": state["server"],
+        "managed_agent": state["managed_agent"],
+        "project_mailbox_skills": state.get("project_mailbox_skills"),
         "artifacts": {key: str(path) for key, path in _artifact_paths(layout).items()},
         "steps": {
+            "server_start": _read_json(layout.server_start_path),
             "brain_build": _read_json(layout.brain_build_path),
             "session_start": _read_json(layout.session_start_path),
             "gateway_attach": _read_json(layout.gateway_attach_path),
@@ -1815,19 +2044,16 @@ def _sanitize_string(value: str, *, key: str | None, parent_key: str | None) -> 
         return _VALUE_PLACEHOLDERS[key]
     if key in _PATH_PLACEHOLDERS:
         return _PATH_PLACEHOLDERS[key]
-    if parent_key == "cao":
-        cao_placeholders = {
-            "launcher_config_path": "<CAO_LAUNCHER_CONFIG_PATH>",
-            "runtime_root": "<CAO_RUNTIME_ROOT>",
-            "home_dir": "<CAO_HOME_DIR>",
-            "profile_store": "<CAO_PROFILE_STORE>",
-            "artifact_dir": "<CAO_ARTIFACT_DIR>",
-            "log_file": "<CAO_LOG_FILE>",
-            "launcher_result_file": "<CAO_LAUNCHER_RESULT_FILE>",
-            "ownership_file": "<CAO_OWNERSHIP_FILE>",
+    if parent_key == "server":
+        server_placeholders = {
+            "runtime_root": "<SERVER_RUNTIME_ROOT>",
+            "server_root": "<SERVER_ROOT>",
+            "current_instance_path": "<SERVER_CURRENT_INSTANCE_PATH>",
+            "stdout_log_path": "<SERVER_STDOUT_LOG_PATH>",
+            "stderr_log_path": "<SERVER_STDERR_LOG_PATH>",
         }
-        if key in cao_placeholders:
-            return cao_placeholders[key]
+        if key in server_placeholders:
+            return server_placeholders[key]
     if parent_key == "mailbox_state":
         mailbox_placeholders = {
             "shared_index_sqlite_path": "<MAILBOX_SHARED_INDEX_SQLITE_PATH>",
@@ -1838,6 +2064,16 @@ def _sanitize_string(value: str, *, key: str | None, parent_key: str | None) -> 
             return mailbox_placeholders[key]
     if parent_key == "artifacts" and key is not None:
         return f"<ARTIFACT_PATH:{key}>"
+    if key in {"tracked_agent_id", "managed_agent_ref", "managed_agent_instance_id"}:
+        return "<TRACKED_AGENT_ID>"
+    if key == "session_name":
+        return "<SESSION_NAME>"
+    if key == "terminal_id":
+        return "<TERMINAL_ID>"
+    if key == "tmux_session_name":
+        return "<TMUX_SESSION_NAME>"
+    if key == "tmux_window_name":
+        return "<TMUX_WINDOW_NAME>"
     if key in {"message_id", "thread_id"}:
         return "<MESSAGE_ID>" if key == "message_id" else "<THREAD_ID>"
     if key in {"request_id", "enqueued_request_id"}:
@@ -1936,13 +2172,12 @@ def start_demo(
     layout.output_dir.mkdir(parents=True, exist_ok=True)
 
     agent_def_dir = _agent_def_dir(parameters=parameters, repo_root=repo_root)
-    cao_context = _resolve_cao_context(
+    server_context = _resolve_server_context(
         repo_root=repo_root,
         demo_output_dir=demo_output_dir,
-        cao_base_url=subprocess.os.environ.get("CAO_BASE_URL", parameters.cao_base_url),
-        cao_profile_store=subprocess.os.environ.get("CAO_PROFILE_STORE"),
+        houmao_base_url=subprocess.os.environ.get("HOUMAO_BASE_URL", parameters.houmao_base_url),
     )
-    _write_json(layout.cao_start_path, cao_context)
+    _write_json(layout.server_start_path, server_context)
 
     env = _command_environment(jobs_dir=jobs_dir)
     build_payload = _run_realm_controller_json(
@@ -1959,6 +2194,10 @@ def start_demo(
         stdout_path=layout.brain_build_path,
         env=env,
     )
+    skill_staging = stage_project_mailbox_skills(
+        project_workdir=layout.project_workdir,
+        brain_build_payload=build_payload,
+    )
     session_payload = _run_realm_controller_json(
         repo_root=repo_root,
         args=[
@@ -1973,11 +2212,9 @@ def start_demo(
             parameters.agent.blueprint,
             "--backend",
             parameters.backend,
-            "--cao-base-url",
-            _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
-            "--cao-profile-store",
+            "--houmao-base-url",
             _require_non_empty_string(
-                cao_context.get("profile_store"), context="cao.profile_store"
+                server_context.get("api_base_url"), context="server.api_base_url"
             ),
             "--workdir",
             str(layout.project_workdir),
@@ -1995,23 +2232,42 @@ def start_demo(
         stdout_path=layout.session_start_path,
         env=env,
     )
-    attach_payload = _run_realm_controller_json(
-        repo_root=repo_root,
-        args=[
-            "attach-gateway",
-            "--agent-def-dir",
-            str(agent_def_dir),
-            "--agent-identity",
-            _require_non_empty_string(
-                session_payload.get("session_manifest"),
-                context="session_manifest",
-            ),
-            "--gateway-host",
-            parameters.gateway.host,
-        ],
-        stdout_path=layout.gateway_attach_path,
-        env=env,
+    session_manifest_path = Path(
+        _require_non_empty_string(session_payload.get("session_manifest"), context="session_manifest")
     )
+    managed_agent_identity = _resolve_managed_agent_identity(
+        api_base_url=_require_non_empty_string(
+            server_context.get("api_base_url"), context="server.api_base_url"
+        ),
+        session_manifest_path=session_manifest_path,
+    )
+    session_root_raw = managed_agent_identity.get("session_root")
+    session_root = (
+        Path(str(session_root_raw)).expanduser().resolve()
+        if isinstance(session_root_raw, str) and session_root_raw.strip()
+        else _session_root_from_manifest_path(session_manifest_path)
+    )
+    gateway_paths = gateway_paths_from_session_root(session_root=session_root)
+    attach_status = HoumaoServerClient(
+        _require_non_empty_string(server_context.get("api_base_url"), context="server.api_base_url")
+    ).attach_managed_agent_gateway(
+        _require_non_empty_string(
+            managed_agent_identity.get("tracked_agent_id"),
+            context="managed_agent.tracked_agent_id",
+        )
+    )
+    attach_payload = {
+        "status": "ok",
+        "action": "gateway_attach",
+        "detail": "attached via demo-owned houmao-server managed-agent control",
+        "gateway_root": str(gateway_paths.gateway_root),
+        "managed_agent_ref": _require_non_empty_string(
+            managed_agent_identity.get("tracked_agent_id"),
+            context="managed_agent.tracked_agent_id",
+        ),
+        **attach_status.model_dump(mode="json"),
+    }
+    _write_json(layout.gateway_attach_path, attach_payload)
 
     state = {
         "schema_version": 1,
@@ -2026,9 +2282,11 @@ def start_demo(
         ),
         "agent_def_dir": str(agent_def_dir.resolve()),
         "jobs_dir": None if jobs_dir is None else str(jobs_dir.resolve()),
-        "cao": cao_context,
+        "server": server_context,
         "brain_build": build_payload,
+        "project_mailbox_skills": skill_staging,
         "session": session_payload,
+        "managed_agent": managed_agent_identity,
         "gateway": attach_payload,
         "output_file_path": str(
             render_output_file_path(parameters, demo_output_dir=layout.demo_output_dir)
@@ -2130,7 +2388,7 @@ def auto_run(
             repo_root=repo_root,
             agent_def_dir=Path(state["agent_def_dir"]),
             session_manifest_path=Path(state["session"]["session_manifest"]),
-            cao_base_url=str(state["cao"]["base_url"]),
+            state=_load_state(layout.state_path),
             poll_interval_seconds=parameters.gateway.idle_poll_interval_seconds,
             timeout_seconds=parameters.automatic.idle_timeout_seconds,
         )
@@ -2180,7 +2438,7 @@ def auto_run(
 
 
 def stop_demo(*, repo_root: Path, demo_output_dir: Path) -> dict[str, Any]:
-    """Stop the live session and launcher-managed CAO when present."""
+    """Stop the live managed agent and demo-owned `houmao-server` when present."""
 
     layout = build_demo_layout(demo_output_dir=demo_output_dir)
     if not layout.state_path.exists():
@@ -2196,36 +2454,26 @@ def stop_demo(*, repo_root: Path, demo_output_dir: Path) -> dict[str, Any]:
     except Exception:
         pass
     try:
-        stop_payloads["session_stop"] = _run_realm_controller_json(
-            repo_root=repo_root,
-            args=[
-                "stop-session",
-                "--agent-def-dir",
-                str(state["agent_def_dir"]),
-                "--agent-identity",
-                _require_non_empty_string(
-                    _require_mapping(state["session"], context="session").get("agent_identity"),
-                    context="session.agent_identity",
-                ),
-            ],
-            stdout_path=layout.demo_output_dir / "session_stop.json",
-            env=_command_environment(
-                jobs_dir=None if state.get("jobs_dir") is None else Path(str(state["jobs_dir"])),
-            ),
+        client = _server_client_from_state(state)
+        managed_agent_ref = _managed_agent_ref_from_state(state)
+        if client is None or managed_agent_ref is None:
+            raise RuntimeError("managed-agent stop requires persisted server and managed-agent state")
+        stop_payloads["managed_agent_stop"] = client.stop_managed_agent(
+            managed_agent_ref
+        ).model_dump(mode="json")
+        _write_json(
+            layout.demo_output_dir / "managed_agent_stop.json",
+            stop_payloads["managed_agent_stop"],
         )
     except Exception as exc:
-        stop_payloads["session_stop_error"] = str(exc)
-    if _require_mapping(state["cao"], context="cao").get("managed"):
+        stop_payloads["managed_agent_stop_error"] = str(exc)
+    if _require_mapping(state["server"], context="server").get("managed"):
         try:
-            stop_payloads["cao_stop"] = stop_demo_cao(
-                repo_root=repo_root,
-                demo_output_dir=demo_output_dir,
-                cao_base_url=_require_non_empty_string(
-                    state["cao"]["base_url"], context="cao.base_url"
-                ),
+            stop_payloads["server_stop"] = stop_demo_server(
+                server=_require_mapping(state["server"], context="server"),
             )
         except Exception as exc:
-            stop_payloads["cao_stop_error"] = str(exc)
+            stop_payloads["server_stop_error"] = str(exc)
     _write_json(layout.demo_output_dir / "stop_demo.json", stop_payloads)
     return stop_payloads
 
@@ -2263,32 +2511,6 @@ def _cmd_ensure_project_workdir(args: argparse.Namespace) -> int:
             allow_reprovision=args.allow_reprovision,
         )
     )
-    return 0
-
-
-def _cmd_start_demo_cao(args: argparse.Namespace) -> int:
-    """Start or reuse one demo-local loopback CAO service."""
-
-    payload = start_demo_cao(
-        repo_root=args.repo_root,
-        demo_output_dir=args.demo_output_dir,
-        cao_base_url=args.cao_base_url,
-    )
-    if args.output is not None:
-        _write_json(args.output, payload)
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
-
-
-def _cmd_stop_demo_cao(args: argparse.Namespace) -> int:
-    """Stop one demo-local CAO service."""
-
-    payload = stop_demo_cao(
-        repo_root=args.repo_root,
-        demo_output_dir=args.demo_output_dir,
-        cao_base_url=args.cao_base_url,
-    )
-    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -2430,19 +2652,6 @@ def build_parser() -> argparse.ArgumentParser:
     workdir.add_argument("--project-workdir", type=Path, required=True)
     workdir.add_argument("--allow-reprovision", action="store_true")
     workdir.set_defaults(func=_cmd_ensure_project_workdir)
-
-    start_cao = subparsers.add_parser("start-demo-cao")
-    start_cao.add_argument("--repo-root", type=Path, required=True)
-    start_cao.add_argument("--demo-output-dir", type=Path, required=True)
-    start_cao.add_argument("--cao-base-url", required=True)
-    start_cao.add_argument("--output", type=Path)
-    start_cao.set_defaults(func=_cmd_start_demo_cao)
-
-    stop_cao = subparsers.add_parser("stop-demo-cao")
-    stop_cao.add_argument("--repo-root", type=Path, required=True)
-    stop_cao.add_argument("--demo-output-dir", type=Path, required=True)
-    stop_cao.add_argument("--cao-base-url", required=True)
-    stop_cao.set_defaults(func=_cmd_stop_demo_cao)
 
     for command_name, func in (
         ("start", _cmd_start),
