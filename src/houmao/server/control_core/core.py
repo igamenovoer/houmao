@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import threading
@@ -30,6 +31,29 @@ from .tmux_controller import CompatibilityTmuxController, CompatibilityTmuxError
 
 _SESSION_PREFIX = "cao-"
 _TERMINAL_ID_RE = re.compile(r"^[a-f0-9]{8}$")
+_COMPAT_HOME_ENV_BY_PROVIDER: dict[str, str] = {
+    "claude_code": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+    "gemini_cli": "GEMINI_HOME",
+}
+_COMPAT_CREDENTIAL_ENV_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "claude_code": (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    ),
+    "codex": (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_ORG_ID",
+    ),
+}
 
 
 class CompatibilityControlError(RuntimeError):
@@ -496,11 +520,27 @@ class CompatibilityControlCore:
             terminal_id=terminal_record.terminal_id,
             working_directory=Path(terminal_record.working_directory),
         )
-        launch_command = (
-            f"export HOME={shlex.quote(str(self.m_config.compatibility_home_dir))}; "
-            f"export CAO_TERMINAL_ID={shlex.quote(terminal_record.terminal_id)}; "
-            f"{command}"
+        launch_exports = [
+            f"export HOME={shlex.quote(str(self.m_config.compatibility_home_dir))}",
+        ]
+        home_selector_env_var = _COMPAT_HOME_ENV_BY_PROVIDER.get(
+            getattr(typed_adapter, "provider_id", "")
         )
+        if home_selector_env_var is not None:
+            launch_exports.append(
+                f"export {home_selector_env_var}="
+                f"{shlex.quote(str(self.m_config.compatibility_home_dir))}"
+            )
+        for env_var_name in _COMPAT_CREDENTIAL_ENV_BY_PROVIDER.get(
+            getattr(typed_adapter, "provider_id", ""),
+            (),
+        ):
+            env_var_value = os.environ.get(env_var_name)
+            if env_var_value is None or not env_var_value.strip():
+                continue
+            launch_exports.append(f"export {env_var_name}={shlex.quote(env_var_value)}")
+        launch_exports.append(f"export CAO_TERMINAL_ID={shlex.quote(terminal_record.terminal_id)}")
+        launch_command = "; ".join([*launch_exports, command])
         self.m_tmux.send_command(window_id=terminal_record.window_id, command=launch_command)
         typed_adapter.wait_until_ready(
             tmux=self.m_tmux,

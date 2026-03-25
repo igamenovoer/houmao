@@ -98,6 +98,17 @@ def test_initialize_terminal_uses_default_compatibility_timing_config(
     assert adapter.m_wait_until_ready_calls[0]["profile_name"] == "gpu-kernel-coder"
     assert adapter.m_wait_until_ready_calls[0]["timeout_seconds"] == 45.0
     assert adapter.m_wait_until_ready_calls[0]["polling_interval_seconds"] == 1.0
+    assert tmux.m_send_command_calls == [
+        {"window_id": "@1", "command": "echo ready"},
+        {
+            "window_id": "@1",
+            "command": (
+                f"export HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                f"export CODEX_HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                "export CAO_TERMINAL_ID=abcd1234; provider --start"
+            ),
+        },
+    ]
     assert sleep_calls == [2.0]
 
 
@@ -137,6 +148,38 @@ def test_initialize_terminal_uses_override_timing_and_allows_zero_warmup(
     assert adapter.m_wait_until_ready_calls[0]["timeout_seconds"] == 90.0
     assert adapter.m_wait_until_ready_calls[0]["polling_interval_seconds"] == 0.75
     assert sleep_calls == []
+
+
+def test_initialize_terminal_exports_claude_config_dir_home_selector(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://anthropic.test")
+    monkeypatch.setattr("houmao.server.control_core.core.time.sleep", lambda _seconds: None)
+    tmux = _FakeTmuxController()
+    adapter = _FakeAdapter("claude_code")
+    core = CompatibilityControlCore(config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux)
+
+    core._initialize_terminal(
+        terminal_record=_sample_terminal_record(tmp_path),
+        working_directory=tmp_path,
+        prepared_provider_profile=_prepared_profile("claude_code"),
+        adapter=adapter,
+    )
+
+    assert tmux.m_send_command_calls == [
+        {
+            "window_id": "@1",
+            "command": (
+                f"export HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                f"export CLAUDE_CONFIG_DIR={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                "export ANTHROPIC_API_KEY=anthropic-test-key; "
+                "export ANTHROPIC_BASE_URL=https://anthropic.test; "
+                "export CAO_TERMINAL_ID=abcd1234; provider --start"
+            ),
+        }
+    ]
 
 
 def _prepared_profile(provider_id: str) -> SimpleNamespace:

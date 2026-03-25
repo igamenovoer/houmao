@@ -13,6 +13,8 @@ The realm-controller CLI can source blueprints directly with `build-brain --blue
 
 For narrow installed-skill invocation checks, prefer `skill-invocation-demo-claude.yaml` and `skill-invocation-demo-codex.yaml`.
 
+For direct `houmao-server` managed-agent API verification, prefer `server-api-smoke-claude.yaml` and `server-api-smoke-codex.yaml`.
+
 For narrow mailbox/runtime coverage, prefer `mailbox-demo-claude.yaml` and `mailbox-demo-codex.yaml`.
 
 Keep the `gpu-kernel-coder-*` blueprints for repository-scale engineering flows.

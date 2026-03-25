@@ -165,7 +165,7 @@ class CodexCompatibilityProvider(CompatibilityProviderAdapter):
             return "waiting_user_answer"
         if re.search(r"•.*\(\d+s\s*•\s*esc to interrupt\)", clean_output):
             return "processing"
-        if re.search(r"^\s*(?:❯|›|codex>)\s*$", clean_output, re.MULTILINE):
+        if re.search(r"^\s*(?:❯|›|codex>)(?:\s*$|\s+\S.*$)", clean_output, re.MULTILINE):
             response_match = re.search(
                 r"^(?:(?:assistant|codex|agent)\s*:|\s*•)", clean_output, re.MULTILINE
             )

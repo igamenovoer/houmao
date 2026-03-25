@@ -19,6 +19,8 @@ Startup no-prompt posture belongs in `launch_policy.operator_prompt_mode`, not i
 
 For narrow installed-skill invocation coverage, use `claude/skill-invocation-demo-default.yaml` and `codex/skill-invocation-demo-default.yaml`.
 
+For direct `houmao-server` managed-agent API verification, use `claude/server-api-smoke-default.yaml` and `codex/server-api-smoke-default.yaml`.
+
 For narrow mailbox/demo coverage, use `claude/mailbox-demo-default.yaml` and `codex/mailbox-demo-default.yaml`.
 
 For the headless mail ping-pong gateway demo, use `claude/mail-ping-pong-initiator-default.yaml` and `codex/mail-ping-pong-responder-default.yaml`.

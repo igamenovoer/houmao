@@ -24,6 +24,7 @@ For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior 
 - [Agents And Brains](agents_brains.md)
 - [Houmao Server Pair](houmao_server_pair.md)
 - [Managed-Agent API](managed_agent_api.md)
+- [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md)
 - [CAO Server Launcher](cao_server_launcher.md)
 - [CAO Claude Shadow Parsing](cao_claude_shadow_parsing.md)
 - [CAO Shadow Parser Troubleshooting](cao_shadow_parser_troubleshooting.md)

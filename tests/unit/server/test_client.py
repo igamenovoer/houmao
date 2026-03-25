@@ -21,6 +21,8 @@ from houmao.server.models import (
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentStateResponse,
+    HoumaoRegisterLaunchRequest,
+    HoumaoRegisterLaunchResponse,
     HoumaoTerminalStateResponse,
 )
 
@@ -164,6 +166,63 @@ def test_launch_headless_agent_posts_resolved_json_body(monkeypatch) -> None:
         "path": "/houmao/agents/headless/launches",
         "kwargs": {
             "json_body": request_model.model_dump(mode="json"),
+        },
+    }
+
+
+def test_register_launch_posts_to_root_houmao_route(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoRegisterLaunchRequest(
+        session_name="cao-gpu",
+        terminal_id="abcd1234",
+        tool="claude",
+        manifest_path="/tmp/manifest.json",
+        session_root="/tmp/session-root",
+        agent_name="AGENTSYS-gpu",
+        agent_id="agent-1234",
+        tmux_session_name="cao-gpu",
+        tmux_window_name="gpu-1",
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "success": True,
+        "session_name": "cao-gpu",
+        "terminal_id": "abcd1234",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoRegisterLaunchResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.register_launch(request_model)
+
+    assert response.success is True
+    assert response.session_name == "cao-gpu"
+    assert response.terminal_id == "abcd1234"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/launches/register",
+        "kwargs": {
+            "params": {
+                "session_name": "cao-gpu",
+                "terminal_id": "abcd1234",
+                "tool": "claude",
+                "manifest_path": "/tmp/manifest.json",
+                "session_root": "/tmp/session-root",
+                "agent_name": "AGENTSYS-gpu",
+                "agent_id": "agent-1234",
+                "tmux_session_name": "cao-gpu",
+                "tmux_window_name": "gpu-1",
+            }
         },
     }
 
