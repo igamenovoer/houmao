@@ -49,6 +49,7 @@ from .backends.headless_base import (
     HeadlessSessionState,
     headless_backend_state_payload,
 )
+from .backends.local_interactive import LocalInteractiveSession
 from .backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -174,7 +175,23 @@ from .registry_storage import (
 )
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
-    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
+    {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest",
+        "houmao_server_rest",
+    }
+)
+# Keep this narrow allowlist aligned with `_build_gateway_execution_adapter()`.
+_GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
+    "local_interactive",
+    "codex_headless",
+    "claude_headless",
+    "gemini_headless",
+    "cao_rest",
+    "houmao_server_rest",
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
 _GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
@@ -317,13 +334,20 @@ class RuntimeSessionController:
             self.persist_manifest()
             return result
 
+        backend_send_input_ex = getattr(self.backend_session, "send_input_ex", None)
+        if callable(backend_send_input_ex):
+            result = backend_send_input_ex(
+                sequence,
+                escape_special_keys=escape_special_keys,
+            )
+            if isinstance(result, SessionControlResult):
+                self.persist_manifest()
+                return result
+
         result = SessionControlResult(
             status="error",
             action="control_input",
-            detail=(
-                "Raw control input is only supported for resumed "
-                f"backend=cao_rest sessions, got backend={self.launch_plan.backend!r}."
-            ),
+            detail=(f"Raw control input is unsupported for backend={self.launch_plan.backend!r}."),
         )
         self.persist_manifest()
         return result
@@ -1017,6 +1041,23 @@ def _create_backend_session(
             ),
         )
 
+    if launch_plan.backend == "local_interactive":
+        state = _resume_local_interactive_state(resume_state, launch_plan=launch_plan)
+        return cast(
+            InteractiveSession,
+            LocalInteractiveSession(
+                launch_plan=launch_plan,
+                role_name=role_name,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path,
+                    backend=launch_plan.backend,
+                ),
+                agent_def_dir=agent_def_dir,
+                state=state,
+                tmux_session_name=agent_identity,
+            ),
+        )
+
     if launch_plan.backend == "claude_headless":
         state = _resume_headless_state(resume_state, launch_plan=launch_plan)
         return cast(
@@ -1165,6 +1206,37 @@ def _resume_headless_state(
         turn_index=turn_index,
         role_bootstrap_applied=headless.role_bootstrap_applied,
         working_directory=headless.working_directory or str(launch_plan.working_directory),
+        tmux_session_name=tmux_session_name.strip(),
+    )
+
+
+def _resume_local_interactive_state(
+    payload: SessionManifestPayloadV3 | None,
+    *,
+    launch_plan: LaunchPlan,
+) -> HeadlessSessionState | None:
+    if payload is None:
+        return None
+
+    local_interactive = payload.local_interactive
+    if local_interactive is None:
+        raise SessionManifestError(
+            "Local interactive session manifest missing `local_interactive` state"
+        )
+
+    tmux_session_name = payload.backend_state.get("tmux_session_name")
+    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
+        raise SessionManifestError(
+            "Local interactive resume requires non-empty backend_state.tmux_session_name"
+        )
+
+    return HeadlessSessionState(
+        session_id=None,
+        turn_index=local_interactive.turn_index,
+        role_bootstrap_applied=local_interactive.role_bootstrap_applied,
+        working_directory=(
+            local_interactive.working_directory or str(launch_plan.working_directory)
+        ),
         tmux_session_name=tmux_session_name.strip(),
     )
 
@@ -2146,18 +2218,14 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    if controller.launch_plan.backend not in {
-        "cao_rest",
-        "houmao_server_rest",
-        "claude_headless",
-        "codex_headless",
-        "gemini_headless",
-    }:
+    if controller.launch_plan.backend not in _GATEWAY_ATTACH_SUPPORTED_BACKENDS:
         paths = _require_gateway_paths_for_controller(controller)
+        supported_backends = ", ".join(
+            repr(backend) for backend in _GATEWAY_ATTACH_SUPPORTED_BACKENDS
+        )
         detail = (
             "Gateway attach is only implemented for runtime-owned tmux-backed backends "
-            "{'cao_rest', 'houmao_server_rest', 'claude_headless', "
-            "'codex_headless', 'gemini_headless'} in v1, got "
+            f"{{{supported_backends}}} in v1, got "
             f"backend={controller.launch_plan.backend!r}."
         )
         return GatewayControlResult(

@@ -159,6 +159,18 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
                 )
             ),
         }
+    elif request.launch_plan.backend == "local_interactive":
+        payload["local_interactive"] = {
+            "turn_index": int(request.backend_state.get("turn_index", 0)),
+            "role_bootstrap_applied": bool(
+                request.backend_state.get("role_bootstrap_applied", False)
+            ),
+            "working_directory": str(
+                request.backend_state.get(
+                    "working_directory", request.launch_plan.working_directory
+                )
+            ),
+        }
     elif request.launch_plan.backend == "cao_rest":
         payload["cao"] = {
             "api_base_url": str(request.backend_state.get("api_base_url", "")),
@@ -401,7 +413,12 @@ def _upgrade_legacy_manifest_payload(
     upgraded["job_dir"] = _legacy_job_dir(payload=payload, source=source)
     upgraded["registry_launch_authority"] = "runtime"
 
-    if payload.backend in {"codex_headless", "claude_headless", "gemini_headless"}:
+    if payload.backend in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }:
         tmux_session_name = _require_legacy_tmux_session_name(
             payload.backend_state,
             source=source,

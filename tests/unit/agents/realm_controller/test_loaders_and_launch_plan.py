@@ -114,16 +114,24 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
         role_name="r",
         role_prompt="prompt",
     )
+    claude_local = plan_role_injection(
+        backend="local_interactive",
+        tool="claude",
+        role_name="r",
+        role_prompt="prompt",
+    )
 
     assert codex.method == "native_developer_instructions"
     assert claude.method == "native_append_system_prompt"
     assert gemini.method == "bootstrap_message"
     assert gemini.bootstrap_message is not None
+    assert claude_local.method == "native_append_system_prompt"
 
 
 def test_backend_for_tool_defaults_to_codex_headless() -> None:
     assert backend_for_tool("codex") == "codex_headless"
     assert backend_for_tool("codex", prefer_cao=True) == "cao_rest"
+    assert backend_for_tool("codex", prefer_local_interactive=True) == "local_interactive"
 
 
 def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
@@ -269,6 +277,67 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
     assert plan.launch_policy_provenance is not None
     assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
     assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
+
+
+def test_build_launch_plan_honors_process_env_strategy_override_without_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "codex-cli 9.9.9", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+    monkeypatch.setenv(
+        "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY",
+        "codex-unattended-0.116.x",
+    )
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="codex_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selection_source == "env_override"
+    assert plan.launch_policy_provenance.override_env_var_name == (
+        "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
+    )
+    assert plan.env["OPENAI_API_KEY"] == "sk-secret"
+    assert "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY" not in plan.env
+    assert "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY" not in plan.env_var_names
 
 
 def test_parse_allowlisted_env_selects_claude_model_selection_vars(
@@ -777,6 +846,49 @@ def test_build_launch_plan_resolves_claude_typed_launch_param(tmp_path: Path) ->
     assert plan.metadata["launch_overrides"]["backend_resolution"]["translated_args"] == [
         "--include-partial-messages"
     ]
+
+
+def test_build_launch_plan_local_interactive_uses_raw_launch_surface(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        recipe_overrides={"tool_params": {"include_partial_messages": True}},
+        tool_metadata={
+            "tool_params": {
+                "include_partial_messages": {
+                    "type": "boolean",
+                    "backends": {
+                        "raw_launch": {
+                            "args_when_true": ["--include-partial-messages"],
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="local_interactive",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.role_injection.method == "native_append_system_prompt"
+    assert "--include-partial-messages" in plan.args
+    assert plan.metadata["launch_overrides"]["backend_resolution"]["backend"] == "raw_launch"
+    assert plan.metadata["launch_overrides"]["backend_resolution"]["protocol_reserved_args"] == []
 
 
 def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: Path) -> None:

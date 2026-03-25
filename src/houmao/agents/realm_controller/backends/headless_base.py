@@ -60,8 +60,13 @@ class HeadlessInteractiveSession:
         tmux_session_name: str | None = None,
         output_format: str = "stream-json",
     ) -> None:
-        if backend not in {"codex_headless", "claude_headless", "gemini_headless"}:
-            raise BackendExecutionError(f"Invalid headless backend: {backend}")
+        if backend not in {
+            "local_interactive",
+            "codex_headless",
+            "claude_headless",
+            "gemini_headless",
+        }:
+            raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")
 
         self.backend: BackendKind = backend
         self._plan = launch_plan
@@ -257,7 +262,7 @@ class HeadlessInteractiveSession:
             ensure_tmux_available_shared()
         except TmuxCommandError as exc:
             raise BackendExecutionError(
-                "tmux-backed headless backends require `tmux` on PATH. "
+                "tmux-backed runtimes require `tmux` on PATH. "
                 "Install tmux and verify with `command -v tmux`."
             ) from exc
 
@@ -267,14 +272,14 @@ class HeadlessInteractiveSession:
             if has.returncode != 0:
                 detail = tmux_error_detail_shared(has) or "unknown tmux error"
                 raise BackendExecutionError(
-                    "Headless resume requires existing tmux session "
+                    "Tmux-backed resume requires existing tmux session "
                     f"`{persisted}` but it is unavailable: {detail}"
                 )
             try:
                 prepare_headless_agent_window_shared(session_name=persisted)
             except TmuxCommandError as exc:
                 raise BackendExecutionError(
-                    f"Failed to prepare headless tmux agent surface in `{persisted}`: {exc}"
+                    f"Failed to prepare tmux agent surface in `{persisted}`: {exc}"
                 ) from exc
             self._state.tmux_session_name = persisted
             self._publish_tmux_session_environment()
@@ -294,7 +299,7 @@ class HeadlessInteractiveSession:
         has = has_tmux_session_shared(session_name=session_name)
         if has.returncode == 0:
             raise BackendExecutionError(
-                f"Headless tmux session `{session_name}` already exists. "
+                f"Tmux session `{session_name}` already exists. "
                 "Choose a different agent identity or stop the existing session first."
             )
         if has.returncode not in {1, 2}:
@@ -328,6 +333,7 @@ class HeadlessInteractiveSession:
         launch_env = dict(os.environ)
         launch_env.update(self._plan.env)
         launch_env[self._plan.home_env_var] = str(self._plan.home_path)
+        inject_loopback_no_proxy_env(launch_env)
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
         if self._agent_def_dir is not None:
             launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)

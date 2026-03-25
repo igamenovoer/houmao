@@ -41,14 +41,14 @@ from ..managed_agents import (
 
 @click.group(name="gateway")
 def gateway_group() -> None:
-    """Gateway lifecycle and explicit live-gateway request commands."""
+    """Gateway lifecycle and explicit live-gateway request commands for managed agents."""
 
 
 @gateway_group.command(name="attach")
 @click.argument("agent_ref", required=False)
 @pair_port_option(help_text="Houmao server port override for explicit attach")
 def attach_gateway_command(agent_ref: str | None, port: int | None) -> None:
-    """Attach or reuse a live gateway for one managed agent."""
+    """Attach or reuse a live gateway for one managed agent, including serverless local TUIs."""
 
     if agent_ref is None:
         if port is not None:
@@ -76,7 +76,7 @@ def detach_gateway_command(port: int | None, agent_ref: str) -> None:
 @pair_port_option()
 @click.argument("agent_ref")
 def status_gateway_command(port: int | None, agent_ref: str) -> None:
-    """Show live gateway status for one managed agent."""
+    """Show live gateway status for one managed agent, including serverless local TUIs."""
 
     target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
     emit_json(gateway_status(target))

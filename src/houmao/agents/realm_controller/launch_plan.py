@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Final, cast
 
 from houmao.agents.launch_policy import apply_launch_policy
 from houmao.agents.launch_policy.models import (
+    LaunchPolicyCompatibilityError,
     LaunchPolicyError,
     LaunchPolicyRequest,
     OperatorPromptMode,
@@ -22,8 +24,9 @@ from houmao.agents.launch_overrides import (
     parse_tool_launch_metadata,
     resolve_launch_behavior,
 )
+from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
-from .errors import LaunchPlanError
+from .errors import LaunchPlanError, LaunchPolicyResolutionError
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
@@ -40,6 +43,7 @@ _CAO_SHADOW_POLICY_METADATA_KEY: Final[str] = "cao_shadow_policy_config"
 _CAO_SHADOW_UNKNOWN_TIMEOUT_KEY: Final[str] = "unknown_to_stalled_timeout_seconds"
 _CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds"
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
+_LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     role_injection = plan_role_injection(
         backend=request.backend,
+        tool=tool,
         role_name=request.role_package.role_name,
         role_prompt=request.role_package.system_prompt,
     )
@@ -104,7 +109,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     }
     resolved_launch_behavior = _resolve_launch_behavior_from_contract(
         tool=tool,
-        backend=request.backend,
+        backend=_launch_surface_for_backend(request.backend),
         launch_contract=launch_contract,
     )
     metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
@@ -115,7 +120,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             launch_contract.get("construction_provenance"),
             key="runtime.launch_contract.construction_provenance",
         ),
-        backend=request.backend,
+        backend=_launch_surface_for_backend(request.backend),
     )
     args = list(resolved_launch_behavior.args_before_policy)
     configured_cao_parsing_mode = _extract_configured_cao_parsing_mode(runtime=runtime)
@@ -131,19 +136,33 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["headless_output_format"] = "stream-json"
 
     requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
+    policy_backend = _launch_surface_for_backend(request.backend)
+    policy_env = dict(env_values)
+    override_strategy = os.environ.get(_LAUNCH_POLICY_OVERRIDE_ENV_VAR, "").strip()
+    if override_strategy:
+        policy_env[_LAUNCH_POLICY_OVERRIDE_ENV_VAR] = override_strategy
+
     try:
         launch_policy_result = apply_launch_policy(
             LaunchPolicyRequest(
                 tool=tool,
-                backend=request.backend,
+                backend=policy_backend,
                 executable=executable,
                 base_args=tuple(args),
                 requested_operator_prompt_mode=requested_operator_prompt_mode,
                 working_directory=request.working_directory.resolve(),
                 home_path=home_path,
-                env=env_values,
+                env=policy_env,
             )
         )
+    except LaunchPolicyCompatibilityError as exc:
+        raise LaunchPolicyResolutionError(
+            requested_operator_prompt_mode=exc.requested_operator_prompt_mode,
+            tool=exc.tool,
+            policy_backend=exc.backend,
+            detected_version=exc.detected_version,
+            detail=str(exc),
+        ) from exc
     except LaunchPolicyError as exc:
         raise LaunchPlanError(str(exc)) from exc
 
@@ -179,6 +198,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 def plan_role_injection(
     *,
     backend: BackendKind,
+    tool: str | None = None,
     role_name: str,
     role_prompt: str,
 ) -> RoleInjectionPlan:
@@ -204,6 +224,31 @@ def plan_role_injection(
             method="native_developer_instructions",
             role_name=role_name,
             prompt=role_prompt,
+        )
+
+    if backend == "local_interactive":
+        if tool == "codex":
+            return RoleInjectionPlan(
+                method="native_developer_instructions",
+                role_name=role_name,
+                prompt=role_prompt,
+            )
+        if tool == "claude":
+            return RoleInjectionPlan(
+                method="native_append_system_prompt",
+                role_name=role_name,
+                prompt=role_prompt,
+                bootstrap_message=_bootstrap_message(role_name, role_prompt),
+            )
+        if tool == "gemini":
+            return RoleInjectionPlan(
+                method="bootstrap_message",
+                role_name=role_name,
+                prompt=role_prompt,
+                bootstrap_message=_bootstrap_message(role_name, role_prompt),
+            )
+        raise LaunchPlanError(
+            "backend=local_interactive requires a supported tool-specific role injection plan."
         )
 
     if backend == "claude_headless":
@@ -232,7 +277,12 @@ def plan_role_injection(
     raise LaunchPlanError(f"Unsupported backend: {backend}")
 
 
-def backend_for_tool(tool: str, prefer_cao: bool = False) -> BackendKind:
+def backend_for_tool(
+    tool: str,
+    prefer_cao: bool = False,
+    *,
+    prefer_local_interactive: bool = False,
+) -> BackendKind:
     """Return the default backend for a tool.
 
     Parameters
@@ -250,6 +300,10 @@ def backend_for_tool(tool: str, prefer_cao: bool = False) -> BackendKind:
 
     if prefer_cao:
         return "cao_rest"
+    if prefer_local_interactive:
+        if tool in {"codex", "claude", "gemini"}:
+            return "local_interactive"
+        raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
     if tool == "codex":
         return "codex_headless"
     if tool == "claude":
@@ -275,6 +329,14 @@ def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptM
             "Manifest `launch_policy.operator_prompt_mode` must be `interactive` or `unattended`."
         )
     return cast(OperatorPromptMode, value)
+
+
+def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
+    """Return the launch-policy / overrides surface for one runtime backend."""
+
+    if backend == "local_interactive":
+        return "raw_launch"
+    return cast(SupportedLaunchBackend, backend)
 
 
 def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
@@ -553,7 +615,7 @@ def _parse_tool_launch_metadata(launch_contract: dict[str, Any]) -> ToolLaunchMe
 def _resolve_launch_behavior_from_contract(
     *,
     tool: str,
-    backend: BackendKind,
+    backend: SupportedLaunchBackend,
     launch_contract: dict[str, Any],
 ) -> ResolvedLaunchBehavior:
     """Resolve backend-aware launch behavior from the manifest contract."""

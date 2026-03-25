@@ -255,6 +255,7 @@ class GatewayAttachContractV1(_StrictGatewayModel):
                     "backend=houmao_server_rest"
                 )
         elif self.backend in {
+            "local_interactive",
             "codex_headless",
             "claude_headless",
             "gemini_headless",
@@ -262,7 +263,7 @@ class GatewayAttachContractV1(_StrictGatewayModel):
             if not isinstance(self.backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
                 raise ValueError(
                     "backend_metadata must use the headless attach schema "
-                    "for tmux-backed headless backends"
+                    "for tmux-backed local/headless backends"
                 )
         else:
             raise ValueError(f"backend={self.backend!r} is not gateway-capable in v1")

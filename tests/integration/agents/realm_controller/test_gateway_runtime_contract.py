@@ -417,6 +417,7 @@ class _FakeHeadlessSessionRegistry:
         self.m_session_name = session_name
         self.m_session_id = "headless-session-1"
         self.m_prompts: list[str] = []
+        self.m_prompt_calls: list[tuple[str, str | None]] = []
         self.m_interrupt_count = 0
         self.m_terminated = False
 
@@ -459,16 +460,98 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
         if not self._state.tmux_session_name:
             self._state.tmux_session_name = session_name
 
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+    ) -> list[SessionEvent]:
         """Record a direct prompt submission for the fake headless backend."""
 
         self.m_registry.m_prompts.append(prompt)
+        self.m_registry.m_prompt_calls.append((prompt, turn_artifact_dir_name))
         self._state.turn_index += 1
         self._state.session_id = self.m_registry.m_session_id
         return [
             SessionEvent(
                 kind="assistant",
                 message=f"headless:{prompt}",
+                turn_index=self._state.turn_index,
+            )
+        ]
+
+    def interrupt(self) -> SessionControlResult:
+        """Record one fake interrupt."""
+
+        self.m_registry.m_interrupt_count += 1
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+    def terminate(self) -> SessionControlResult:
+        """Record fake session termination."""
+
+        self.m_registry.m_terminated = True
+        return SessionControlResult(status="ok", action="terminate", detail="stopped")
+
+    def close(self) -> None:
+        """Close the fake session."""
+
+        return None
+
+    def update_launch_plan(self, launch_plan: Any) -> None:
+        """Update the persisted fake launch plan."""
+
+        self._plan = launch_plan
+
+
+class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
+    """Minimal fake local-interactive session for runtime and CLI integration tests."""
+
+    m_registry: _FakeHeadlessSessionRegistry | None = None
+
+    def __init__(
+        self,
+        *,
+        launch_plan: Any,
+        role_name: str,
+        session_manifest_path: Path,
+        agent_def_dir: Path | None = None,
+        state: HeadlessSessionState | None = None,
+        tmux_session_name: str | None = None,
+    ) -> None:
+        del role_name, session_manifest_path, agent_def_dir
+        registry = type(self).m_registry
+        if registry is None:
+            raise AssertionError("Fake local-interactive registry is not configured.")
+        self.backend = "local_interactive"
+        self.m_registry = registry
+        self._plan = launch_plan
+        session_name = tmux_session_name or registry.m_session_name
+        self._state = state or HeadlessSessionState(
+            turn_index=0,
+            role_bootstrap_applied=True,
+            working_directory=str(launch_plan.working_directory),
+            tmux_session_name=session_name,
+        )
+        if not self._state.working_directory:
+            self._state.working_directory = str(launch_plan.working_directory)
+        if not self._state.tmux_session_name:
+            self._state.tmux_session_name = session_name
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+    ) -> list[SessionEvent]:
+        """Record a direct prompt submission for the fake local-interactive backend."""
+
+        self.m_registry.m_prompts.append(prompt)
+        self.m_registry.m_prompt_calls.append((prompt, turn_artifact_dir_name))
+        self._state.turn_index += 1
+        return [
+            SessionEvent(
+                kind="assistant",
+                message=f"local:{prompt}",
                 turn_index=self._state.turn_index,
             )
         ]
@@ -682,6 +765,7 @@ def _install_gateway_runtime_fakes(
     tmux_env: _FakeTmuxEnv,
     registry_root: Path,
     headless_registry: _FakeHeadlessSessionRegistry | None = None,
+    local_interactive_registry: _FakeHeadlessSessionRegistry | None = None,
 ) -> None:
     """Install fake CAO session and tmux environment hooks."""
 
@@ -697,6 +781,12 @@ def _install_gateway_runtime_fakes(
         monkeypatch.setattr(
             "houmao.agents.realm_controller.runtime.CodexHeadlessSession",
             _FakeCodexHeadlessSession,
+        )
+    if local_interactive_registry is not None:
+        _FakeLocalInteractiveSession.m_registry = local_interactive_registry
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+            _FakeLocalInteractiveSession,
         )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
@@ -954,6 +1044,103 @@ def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
     assert status_err == ""
     assert status_payload["gateway_health"] == "not_attached"
     assert paths.attach_path.is_file()
+
+
+def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Later local-interactive gateway start should honor persisted defaults."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    blueprint_path = _seed_gateway_defaults_blueprint(agent_def_dir, port=43123)
+    local_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-local")
+    tmux_env = _FakeTmuxEnv()
+    _install_gateway_runtime_fakes(
+        monkeypatch=monkeypatch,
+        registry=None,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+        local_interactive_registry=local_registry,
+    )
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                }
+            )
+            or port
+        ),
+    )
+
+    start_exit, start_payload, start_err = _run_cli_json(
+        capsys,
+        [
+            "start-session",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--runtime-root",
+            str(runtime_root),
+            "--brain-manifest",
+            str(brain_manifest_path),
+            "--blueprint",
+            str(blueprint_path),
+            "--role",
+            "r",
+            "--backend",
+            "local_interactive",
+            "--workdir",
+            str(tmp_path),
+            "--agent-identity",
+            local_registry.m_session_name,
+        ],
+    )
+    assert start_exit == 0
+    assert start_err == ""
+
+    manifest_path = Path(str(start_payload["session_manifest"]))
+    offline_exit, offline_status, offline_err = _run_cli_json(
+        capsys,
+        [
+            "gateway-status",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+        ],
+    )
+    assert offline_exit == 0
+    assert offline_err == ""
+    assert offline_status["gateway_health"] == "not_attached"
+
+    attach_exit, attach_payload, attach_err = _run_cli_json(
+        capsys,
+        [
+            "attach-gateway",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+        ],
+    )
+
+    assert attach_exit == 0
+    assert attach_err == ""
+    assert attach_payload["status"] == "ok"
+    assert attach_payload["gateway_host"] == "127.0.0.1"
+    assert attach_payload["gateway_port"] == 43123
+    assert captured_attach["host"] == "127.0.0.1"
+    assert captured_attach["port"] == 43123
+    assert getattr(captured_attach["controller"], "launch_plan").backend == "local_interactive"
 
 
 def test_gateway_cli_contract_covers_attach_control_detach_replacement_and_stop(
