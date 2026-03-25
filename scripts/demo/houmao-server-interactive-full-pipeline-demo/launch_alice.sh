@@ -11,7 +11,8 @@ Usage:
 Launch or replace the interactive session with the fixed demo session-name
 \`alice\`. The detached compatibility launch resolves that to the
 CAO-compatible \`cao-alice\` session while the demo keeps the operator-facing
-override stable.
+override stable. Demo-owned compatibility startup timeout overrides may be
+provided through the same environment variables supported by \`run_demo.sh\`.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh [-y] start --session-name alice [--provider <provider>]

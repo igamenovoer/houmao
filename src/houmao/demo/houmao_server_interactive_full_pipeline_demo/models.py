@@ -21,6 +21,10 @@ DEFAULT_SERVER_START_TIMEOUT_SECONDS = 20.0
 DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS = 15.0
 DEFAULT_REQUEST_POLL_INTERVAL_SECONDS = 0.25
 DEFAULT_SERVER_STOP_TIMEOUT_SECONDS = 10.0
+DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS = 20.0
+DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS = 120.0
+DEFAULT_COMPAT_CODEX_WARMUP_SECONDS = 10.0
+DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS = 180.0
 DEFAULT_HISTORY_LIMIT = 20
 PROVIDER_CHOICES = ("claude_code", "codex")
 STALE_STOP_MARKERS: tuple[str, ...] = (
@@ -639,6 +643,10 @@ class DemoEnvironment:
     request_settle_timeout_seconds: float
     request_poll_interval_seconds: float
     server_stop_timeout_seconds: float
+    compat_shell_ready_timeout_seconds: float
+    compat_provider_ready_timeout_seconds: float
+    compat_codex_warmup_seconds: float
+    compat_create_timeout_seconds: float
 
 
 @dataclass(frozen=True)

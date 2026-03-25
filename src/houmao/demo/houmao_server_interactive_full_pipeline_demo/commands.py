@@ -91,6 +91,9 @@ def start_demo(
             paths=paths,
             timeout_seconds=env.server_start_timeout_seconds,
             env=runtime_env,
+            compat_shell_ready_timeout_seconds=env.compat_shell_ready_timeout_seconds,
+            compat_provider_ready_timeout_seconds=env.compat_provider_ready_timeout_seconds,
+            compat_codex_warmup_seconds=env.compat_codex_warmup_seconds,
         )
         _install_pair_profile(
             api_base_url=api_base_url,
@@ -109,6 +112,7 @@ def start_demo(
             requested_session_name=requested_session_name,
             workdir=paths.workdir,
             env=runtime_env,
+            compat_create_timeout_seconds=env.compat_create_timeout_seconds,
         )
         actual_session_name = _wait_for_launched_session_name(
             client=client,
@@ -583,6 +587,9 @@ def _start_server_process(
     paths: DemoPaths,
     timeout_seconds: float,
     env: dict[str, str],
+    compat_shell_ready_timeout_seconds: float,
+    compat_provider_ready_timeout_seconds: float,
+    compat_codex_warmup_seconds: float,
 ) -> subprocess.Popen[bytes]:
     """Start the demo-owned Houmao server and wait for health readiness."""
 
@@ -600,6 +607,12 @@ def _start_server_process(
             api_base_url,
             "--runtime-root",
             str(paths.server_runtime_root),
+            "--compat-shell-ready-timeout-seconds",
+            str(compat_shell_ready_timeout_seconds),
+            "--compat-provider-ready-timeout-seconds",
+            str(compat_provider_ready_timeout_seconds),
+            "--compat-codex-warmup-seconds",
+            str(compat_codex_warmup_seconds),
         ],
         cwd=str(paths.workspace_root),
         env=env,
@@ -694,6 +707,7 @@ def _launch_pair_session(
     requested_session_name: str | None,
     workdir: Path,
     env: dict[str, str],
+    compat_create_timeout_seconds: float,
 ) -> None:
     """Launch one detached TUI session through the public compatibility CLI."""
 
@@ -711,6 +725,8 @@ def _launch_pair_session(
         provider,
         "--port",
         api_base_url.rsplit(":", 1)[-1],
+        "--compat-create-timeout-seconds",
+        str(compat_create_timeout_seconds),
     ]
     if requested_session_name is not None and requested_session_name.strip():
         command.extend(["--session-name", requested_session_name.strip()])

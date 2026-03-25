@@ -18,7 +18,8 @@ Subcommands:
       Start or replace the pair-managed interactive session through a demo-owned
       \`houmao-server\`, top-level \`houmao-mgr install\`, and detached
       \`houmao-mgr cao launch --headless\`. The default provider is
-      \`claude_code\`.
+      \`claude_code\`. Demo-owned generous compatibility startup defaults are
+      applied unless overridden through the environment variables below.
   inspect [--json] [--with-dialog-tail <num-tail-chars>]
       Inspect the persisted demo state and live server-owned session routes.
   send-turn (--prompt <text> | --prompt-file <path>)
@@ -41,6 +42,12 @@ Environment defaults:
       $CURRENT_RUN_ROOT_FILE
   DEMO_SERVER_PORT=<override>
       Optional loopback port override for the demo-owned \`houmao-server\`.
+  DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS=<override>
+  DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=<override>
+  DEMO_COMPAT_CODEX_WARMUP_SECONDS=<override>
+  DEMO_COMPAT_CREATE_TIMEOUT_SECONDS=<override>
+      Override the demo-owned compatibility startup budgets passed to
+      \`houmao-server serve\` and detached \`houmao-mgr cao launch --headless\`.
 
 Flags:
   -y, --yes
@@ -94,6 +101,18 @@ if [[ -n "${DEMO_REQUEST_POLL_INTERVAL_SECONDS:-}" ]]; then
 fi
 if [[ -n "${DEMO_SERVER_STOP_TIMEOUT_SECONDS:-}" ]]; then
   PYTHON_ARGS+=(--server-stop-timeout-seconds "$DEMO_SERVER_STOP_TIMEOUT_SECONDS")
+fi
+if [[ -n "${DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS:-}" ]]; then
+  PYTHON_ARGS+=(--compat-shell-ready-timeout-seconds "$DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS")
+fi
+if [[ -n "${DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS:-}" ]]; then
+  PYTHON_ARGS+=(--compat-provider-ready-timeout-seconds "$DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS")
+fi
+if [[ -n "${DEMO_COMPAT_CODEX_WARMUP_SECONDS:-}" ]]; then
+  PYTHON_ARGS+=(--compat-codex-warmup-seconds "$DEMO_COMPAT_CODEX_WARMUP_SECONDS")
+fi
+if [[ -n "${DEMO_COMPAT_CREATE_TIMEOUT_SECONDS:-}" ]]; then
+  PYTHON_ARGS+=(--compat-create-timeout-seconds "$DEMO_COMPAT_CREATE_TIMEOUT_SECONDS")
 fi
 
 if [[ "${FORWARD_ARGS[0]:-}" == "start" && -n "${DEMO_SERVER_PORT:-}" ]]; then
