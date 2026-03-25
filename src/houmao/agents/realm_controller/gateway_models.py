@@ -376,12 +376,15 @@ class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     """Public payload for `submit_prompt` requests."""
 
     prompt: str
+    turn_id: str | None = None
 
-    @field_validator("prompt")
+    @field_validator("prompt", "turn_id")
     @classmethod
-    def _prompt_not_blank(cls, value: str) -> str:
-        """Validate that submitted prompts are non-empty."""
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate submitted prompt strings when present."""
 
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -906,6 +909,48 @@ class GatewayStatusV1(_StrictGatewayModel):
         if self.gateway_health == "not_attached":
             if self.gateway_host is not None or self.gateway_port is not None:
                 raise ValueError("offline gateway status must omit live gateway host and port")
+        return self
+
+
+class GatewayHeadlessControlStateV1(_StrictGatewayModel):
+    """Read-optimized live control posture for one attached headless agent."""
+
+    schema_version: int = Field(default=GATEWAY_STATE_SCHEMA_VERSION)
+    runtime_resumable: bool
+    tmux_session_live: bool
+    can_accept_prompt_now: bool
+    interruptible: bool
+    request_admission: GatewayAdmissionState
+    active_execution: GatewayExecutionState
+    queue_depth: int
+    active_turn_id: str | None = None
+
+    @field_validator("queue_depth")
+    @classmethod
+    def _non_negative_queue_depth(cls, value: int) -> int:
+        """Validate the live queue depth."""
+
+        if value < 0:
+            raise ValueError("must be >= 0")
+        return value
+
+    @field_validator("active_turn_id")
+    @classmethod
+    def _active_turn_id_not_blank(cls, value: str | None) -> str | None:
+        """Validate the optional active turn id."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayHeadlessControlStateV1":
+        """Validate the shared gateway-state schema version."""
+
+        if self.schema_version != GATEWAY_STATE_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_STATE_SCHEMA_VERSION}")
         return self
 
 

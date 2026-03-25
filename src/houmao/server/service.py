@@ -14,22 +14,23 @@ import shutil
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar, cast
 from urllib import error, parse, request
 
 from fastapi import HTTPException, Response
+from pydantic import BaseModel
 
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHeadlessV1,
-    GatewayAcceptedRequestV1,
-    GatewayMailActionResponseV1,
-    GatewayMailCheckResponseV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
-    GatewayMailStatusV1,
     GatewayRequestCreateV1,
+    GatewayRequestPayloadInterruptV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -60,6 +61,8 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.registry_storage import (
+    publish_live_agent_record,
+    remove_live_agent_record,
     resolve_live_agent_record,
     resolve_live_agent_record_by_agent_id,
 )
@@ -131,6 +134,7 @@ from houmao.server.models import (
     HoumaoManagedAgentRequestEnvelope,
     ManagedAgentLastTurnResult,
     HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentGatewaySummaryView,
@@ -149,12 +153,29 @@ LOGGER = logging.getLogger(__name__)
 
 _GatewayModelT = TypeVar(
     "_GatewayModelT",
-    GatewayAcceptedRequestV1,
-    GatewayMailActionResponseV1,
-    GatewayMailCheckResponseV1,
-    GatewayMailNotifierStatusV1,
-    GatewayMailStatusV1,
+    bound=BaseModel,
 )
+
+
+@dataclass(frozen=True)
+class ManagedAgentControlPlane:
+    """Typed internal managed-agent control-plane seam."""
+
+    tracked_agent_id: str
+    transport: Literal["tui", "headless"]
+    owner: Literal["direct", "gateway"]
+    summary_state: Callable[[], HoumaoManagedAgentStateResponse]
+    detail_response: Callable[[], HoumaoManagedAgentDetailResponse]
+    history_response: Callable[[int], HoumaoManagedAgentHistoryResponse]
+    submit_request: Callable[
+        [HoumaoManagedAgentRequestEnvelope, str], HoumaoManagedAgentRequestAcceptedResponse
+    ]
+    gateway_summary: Callable[[], HoumaoManagedAgentGatewaySummaryView | None]
+    submit_headless_turn: (
+        Callable[[HoumaoHeadlessTurnRequest], HoumaoHeadlessTurnAcceptedResponse] | None
+    ) = None
+    terminal_state: Callable[[], HoumaoTerminalStateResponse] | None = None
+    terminal_history: Callable[[int], HoumaoTerminalHistoryResponse] | None = None
 
 
 class _ManagedHeadlessAgentHandle:
@@ -508,7 +529,40 @@ class HoumaoServerService:
             )
             return
 
-        identity = tracker.current_state().tracked_session
+        state = tracker.current_state()
+        identity = state.tracked_session
+        client = self._live_gateway_client_for_session_root(identity.session_root)
+        if client is not None:
+            self.emit_tracking_debug(
+                stream="service-prompt-submission",
+                event_type="note_prompt_submission_forwarding_to_gateway",
+                terminal_id=terminal_id,
+                tracked_session_id=identity.tracked_session_id,
+                tool=identity.tool,
+                monotonic_ts=monotonic_ts,
+                data={
+                    "message_excerpt": _message_excerpt(message),
+                    "message_sha1": _message_sha1(message),
+                },
+            )
+            try:
+                self._invoke_live_gateway(lambda: client.note_tui_prompt_submission(prompt=message))
+                return
+            except HTTPException as exc:
+                self.emit_tracking_debug(
+                    stream="service-prompt-submission",
+                    event_type="note_prompt_submission_gateway_forward_failed",
+                    terminal_id=terminal_id,
+                    tracked_session_id=identity.tracked_session_id,
+                    tool=identity.tool,
+                    monotonic_ts=monotonic_ts,
+                    data={
+                        "detail": str(exc.detail),
+                        "message_excerpt": _message_excerpt(message),
+                        "message_sha1": _message_sha1(message),
+                    },
+                )
+
         self.emit_tracking_debug(
             stream="service-prompt-submission",
             event_type="note_prompt_submission_called",
@@ -526,6 +580,7 @@ class HoumaoServerService:
             observed_at_utc=utc_now_iso(),
             monotonic_ts=monotonic_ts,
         )
+        lifecycle_authority = state.lifecycle_authority
         self.emit_tracking_debug(
             stream="service-prompt-submission",
             event_type="note_prompt_submission_recorded",
@@ -535,10 +590,20 @@ class HoumaoServerService:
             monotonic_ts=monotonic_ts,
             anchor_id=getattr(tracker.m_active_turn_anchor, "anchor_id", None),
             data={
-                "completion_authority": state.lifecycle_authority.completion_authority,
-                "turn_anchor_state": state.lifecycle_authority.turn_anchor_state,
+                "completion_authority": (
+                    lifecycle_authority.completion_authority
+                    if lifecycle_authority is not None
+                    else None
+                ),
+                "turn_anchor_state": (
+                    lifecycle_authority.turn_anchor_state
+                    if lifecycle_authority is not None
+                    else None
+                ),
                 "completion_monitoring_armed": (
-                    state.lifecycle_authority.completion_monitoring_armed
+                    lifecycle_authority.completion_monitoring_armed
+                    if lifecycle_authority is not None
+                    else None
                 ),
             },
         )
@@ -612,14 +677,16 @@ class HoumaoServerService:
     def terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Return the latest in-memory tracked terminal state."""
 
-        tracker = self._tracker_for_terminal_alias(terminal_id)
-        return tracker.current_state()
+        control_plane = self._control_plane_for_terminal(terminal_id, operation="state")
+        assert control_plane.terminal_state is not None
+        return control_plane.terminal_state()
 
     def terminal_history(self, terminal_id: str, *, limit: int) -> HoumaoTerminalHistoryResponse:
         """Return bounded in-memory recent history for one terminal alias."""
 
-        tracker = self._tracker_for_terminal_alias(terminal_id)
-        return tracker.history(limit=limit)
+        control_plane = self._control_plane_for_terminal(terminal_id, operation="history")
+        assert control_plane.terminal_history is not None
+        return control_plane.terminal_history(limit)
 
     def list_managed_agents(self) -> HoumaoManagedAgentListResponse:
         """Return the shared managed-agent discovery surface."""
@@ -652,42 +719,14 @@ class HoumaoServerService:
     def managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
         """Return the shared coarse state for one managed agent."""
 
-        resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] == "tui":
-            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
-            return self._managed_state_from_tui_tracker(tracker)
-
-        tracked_agent_id = resolved["tracked_agent_id"]
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        handle = self._require_headless_handle(tracked_agent_id)
-        return self._managed_state_from_headless_handle(handle)
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="state")
+        return control_plane.summary_state()
 
     def managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
         """Return transport-specific detail for one managed agent."""
 
-        resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] == "tui":
-            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
-            summary_state = self._managed_state_from_tui_tracker(tracker)
-            detail = self._managed_tui_detail_from_tracker(tracker)
-            return HoumaoManagedAgentDetailResponse(
-                tracked_agent_id=summary_state.tracked_agent_id,
-                identity=summary_state.identity,
-                summary_state=summary_state,
-                detail=detail,
-            )
-
-        tracked_agent_id = resolved["tracked_agent_id"]
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        handle = self._require_headless_handle(tracked_agent_id)
-        summary_state = self._managed_state_from_headless_handle(handle)
-        detail = self._managed_headless_detail_from_handle(handle, summary_state=summary_state)
-        return HoumaoManagedAgentDetailResponse(
-            tracked_agent_id=summary_state.tracked_agent_id,
-            identity=summary_state.identity,
-            summary_state=summary_state,
-            detail=detail,
-        )
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="detail")
+        return control_plane.detail_response()
 
     def managed_agent_history(
         self,
@@ -697,34 +736,8 @@ class HoumaoServerService:
     ) -> HoumaoManagedAgentHistoryResponse:
         """Return bounded coarse recent history for one managed agent."""
 
-        resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] == "tui":
-            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
-            raw_history = tracker.history(limit=limit)
-            return HoumaoManagedAgentHistoryResponse(
-                tracked_agent_id=raw_history.tracked_session_id,
-                entries=[
-                    HoumaoManagedAgentHistoryEntry(
-                        recorded_at_utc=entry.recorded_at_utc,
-                        summary=entry.summary,
-                        availability=_availability_from_tui_transition(entry),
-                        turn_phase=entry.turn_phase,
-                        last_turn_result=entry.last_turn_result,
-                        turn_id=None,
-                    )
-                    for entry in raw_history.entries
-                ],
-            )
-
-        tracked_agent_id = resolved["tracked_agent_id"]
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        return HoumaoManagedAgentHistoryResponse(
-            tracked_agent_id=tracked_agent_id,
-            entries=self._headless_history_entries(
-                tracked_agent_id=tracked_agent_id,
-                limit=limit,
-            ),
-        )
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="history")
+        return control_plane.history_response(limit)
 
     def submit_managed_agent_request(
         self,
@@ -736,23 +749,8 @@ class HoumaoServerService:
         request_id = self._managed_request_id(
             agent_ref=agent_ref, request_kind=request_model.request_kind
         )
-        resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] == "tui":
-            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
-            return self._submit_tui_managed_request(
-                tracker=tracker,
-                request_model=request_model,
-                request_id=request_id,
-            )
-
-        tracked_agent_id = resolved["tracked_agent_id"]
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        handle = self._require_headless_handle(tracked_agent_id)
-        return self._submit_headless_managed_request(
-            handle=handle,
-            request_model=request_model,
-            request_id=request_id,
-        )
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="request")
+        return control_plane.submit_request(request_model, request_id)
 
     def launch_headless_agent(
         self,
@@ -867,9 +865,25 @@ class HoumaoServerService:
                     if request_model.mailbox is not None
                     else None
                 ),
+                registry_launch_authority="external",
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        try:
+            self._publish_server_launched_registry_record(controller)
+        except (OSError, SessionManifestError) as exc:
+            try:
+                controller.stop(force_cleanup=True)
+            except Exception:
+                LOGGER.warning(
+                    "Failed to rollback managed headless launch after shared-registry publish failure",
+                    exc_info=True,
+                )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Managed headless launch could not publish shared-registry state: {exc}",
+            ) from exc
 
         tracked_agent_id = controller.manifest_path.parent.name
         authority = ManagedHeadlessAuthorityRecord(
@@ -922,6 +936,23 @@ class HoumaoServerService:
                     "Managed-agent stop failed through the pair-managed session-delete lifecycle."
                 ),
             )
+            try:
+                self._clear_shared_registry_record_for_terminated_agent(
+                    agent_name=identity.agent_name,
+                    agent_id=identity.agent_id,
+                    manifest_path=(
+                        Path(identity.manifest_path).expanduser().resolve()
+                        if identity.manifest_path is not None
+                        else None
+                    ),
+                    session_name=session_name,
+                )
+            except OSError as exc:
+                LOGGER.warning(
+                    "Shared-registry cleanup failed after managed TUI stop for session `%s`: %s",
+                    session_name,
+                    exc,
+                )
             self.handle_deleted_session(session_name)
             return HoumaoManagedAgentActionResponse(
                 success=True,
@@ -955,6 +986,19 @@ class HoumaoServerService:
                 f"Deleted managed headless authority for `{tracked_agent_id}` without an "
                 "active resumable controller."
             )
+        try:
+            self._clear_shared_registry_record_for_terminated_agent(
+                agent_name=handle.authority.agent_name,
+                agent_id=handle.authority.agent_id,
+                manifest_path=Path(handle.authority.manifest_path).expanduser().resolve(),
+                session_name=handle.authority.tmux_session_name,
+            )
+        except OSError as exc:
+            LOGGER.warning(
+                "Shared-registry cleanup failed after managed headless stop for `%s`: %s",
+                tracked_agent_id,
+                exc,
+            )
 
         self.m_managed_headless_store.delete_agent(tracked_agent_id=tracked_agent_id)
         with self.m_lock:
@@ -973,90 +1017,13 @@ class HoumaoServerService:
     ) -> HoumaoHeadlessTurnAcceptedResponse:
         """Accept one prompt for a managed native headless agent."""
 
-        resolved = self._resolve_managed_agent_ref(agent_ref)
-        if resolved["transport"] != "headless":
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="headless_turn")
+        if control_plane.transport != "headless" or control_plane.submit_headless_turn is None:
             raise HTTPException(
                 status_code=400,
                 detail="Headless turn submission is only supported for native headless agents.",
             )
-
-        tracked_agent_id = resolved["tracked_agent_id"]
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        handle = self._require_headless_handle(tracked_agent_id)
-        if handle.controller is None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Managed headless authority exists, but prompt submission is unavailable "
-                    "because the runtime controller could not be resumed."
-                ),
-            )
-        controller = handle.controller
-        if (
-            self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id)
-            is not None
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Managed headless turn submission rejected because this agent already "
-                    "has an active turn."
-                ),
-            )
-
-        backend_turn_index = self._next_headless_backend_turn_index(controller)
-        turn_id = (
-            f"turn-{_message_sha1(f'{tracked_agent_id}:{backend_turn_index}:{time.time()}')[:12]}"
-        )
-        turn_artifact_dir = self._headless_turn_artifacts_root(controller) / turn_id
-        process_path = turn_artifact_dir / "process.json"
-        tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
-        turn_record = ManagedHeadlessTurnRecord(
-            tracked_agent_id=tracked_agent_id,
-            turn_id=turn_id,
-            turn_index=backend_turn_index,
-            status="active",
-            started_at_utc=utc_now_iso(),
-            turn_artifact_dir=str(turn_artifact_dir),
-            tmux_session_name=self._require_controller_tmux_session_name(controller),
-            tmux_window_name=tmux_window_name,
-            process_path=str(process_path),
-            history_summary=f"Turn {turn_id} accepted.",
-        )
-        active_turn = ManagedHeadlessActiveTurnRecord(
-            tracked_agent_id=tracked_agent_id,
-            turn_id=turn_id,
-            turn_index=backend_turn_index,
-            turn_artifact_dir=str(turn_artifact_dir),
-            started_at_utc=turn_record.started_at_utc,
-            tmux_session_name=turn_record.tmux_session_name,
-            tmux_window_name=tmux_window_name,
-            process_path=str(process_path),
-        )
-        self.m_managed_headless_store.write_turn_record(turn_record)
-        self.m_managed_headless_store.write_active_turn(active_turn)
-
-        worker = threading.Thread(
-            target=self._run_headless_turn_worker,
-            kwargs={
-                "tracked_agent_id": tracked_agent_id,
-                "turn_id": turn_id,
-                "prompt": request_model.prompt,
-            },
-            daemon=True,
-            name=f"houmao-headless-turn-{tracked_agent_id}-{turn_id}",
-        )
-        handle.set_active_thread(worker)
-        worker.start()
-
-        return HoumaoHeadlessTurnAcceptedResponse(
-            success=True,
-            tracked_agent_id=tracked_agent_id,
-            turn_id=turn_id,
-            turn_index=backend_turn_index,
-            status="active",
-            detail=f"Managed headless turn `{turn_id}` accepted.",
-        )
+        return control_plane.submit_headless_turn(request_model)
 
     def headless_turn_status(
         self,
@@ -1146,39 +1113,40 @@ class HoumaoServerService:
     def interrupt_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:
         """Interrupt the active turn for one managed headless agent."""
 
-        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
-        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
-        active_turn = self.m_managed_headless_store.read_active_turn(
-            tracked_agent_id=tracked_agent_id
-        )
-        if active_turn is None:
-            return HoumaoManagedAgentActionResponse(
-                success=True,
-                tracked_agent_id=tracked_agent_id,
-                detail="No active headless turn is running.",
-                turn_id=None,
+        control_plane = self._control_plane_for_managed_agent(agent_ref, operation="interrupt")
+        if control_plane.transport != "headless":
+            raise HTTPException(
+                status_code=400,
+                detail="This route only supports native headless managed agents.",
             )
-
-        self._interrupt_active_turn_record(active_turn)
+        accepted = control_plane.submit_request(
+            HoumaoManagedAgentInterruptRequest(),
+            self._managed_request_id(agent_ref=agent_ref, request_kind="interrupt"),
+        )
         return HoumaoManagedAgentActionResponse(
             success=True,
-            tracked_agent_id=tracked_agent_id,
-            detail=f"Best-effort interrupt requested for turn `{active_turn.turn_id}`.",
-            turn_id=active_turn.turn_id,
+            tracked_agent_id=accepted.tracked_agent_id,
+            detail=accepted.detail,
+            turn_id=accepted.headless_turn_id,
         )
 
     def managed_agent_gateway_status(self, agent_ref: str) -> GatewayStatusV1:
         """Return gateway status for one managed agent."""
 
         gateway_context = self._managed_gateway_context(agent_ref)
-        return gateway_context["status"]
+        session_root = gateway_context.get("session_root")
+        if isinstance(session_root, str):
+            client = self._live_gateway_client_for_session_root(session_root)
+            if client is not None:
+                return self._invoke_live_gateway(client.status)
+        return cast(GatewayStatusV1, gateway_context["status"])
 
     def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         """Attach or reuse a live gateway for one managed agent."""
 
         gateway_context = self._managed_gateway_context(agent_ref)
-        status = gateway_context["status"]
-        controller = gateway_context["controller"]
+        status = cast(GatewayStatusV1, gateway_context["status"])
+        controller = cast(RuntimeSessionController | None, gateway_context["controller"])
         if (
             status.gateway_health == "healthy"
             and status.request_admission != "blocked_reconciliation"
@@ -1203,19 +1171,41 @@ class HoumaoServerService:
             if "already in use" in detail or "reconciliation" in detail:
                 raise HTTPException(status_code=409, detail=attach_result.detail)
             raise HTTPException(status_code=503, detail=attach_result.detail)
-        return self._gateway_status_for_session_root(Path(gateway_context["session_root"]))
+        if gateway_context.get("transport") == "headless":
+            try:
+                self._publish_server_launched_registry_record(controller)
+            except (OSError, SessionManifestError) as exc:
+                LOGGER.warning(
+                    "Shared-registry refresh failed after managed headless gateway attach for `%s`: %s",
+                    gateway_context["tracked_agent_id"],
+                    exc,
+                )
+        return self._gateway_status_for_session_root(
+            Path(cast(str, gateway_context["session_root"]))
+        )
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         """Detach any live gateway for one managed agent."""
 
         gateway_context = self._managed_gateway_context(agent_ref)
-        controller = gateway_context["controller"]
+        controller = cast(RuntimeSessionController | None, gateway_context["controller"])
         if controller is None:
-            return gateway_context["status"]
+            return cast(GatewayStatusV1, gateway_context["status"])
         detach_result = controller.detach_gateway()
         if detach_result.status != "ok":
             raise HTTPException(status_code=503, detail=detach_result.detail)
-        return self._gateway_status_for_session_root(Path(gateway_context["session_root"]))
+        if gateway_context.get("transport") == "headless":
+            try:
+                self._publish_server_launched_registry_record(controller)
+            except (OSError, SessionManifestError) as exc:
+                LOGGER.warning(
+                    "Shared-registry refresh failed after managed headless gateway detach for `%s`: %s",
+                    gateway_context["tracked_agent_id"],
+                    exc,
+                )
+        return self._gateway_status_for_session_root(
+            Path(cast(str, gateway_context["session_root"]))
+        )
 
     def submit_managed_agent_gateway_request(
         self,
@@ -1304,10 +1294,13 @@ class HoumaoServerService:
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""
 
+        control_plane = self._control_plane_for_terminal(terminal_id, operation="refresh")
+        assert control_plane.terminal_state is not None
+        if control_plane.owner == "gateway":
+            return control_plane.terminal_state()
         tracked_session_id = self._tracked_session_id_for_terminal_alias(terminal_id)
         self.poll_known_session(tracked_session_id)
-        tracker = self._tracker_for_terminal_alias(terminal_id)
-        return tracker.current_state()
+        return control_plane.terminal_state()
 
     def watch_poll_interval_seconds(self) -> float:
         """Return the configured tracking poll interval."""
@@ -1411,6 +1404,8 @@ class HoumaoServerService:
 
         tracker = self._tracker_for_session_id(tracked_session_id)
         identity = tracker.current_state().tracked_session
+        if self._live_gateway_client_for_session_root(identity.session_root) is not None:
+            return True
         observed_at_utc = utc_now_iso()
         monotonic_ts = time.monotonic()
 
@@ -1713,6 +1708,15 @@ class HoumaoServerService:
                 session_manifest_path=manifest_path,
             )
             self._publish_server_managed_headless_gateway_metadata(authority)
+            if controller.registry_launch_authority != "runtime":
+                try:
+                    self._publish_server_launched_registry_record(controller)
+                except (OSError, SessionManifestError) as exc:
+                    LOGGER.warning(
+                        "Shared-registry refresh failed while rebuilding managed headless `%s`: %s",
+                        authority.tracked_agent_id,
+                        exc,
+                    )
             return controller
         except (LaunchPlanError, SessionManifestError, RuntimeError):
             return None
@@ -1803,21 +1807,387 @@ class HoumaoServerService:
             )
         return resolved["tracked_agent_id"]
 
-    def _managed_identity_from_tui_tracker(
+    def _control_plane_for_managed_agent(
         self,
-        tracker: LiveSessionTracker,
-    ) -> HoumaoManagedAgentIdentity:
-        """Project one TUI tracker into the shared managed-agent identity model."""
+        agent_ref: str,
+        *,
+        operation: str,
+    ) -> ManagedAgentControlPlane:
+        """Resolve one managed-agent interaction onto its current control plane."""
 
-        state = tracker.current_state()
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            return self._resolve_tui_control_plane(tracker=tracker, operation=operation)
+
+        tracked_agent_id = resolved["tracked_agent_id"]
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        handle = self._require_headless_handle(tracked_agent_id)
+        return self._resolve_headless_control_plane(handle=handle, operation=operation)
+
+    def _control_plane_for_terminal(
+        self,
+        terminal_id: str,
+        *,
+        operation: str,
+    ) -> ManagedAgentControlPlane:
+        """Resolve one terminal-keyed TUI interaction onto its current control plane."""
+
+        tracker = self._tracker_for_terminal_alias(terminal_id)
+        return self._resolve_tui_control_plane(tracker=tracker, operation=operation)
+
+    def _resolve_tui_control_plane(
+        self,
+        *,
+        tracker: LiveSessionTracker,
+        operation: str,
+    ) -> ManagedAgentControlPlane:
+        """Choose gateway-backed or direct TUI control for one tracker."""
+
+        session_root = tracker.current_state().tracked_session.session_root
+        client = self._live_gateway_client_for_session_root(session_root)
+        if client is not None:
+            return self._gateway_tui_control_plane(tracker=tracker, client=client)
+
+        gateway_status = self._optional_gateway_status_for_session_root(session_root)
+        if operation == "request" and gateway_status is not None:
+            if gateway_status.request_admission == "blocked_reconciliation":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway admission is blocked pending managed-agent reconciliation.",
+                )
+        return self._direct_tui_control_plane(tracker=tracker, gateway_status=gateway_status)
+
+    def _resolve_headless_control_plane(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        operation: str,
+    ) -> ManagedAgentControlPlane:
+        """Choose gateway-backed or direct headless control for one managed agent."""
+
+        client = self._live_gateway_client_for_session_root(handle.authority.session_root)
+        if client is not None:
+            return self._gateway_headless_control_plane(handle=handle, client=client)
+
+        gateway_status = self._optional_gateway_status_for_session_root(
+            handle.authority.session_root
+        )
+        if operation in {"request", "headless_turn", "interrupt"} and gateway_status is not None:
+            if gateway_status.request_admission == "blocked_reconciliation":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway admission is blocked pending managed-agent reconciliation.",
+                )
+            if gateway_status.gateway_health == "healthy":
+                raise HTTPException(
+                    status_code=503,
+                    detail="Managed headless control is unavailable because the attached gateway is unreachable.",
+                )
+        return self._direct_headless_control_plane(
+            handle=handle,
+            gateway_status=gateway_status,
+        )
+
+    def _direct_tui_control_plane(
+        self,
+        *,
+        tracker: LiveSessionTracker,
+        gateway_status: GatewayStatusV1 | None,
+    ) -> ManagedAgentControlPlane:
+        """Build the direct fallback control plane for one tracked TUI agent."""
+
+        tracked_agent_id = tracker.current_state().tracked_session.tracked_session_id
+        direct_gateway_summary = self._fallback_gateway_summary(gateway_status)
+
+        def _summary_state() -> HoumaoManagedAgentStateResponse:
+            return self._managed_state_from_tui_state(
+                tracker.current_state(),
+                gateway_summary=direct_gateway_summary,
+            )
+
+        def _detail_response() -> HoumaoManagedAgentDetailResponse:
+            state = tracker.current_state()
+            summary_state = self._managed_state_from_tui_state(
+                state,
+                gateway_summary=direct_gateway_summary,
+            )
+            return HoumaoManagedAgentDetailResponse(
+                tracked_agent_id=summary_state.tracked_agent_id,
+                identity=summary_state.identity,
+                summary_state=summary_state,
+                detail=self._managed_tui_detail_from_state(state),
+            )
+
+        return ManagedAgentControlPlane(
+            tracked_agent_id=tracked_agent_id,
+            transport="tui",
+            owner="direct",
+            summary_state=_summary_state,
+            detail_response=_detail_response,
+            history_response=lambda limit: self._managed_tui_history_response(
+                tracker.history(limit=limit)
+            ),
+            submit_request=lambda request_model, request_id: self._submit_tui_managed_request(
+                tracker=tracker,
+                request_model=request_model,
+                request_id=request_id,
+            ),
+            gateway_summary=lambda: direct_gateway_summary,
+            terminal_state=tracker.current_state,
+            terminal_history=lambda limit: tracker.history(limit=limit),
+        )
+
+    def _gateway_tui_control_plane(
+        self,
+        *,
+        tracker: LiveSessionTracker,
+        client: GatewayClient,
+    ) -> ManagedAgentControlPlane:
+        """Build the gateway-backed control plane for one TUI managed agent."""
+
+        tracked_agent_id = tracker.current_state().tracked_session.tracked_session_id
+
+        def _gateway_summary() -> HoumaoManagedAgentGatewaySummaryView | None:
+            status = self._invoke_live_gateway(client.status)
+            return self._gateway_summary_from_status(status)
+
+        def _summary_state() -> HoumaoManagedAgentStateResponse:
+            state = self._invoke_live_gateway(client.get_tui_state)
+            return self._managed_state_from_tui_state(
+                state,
+                gateway_summary=_gateway_summary(),
+            )
+
+        def _detail_response() -> HoumaoManagedAgentDetailResponse:
+            state = self._invoke_live_gateway(client.get_tui_state)
+            summary_state = self._managed_state_from_tui_state(
+                state,
+                gateway_summary=_gateway_summary(),
+            )
+            return HoumaoManagedAgentDetailResponse(
+                tracked_agent_id=summary_state.tracked_agent_id,
+                identity=summary_state.identity,
+                summary_state=summary_state,
+                detail=self._managed_tui_detail_from_state(state),
+            )
+
+        def _submit_request(
+            request_model: HoumaoManagedAgentRequestEnvelope,
+            request_id: str,
+        ) -> HoumaoManagedAgentRequestAcceptedResponse:
+            if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+                self._invoke_live_gateway(
+                    lambda: client.create_request(
+                        GatewayRequestCreateV1(
+                            kind="submit_prompt",
+                            payload=GatewayRequestPayloadSubmitPromptV1(
+                                prompt=request_model.prompt
+                            ),
+                        )
+                    )
+                )
+                return HoumaoManagedAgentRequestAcceptedResponse(
+                    success=True,
+                    tracked_agent_id=tracked_agent_id,
+                    request_id=request_id,
+                    request_kind=request_model.request_kind,
+                    disposition="accepted",
+                    detail="Managed-agent prompt request accepted for gateway delivery.",
+                )
+
+            self._invoke_live_gateway(
+                lambda: client.create_request(
+                    GatewayRequestCreateV1(
+                        kind="interrupt",
+                        payload=GatewayRequestPayloadInterruptV1(),
+                    )
+                )
+            )
+            return HoumaoManagedAgentRequestAcceptedResponse(
+                success=True,
+                tracked_agent_id=tracked_agent_id,
+                request_id=request_id,
+                request_kind=request_model.request_kind,
+                disposition="accepted",
+                detail="Managed-agent interrupt request accepted for gateway delivery.",
+            )
+
+        return ManagedAgentControlPlane(
+            tracked_agent_id=tracked_agent_id,
+            transport="tui",
+            owner="gateway",
+            summary_state=_summary_state,
+            detail_response=_detail_response,
+            history_response=lambda limit: self._managed_tui_history_response(
+                self._invoke_live_gateway(lambda: client.get_tui_history(limit=limit))
+            ),
+            submit_request=_submit_request,
+            gateway_summary=_gateway_summary,
+            terminal_state=lambda: self._invoke_live_gateway(client.get_tui_state),
+            terminal_history=lambda limit: self._invoke_live_gateway(
+                lambda: client.get_tui_history(limit=limit)
+            ),
+        )
+
+    def _direct_headless_control_plane(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        gateway_status: GatewayStatusV1 | None,
+    ) -> ManagedAgentControlPlane:
+        """Build the direct fallback control plane for one managed headless agent."""
+
+        tracked_agent_id = handle.authority.tracked_agent_id
+        direct_gateway_summary = self._fallback_gateway_summary(gateway_status)
+
+        def _summary_state() -> HoumaoManagedAgentStateResponse:
+            return self._managed_state_from_headless_handle(
+                handle,
+                gateway_summary=direct_gateway_summary,
+            )
+
+        def _detail_response() -> HoumaoManagedAgentDetailResponse:
+            summary_state = self._managed_state_from_headless_handle(
+                handle,
+                gateway_summary=direct_gateway_summary,
+            )
+            detail = self._managed_headless_detail_from_handle(
+                handle,
+                summary_state=summary_state,
+            )
+            return HoumaoManagedAgentDetailResponse(
+                tracked_agent_id=summary_state.tracked_agent_id,
+                identity=summary_state.identity,
+                summary_state=summary_state,
+                detail=detail,
+            )
+
+        return ManagedAgentControlPlane(
+            tracked_agent_id=tracked_agent_id,
+            transport="headless",
+            owner="direct",
+            summary_state=_summary_state,
+            detail_response=_detail_response,
+            history_response=lambda limit: HoumaoManagedAgentHistoryResponse(
+                tracked_agent_id=tracked_agent_id,
+                entries=self._headless_history_entries(
+                    tracked_agent_id=tracked_agent_id,
+                    limit=limit,
+                ),
+            ),
+            submit_request=lambda request_model, request_id: self._submit_headless_managed_request(
+                handle=handle,
+                request_model=request_model,
+                request_id=request_id,
+            ),
+            gateway_summary=lambda: direct_gateway_summary,
+            submit_headless_turn=lambda request_model: self._submit_headless_turn_direct(
+                handle=handle,
+                request_model=request_model,
+            ),
+        )
+
+    def _gateway_headless_control_plane(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        client: GatewayClient,
+    ) -> ManagedAgentControlPlane:
+        """Build the gateway-backed control plane for one managed headless agent."""
+
+        tracked_agent_id = handle.authority.tracked_agent_id
+
+        def _gateway_summary() -> HoumaoManagedAgentGatewaySummaryView | None:
+            status = self._invoke_live_gateway(client.status)
+            return self._gateway_summary_from_status(status)
+
+        def _summary_state() -> HoumaoManagedAgentStateResponse:
+            self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+            control_state = self._invoke_live_gateway(client.get_headless_control_state)
+            return self._managed_state_from_gateway_headless_handle(
+                handle,
+                control_state=control_state,
+                gateway_summary=_gateway_summary(),
+            )
+
+        def _detail_response() -> HoumaoManagedAgentDetailResponse:
+            self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+            control_state = self._invoke_live_gateway(client.get_headless_control_state)
+            summary_state = self._managed_state_from_gateway_headless_handle(
+                handle,
+                control_state=control_state,
+                gateway_summary=_gateway_summary(),
+            )
+            detail = self._managed_headless_detail_from_gateway_handle(
+                handle,
+                control_state=control_state,
+                summary_state=summary_state,
+            )
+            return HoumaoManagedAgentDetailResponse(
+                tracked_agent_id=summary_state.tracked_agent_id,
+                identity=summary_state.identity,
+                summary_state=summary_state,
+                detail=detail,
+            )
+
+        def _submit_request(
+            request_model: HoumaoManagedAgentRequestEnvelope,
+            request_id: str,
+        ) -> HoumaoManagedAgentRequestAcceptedResponse:
+            if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+                accepted = self._submit_headless_turn_via_gateway(
+                    handle=handle,
+                    client=client,
+                    request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+                )
+                return self._headless_request_accepted_response(
+                    tracked_agent_id=tracked_agent_id,
+                    request_id=request_id,
+                    request_kind=request_model.request_kind,
+                    accepted=accepted,
+                )
+            return self._submit_headless_interrupt_via_gateway(
+                handle=handle,
+                client=client,
+                request_id=request_id,
+            )
+
+        return ManagedAgentControlPlane(
+            tracked_agent_id=tracked_agent_id,
+            transport="headless",
+            owner="gateway",
+            summary_state=_summary_state,
+            detail_response=_detail_response,
+            history_response=lambda limit: HoumaoManagedAgentHistoryResponse(
+                tracked_agent_id=tracked_agent_id,
+                entries=self._headless_history_entries(
+                    tracked_agent_id=tracked_agent_id,
+                    limit=limit,
+                ),
+            ),
+            submit_request=_submit_request,
+            gateway_summary=_gateway_summary,
+            submit_headless_turn=lambda request_model: self._submit_headless_turn_via_gateway(
+                handle=handle,
+                client=client,
+                request_model=request_model,
+            ),
+        )
+
+    def _managed_identity_from_tui_state(
+        self,
+        state: HoumaoTerminalStateResponse,
+    ) -> HoumaoManagedAgentIdentity:
+        """Project one TUI tracked-state sample into the shared identity model."""
+
         identity = state.tracked_session
-        terminal_id = identity.terminal_aliases[0] if identity.terminal_aliases else None
         return HoumaoManagedAgentIdentity(
             tracked_agent_id=identity.tracked_session_id,
             transport="tui",
             tool=identity.tool,
             session_name=identity.session_name,
-            terminal_id=terminal_id,
+            terminal_id=state.terminal_id,
             runtime_session_id=None,
             tmux_session_name=identity.tmux_session_name,
             tmux_window_name=identity.tmux_window_name,
@@ -1826,6 +2196,14 @@ class HoumaoServerService:
             agent_name=identity.agent_name,
             agent_id=identity.agent_id,
         )
+
+    def _managed_identity_from_tui_tracker(
+        self,
+        tracker: LiveSessionTracker,
+    ) -> HoumaoManagedAgentIdentity:
+        """Project one TUI tracker into the shared managed-agent identity model."""
+
+        return self._managed_identity_from_tui_state(tracker.current_state())
 
     def _tracked_tui_target_window_index(
         self, identity: HoumaoTrackedSessionIdentity
@@ -1866,30 +2244,31 @@ class HoumaoServerService:
             agent_id=authority.agent_id,
         )
 
-    def _managed_state_from_tui_tracker(
+    def _managed_state_from_tui_state(
         self,
-        tracker: LiveSessionTracker,
+        state: HoumaoTerminalStateResponse,
+        *,
+        gateway_summary: HoumaoManagedAgentGatewaySummaryView | None,
     ) -> HoumaoManagedAgentStateResponse:
-        """Project one TUI tracker into the shared coarse state model."""
+        """Project one TUI tracked-state sample into the shared coarse state model."""
 
-        current = tracker.current_state()
-        availability = _availability_from_tui_state(current)
-        turn_phase = current.turn.phase
-        last_result = current.last_turn.result
+        availability = _availability_from_tui_state(state)
+        turn_phase = state.turn.phase
+        last_result = state.last_turn.result
         diagnostics: list[HoumaoErrorDetail] = []
-        if current.diagnostics.probe_error is not None:
-            diagnostics.append(current.diagnostics.probe_error)
-        if current.diagnostics.parse_error is not None:
-            diagnostics.append(current.diagnostics.parse_error)
+        if state.diagnostics.probe_error is not None:
+            diagnostics.append(state.diagnostics.probe_error)
+        if state.diagnostics.parse_error is not None:
+            diagnostics.append(state.diagnostics.parse_error)
 
         return HoumaoManagedAgentStateResponse(
-            tracked_agent_id=current.tracked_session.tracked_session_id,
-            identity=self._managed_identity_from_tui_tracker(tracker),
+            tracked_agent_id=state.tracked_session.tracked_session_id,
+            identity=self._managed_identity_from_tui_state(state),
             availability=availability,
             turn=HoumaoManagedAgentTurnView(
                 phase=turn_phase,
                 active_turn_id=(
-                    f"tui-anchor:{current.tracked_session.tracked_session_id}"
+                    f"tui-anchor:{state.tracked_session.tracked_session_id}"
                     if turn_phase == "active"
                     else None
                 ),
@@ -1898,16 +2277,32 @@ class HoumaoServerService:
                 result=last_result,
                 turn_id=None,
                 turn_index=None,
-                updated_at_utc=current.last_turn.updated_at_utc,
+                updated_at_utc=state.last_turn.updated_at_utc,
             ),
             diagnostics=diagnostics,
-            mailbox=self._mailbox_summary_for_tui_tracker(tracker),
-            gateway=self._gateway_summary_for_session_root(current.tracked_session.session_root),
+            mailbox=self._mailbox_summary_for_tui_identity(state.tracked_session),
+            gateway=gateway_summary,
+        )
+
+    def _managed_state_from_tui_tracker(
+        self,
+        tracker: LiveSessionTracker,
+    ) -> HoumaoManagedAgentStateResponse:
+        """Project one TUI tracker into the shared coarse state model."""
+
+        current = tracker.current_state()
+        return self._managed_state_from_tui_state(
+            current,
+            gateway_summary=self._gateway_summary_for_session_root(
+                current.tracked_session.session_root
+            ),
         )
 
     def _managed_state_from_headless_handle(
         self,
         handle: _ManagedHeadlessAgentHandle,
+        *,
+        gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
     ) -> HoumaoManagedAgentStateResponse:
         """Project one headless handle into the shared coarse state model."""
 
@@ -1975,7 +2370,118 @@ class HoumaoServerService:
             ),
             diagnostics=diagnostics,
             mailbox=self._mailbox_summary_for_headless_handle(handle),
-            gateway=self._gateway_summary_for_session_root(authority.session_root),
+            gateway=(
+                gateway_summary
+                if gateway_summary is not None
+                else self._gateway_summary_for_session_root(authority.session_root)
+            ),
+        )
+
+    def _managed_state_from_gateway_headless_handle(
+        self,
+        handle: _ManagedHeadlessAgentHandle,
+        *,
+        control_state: GatewayHeadlessControlStateV1,
+        gateway_summary: HoumaoManagedAgentGatewaySummaryView | None,
+    ) -> HoumaoManagedAgentStateResponse:
+        """Project live gateway-backed headless control posture into shared state."""
+
+        authority = handle.authority
+        active_turn = self.m_managed_headless_store.read_active_turn(
+            tracked_agent_id=authority.tracked_agent_id
+        )
+        latest_turn = self._latest_headless_turn_record(tracked_agent_id=authority.tracked_agent_id)
+        diagnostics: list[HoumaoErrorDetail] = []
+
+        availability: ManagedAgentAvailability
+        if control_state.request_admission == "blocked_reconciliation":
+            availability = "error"
+            diagnostics.append(
+                HoumaoErrorDetail(
+                    kind="gateway_reconciliation_required",
+                    message="Gateway admission is blocked pending managed-agent reconciliation.",
+                )
+            )
+        elif not control_state.runtime_resumable:
+            availability = "unavailable"
+            diagnostics.append(
+                HoumaoErrorDetail(
+                    kind="runtime_resume_unavailable",
+                    message=(
+                        "Managed headless authority exists, but the runtime controller could "
+                        "not be resumed from persisted state."
+                    ),
+                )
+            )
+        elif control_state.tmux_session_live:
+            availability = "available"
+        else:
+            availability = "unavailable"
+            diagnostics.append(
+                HoumaoErrorDetail(
+                    kind="tmux_session_missing",
+                    message=(
+                        f"Native headless tmux session `{authority.tmux_session_name}` is not live."
+                    ),
+                )
+            )
+
+        active_turn_id = control_state.active_turn_id
+        if active_turn_id is not None:
+            turn_view = HoumaoManagedAgentTurnView(
+                phase="active",
+                active_turn_id=active_turn_id,
+            )
+        else:
+            turn_view = HoumaoManagedAgentTurnView(
+                phase="ready" if availability == "available" else "unknown",
+                active_turn_id=None,
+            )
+
+        last_result: ManagedAgentLastTurnResult = "none"
+        last_turn_id: str | None = None
+        last_turn_index: int | None = None
+        updated_at_utc: str | None = None
+        if latest_turn is not None:
+            last_result = _last_turn_result_from_headless_status(latest_turn.status)
+            last_turn_id = latest_turn.turn_id
+            last_turn_index = latest_turn.turn_index
+            updated_at_utc = latest_turn.completed_at_utc or latest_turn.started_at_utc
+        elif active_turn is not None and active_turn_id is not None:
+            updated_at_utc = active_turn.started_at_utc
+
+        return HoumaoManagedAgentStateResponse(
+            tracked_agent_id=authority.tracked_agent_id,
+            identity=self._managed_identity_from_headless_handle(handle),
+            availability=availability,
+            turn=turn_view,
+            last_turn=HoumaoManagedAgentLastTurnView(
+                result=last_result,
+                turn_id=last_turn_id,
+                turn_index=last_turn_index,
+                updated_at_utc=updated_at_utc,
+            ),
+            diagnostics=diagnostics,
+            mailbox=self._mailbox_summary_for_headless_handle(handle),
+            gateway=gateway_summary,
+        )
+
+    def _managed_tui_detail_from_state(
+        self,
+        state: HoumaoTerminalStateResponse,
+    ) -> HoumaoManagedAgentTuiDetailView:
+        """Project one tracked-state sample into the managed-agent TUI detail contract."""
+
+        terminal_id = state.terminal_id
+        return HoumaoManagedAgentTuiDetailView(
+            terminal_id=terminal_id,
+            canonical_terminal_state_route=f"/houmao/terminals/{terminal_id}/state",
+            canonical_terminal_history_route=f"/houmao/terminals/{terminal_id}/history",
+            diagnostics=state.diagnostics,
+            probe_snapshot=state.probe_snapshot,
+            parsed_surface=state.parsed_surface,
+            surface=state.surface,
+            stability=state.stability,
         )
 
     def _managed_tui_detail_from_tracker(
@@ -1984,17 +2490,27 @@ class HoumaoServerService:
     ) -> HoumaoManagedAgentTuiDetailView:
         """Project one tracker into the managed-agent TUI detail contract."""
 
-        current = tracker.current_state()
-        terminal_id = self._require_terminal_id_from_tracked_identity(current.tracked_session)
-        return HoumaoManagedAgentTuiDetailView(
-            terminal_id=terminal_id,
-            canonical_terminal_state_route=f"/houmao/terminals/{terminal_id}/state",
-            canonical_terminal_history_route=f"/houmao/terminals/{terminal_id}/history",
-            diagnostics=current.diagnostics,
-            probe_snapshot=current.probe_snapshot,
-            parsed_surface=current.parsed_surface,
-            surface=current.surface,
-            stability=current.stability,
+        return self._managed_tui_detail_from_state(tracker.current_state())
+
+    def _managed_tui_history_response(
+        self,
+        raw_history: HoumaoTerminalHistoryResponse,
+    ) -> HoumaoManagedAgentHistoryResponse:
+        """Project raw TUI history into the managed-agent shared history envelope."""
+
+        return HoumaoManagedAgentHistoryResponse(
+            tracked_agent_id=raw_history.tracked_session_id,
+            entries=[
+                HoumaoManagedAgentHistoryEntry(
+                    recorded_at_utc=entry.recorded_at_utc,
+                    summary=entry.summary,
+                    availability=_availability_from_tui_transition(entry),
+                    turn_phase=entry.turn_phase,
+                    last_turn_result=entry.last_turn_result,
+                    turn_id=None,
+                )
+                for entry in raw_history.entries
+            ],
         )
 
     def _managed_headless_detail_from_handle(
@@ -2016,6 +2532,53 @@ class HoumaoServerService:
             tmux_session_live=tmux_session_live,
             can_accept_prompt_now=summary_state.availability == "available" and active_turn is None,
             interruptible=active_turn is not None,
+            turn=summary_state.turn,
+            last_turn=summary_state.last_turn,
+            active_turn_started_at_utc=active_turn.started_at_utc
+            if active_turn is not None
+            else None,
+            active_turn_interrupt_requested_at_utc=(
+                active_turn.interrupt_requested_at_utc if active_turn is not None else None
+            ),
+            last_turn_status=latest_turn.status if latest_turn is not None else None,
+            last_turn_started_at_utc=latest_turn.started_at_utc
+            if latest_turn is not None
+            else None,
+            last_turn_completed_at_utc=(
+                latest_turn.completed_at_utc if latest_turn is not None else None
+            ),
+            last_turn_completion_source=(
+                latest_turn.completion_source if latest_turn is not None else None
+            ),
+            last_turn_returncode=latest_turn.returncode if latest_turn is not None else None,
+            last_turn_history_summary=(
+                latest_turn.history_summary if latest_turn is not None else None
+            ),
+            last_turn_error=latest_turn.error if latest_turn is not None else None,
+            mailbox=summary_state.mailbox,
+            gateway=summary_state.gateway,
+            diagnostics=list(summary_state.diagnostics),
+        )
+
+    def _managed_headless_detail_from_gateway_handle(
+        self,
+        handle: _ManagedHeadlessAgentHandle,
+        *,
+        control_state: GatewayHeadlessControlStateV1,
+        summary_state: HoumaoManagedAgentStateResponse,
+    ) -> HoumaoManagedAgentHeadlessDetailView:
+        """Project gateway-backed live headless posture into the detail contract."""
+
+        authority = handle.authority
+        active_turn = self.m_managed_headless_store.read_active_turn(
+            tracked_agent_id=authority.tracked_agent_id
+        )
+        latest_turn = self._latest_headless_turn_record(tracked_agent_id=authority.tracked_agent_id)
+        return HoumaoManagedAgentHeadlessDetailView(
+            runtime_resumable=control_state.runtime_resumable,
+            tmux_session_live=control_state.tmux_session_live,
+            can_accept_prompt_now=control_state.can_accept_prompt_now,
+            interruptible=control_state.interruptible,
             turn=summary_state.turn,
             last_turn=summary_state.last_turn,
             active_turn_started_at_utc=active_turn.started_at_utc
@@ -2118,6 +2681,248 @@ class HoumaoServerService:
             detail="Managed-agent interrupt request accepted for TUI delivery.",
         )
 
+    def _headless_request_accepted_response(
+        self,
+        *,
+        tracked_agent_id: str,
+        request_id: str,
+        request_kind: str,
+        accepted: HoumaoHeadlessTurnAcceptedResponse,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        """Project one accepted headless turn into the transport-neutral request envelope."""
+
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            request_id=request_id,
+            request_kind=cast(Literal["submit_prompt", "interrupt"], request_kind),
+            disposition="accepted",
+            detail=accepted.detail,
+            headless_turn_id=accepted.turn_id,
+            headless_turn_index=accepted.turn_index,
+        )
+
+    def _provision_headless_turn(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+    ) -> tuple[
+        RuntimeSessionController, ManagedHeadlessTurnRecord, ManagedHeadlessActiveTurnRecord
+    ]:
+        """Create the durable server-owned turn identity before live execution admission."""
+
+        tracked_agent_id = handle.authority.tracked_agent_id
+        controller = self._resume_or_get_headless_controller(handle)
+        if controller is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Managed headless authority exists, but prompt submission is unavailable "
+                    "because the runtime controller could not be resumed."
+                ),
+            )
+        if (
+            self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+            is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Managed headless turn submission rejected because this agent already "
+                    "has an active turn."
+                ),
+            )
+
+        backend_turn_index = self._next_headless_backend_turn_index(controller)
+        turn_id = (
+            f"turn-{_message_sha1(f'{tracked_agent_id}:{backend_turn_index}:{time.time()}')[:12]}"
+        )
+        turn_artifact_dir = self._headless_turn_artifacts_root(controller) / turn_id
+        process_path = turn_artifact_dir / "process.json"
+        tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
+        turn_record = ManagedHeadlessTurnRecord(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            turn_index=backend_turn_index,
+            status="active",
+            started_at_utc=utc_now_iso(),
+            turn_artifact_dir=str(turn_artifact_dir),
+            tmux_session_name=self._require_controller_tmux_session_name(controller),
+            tmux_window_name=tmux_window_name,
+            process_path=str(process_path),
+            history_summary=f"Turn {turn_id} accepted.",
+        )
+        active_turn = ManagedHeadlessActiveTurnRecord(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+            turn_index=backend_turn_index,
+            turn_artifact_dir=str(turn_artifact_dir),
+            started_at_utc=turn_record.started_at_utc,
+            tmux_session_name=turn_record.tmux_session_name,
+            tmux_window_name=tmux_window_name,
+            process_path=str(process_path),
+        )
+        self.m_managed_headless_store.write_turn_record(turn_record)
+        self.m_managed_headless_store.write_active_turn(active_turn)
+        return controller, turn_record, active_turn
+
+    def _submit_headless_turn_direct(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        """Accept one direct-fallback managed headless turn."""
+
+        _, turn_record, _ = self._provision_headless_turn(handle=handle)
+        tracked_agent_id = handle.authority.tracked_agent_id
+        worker = threading.Thread(
+            target=self._run_headless_turn_worker,
+            kwargs={
+                "tracked_agent_id": tracked_agent_id,
+                "turn_id": turn_record.turn_id,
+                "prompt": request_model.prompt,
+            },
+            daemon=True,
+            name=f"houmao-headless-turn-{tracked_agent_id}-{turn_record.turn_id}",
+        )
+        handle.set_active_thread(worker)
+        worker.start()
+
+        return HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_record.turn_id,
+            turn_index=turn_record.turn_index,
+            status="active",
+            detail=f"Managed headless turn `{turn_record.turn_id}` accepted.",
+        )
+
+    def _submit_headless_turn_via_gateway(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        client: GatewayClient,
+        request_model: HoumaoHeadlessTurnRequest,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        """Accept one managed headless turn through the attached gateway control plane."""
+
+        tracked_agent_id = handle.authority.tracked_agent_id
+        control_state = self._invoke_live_gateway(client.get_headless_control_state)
+        if control_state.request_admission == "blocked_reconciliation":
+            raise HTTPException(
+                status_code=409,
+                detail="Gateway admission is blocked pending managed-agent reconciliation.",
+            )
+        if control_state.active_execution == "running" or control_state.active_turn_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Managed headless turn submission rejected because this agent already "
+                    "has an active turn."
+                ),
+            )
+        if not control_state.runtime_resumable or not control_state.tmux_session_live:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Managed-agent prompt submission is unavailable because authoritative "
+                    "headless runtime control is not currently operable."
+                ),
+            )
+        if control_state.request_admission != "open":
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Managed-agent prompt submission is unavailable because authoritative "
+                    "headless runtime control is not currently operable."
+                ),
+            )
+
+        _, turn_record, _ = self._provision_headless_turn(handle=handle)
+        try:
+            self._invoke_live_gateway(
+                lambda: client.create_request(
+                    GatewayRequestCreateV1(
+                        kind="submit_prompt",
+                        payload=GatewayRequestPayloadSubmitPromptV1(
+                            prompt=request_model.prompt,
+                            turn_id=turn_record.turn_id,
+                        ),
+                    )
+                )
+            )
+        except HTTPException:
+            self.m_managed_headless_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+            self.m_managed_headless_store.delete_turn_record(
+                tracked_agent_id=tracked_agent_id,
+                turn_id=turn_record.turn_id,
+            )
+            raise
+
+        return HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_record.turn_id,
+            turn_index=turn_record.turn_index,
+            status="active",
+            detail=f"Managed headless turn `{turn_record.turn_id}` accepted.",
+        )
+
+    def _submit_headless_interrupt_via_gateway(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        client: GatewayClient,
+        request_id: str,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        """Queue one managed headless interrupt through the attached gateway control plane."""
+
+        tracked_agent_id = handle.authority.tracked_agent_id
+        active_turn = self.m_managed_headless_store.read_active_turn(
+            tracked_agent_id=tracked_agent_id
+        )
+        if active_turn is None:
+            return HoumaoManagedAgentRequestAcceptedResponse(
+                success=True,
+                tracked_agent_id=tracked_agent_id,
+                request_id=request_id,
+                request_kind="interrupt",
+                disposition="no_op",
+                detail="No active interruptible headless work is running.",
+            )
+
+        prior_turn_record = self.m_managed_headless_store.read_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=active_turn.turn_id,
+        )
+        self._record_interrupt_request(active_turn)
+        try:
+            self._invoke_live_gateway(
+                lambda: client.create_request(
+                    GatewayRequestCreateV1(
+                        kind="interrupt",
+                        payload=GatewayRequestPayloadInterruptV1(),
+                    )
+                )
+            )
+        except HTTPException:
+            self.m_managed_headless_store.write_active_turn(active_turn)
+            if prior_turn_record is not None:
+                self.m_managed_headless_store.write_turn_record(prior_turn_record)
+            raise
+
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id=tracked_agent_id,
+            request_id=request_id,
+            request_kind="interrupt",
+            disposition="accepted",
+            detail=f"Best-effort interrupt requested for turn `{active_turn.turn_id}`.",
+            headless_turn_id=active_turn.turn_id,
+            headless_turn_index=active_turn.turn_index,
+        )
+
     def _submit_headless_managed_request(
         self,
         *,
@@ -2151,19 +2956,15 @@ class HoumaoServerService:
                         "already has an active managed turn."
                     ),
                 )
-            accepted = self.submit_headless_turn(
-                tracked_agent_id,
-                HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+            accepted = self._submit_headless_turn_direct(
+                handle=handle,
+                request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
             )
-            return HoumaoManagedAgentRequestAcceptedResponse(
-                success=True,
+            return self._headless_request_accepted_response(
                 tracked_agent_id=tracked_agent_id,
                 request_id=request_id,
                 request_kind=request_model.request_kind,
-                disposition="accepted",
-                detail=accepted.detail,
-                headless_turn_id=accepted.turn_id,
-                headless_turn_index=accepted.turn_index,
+                accepted=accepted,
             )
 
         active_turn = self.m_managed_headless_store.read_active_turn(
@@ -2237,17 +3038,24 @@ class HoumaoServerService:
     ) -> HoumaoManagedAgentMailboxSummaryView | None:
         """Return optional redacted mailbox summary for one tracked TUI agent."""
 
-        current = tracker.current_state()
+        return self._mailbox_summary_for_tui_identity(tracker.current_state().tracked_session)
+
+    def _mailbox_summary_for_tui_identity(
+        self,
+        identity: HoumaoTrackedSessionIdentity,
+    ) -> HoumaoManagedAgentMailboxSummaryView | None:
+        """Return optional redacted mailbox summary for one tracked TUI identity."""
+
         shared_registry_record = self._shared_registry_record_for_identity(
-            agent_name=current.tracked_session.agent_name,
-            agent_id=current.tracked_session.agent_id,
+            agent_name=identity.agent_name,
+            agent_id=identity.agent_id,
         )
-        if shared_registry_record is not None and shared_registry_record.mailbox is not None:
-            return self._mailbox_summary_from_payload(shared_registry_record.mailbox)
-        manifest_path = current.tracked_session.manifest_path
-        if manifest_path is None:
+        mailbox = getattr(shared_registry_record, "mailbox", None)
+        if mailbox is not None:
+            return self._mailbox_summary_from_payload(mailbox)
+        if identity.manifest_path is None:
             return None
-        return self._mailbox_summary_from_manifest_path(Path(manifest_path))
+        return self._mailbox_summary_from_manifest_path(Path(identity.manifest_path))
 
     def _mailbox_summary_for_headless_handle(
         self,
@@ -2314,12 +3122,63 @@ class HoumaoServerService:
     ) -> HoumaoManagedAgentGatewaySummaryView | None:
         """Return redacted gateway summary for one runtime-owned session root."""
 
+        status = self._optional_gateway_status_for_session_root(session_root)
+        if status is None:
+            return None
+        return self._gateway_summary_from_status(status)
+
+    def _optional_gateway_status_for_session_root(
+        self,
+        session_root: str | None,
+    ) -> GatewayStatusV1 | None:
+        """Return optional gateway status for one session root."""
+
         if session_root is None:
             return None
         try:
-            status = self._gateway_status_for_session_root(Path(session_root))
+            return self._gateway_status_for_session_root(Path(session_root))
         except HTTPException:
             return None
+
+    def _live_gateway_client_for_session_root(
+        self,
+        session_root: str | None,
+    ) -> GatewayClient | None:
+        """Return a live gateway client for one session root when healthy and reachable."""
+
+        status = self._optional_gateway_status_for_session_root(session_root)
+        if (
+            status is None
+            or status.gateway_health != "healthy"
+            or status.gateway_host is None
+            or status.gateway_port is None
+        ):
+            return None
+        client = GatewayClient(
+            endpoint=GatewayEndpoint(host=status.gateway_host, port=status.gateway_port),
+        )
+        try:
+            client.health()
+        except GatewayHttpError:
+            return None
+        return client
+
+    def _fallback_gateway_summary(
+        self,
+        gateway_status: GatewayStatusV1 | None,
+    ) -> HoumaoManagedAgentGatewaySummaryView | None:
+        """Return a safe fallback gateway summary for direct control paths."""
+
+        if gateway_status is None or gateway_status.gateway_health == "healthy":
+            return None
+        return self._gateway_summary_from_status(gateway_status)
+
+    def _gateway_summary_from_status(
+        self,
+        status: GatewayStatusV1,
+    ) -> HoumaoManagedAgentGatewaySummaryView:
+        """Project one gateway status payload into the public summary view."""
+
         return HoumaoManagedAgentGatewaySummaryView(
             gateway_health=status.gateway_health,
             managed_agent_connectivity=status.managed_agent_connectivity,
@@ -2363,20 +3222,21 @@ class HoumaoServerService:
         resolved = self._resolve_managed_agent_ref(agent_ref)
         if resolved["transport"] == "headless":
             handle = self._require_headless_handle(resolved["tracked_agent_id"])
-            session_root = handle.authority.session_root
+            headless_session_root = handle.authority.session_root
             controller = self._resume_or_get_headless_controller(handle)
-            status = self._gateway_status_for_session_root(Path(session_root))
+            status = self._gateway_status_for_session_root(Path(headless_session_root))
             return {
                 "tracked_agent_id": resolved["tracked_agent_id"],
-                "session_root": session_root,
+                "transport": "headless",
+                "session_root": headless_session_root,
                 "controller": controller,
                 "status": status,
             }
 
         tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
         current = tracker.current_state()
-        session_root = current.tracked_session.session_root
-        if session_root is None:
+        tui_session_root = current.tracked_session.session_root
+        if tui_session_root is None:
             raise HTTPException(
                 status_code=422,
                 detail="Managed TUI agent does not expose a runtime-owned session root for gateway operations.",
@@ -2386,15 +3246,64 @@ class HoumaoServerService:
             try:
                 status = controller.gateway_status()
             except SessionManifestError:
-                status = self._gateway_status_for_session_root(Path(session_root))
+                status = self._gateway_status_for_session_root(Path(tui_session_root))
         else:
-            status = self._gateway_status_for_session_root(Path(session_root))
+            status = self._gateway_status_for_session_root(Path(tui_session_root))
         return {
             "tracked_agent_id": resolved["tracked_agent_id"],
-            "session_root": session_root,
+            "transport": "tui",
+            "session_root": tui_session_root,
             "controller": controller,
             "status": status,
         }
+
+    def _publish_server_launched_registry_record(
+        self,
+        controller: RuntimeSessionController,
+    ) -> None:
+        """Publish or refresh one non-runtime-launched registry record."""
+
+        if controller.registry_launch_authority == "runtime":
+            return
+        record = controller.build_shared_registry_record()
+        if record is None:
+            raise SessionManifestError(
+                "Managed runtime controller could not build a shared-registry record."
+            )
+        publish_live_agent_record(record)
+
+    def _clear_shared_registry_record_for_terminated_agent(
+        self,
+        *,
+        agent_name: str | None,
+        agent_id: str | None,
+        manifest_path: Path | None,
+        session_name: str | None,
+    ) -> bool:
+        """Remove one shared-registry record when it still matches the terminated agent."""
+
+        record = self._shared_registry_record_for_identity(agent_name=agent_name, agent_id=agent_id)
+        if record is None:
+            return False
+
+        record_agent_id = getattr(record, "agent_id", None)
+        if not isinstance(record_agent_id, str) or not record_agent_id.strip():
+            return False
+        record_generation_id = getattr(record, "generation_id", None)
+        record_manifest_path = getattr(getattr(record, "runtime", None), "manifest_path", None)
+        record_session_name = getattr(getattr(record, "terminal", None), "session_name", None)
+
+        if manifest_path is not None and isinstance(record_manifest_path, str):
+            if Path(record_manifest_path).expanduser().resolve() != manifest_path.resolve():
+                return False
+        if session_name is not None and isinstance(record_session_name, str):
+            if record_session_name.strip() != session_name.strip():
+                return False
+
+        return remove_live_agent_record(
+            record_agent_id,
+            generation_id=record_generation_id if isinstance(record_generation_id, str) else None,
+        )
 
     def _resume_or_get_headless_controller(
         self,
@@ -2484,31 +3393,18 @@ class HoumaoServerService:
         """Return a live gateway client for one managed agent or fail."""
 
         gateway_context = self._managed_gateway_context(agent_ref)
-        status = gateway_context["status"]
-        if not isinstance(status, GatewayStatusV1):
-            raise HTTPException(
-                status_code=500,
-                detail="Managed gateway status resolution returned an invalid payload.",
-            )
-        if (
-            status.gateway_health != "healthy"
-            or status.gateway_host is None
-            or status.gateway_port is None
-        ):
+        session_root = gateway_context.get("session_root")
+        if not isinstance(session_root, str):
             raise HTTPException(
                 status_code=503,
                 detail="No live gateway is attached for this managed agent.",
             )
-        client = GatewayClient(
-            endpoint=GatewayEndpoint(host=status.gateway_host, port=status.gateway_port),
-        )
-        try:
-            client.health()
-        except Exception as exc:
+        client = self._live_gateway_client_for_session_root(session_root)
+        if client is None:
             raise HTTPException(
                 status_code=503,
-                detail=f"Live gateway health check failed: {exc}",
-            ) from exc
+                detail="No live gateway is attached for this managed agent.",
+            )
         return client
 
     def _require_live_managed_mail_gateway_client(self, agent_ref: str) -> GatewayClient:
@@ -2585,10 +3481,14 @@ class HoumaoServerService:
         )
         if active_turn is None:
             return
+        gateway_active_turn_id = self._gateway_active_headless_turn_id(
+            tracked_agent_id=tracked_agent_id
+        )
         self._refresh_headless_turn_record(
             tracked_agent_id=tracked_agent_id,
             turn_id=active_turn.turn_id,
             error_detail=None,
+            gateway_active_turn_id=gateway_active_turn_id,
         )
 
     def _refresh_headless_turn_record(
@@ -2597,6 +3497,7 @@ class HoumaoServerService:
         tracked_agent_id: str,
         turn_id: str,
         error_detail: str | None,
+        gateway_active_turn_id: str | None = None,
     ) -> ManagedHeadlessTurnRecord | None:
         """Refresh one headless turn from durable results and execution liveness."""
 
@@ -2625,6 +3526,8 @@ class HoumaoServerService:
         )
 
         if active_turn is None:
+            return turn_record
+        if gateway_active_turn_id is not None and gateway_active_turn_id == turn_id:
             return turn_record
 
         turn_dir = Path(turn_record.turn_artifact_dir)
@@ -2704,6 +3607,25 @@ class HoumaoServerService:
         self.m_managed_headless_store.write_turn_record(updated_record)
         self.m_managed_headless_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
         return updated_record
+
+    def _gateway_active_headless_turn_id(self, *, tracked_agent_id: str) -> str | None:
+        """Return the live gateway-owned active turn id when one is attached and healthy."""
+
+        with self.m_lock:
+            handle = self.m_headless_agents.get(tracked_agent_id)
+        if handle is None:
+            return None
+        authority = getattr(handle, "authority", None)
+        session_root = getattr(authority, "session_root", None)
+        if not isinstance(session_root, str):
+            return None
+        client = self._live_gateway_client_for_session_root(session_root)
+        if client is None:
+            return None
+        try:
+            return self._invoke_live_gateway(client.get_headless_control_state).active_turn_id
+        except HTTPException:
+            return None
 
     def _next_headless_backend_turn_index(
         self,
@@ -3020,6 +3942,23 @@ class HoumaoServerService:
     ) -> None:
         """Deliver a best-effort interrupt through execution identity first."""
 
+        updated_active_turn, turn_record = self._record_interrupt_request(active_turn)
+
+        if self._interrupt_live_headless_handle(tracked_agent_id=active_turn.tracked_agent_id):
+            return
+        if self._interrupt_persisted_headless_process(
+            turn_record=turn_record,
+            active_turn=updated_active_turn,
+        ):
+            return
+        self._interrupt_headless_tmux_target(active_turn=updated_active_turn)
+
+    def _record_interrupt_request(
+        self,
+        active_turn: ManagedHeadlessActiveTurnRecord,
+    ) -> tuple[ManagedHeadlessActiveTurnRecord, ManagedHeadlessTurnRecord | None]:
+        """Persist the operator's interrupt intent without delivering the signal."""
+
         interrupted_at = utc_now_iso()
         updated_active_turn = active_turn.model_copy(
             update={"interrupt_requested_at_utc": interrupted_at}
@@ -3035,15 +3974,7 @@ class HoumaoServerService:
                 update={"interrupt_requested_at_utc": interrupted_at}
             )
             self.m_managed_headless_store.write_turn_record(turn_record)
-
-        if self._interrupt_live_headless_handle(tracked_agent_id=active_turn.tracked_agent_id):
-            return
-        if self._interrupt_persisted_headless_process(
-            turn_record=turn_record,
-            active_turn=updated_active_turn,
-        ):
-            return
-        self._interrupt_headless_tmux_target(active_turn=updated_active_turn)
+        return updated_active_turn, turn_record
 
     def _interrupt_live_headless_handle(self, *, tracked_agent_id: str) -> bool:
         """Interrupt one live in-memory headless execution handle when present."""

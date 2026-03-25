@@ -36,6 +36,7 @@ from .backends.cao_rest import (
 )
 from .backends.houmao_server_rest import HoumaoServerRestSession
 from .boundary_models import SessionManifestPayloadV3
+from .boundary_models import RegistryLaunchAuthorityV1
 from .backends.claude_headless import ClaudeHeadlessSession
 from .backends.codex_headless import CodexHeadlessSession
 from .backends.codex_app_server import (
@@ -252,6 +253,7 @@ class RuntimeSessionController:
     gateway_host: str | None = None
     gateway_port: int | None = None
     registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     operation_warnings: tuple[str, ...] = ()
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
@@ -428,6 +430,7 @@ class RuntimeSessionController:
                 tmux_session_name=self.tmux_session_name,
                 job_dir=self.job_dir,
                 registry_generation_id=self.registry_generation_id,
+                registry_launch_authority=self.registry_launch_authority,
             )
         )
         write_session_manifest(self.manifest_path, payload)
@@ -555,7 +558,9 @@ class RuntimeSessionController:
     def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
         """Publish or refresh the shared-registry record for this live session."""
 
-        record = _build_shared_registry_record_for_controller(self)
+        if not self.should_publish_shared_registry_record():
+            return None
+        record = self.build_shared_registry_record()
         if record is None:
             return None
         existing_record = resolve_live_agent_record_by_agent_id(record.agent_id)
@@ -570,6 +575,16 @@ class RuntimeSessionController:
                 ),
             )
         return publish_live_agent_record(record)
+
+    def should_publish_shared_registry_record(self) -> bool:
+        """Return whether runtime is the launch authority for registry publication."""
+
+        return self.registry_launch_authority == "runtime"
+
+    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+        """Build the current pointer-oriented shared-registry record for this session."""
+
+        return _build_shared_registry_record_for_controller(self)
 
     def clear_shared_registry_record(self) -> bool:
         """Remove this session's shared-registry record during authoritative teardown."""
@@ -619,6 +634,7 @@ def start_runtime_session(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
 
@@ -779,6 +795,7 @@ def start_runtime_session(
         registry_generation_id=(
             new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
         ),
+        registry_launch_authority=registry_launch_authority,
     )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
@@ -944,6 +961,7 @@ def resume_runtime_session(
             else None
         ),
         registry_generation_id=registry_generation_id,
+        registry_launch_authority=manifest_payload.registry_launch_authority,
     )
     controller.ensure_gateway_capability()
     return controller

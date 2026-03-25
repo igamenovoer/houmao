@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,17 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_session_root,
     write_attach_contract,
+)
+from houmao.agents.realm_controller.registry_models import (
+    LiveAgentRegistryRecordV2,
+    RegistryIdentityV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV1,
+)
+from houmao.agents.realm_controller.registry_storage import (
+    DEFAULT_REGISTRY_LEASE_TTL,
+    publish_live_agent_record,
+    resolve_live_agent_record,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -308,11 +320,14 @@ class _FakeHeadlessController:
             (),
             {
                 "backend": "claude_headless",
+                "tool": "claude",
                 "metadata": {"headless_output_format": "stream-json"},
             },
         )()
         self.agent_identity = agent_identity
         self.agent_id = agent_id
+        self.registry_generation_id = "test-generation"
+        self.registry_launch_authority = "external"
         self.m_stop_calls: list[bool] = []
         self.m_persist_calls = 0
 
@@ -322,6 +337,59 @@ class _FakeHeadlessController:
 
     def persist_manifest(self) -> None:
         self.m_persist_calls += 1
+
+    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+        if self.agent_identity is None or self.agent_id is None:
+            return None
+        published_at = datetime.now(UTC)
+        return LiveAgentRegistryRecordV2(
+            agent_name=self.agent_identity,
+            agent_id=self.agent_id,
+            generation_id=self.registry_generation_id,
+            published_at=published_at.isoformat(timespec="seconds"),
+            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(
+                timespec="seconds"
+            ),
+            identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
+            runtime=RegistryRuntimeV1(
+                manifest_path=str(self.manifest_path),
+                session_root=str(self.manifest_path.parent),
+                agent_def_dir=None,
+            ),
+            terminal=RegistryTerminalV1(kind="tmux", session_name=self.tmux_session_name),
+            gateway=None,
+            mailbox=None,
+        )
+
+
+def _sample_registry_record(
+    *,
+    agent_name: str,
+    agent_id: str,
+    manifest_path: Path,
+    session_root: Path,
+    session_name: str,
+    backend: str = "houmao_server_rest",
+    tool: str = "codex",
+    generation_id: str = "test-generation",
+) -> LiveAgentRegistryRecordV2:
+    published_at = datetime.now(UTC)
+    return LiveAgentRegistryRecordV2(
+        agent_name=agent_name,
+        agent_id=agent_id,
+        generation_id=generation_id,
+        published_at=published_at.isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        identity=RegistryIdentityV1(backend=backend, tool=tool),
+        runtime=RegistryRuntimeV1(
+            manifest_path=str(manifest_path.resolve()),
+            session_root=str(session_root.resolve()),
+            agent_def_dir=None,
+        ),
+        terminal=RegistryTerminalV1(kind="tmux", session_name=session_name),
+        gateway=None,
+        mailbox=None,
+    )
 
 
 _CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
@@ -474,7 +542,11 @@ def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_p
     assert payload["terminal_id"] == "abcd1234"
 
 
-def test_stop_managed_agent_deletes_pair_managed_tui_session(tmp_path: Path) -> None:
+def test_stop_managed_agent_deletes_pair_managed_tui_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     transport = _FakeTransport(
         {
             ("DELETE", "/sessions/cao-gpu", ()): _json_response(
@@ -493,6 +565,15 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(tmp_path: Path) -> 
     )
     session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
     session_root.mkdir(parents=True, exist_ok=True)
+    publish_live_agent_record(
+        _sample_registry_record(
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            session_name="cao-gpu",
+        )
+    )
     service.ensure_known_session(
         KnownSessionRecord(
             tracked_session_id="cao-gpu",
@@ -514,6 +595,7 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(tmp_path: Path) -> 
     assert response.tracked_agent_id == "cao-gpu"
     assert response.detail == "session deleted"
     assert transport.m_calls == [("DELETE", "/sessions/cao-gpu", ())]
+    assert resolve_live_agent_record("agent-1234") is None
     with pytest.raises(HTTPException, match="Unknown terminal"):
         service.terminal_state("abcd1234")
 
@@ -1338,6 +1420,7 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     workdir = tmp_path / "workspace"
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
@@ -1413,10 +1496,12 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert shared_agents[0].tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert [agent.tracked_agent_id for agent in shared_agents] == [response.tracked_agent_id]
+    assert resolve_live_agent_record("agent-1234") is not None
     assert "blueprint_gateway_defaults" not in recorded_start_kwargs
     assert "gateway_auto_attach" not in recorded_start_kwargs
     assert "gateway_host" not in recorded_start_kwargs
     assert "gateway_port" not in recorded_start_kwargs
+    assert recorded_start_kwargs["registry_launch_authority"] == "external"
 
 
 def test_headless_launch_request_rejects_gateway_fields() -> None:

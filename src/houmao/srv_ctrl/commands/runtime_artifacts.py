@@ -202,6 +202,7 @@ def materialize_delegated_launch(
             tmux_session_name=session_name,
             job_dir=job_dir,
             registry_generation_id=new_registry_generation_id(),
+            registry_launch_authority="external",
         )
     )
     write_session_manifest(manifest_path, manifest_payload)

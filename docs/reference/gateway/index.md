@@ -6,11 +6,14 @@ If you are new to the subsystem, start with lifecycle. If you need exact payload
 
 ## Mental Model
 
-The gateway is an optional control plane attached to one runtime-managed session.
+The gateway is an optional per-agent live control plane attached to one runtime-managed session.
 
 - A session can be gateway-capable without having a live gateway process attached.
 - Stable attachability is published into the session root and tmux env even before the first live attach.
 - When a live gateway exists, it exposes a small HTTP surface, a durable queue, and optionally a shared mailbox facade for that same logical session.
+- `houmao-server` remains the shared coordination plane and public `/houmao/agents/*` surface.
+- When a gateway is attached and healthy, `houmao-server` projects live per-agent state, history, and request admission through the gateway HTTP surface instead of reading local runtime artifacts directly.
+- When no gateway is attached, or when direct fallback is still the safe path, `houmao-server` keeps the public managed-agent routes stable and falls back locally.
 - Gateway-local health is intentionally separate from managed-agent availability.
 
 ## Key Terms
@@ -41,7 +44,7 @@ The gateway is an optional control plane attached to one runtime-managed session
 ## Related References
 
 - [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that the gateway attaches to.
-- [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract for detail state, transport-neutral request submission, and managed-agent gateway lifecycle.
+- [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract that keeps one public route family while switching between direct fallback and gateway-backed projection under the hood.
 - [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.
 - [Mailbox Reference](../mailbox/index.md): Separate async message transport and runtime mailbox docs.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-managed session roots, nested gateway artifacts, and Stalwart credential material outside the mailbox transport-owned storage model.

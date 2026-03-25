@@ -17,6 +17,7 @@ from houmao.agents.realm_controller.agent_identity import (
 
 from .boundary_models import (
     LaunchPlanPayloadV1,
+    RegistryLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
     format_pydantic_error,
@@ -43,6 +44,7 @@ class SessionManifestRequest:
     job_dir: Path | None = None
     created_at_utc: str | None = None
     registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
 
 
 def generate_session_id(prefix: str = "session") -> str:
@@ -123,6 +125,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "tmux_session_name": tmux_session_name,
         "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
         "registry_generation_id": request.registry_generation_id,
+        "registry_launch_authority": request.registry_launch_authority,
         "launch_plan": launch_payload,
         "launch_policy_provenance": (
             request.launch_plan.launch_policy_provenance.to_payload()
@@ -396,6 +399,7 @@ def _upgrade_legacy_manifest_payload(
     upgraded["agent_id"] = None
     upgraded["tmux_session_name"] = None
     upgraded["job_dir"] = _legacy_job_dir(payload=payload, source=source)
+    upgraded["registry_launch_authority"] = "runtime"
 
     if payload.backend in {"codex_headless", "claude_headless", "gemini_headless"}:
         tmux_session_name = _require_legacy_tmux_session_name(

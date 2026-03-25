@@ -199,6 +199,8 @@ Once you want repo-owned lifecycle control instead of raw helper execution, the 
 - [Runtime-Managed Agents Reference](./agents/index.md)
 - [Agent Gateway Reference](./gateway/index.md)
 
+Once you move to the paired `houmao-server + houmao-srv-ctrl` workflow, prefer the managed-agent routes and `houmao-srv-ctrl agents ...` commands as the public control surface. Attached gateways enrich that same surface automatically with richer live control behavior; they do not replace it with a second operator API. The explicit `cao` compatibility namespace remains separate from this managed-agent seam in phase 1.
+
 ## Roles
 
 Roles live under `roles/<role>/system-prompt.md`.

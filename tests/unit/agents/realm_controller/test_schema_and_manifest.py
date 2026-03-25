@@ -123,6 +123,7 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["agent_name"] == "AGENTSYS-claude"
     assert loaded.payload["agent_id"] == derive_agent_id_from_name("AGENTSYS-claude")
     assert loaded.payload["tmux_session_name"] == "AGENTSYS-claude"
+    assert loaded.payload["registry_launch_authority"] == "runtime"
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "AGENTSYS-claude"
     assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (

@@ -60,6 +60,7 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert manifest_payload["houmao_server"]["terminal_id"] == "abcd1234"
     assert manifest_payload["houmao_server"]["tmux_window_name"] == "developer-1"
     assert manifest_payload["registry_generation_id"]
+    assert manifest_payload["registry_launch_authority"] == "external"
     assert (
         session_root / "agent_def" / "roles" / "gpu-kernel-coder" / "system-prompt.md"
     ).is_file()

@@ -31,7 +31,7 @@ This refactor is intended to make that split explicit without forcing gateway to
 - Move live per-agent headless execution admission and lifecycle authority behind the gateway when a gateway is attached.
 - Keep `houmao-server` plus tmux-hosted agents working without a gateway through an explicit direct fallback path.
 - Preserve the existing public managed-agent route shapes as much as possible in this phase, even if their backing source changes.
-- Keep `houmao-server` as the shared-registry writer for agents created or admitted through server-owned authority.
+- Keep shared-registry creation aligned with launch authority and shared-registry cleanup aligned with the actor that terminates the agent.
 - Preserve the pointer-oriented nature of the shared registry and the session-root gateway subtree.
 
 **Non-Goals:**
@@ -58,7 +58,7 @@ The refactor will treat the system as three layers:
 
 - managed-agent naming and alias resolution,
 - server-owned launch and admission,
-- shared-registry publication for server-created or server-admitted agents,
+- shared-registry publication for agents it launches, and registry cleanup when it performs termination,
 - mailbox-root ownership and other shared-resource ownership,
 - capability-aware request routing,
 - stable public managed-agent HTTP routes.
@@ -223,7 +223,7 @@ For server-managed headless agents with an attached gateway, the gateway becomes
 - agent creation and admission,
 - stable public route identity,
 - session-root and manifest pointers,
-- shared-registry publication for server-created agents,
+- shared-registry publication for agents launched by `houmao-server`, plus registry cleanup when `houmao-server` performs termination,
 - durable headless turn identity issuance and active-turn record creation before gateway-backed live admission begins,
 - durable inspection surfaces such as turn identity, turn artifacts, and turn history projections.
 
@@ -244,31 +244,37 @@ Alternatives considered:
 - Move all durable headless turn artifacts fully into the gateway in this phase.
   Rejected because it would create avoidable public-contract churn and complicate migration.
 
-### Decision: Registry publication authority follows creation authority
+### Decision: Registry creation follows launch authority and cleanup follows the terminating actor
 
-The shared registry stays pointer-oriented, but its publisher depends on who owns agent creation.
+The shared registry stays pointer-oriented, but registry creation depends on who launched the live agent and cleanup depends on who actually terminates it.
 
-- For direct runtime-owned sessions outside server-owned admission, runtime remains the registry publisher.
-- For agents created or admitted through `houmao-server`, the server becomes the registry writer and refresher.
+- For direct runtime-owned sessions outside server-owned admission, runtime remains the registry creator and refresher.
+- For agents created through `houmao-server`, the server becomes the registry writer and refresher.
+- Discovery or later management by `houmao-server` does not by itself transfer registry creation responsibility or require republishing an already valid live entry.
+- If `houmao-server` terminates a discovered external agent through its management surface, `houmao-server` becomes responsible for clearing or updating that registry entry as part of termination.
+- If an external actor terminates an externally launched agent outside server control, that external actor remains responsible for removing or repairing the registry entry.
 
-Publisher selection will be persisted in runtime-readable session or authority metadata so both runtime and `houmao-server` consult the same signal before publish, refresh, or teardown. Publisher identity will not be inferred from current registry contents alone.
+Launch authority will be persisted in runtime-readable session or authority metadata so both runtime and `houmao-server` consult the same signal before publish or refresh attempts. Launch or cleanup responsibility will not be inferred from current registry contents alone.
 
 The registry record contents remain pointer-oriented and secret-free. This change does not move queue state, mailbox content, or live gateway internals into the registry.
 
-Stable gateway capability and session-root artifacts continue to be materialized under the runtime session root so that whichever component is the publisher reads from the same pointer-oriented runtime truth.
+Stable gateway capability and session-root artifacts continue to be materialized under the runtime session root so that whichever component is responsible for publication reads from the same pointer-oriented runtime truth.
 
 Rationale:
 
-- The component that owns agent creation should own shared discoverability for that agent.
-- This avoids having both runtime and `houmao-server` compete to publish the same server-created agent.
-- It keeps the registry aligned with the shared coordination plane for server-managed agents.
+- The component that launches an agent should own initial shared discoverability for that agent.
+- This avoids having both runtime and `houmao-server` compete to publish the same live agent.
+- Discovery through the server should not silently rewrite ownership that originated elsewhere.
+- Cleanup responsibility naturally belongs to the actor that actually performed termination.
 
 Alternatives considered:
 
 - Keep runtime as the publisher for all sessions, including server-created agents.
-  Rejected because server-owned creation would still depend on runtime-owned shared discoverability.
+  Rejected because server-owned launch would still depend on runtime-owned shared discoverability.
 - Move all registry publication into `houmao-server`, even for non-server workflows.
   Rejected because runtime-only workflows should not require the server.
+- Transfer registry ownership to `houmao-server` automatically on discovery.
+  Rejected because discovery is a management capability, not a launch-time ownership handoff.
 
 ### Decision: Gateway capability publication remains separate from live attachment
 
@@ -333,7 +339,7 @@ Alternatives considered:
 - [Risk] Gateway-backed and direct fallback modes could drift semantically over time. -> Mitigation: define one internal `ManagedAgentControlPlane` contract and keep server route projections shared across both implementations.
 - [Risk] Headless durable turn inspection could become inconsistent if live gateway control and server turn persistence diverge. -> Mitigation: keep `houmao-server` as the durable public turn catalog and require gateway-backed headless execution to feed the same durable projection path.
 - [Risk] Moving TUI tracking out of the server could break terminal-keyed compatibility routes. -> Mitigation: keep those routes server-owned and serve them from gateway-backed tracked-state projections when a gateway is attached.
-- [Risk] Registry publication can race if both runtime and server believe they are responsible. -> Mitigation: make publisher selection explicit from creation authority and keep the non-publisher on pointer publication only.
+- [Risk] Registry publication or cleanup can race if multiple actors believe discovery transferred authority. -> Mitigation: persist launch authority explicitly for publish and refresh, treat discovery as non-transferring, and assign cleanup to the actor that performs termination.
 - [Risk] Optional gateway behavior increases implementation complexity because every control path has two modes. -> Mitigation: keep the public route shapes stable, centralize mode selection in the server, and constrain the direct path to degraded but supported fallback semantics.
 - [Risk] Gateway-health transitions could otherwise leave callers observing stale or duplicated live TUI state. -> Mitigation: use single-owner handoff semantics, allow only a brief last-known-state window during transition, and never allow two authoritative trackers for one agent at once.
 - [Risk] Attached gateway lifecycle actions such as restart or kill could accidentally redefine the contractual agent surface. -> Mitigation: keep the gateway as a sidecar over the stable runtime session root and preserve the existing contractual agent surface rules for TUI and headless sessions.
@@ -344,7 +350,7 @@ Alternatives considered:
 2. Extend the gateway with versioned HTTP read endpoints for live control state and refactor any shared tracking ownership helpers needed beyond `houmao.shared_tui_tracking` into neutral shared modules usable by both the gateway and the direct server fallback.
 3. Switch managed-agent state, detail, history, and terminal-facing TUI projections to consume gateway-owned state over the gateway HTTP surface when a gateway is attached and healthy, while preserving direct fallback when no gateway is present.
 4. Move attached-agent headless live admission and lifecycle handling behind the gateway-backed control plane while retaining server-owned durable turn creation, turn identity, and turn reconciliation surfaces.
-5. Persist explicit publisher-selection metadata and shift registry publication for server-created or server-admitted agents from runtime-owned publication to `houmao-server`, while preserving runtime publication for direct runtime-owned workflows.
+5. Persist explicit launch-authority metadata and shift registry creation for server-created or server-admitted agents away from runtime-owned publication, while preserving runtime publication for direct runtime-owned workflows and making terminator-responsible cleanup explicit.
 6. Update targeted docs, CLI guidance, and tests so the public surface still points at `houmao-server`, attached gateways provide richer behavior behind that surface, and CAO compatibility remains out of scope for this seam in phase 1.
 
 Rollback strategy:

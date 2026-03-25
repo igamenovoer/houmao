@@ -20,7 +20,10 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     SessionControlResult,
 )
-from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+from houmao.agents.realm_controller.registry_storage import (
+    publish_live_agent_record,
+    resolve_live_agent_record,
+)
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 
 
@@ -155,6 +158,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["registry_generation_id"] == controller.registry_generation_id
+    assert persisted["registry_launch_authority"] == "runtime"
 
     controller.send_prompt("hello")
     refreshed_record = resolve_live_agent_record("AGENTSYS-gpu")
@@ -171,6 +175,66 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert resumed_record.generation_id == controller.registry_generation_id
 
     stop_result = resumed.stop(force_cleanup=True)
+    assert stop_result.status == "ok"
+    assert resolve_live_agent_record("gpu") is None
+
+
+def test_external_launch_authority_defers_runtime_publish_but_stop_clears_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(
+                kwargs.get("agent_identity")
+                or kwargs["resume_state"].backend_state["tmux_session_name"]
+            ),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_identity="gpu",
+        registry_launch_authority="external",
+    )
+
+    assert resolve_live_agent_record("gpu") is None
+    persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
+    assert persisted["registry_launch_authority"] == "external"
+
+    seeded_record = controller.build_shared_registry_record()
+    assert seeded_record is not None
+    published = publish_live_agent_record(seeded_record)
+
+    controller.send_prompt("hello")
+
+    refreshed_record = resolve_live_agent_record("gpu")
+    assert refreshed_record is not None
+    assert refreshed_record.generation_id == published.generation_id
+    assert refreshed_record.published_at == published.published_at
+
+    stop_result = controller.stop(force_cleanup=True)
     assert stop_result.status == "ok"
     assert resolve_live_agent_record("gpu") is None
 
