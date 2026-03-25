@@ -614,6 +614,15 @@
       "default": null,
       "title": "Registry Generation Id"
     },
+    "registry_launch_authority": {
+      "default": "runtime",
+      "enum": [
+        "runtime",
+        "external"
+      ],
+      "title": "Registry Launch Authority",
+      "type": "string"
+    },
     "launch_plan": {
       "$ref": "#/$defs/LaunchPlanPayloadV1"
     },

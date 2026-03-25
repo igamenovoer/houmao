@@ -50,6 +50,8 @@ Useful `build-brain` or `houmao-srv-ctrl brains build` override:
 
 The paired replacement for `cao-server + cao` is `houmao-server + houmao-srv-ctrl`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
 
+For pair-managed agents, the preferred operator surface is still the managed-agent command family on `houmao-srv-ctrl` and the matching `/houmao/agents/*` server routes. When an attached gateway is healthy, those same commands automatically gain richer live backing behavior such as gateway-owned admission, queueing, and live state projection without changing the public CLI shape.
+
 Within that pair, `houmao-srv-ctrl` is split deliberately:
 
 - top-level `launch` and `install` remain Houmao-owned pair shortcuts
@@ -71,7 +73,7 @@ For pair-managed terminal sessions, the public gateway attach surface also lives
 
 Current-session attach requires the target tmux session to publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`, and it becomes valid only after the matching managed-agent registration exists on the persisted `api_base_url`.
 
-For ordinary pair-native prompt submission, prefer `houmao-srv-ctrl agents prompt <agent-ref> --prompt "..."`. Use `houmao-srv-ctrl agents gateway prompt <agent-ref> --prompt "..."` only when you explicitly want live-gateway admission and queue semantics.
+For ordinary pair-native prompt submission, prefer `houmao-srv-ctrl agents prompt <agent-ref> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-srv-ctrl agents gateway prompt <agent-ref> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics.
 
 For pair-owned mailbox follow-up, use `houmao-srv-ctrl agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-srv-ctrl brains build ...` and `houmao-srv-ctrl admin cleanup-registry ...`.
 
@@ -87,6 +89,7 @@ Command reminders:
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
 - `send-keys` is the low-level CAO control-input surface for resumed legacy `cao_rest` sessions; new standalone `backend="cao_rest"` operator workflows are retired in favor of `houmao-server` with `houmao-srv-ctrl`.
+- The explicit `houmao-srv-ctrl cao ...` namespace remains the compatibility layer. Managed-agent routes and `agents ...` commands are the preferred phase-1 control seam; CAO compatibility stays outside that seam rather than redefining it.
 
 For the dedicated mailbox quickstart, contracts, and operational guidance, see [Mailbox Reference](mailbox/index.md).
 

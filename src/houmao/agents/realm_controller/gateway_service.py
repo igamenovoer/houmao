@@ -38,6 +38,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayConnectivityState,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
+    GatewayHeadlessControlStateV1,
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayMailActionResponseV1,
@@ -81,14 +82,19 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
-from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
+    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedSessionIdentity,
 )
+from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
@@ -187,7 +193,7 @@ class GatewayExecutionAdapter(Protocol):
     def inspect_target(self) -> _GatewayTargetState:
         """Return current target posture for status and reconciliation."""
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt to the addressed managed target."""
 
     def interrupt(self) -> None:
@@ -242,9 +248,10 @@ class _RestBackedGatewayAdapter:
             prompt_admission_open=connectivity == "connected",
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt to the current runtime-owned terminal."""
 
+        del turn_id
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
@@ -320,13 +327,9 @@ class _LocalHeadlessGatewayAdapter:
             raise GatewayError(
                 "Headless gateway attach requires manifest_path and agent_def_dir in the attach contract."
             )
-        try:
-            self.m_controller = resume_runtime_session(
-                agent_def_dir=Path(agent_def_dir_value).expanduser().resolve(),
-                session_manifest_path=Path(manifest_path_value).expanduser().resolve(),
-            )
-        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
-            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+        self.m_manifest_path = Path(manifest_path_value).expanduser().resolve()
+        self.m_agent_def_dir = Path(agent_def_dir_value).expanduser().resolve()
+        self.m_controller: RuntimeSessionController | None = None
         self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
 
     @property
@@ -339,6 +342,11 @@ class _LocalHeadlessGatewayAdapter:
         """Return current execution posture for the local headless target."""
 
         connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
+        if connected:
+            try:
+                self._resume_controller()
+            except GatewayError:
+                connected = False
         connectivity: GatewayConnectivityState = "connected" if connected else "unavailable"
         return _GatewayTargetState(
             instance_id=self.m_instance_id,
@@ -347,12 +355,17 @@ class _LocalHeadlessGatewayAdapter:
             prompt_admission_open=connected,
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt through resumed local headless runtime control."""
 
         self._require_live_tmux_session()
         try:
-            self.m_controller.send_prompt(prompt)
+            controller = self._resume_controller()
+            backend_session = controller.backend_session
+            if not isinstance(backend_session, HeadlessInteractiveSession):
+                raise GatewayError("Resumed headless controller is missing a headless backend.")
+            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
             raise GatewayError(f"Local headless prompt submission failed: {exc}") from exc
 
@@ -360,9 +373,23 @@ class _LocalHeadlessGatewayAdapter:
         """Interrupt one resumed local headless runtime."""
 
         self._require_live_tmux_session()
-        result = self.m_controller.interrupt()
+        result = self._resume_controller().interrupt()
         if result.status != "ok":
             raise GatewayError(result.detail)
+
+    def _resume_controller(self) -> RuntimeSessionController:
+        """Return the resumed local runtime controller, materializing it lazily."""
+
+        if self.m_controller is not None:
+            return self.m_controller
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=self.m_agent_def_dir,
+                session_manifest_path=self.m_manifest_path,
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+        return self.m_controller
 
     def _require_live_tmux_session(self) -> None:
         """Require the headless tmux session to still be live."""
@@ -435,9 +462,10 @@ class _ServerManagedHeadlessGatewayAdapter:
             prompt_admission_open=can_accept_prompt_now,
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt through the managed-agent server API."""
 
+        del turn_id
         response = self.m_client.submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
@@ -463,12 +491,6 @@ def _build_gateway_execution_adapter(
     if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
         return _RestBackedGatewayAdapter(attach_contract=attach_contract)
     if attach_contract.backend in {"claude_headless", "codex_headless", "gemini_headless"}:
-        metadata = cast(
-            GatewayAttachBackendMetadataHeadlessV1,
-            attach_contract.backend_metadata,
-        )
-        if metadata.managed_api_base_url is not None and metadata.managed_agent_ref is not None:
-            return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
         return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
     raise GatewayError(
         f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."
@@ -516,6 +538,7 @@ class GatewayServiceRuntime:
         self.m_tmux_window_id = _optional_env_string(_GATEWAY_TMUX_WINDOW_ID_ENV_VAR)
         self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
         self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
+        self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
 
     @classmethod
     def from_gateway_root(
@@ -561,6 +584,7 @@ class GatewayServiceRuntime:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
             self._refresh_status_snapshot(active_execution="idle")
+            self._start_tui_tracking_locked()
             self._log(
                 f"gateway started host={self.m_host} port={self.m_port} attach_identity={self.m_attach_contract.attach_identity}"
             )
@@ -595,6 +619,9 @@ class GatewayServiceRuntime:
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            if self.m_tui_tracking is not None:
+                self.m_tui_tracking.stop()
+                self.m_tui_tracking = None
             self._flush_rate_limited_logs()
             self._log("gateway stopping")
             delete_gateway_current_instance(self.m_paths)
@@ -610,6 +637,61 @@ class GatewayServiceRuntime:
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
 
+    def get_tui_state(self) -> HoumaoTerminalStateResponse:
+        """Return gateway-owned live tracked TUI state."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.current_state()
+
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+        """Return gateway-owned live tracked TUI history."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.history(limit=limit)
+
+    def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:
+        """Record explicit prompt evidence in the gateway-owned tracker."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.note_prompt_submission(message=prompt)
+
+    def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:
+        """Return read-optimized live headless control posture."""
+
+        with self.m_lock:
+            if self.m_attach_contract.backend not in {
+                "claude_headless",
+                "codex_headless",
+                "gemini_headless",
+            }:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Gateway headless live-state routes are only available for headless backends.",
+                )
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            active_turn_id = self._active_headless_turn_id_locked()
+            tmux_session_live = status.managed_agent_connectivity == "connected"
+            active_execution = status.active_execution
+            can_accept_prompt_now = (
+                tmux_session_live
+                and status.request_admission == "open"
+                and active_execution == "idle"
+                and active_turn_id is None
+            )
+            return GatewayHeadlessControlStateV1(
+                runtime_resumable=isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter),
+                tmux_session_live=tmux_session_live,
+                can_accept_prompt_now=can_accept_prompt_now,
+                interruptible=active_execution == "running" or active_turn_id is not None,
+                request_admission=status.request_admission,
+                active_execution=active_execution,
+                queue_depth=status.queue_depth,
+                active_turn_id=active_turn_id,
+            )
+
     def create_request(self, request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Validate admission and persist one gateway-managed request."""
 
@@ -624,6 +706,19 @@ class GatewayServiceRuntime:
                 raise HTTPException(
                     status_code=503,
                     detail="Gateway admission is blocked because the managed agent is unavailable.",
+                )
+            if (
+                self.m_attach_contract.backend
+                in {"claude_headless", "codex_headless", "gemini_headless"}
+                and request_payload.kind == "submit_prompt"
+                and (
+                    status.active_execution == "running"
+                    or self._active_headless_turn_id_locked() is not None
+                )
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway headless prompt admission is blocked because managed work is already active.",
                 )
 
             request_id = generate_gateway_request_id()
@@ -1356,7 +1451,9 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(prompt=payload.prompt)
+                self.m_adapter.submit_prompt(prompt=payload.prompt, turn_id=payload.turn_id)
+                if self.m_tui_tracking is not None and request_kind == "submit_prompt":
+                    self.m_tui_tracking.note_prompt_submission(message=payload.prompt)
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
                 self.m_adapter.interrupt()
@@ -1552,6 +1649,106 @@ class GatewayServiceRuntime:
             return "idle"
         return "running"
 
+    def _active_headless_turn_id_locked(self) -> str | None:
+        """Return the current headless turn id from queued or running prompt work."""
+
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM gateway_requests
+                WHERE request_kind = 'submit_prompt'
+                  AND state IN ('accepted', 'running')
+                ORDER BY accepted_at_utc ASC
+                """
+            ).fetchall()
+        for row in rows:
+            try:
+                payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(str(row[0]))
+            except ValidationError:
+                continue
+            if payload.turn_id is not None:
+                return payload.turn_id
+        return None
+
+    def _start_tui_tracking_locked(self) -> None:
+        """Start gateway-owned TUI tracking when the attach target is TUI-backed."""
+
+        if self.m_tui_tracking is not None:
+            return
+        identity = self._tui_tracking_identity_locked()
+        if identity is None:
+            return
+        tracking = SingleSessionTrackingRuntime(identity=identity)
+        tracking.start()
+        self.m_tui_tracking = tracking
+
+    def _require_tui_tracking_locked(self) -> SingleSessionTrackingRuntime:
+        """Require gateway-owned TUI tracking for the attached session."""
+
+        if self.m_tui_tracking is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway TUI live-state routes are only available for attached TUI backends.",
+            )
+        return self.m_tui_tracking
+
+    def _tui_tracking_identity_locked(self) -> HoumaoTrackedSessionIdentity | None:
+        """Build the tracked-session identity for gateway-owned TUI tracking."""
+
+        if self.m_attach_contract.backend not in {"cao_rest", "houmao_server_rest"}:
+            return None
+
+        metadata = self.m_attach_contract.backend_metadata
+        session_name: str
+        terminal_id: str
+        tmux_window_name: str | None
+        if isinstance(metadata, GatewayAttachBackendMetadataCaoV1):
+            session_name = self.m_attach_contract.attach_identity
+            terminal_id = metadata.terminal_id
+            tmux_window_name = metadata.tmux_window_name
+        elif isinstance(metadata, GatewayAttachBackendMetadataHoumaoServerV1):
+            session_name = metadata.session_name
+            terminal_id = metadata.terminal_id
+            tmux_window_name = metadata.tmux_window_name
+        else:
+            return None
+
+        tool = "codex"
+        observed_tool_version: str | None = None
+        agent_name: str | None = None
+        agent_id: str | None = None
+        manifest_path_value = self.m_attach_contract.manifest_path
+        if manifest_path_value is not None:
+            try:
+                handle = load_session_manifest(Path(manifest_path_value))
+                payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+            except SessionManifestError:
+                payload = None
+            if payload is not None:
+                tool = payload.tool
+                observed_tool_version = (
+                    payload.launch_policy_provenance.detected_tool_version
+                    if payload.launch_policy_provenance is not None
+                    else None
+                )
+                agent_name = payload.agent_name
+                agent_id = payload.agent_id
+
+        return HoumaoTrackedSessionIdentity(
+            tracked_session_id=session_name,
+            session_name=session_name,
+            tool=tool,
+            observed_tool_version=observed_tool_version,
+            tmux_session_name=self.m_attach_contract.tmux_session_name,
+            tmux_window_name=tmux_window_name,
+            terminal_aliases=[terminal_id],
+            agent_name=agent_name,
+            agent_id=agent_id,
+            manifest_path=self.m_attach_contract.manifest_path,
+            session_root=str(self.m_paths.session_root.resolve()),
+        )
+
     def _current_pid(self) -> int:
         """Return the current process id."""
 
@@ -1616,6 +1813,32 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve the structured gateway status snapshot."""
 
         return runtime.status()
+
+    @app.get("/v1/control/tui/state", response_model=HoumaoTerminalStateResponse)
+    def _tui_state() -> HoumaoTerminalStateResponse:
+        """Serve gateway-owned tracked TUI state."""
+
+        return runtime.get_tui_state()
+
+    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalHistoryResponse)
+    def _tui_history(limit: int = 100) -> HoumaoTerminalHistoryResponse:
+        """Serve gateway-owned tracked TUI history."""
+
+        return runtime.get_tui_history(limit=limit)
+
+    @app.post("/v1/control/tui/note-prompt", response_model=HoumaoTerminalStateResponse)
+    def _note_tui_prompt(
+        request_payload: GatewayRequestPayloadSubmitPromptV1,
+    ) -> HoumaoTerminalStateResponse:
+        """Record explicit-input evidence in the gateway-owned tracker."""
+
+        return runtime.note_tui_prompt_submission(prompt=request_payload.prompt)
+
+    @app.get("/v1/control/headless/state", response_model=GatewayHeadlessControlStateV1)
+    def _headless_state() -> GatewayHeadlessControlStateV1:
+        """Serve read-optimized live headless control posture."""
+
+        return runtime.get_headless_control_state()
 
     @app.post("/v1/requests", response_model=GatewayAcceptedRequestV1)
     def _create_request(request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:

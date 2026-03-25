@@ -313,6 +313,13 @@ class ManagedHeadlessStore:
             record,
         )
 
+    def delete_turn_record(self, *, tracked_agent_id: str, turn_id: str) -> None:
+        """Delete one persisted headless turn record when present."""
+
+        path = self.turn_record_path(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
+        if path.exists():
+            path.unlink()
+
     def delete_agent(self, *, tracked_agent_id: str) -> None:
         """Delete one managed-agent authority subtree."""
 

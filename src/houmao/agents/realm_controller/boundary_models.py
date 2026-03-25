@@ -20,6 +20,7 @@ from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
 OperatorPromptModeV1: TypeAlias = Literal["interactive", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
+RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
@@ -346,6 +347,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
     tmux_session_name: str | None = None
     job_dir: str | None = None
     registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     launch_plan: LaunchPlanPayloadV1
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     backend_state: JsonObject
@@ -365,6 +367,7 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
         "tmux_session_name",
         "job_dir",
         "registry_generation_id",
+        "registry_launch_authority",
     )
     @classmethod
     def _not_blank(cls, value: str | None) -> str | None:

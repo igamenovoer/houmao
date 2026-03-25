@@ -12,24 +12,52 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import unquote, urlparse
+
+from fastapi import HTTPException
+import pytest
+import uvicorn
 
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
     HeadlessSessionState,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
+from houmao.agents.realm_controller.gateway_service import (
+    GatewayServiceRuntime,
+    _GatewayUvicornServer,
+    create_app,
+)
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayCapabilityPublication,
+    ensure_gateway_capability,
     gateway_paths_from_manifest_path,
     read_pid_file,
 )
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    default_manifest_path,
+    write_session_manifest,
+)
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan, SessionControlResult
+from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxOptions,
     HoumaoHeadlessLaunchRequest,
+    HoumaoManagedAgentSubmitPromptRequest,
+    HoumaoParsedSurface,
+    HoumaoRegisterLaunchRequest,
 )
 from houmao.server.service import HoumaoServerService, ProxyResponse
+from houmao.server.tui.parser import OfficialParseResult
+from houmao.server.tui.process import PaneProcessInspection
+from houmao.server.tui.transport import ResolvedTmuxTarget
 from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
@@ -38,6 +66,107 @@ def _write(path: Path, text: str) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout_seconds: float = 5.0,
+    interval_seconds: float = 0.05,
+) -> None:
+    """Poll until a predicate succeeds or the timeout elapses."""
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval_seconds)
+    raise AssertionError("Timed out waiting for condition.")
+
+
+def _json_proxy_response(payload: object, *, status_code: int = 200) -> ProxyResponse:
+    """Build one JSON proxy response payload for integration doubles."""
+
+    body = json.dumps(payload).encode("utf-8")
+    return ProxyResponse(
+        status_code=status_code,
+        body=body,
+        content_type="application/json",
+        json_payload=payload,
+    )
+
+
+def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
+    """Return a minimal fake `cao_rest` launch plan."""
+
+    return LaunchPlan(
+        backend="cao_rest",
+        tool="codex",
+        executable="codex",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="cao_profile",
+            role_name="role",
+            prompt="role prompt",
+        ),
+        metadata={},
+    )
+
+
+def _seed_cao_gateway_root(
+    tmp_path: Path,
+    *,
+    terminal_id: str = "term-123",
+) -> Path:
+    """Create a minimal gateway-capable `cao_rest` session root."""
+
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_cao_plan(tmp_path),
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="AGENTSYS-gpu",
+            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
+            tmux_session_name="AGENTSYS-gpu",
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "session_name": "cao-rest-1",
+                "terminal_id": terminal_id,
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+                "tmux_window_name": "developer-1",
+            },
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="cao_rest",
+            tool="codex",
+            session_id="cao-rest-1",
+            tmux_session_name="AGENTSYS-gpu",
+            working_directory=tmp_path,
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "terminal_id": terminal_id,
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+                "tmux_window_name": "developer-1",
+            },
+            agent_def_dir=tmp_path / "agents",
+        )
+    )
+    return paths.gateway_root
 
 
 def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
@@ -118,6 +247,149 @@ class _FakeTmuxEnv:
             stdout=f"{variable_name}={value}\n",
             stderr="",
         )
+
+
+class _RecordingTuiTransport:
+    """Minimal in-memory CAO-compatible transport for TUI integration tests."""
+
+    def __init__(self, *, session_name: str, terminal_id: str) -> None:
+        self.m_session_name = session_name
+        self.m_terminal_id = terminal_id
+        self.m_calls: list[tuple[str, str, tuple[tuple[str, str], ...]]] = []
+        self.m_direct_messages: list[str] = []
+        self.m_interrupt_count = 0
+
+    def request(
+        self,
+        *,
+        base_url: str,
+        method: str,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> ProxyResponse:
+        """Handle one proxied compatibility request."""
+
+        del base_url
+        normalized_params = tuple(sorted((params or {}).items()))
+        self.m_calls.append((method, path, normalized_params))
+        if method == "GET" and path == f"/terminals/{self.m_terminal_id}":
+            return _json_proxy_response(
+                CaoTerminal(
+                    id=self.m_terminal_id,
+                    name="developer-1",
+                    provider="codex",
+                    session_name=self.m_session_name,
+                    agent_profile="runtime-profile",
+                    status="idle",
+                ).model_dump(mode="json")
+            )
+        if method == "POST" and path == f"/terminals/{self.m_terminal_id}/input":
+            self.m_direct_messages.append(dict(normalized_params).get("message", ""))
+            return _json_proxy_response(CaoSuccessResponse(success=True).model_dump(mode="json"))
+        if method == "POST" and path == f"/terminals/{self.m_terminal_id}/exit":
+            self.m_interrupt_count += 1
+            return _json_proxy_response(CaoSuccessResponse(success=True).model_dump(mode="json"))
+        if method == "DELETE" and path == f"/sessions/{self.m_session_name}":
+            return _json_proxy_response({"success": True, "detail": "session deleted"})
+        raise AssertionError(f"Unexpected transport request: {method} {path} {normalized_params}")
+
+
+class _FakeTmuxTransportResolver:
+    """Deterministic tmux resolver for direct TUI fallback state refresh."""
+
+    def __init__(self, *, output_text: str) -> None:
+        self.m_output_text = output_text
+
+    def resolve_target(
+        self,
+        *,
+        session_name: str,
+        window_name: str | None,
+        window_index: str | None = None,
+    ) -> ResolvedTmuxTarget:
+        """Return one fixed tmux target."""
+
+        return ResolvedTmuxTarget(
+            pane=TmuxPaneRecord(
+                pane_id="%9",
+                session_name=session_name,
+                window_id="@2",
+                window_index=window_index or "1",
+                window_name=window_name or "developer-1",
+                pane_index="0",
+                pane_active=True,
+                pane_dead=False,
+                pane_pid=4321,
+            )
+        )
+
+    def capture_text(self, *, target: ResolvedTmuxTarget) -> str:
+        """Return the fixed tmux pane text fixture."""
+
+        assert target.pane.pane_id == "%9"
+        return self.m_output_text
+
+
+class _FakeProcessInspector:
+    """Return a fixed process-inspection result for direct TUI refresh."""
+
+    def __init__(self, inspection: PaneProcessInspection) -> None:
+        self.m_inspection = inspection
+
+    def inspect(self, *, tool: str, pane_pid: int | None) -> PaneProcessInspection:
+        """Return the configured inspection."""
+
+        del tool, pane_pid
+        return self.m_inspection
+
+
+class _FakeParserAdapter:
+    """Return a fixed parsed surface for direct TUI refresh."""
+
+    def __init__(self, result: OfficialParseResult) -> None:
+        self.m_result = result
+
+    def supports_tool(self, *, tool: str) -> bool:
+        """Report support for the addressed tool."""
+
+        del tool
+        return True
+
+    def capture_baseline(self, *, tool: str, output_text: str) -> int:
+        """Return a fixed baseline offset."""
+
+        del tool, output_text
+        return 17
+
+    def parse(self, *, tool: str, output_text: str, baseline_pos: int) -> OfficialParseResult:
+        """Return the configured parse result."""
+
+        del tool, output_text, baseline_pos
+        return self.m_result
+
+
+def _ready_surface() -> HoumaoParsedSurface:
+    """Return one parsed ready Codex surface for direct TUI refresh."""
+
+    return HoumaoParsedSurface(
+        parser_family="codex_shadow",
+        parser_preset_id="codex",
+        parser_preset_version="1.0.0",
+        availability="supported",
+        business_state="idle",
+        input_mode="freeform",
+        ui_context="normal_prompt",
+        normalized_projection_text="ready prompt",
+        dialog_text="ready prompt",
+        dialog_head="ready prompt",
+        dialog_tail="ready prompt",
+        anomaly_codes=[],
+        baseline_invalidated=False,
+        operator_blocked_excerpt=None,
+    )
+
+
+_CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
 
 
 class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
@@ -292,6 +564,230 @@ class _ManagedAgentApiServer:
         self.m_server.shutdown()
         self.m_server.server_close()
         self.m_thread.join(timeout=2.0)
+
+
+class _FakeGatewayTuiClient:
+    """Tiny fake CAO client used by the in-process live gateway."""
+
+    def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+        del timeout_seconds
+        self.m_base_url = base_url
+        self.submitted_prompts: list[tuple[str, str]] = []
+        self.interrupt_count = 0
+
+    def get_terminal(self, terminal_id: str) -> CaoTerminal:
+        """Return one fake terminal record."""
+
+        return CaoTerminal(
+            id=terminal_id,
+            name="developer-1",
+            provider="codex",
+            session_name="cao-rest-1",
+            agent_profile="runtime-profile",
+            status="idle",
+        )
+
+    def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+        """Record one live gateway prompt delivery."""
+
+        self.submitted_prompts.append((terminal_id, message))
+        return CaoSuccessResponse(success=True)
+
+    def exit_terminal(self, terminal_id: str) -> CaoSuccessResponse:
+        """Record one live gateway interrupt delivery."""
+
+        del terminal_id
+        self.interrupt_count += 1
+        return CaoSuccessResponse(success=True)
+
+
+class _FakeGatewayHeadlessSession:
+    """Fake in-process headless backend used by the live gateway integration tests."""
+
+    def __init__(self, *, block_prompt: bool = False) -> None:
+        self.state = type(
+            "State",
+            (),
+            {
+                "turn_index": 0,
+                "tmux_session_name": "AGENTSYS-headless",
+                "session_id": "headless-session-1",
+            },
+        )()
+        self.prompt_calls: list[tuple[str, str | None]] = []
+        self.block_prompt = block_prompt
+        self.started_event = threading.Event()
+        self.release_event = threading.Event()
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+    ) -> list[object]:
+        """Record one prompt delivery through the live headless gateway."""
+
+        self.prompt_calls.append((prompt, turn_artifact_dir_name))
+        self.started_event.set()
+        if self.block_prompt:
+            self.release_event.wait(timeout=5.0)
+        self.state.turn_index += 1
+        return []
+
+    def interrupt(self) -> SessionControlResult:
+        """Return a successful interrupt result."""
+
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+
+class _FakeGatewayHeadlessController:
+    """Fake resumed runtime controller used by the live headless gateway."""
+
+    def __init__(self, session: _FakeGatewayHeadlessSession) -> None:
+        self.backend_session = session
+        self.persist_manifest_calls: list[bool] = []
+
+    def persist_manifest(self, *, refresh_registry: bool = True) -> None:
+        """Record one manifest persistence request."""
+
+        self.persist_manifest_calls.append(refresh_registry)
+
+    def interrupt(self) -> SessionControlResult:
+        """Return a successful interrupt result."""
+
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+
+class _FakeGatewayTrackingRuntime:
+    """Configurable fake gateway-owned TUI tracking runtime."""
+
+    m_template_state: object | None = None
+    m_template_history: object | None = None
+    m_started_session_ids: list[str] = []
+    m_stopped_session_ids: list[str] = []
+    m_prompt_notes: list[str] = []
+
+    def __init__(self, *, identity: object, **_: object) -> None:
+        self.m_identity = identity
+        state = type(self).m_template_state
+        history = type(self).m_template_history
+        if state is None or history is None:
+            raise AssertionError("Fake gateway tracking template state is not configured.")
+        self.m_state = state
+        self.m_history = history
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset class-level bookkeeping between tests."""
+
+        cls.m_template_state = None
+        cls.m_template_history = None
+        cls.m_started_session_ids = []
+        cls.m_stopped_session_ids = []
+        cls.m_prompt_notes = []
+
+    def start(self) -> None:
+        """Record gateway-owned tracker startup."""
+
+        tracked_session_id = getattr(self.m_identity, "tracked_session_id", None)
+        if isinstance(tracked_session_id, str):
+            type(self).m_started_session_ids.append(tracked_session_id)
+
+    def stop(self) -> None:
+        """Record gateway-owned tracker shutdown."""
+
+        tracked_session_id = getattr(self.m_identity, "tracked_session_id", None)
+        if isinstance(tracked_session_id, str):
+            type(self).m_stopped_session_ids.append(tracked_session_id)
+
+    def current_state(self):  # type: ignore[no-untyped-def]
+        """Return the configured tracked state."""
+
+        return self.m_state
+
+    def history(self, *, limit: int):  # type: ignore[no-untyped-def]
+        """Return the configured tracked history."""
+
+        del limit
+        return self.m_history
+
+    def note_prompt_submission(self, *, message: str):  # type: ignore[no-untyped-def]
+        """Record prompt evidence on the gateway-owned tracker."""
+
+        type(self).m_prompt_notes.append(message)
+        return self.m_state
+
+
+class _LiveGatewayServer:
+    """Run one in-process live gateway HTTP server for integration tests."""
+
+    def __init__(self, *, gateway_root: Path) -> None:
+        self.m_gateway_root = gateway_root
+        self.m_runtime = GatewayServiceRuntime.from_gateway_root(
+            gateway_root=gateway_root,
+            host="127.0.0.1",
+            port=0,
+        )
+        config = uvicorn.Config(
+            create_app(runtime=self.m_runtime),
+            host="127.0.0.1",
+            port=0,
+            log_level="warning",
+            access_log=False,
+        )
+        self.m_server = _GatewayUvicornServer(
+            config,
+            runtime=self.m_runtime,
+            requested_host="127.0.0.1",
+        )
+        self.m_thread = threading.Thread(
+            target=self.m_server.run,
+            name="live-gateway-server",
+            daemon=True,
+        )
+        self.m_port: int | None = None
+
+    @property
+    def port(self) -> int:
+        """Return the bound gateway TCP port."""
+
+        if self.m_port is None:
+            raise AssertionError("Live gateway server has not started yet.")
+        return self.m_port
+
+    def __enter__(self) -> "_LiveGatewayServer":
+        """Start the in-process live gateway server."""
+
+        self.m_thread.start()
+        manifest_path = self.m_gateway_root.parent / "manifest.json"
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        if paths is None:
+            raise AssertionError("Gateway paths could not be resolved for live gateway test.")
+
+        def _started() -> bool:
+            if not paths.current_instance_path.is_file():
+                return False
+            payload = json.loads(paths.current_instance_path.read_text(encoding="utf-8"))
+            port = payload.get("port")
+            if not isinstance(port, int) or port <= 0:
+                return False
+            self.m_port = port
+            return True
+
+        _wait_until(_started)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Stop the in-process live gateway server."""
+
+        del exc_type, exc, tb
+        self.m_server.should_exit = True
+        self.m_thread.join(timeout=5.0)
 
 
 class _NoopTransport:
@@ -538,3 +1034,220 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
                 service.detach_managed_agent_gateway(response.tracked_agent_id)
             finally:
                 _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_tui_managed_agent_request_handoff_prefers_live_gateway_and_falls_back_after_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """TUI managed-agent requests should hand off cleanly between direct and live gateway control."""
+
+    gateway_root = _seed_cao_gateway_root(tmp_path, terminal_id="abcd1234")
+    session_root = gateway_root.parent
+    manifest_path = session_root / "manifest.json"
+    transport = _RecordingTuiTransport(session_name="cao-rest-1", terminal_id="abcd1234")
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
+
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=transport,
+        child_manager=_NoopChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=["codex"],
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=_FakeParserAdapter(
+            OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)
+        ),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-rest-1",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=str(manifest_path),
+            session_root=str(session_root),
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+    direct_state = service.refresh_terminal_state("abcd1234")
+    assert direct_state.diagnostics.availability == "available"
+
+    direct_accepted = service.submit_managed_agent_request(
+        "cao-rest-1",
+        HoumaoManagedAgentSubmitPromptRequest(prompt="direct-before-gateway"),
+    )
+    assert direct_accepted.disposition == "accepted"
+    assert transport.m_direct_messages == ["direct-before-gateway"]
+
+    fake_gateway_client = _FakeGatewayTuiClient(base_url="http://unused")
+    _FakeGatewayTrackingRuntime.reset()
+    _FakeGatewayTrackingRuntime.m_template_state = service.terminal_state("abcd1234")
+    _FakeGatewayTrackingRuntime.m_template_history = service.terminal_history("abcd1234", limit=5)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_gateway_client,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    with _LiveGatewayServer(gateway_root=gateway_root):
+        detail = service.managed_agent_state_detail("cao-rest-1")
+        assert detail.detail.transport == "tui"
+        assert detail.detail.terminal_id == "abcd1234"
+
+        gateway_accepted = service.submit_managed_agent_request(
+            "cao-rest-1",
+            HoumaoManagedAgentSubmitPromptRequest(prompt="through-gateway"),
+        )
+        assert gateway_accepted.disposition == "accepted"
+        _wait_until(
+            lambda: fake_gateway_client.submitted_prompts == [("abcd1234", "through-gateway")]
+        )
+        assert transport.m_direct_messages == ["direct-before-gateway"]
+        assert _FakeGatewayTrackingRuntime.m_started_session_ids == ["cao-rest-1"]
+        assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["through-gateway"]
+
+    fallback_accepted = service.submit_managed_agent_request(
+        "cao-rest-1",
+        HoumaoManagedAgentSubmitPromptRequest(prompt="after-gateway-stop"),
+    )
+    assert fallback_accepted.disposition == "accepted"
+    assert transport.m_direct_messages == [
+        "direct-before-gateway",
+        "after-gateway-stop",
+    ]
+    assert fake_gateway_client.submitted_prompts == [("abcd1234", "through-gateway")]
+    assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["cao-rest-1"]
+
+
+def test_server_managed_headless_gateway_flow_covers_registry_and_degraded_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Server-managed headless agents should publish registry state, use live gateway control, and clean up on stop."""
+
+    agent_def_dir = tmp_path / "repo"
+    mailbox_root = tmp_path / "mailbox"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    tmux_env = _FakeTmuxEnv()
+    _install_runtime_headless_fakes(
+        monkeypatch=monkeypatch,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+    )
+
+    with _ManagedAgentApiServer() as managed_api:
+        service = HoumaoServerService(
+            config=HoumaoServerConfig(
+                api_base_url=managed_api.base_url,
+                runtime_root=tmp_path,
+                startup_child=False,
+            ),
+            transport=_NoopTransport(),
+            child_manager=_NoopChildManager(),
+        )
+
+        response = service.launch_headless_agent(
+            HoumaoHeadlessLaunchRequest(
+                tool="codex",
+                working_directory=str(tmp_path.resolve()),
+                agent_def_dir=str(agent_def_dir.resolve()),
+                brain_manifest_path=str(brain_manifest_path.resolve()),
+                role_name="r",
+                agent_name="AGENTSYS-headless",
+                agent_id="agent-headless-1",
+                mailbox=HoumaoHeadlessLaunchMailboxOptions(
+                    transport="filesystem",
+                    filesystem_root=str(mailbox_root.resolve()),
+                    address="AGENTSYS-headless@agents.localhost",
+                ),
+            )
+        )
+
+        manifest_path = Path(response.manifest_path)
+        assert resolve_live_agent_record("agent-headless-1") is not None
+
+        detail_without_gateway = service.managed_agent_state_detail(response.tracked_agent_id)
+        assert detail_without_gateway.detail.transport == "headless"
+        assert detail_without_gateway.summary_state.gateway is not None
+        assert detail_without_gateway.summary_state.gateway.gateway_health == "not_attached"
+
+        fake_session = _FakeGatewayHeadlessSession()
+        fake_controller = _FakeGatewayHeadlessController(fake_session)
+        gateway_root = manifest_path.parent / "gateway"
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        assert paths is not None
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+            _FakeGatewayHeadlessSession,
+        )
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+            lambda **_kwargs: fake_controller,
+        )
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+            lambda **_kwargs: True,
+        )
+
+        try:
+            with _LiveGatewayServer(gateway_root=gateway_root):
+                detail_with_gateway = service.managed_agent_state_detail(response.tracked_agent_id)
+                assert detail_with_gateway.detail.transport == "headless"
+                assert detail_with_gateway.summary_state.gateway is not None
+                assert detail_with_gateway.summary_state.gateway.gateway_health == "healthy"
+
+                healthy_status_payload = json.loads(paths.state_path.read_text(encoding="utf-8"))
+                healthy_current_instance_payload = json.loads(
+                    paths.current_instance_path.read_text(encoding="utf-8")
+                )
+
+                accepted = service.submit_managed_agent_request(
+                    response.tracked_agent_id,
+                    HoumaoManagedAgentSubmitPromptRequest(prompt="through-gateway"),
+                )
+                assert accepted.disposition == "accepted"
+                assert accepted.headless_turn_id is not None
+                _wait_until(
+                    lambda: fake_session.prompt_calls
+                    == [("through-gateway", accepted.headless_turn_id)]
+                )
+
+            paths.state_path.write_text(
+                json.dumps(healthy_status_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            paths.current_instance_path.parent.mkdir(parents=True, exist_ok=True)
+            paths.current_instance_path.write_text(
+                json.dumps(healthy_current_instance_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            degraded_detail = service.managed_agent_state_detail(response.tracked_agent_id)
+            assert degraded_detail.detail.transport == "headless"
+            with pytest.raises(HTTPException, match="attached gateway is unreachable") as exc_info:
+                service.submit_managed_agent_request(
+                    response.tracked_agent_id,
+                    HoumaoManagedAgentSubmitPromptRequest(prompt="after-crash"),
+                )
+            assert exc_info.value.status_code == 503
+
+            stop_response = service.stop_managed_agent(response.tracked_agent_id)
+            assert stop_response.success is True
+            assert resolve_live_agent_record("agent-headless-1") is None
+        finally:
+            fake_session.release_event.set()

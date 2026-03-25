@@ -2,6 +2,8 @@
 
 `/houmao/agents/*` is the official Houmao-owned control and inspection surface for managed agents. It unifies TUI-backed managed agents and server-managed native headless agents under one identity namespace. The route family keeps coarse orchestration state, transport-specific detail, request submission, server-owned gateway lifecycle, pair-owned mailbox follow-up, and transport-neutral stop behavior on the server, while durable headless turn artifacts stay on the headless `/turns/*` routes.
 
+`houmao-server` is the shared coordination plane for this surface. An attached healthy gateway becomes the live per-agent control plane behind that same public API. Callers do not switch route families when a gateway attaches; the server keeps the public contracts stable and changes only the backing control path.
+
 For the pair boundary that exposes these routes, use [Houmao Server Pair](houmao_server_pair.md). For the durable server-owned filesystem artifacts behind native headless authority and turn records, use [Houmao Server](system-files/houmao-server.md). For the live sidecar HTTP surface that the managed-agent gateway routes project or proxy, use [Agent Gateway Reference](gateway/index.md).
 
 ## Route Families
@@ -48,6 +50,8 @@ Representative summary behavior:
 
 - TUI agents expose coarse turn posture without requiring callers to interpret the raw tracked terminal payload.
 - Headless agents expose coarse turn posture without requiring callers to read raw turn artifacts.
+- When an attached gateway is healthy, summary and detail projection prefer the gateway HTTP read surface.
+- When no live gateway is attached, or when direct fallback is the only safe option, the same routes continue projecting from direct server or runtime state.
 - `/history` stays bounded and coarse for both transports; it is not a second durable per-turn store.
 - TUI-backed `/history` is derived from bounded in-memory recent transitions, while headless `/history` is derived from persisted server-owned turn records.
 
@@ -77,6 +81,8 @@ TUI detail is a curated projection, not a second raw terminal contract. It inclu
 
 The canonical raw TUI inspection surface remains `/houmao/terminals/{terminal_id}/state`.
 
+For attached eligible TUI sessions, the live tracked state served here is gateway-owned and projected back through `houmao-server`. When no live gateway owns that session, the server falls back to its direct tracker.
+
 ### Headless detail
 
 Headless detail is execution-centric and intentionally does not fabricate TUI parser concepts. It includes:
@@ -101,6 +107,8 @@ Headless detail is execution-centric and intentionally does not fabricate TUI pa
 - structured `diagnostics`
 
 This route is the canonical rich inspection surface for managed headless agents when a caller needs current runtime posture without scraping `stdout`, `stderr`, or exit-code files.
+
+For attached healthy headless gateways, the server reads live control posture from the gateway HTTP surface before building this response. Durable turn records and turn reconciliation still remain server-owned.
 
 ## Transport-Neutral Request Submission
 
@@ -144,8 +152,9 @@ Important rules:
 
 - `disposition` is `accepted` when the request caused or targeted real work, and `no_op` when an interrupt request found no active interruptible work.
 - `headless_turn_id` and `headless_turn_index` are present only when the accepted request created or targeted a managed headless turn.
-- TUI prompt submission routes through the child CAO input path, but the public contract stays on `/houmao/agents/{agent_ref}/requests`.
-- Headless prompt submission reuses the server-owned single-active-turn authority and returns the created turn linkage when accepted.
+- TUI prompt submission prefers a healthy attached gateway and falls back to the compatibility transport only when no live gateway currently owns safe prompt admission for that session.
+- Headless prompt submission keeps server-owned durable turn creation and turn-record authority, then prefers attached gateway admission when a healthy gateway owns live headless control.
+- Discovery of a gateway does not change the public request contract; callers still use `/houmao/agents/{agent_ref}/requests`.
 
 Observable admission and failure semantics:
 
@@ -183,7 +192,7 @@ For pair-managed `houmao_server_rest` sessions, operators normally reach this ro
 
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails.
 
-The default documented prompt path remains `houmao-srv-ctrl agents prompt ...` over `POST /houmao/agents/{agent_ref}/requests`. `houmao-srv-ctrl agents gateway prompt ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter.
+The default documented prompt path remains `houmao-srv-ctrl agents prompt ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-srv-ctrl agents gateway prompt ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path.
 
 ## Pair-Owned Mail Follow-Up
 

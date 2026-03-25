@@ -434,6 +434,7 @@ def _seed_launch_posture_manifests(state: DemoState) -> None:
             "cao": None,
             "houmao_server": None,
             "registry_generation_id": "test-generation",
+            "registry_launch_authority": "runtime",
         }
         (participant.session_root / "manifest.json").write_text(
             json.dumps(session_manifest, indent=2, sort_keys=True),

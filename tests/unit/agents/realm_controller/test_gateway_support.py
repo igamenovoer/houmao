@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -67,15 +68,6 @@ from houmao.mailbox.stalwart import (
     runtime_stalwart_credential_path,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
-from houmao.server.models import (
-    HoumaoManagedAgentDetailResponse,
-    HoumaoManagedAgentHeadlessDetailView,
-    HoumaoManagedAgentIdentity,
-    HoumaoManagedAgentLastTurnView,
-    HoumaoManagedAgentRequestAcceptedResponse,
-    HoumaoManagedAgentStateResponse,
-    HoumaoManagedAgentTurnView,
-)
 
 
 def _write(path: Path, text: str) -> None:
@@ -438,10 +430,19 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
     )
-    fake_client = _FakeManagedHeadlessServerClient(can_accept_prompt_now=True)
+    fake_session = _FakeGatewayHeadlessSession()
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.HoumaoServerClient",
-        lambda *args, **kwargs: fake_client,
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-headless",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -459,20 +460,20 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         accepted = runtime.create_request(
             GatewayRequestCreateV1(
                 kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+                payload=GatewayRequestPayloadSubmitPromptV1(
+                    prompt="hello",
+                    turn_id="turn-server-123",
+                ),
             )
         )
         assert accepted.request_kind == "submit_prompt"
-
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and not fake_client.m_request_calls:
-            time.sleep(0.05)
+        assert fake_session.started_event.wait(timeout=2.0)
     finally:
+        fake_session.release_event.set()
         runtime.shutdown()
 
-    assert fake_client.m_request_calls
-    assert fake_client.m_request_calls[0][0] == "claude-headless-1"
-    assert getattr(fake_client.m_request_calls[0][1], "request_kind", None) == "submit_prompt"
+    assert fake_session.prompt_calls == [("hello", "turn-server-123")]
+    assert fake_controller.persist_manifest_calls == [False]
 
 
 def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is_closed(
@@ -484,10 +485,19 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
     )
-    fake_client = _FakeManagedHeadlessServerClient(can_accept_prompt_now=False)
+    fake_session = _FakeGatewayHeadlessSession(block_prompt=True)
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.HoumaoServerClient",
-        lambda *args, **kwargs: fake_client,
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-headless",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -500,17 +510,35 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
     try:
         status = runtime.status()
         assert status.managed_agent_connectivity == "connected"
-        assert status.terminal_surface_eligibility == "not_ready"
-        assert status.request_admission == "blocked_unavailable"
+        assert status.terminal_surface_eligibility == "ready"
+        assert status.request_admission == "open"
 
-        with pytest.raises(HTTPException, match="unavailable"):
+        runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(
+                    prompt="hello",
+                    turn_id="turn-live",
+                ),
+            )
+        )
+        assert fake_session.started_event.wait(timeout=2.0)
+
+        status = runtime.status()
+        assert status.active_execution == "running"
+
+        with pytest.raises(HTTPException, match="already active"):
             runtime.create_request(
                 GatewayRequestCreateV1(
                     kind="submit_prompt",
-                    payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+                    payload=GatewayRequestPayloadSubmitPromptV1(
+                        prompt="second",
+                        turn_id="turn-next",
+                    ),
                 )
             )
     finally:
+        fake_session.release_event.set()
         runtime.shutdown()
 
 
@@ -923,84 +951,46 @@ def _seed_headless_gateway_root(
     return paths.gateway_root
 
 
-class _FakeManagedHeadlessServerClient:
-    def __init__(self, *, can_accept_prompt_now: bool = True) -> None:
-        self.m_can_accept_prompt_now = can_accept_prompt_now
-        self.m_request_calls: list[tuple[str, object]] = []
+class _FakeGatewayHeadlessSession:
+    def __init__(self, *, block_prompt: bool = False) -> None:
+        self.state = type(
+            "State",
+            (),
+            {
+                "turn_index": 0,
+                "tmux_session_name": "AGENTSYS-headless",
+                "session_id": "claude-session-1",
+            },
+        )()
+        self.prompt_calls: list[tuple[str, str | None]] = []
+        self.block_prompt = block_prompt
+        self.started_event = threading.Event()
+        self.release_event = threading.Event()
 
-    def get_managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
-        identity = HoumaoManagedAgentIdentity(
-            tracked_agent_id=agent_ref,
-            transport="headless",
-            tool="claude",
-            runtime_session_id=agent_ref,
-            tmux_session_name="AGENTSYS-headless",
-            manifest_path="/tmp/manifest.json",
-            session_root="/tmp/session-root",
-            agent_name="AGENTSYS-headless",
-            agent_id="agent-1234",
-        )
-        summary_state = HoumaoManagedAgentStateResponse(
-            tracked_agent_id=agent_ref,
-            identity=identity,
-            availability="available",
-            turn=HoumaoManagedAgentTurnView(
-                phase="ready" if self.m_can_accept_prompt_now else "active",
-                active_turn_id=None if self.m_can_accept_prompt_now else "turn-live",
-            ),
-            last_turn=HoumaoManagedAgentLastTurnView(
-                result="none",
-                turn_id=None,
-                turn_index=None,
-                updated_at_utc=None,
-            ),
-            diagnostics=[],
-            mailbox=None,
-            gateway=None,
-        )
-        detail = HoumaoManagedAgentHeadlessDetailView(
-            runtime_resumable=True,
-            tmux_session_live=True,
-            can_accept_prompt_now=self.m_can_accept_prompt_now,
-            interruptible=not self.m_can_accept_prompt_now,
-            turn=summary_state.turn,
-            last_turn=summary_state.last_turn,
-            active_turn_started_at_utc=None,
-            active_turn_interrupt_requested_at_utc=None,
-            last_turn_status=None,
-            last_turn_started_at_utc=None,
-            last_turn_completed_at_utc=None,
-            last_turn_completion_source=None,
-            last_turn_returncode=None,
-            last_turn_history_summary=None,
-            last_turn_error=None,
-            mailbox=None,
-            gateway=None,
-            diagnostics=[],
-        )
-        return HoumaoManagedAgentDetailResponse(
-            tracked_agent_id=agent_ref,
-            identity=identity,
-            summary_state=summary_state,
-            detail=detail,
-        )
+    def send_prompt(
+        self, prompt: str, *, turn_artifact_dir_name: str | None = None
+    ) -> list[object]:
+        self.prompt_calls.append((prompt, turn_artifact_dir_name))
+        self.started_event.set()
+        if self.block_prompt:
+            self.release_event.wait(timeout=5.0)
+        self.state.turn_index += 1
+        return []
 
-    def submit_managed_agent_request(
-        self,
-        agent_ref: str,
-        request_model: object,
-    ) -> HoumaoManagedAgentRequestAcceptedResponse:
-        self.m_request_calls.append((agent_ref, request_model))
-        return HoumaoManagedAgentRequestAcceptedResponse(
-            success=True,
-            tracked_agent_id=agent_ref,
-            request_id="mreq-123",
-            request_kind=getattr(request_model, "request_kind", "submit_prompt"),
-            disposition="accepted",
-            detail="accepted",
-            headless_turn_id="turn-123",
-            headless_turn_index=1,
-        )
+    def interrupt(self) -> SessionControlResult:
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+
+class _FakeGatewayHeadlessController:
+    def __init__(self, session: _FakeGatewayHeadlessSession) -> None:
+        self.backend_session = session
+        self.persist_manifest_calls: list[bool] = []
+
+    def persist_manifest(self, *, refresh_registry: bool = True) -> None:
+        self.persist_manifest_calls.append(refresh_registry)
+
+    def interrupt(self) -> SessionControlResult:
+        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
 
 
 def _seed_cao_gateway_root_with_stalwart_mailbox(
