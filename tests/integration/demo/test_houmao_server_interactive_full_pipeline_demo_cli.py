@@ -89,18 +89,14 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    profile_path = (
+    agent_def_dir = (
         repo_root
         / "scripts"
         / "demo"
         / "houmao-server-interactive-full-pipeline-demo"
-        / "profiles"
-        / "gpu-kernel-coder.md"
+        / "agents"
     )
-    profile_path.parent.mkdir(parents=True, exist_ok=True)
-    profile_path.write_text(
-        "---\nname: gpu-kernel-coder\ndescription: demo\n---\nbody\n", encoding="utf-8"
-    )
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
 
     calls: dict[str, list[str]] = {"submit_refs": [], "deleted_sessions": []}
     bundle_plan: list[dict[str, str]] = []
@@ -148,6 +144,10 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
                 headless_turn_index=None,
             )
 
+        def stop_managed_agent(self, agent_ref: str) -> object:
+            calls["deleted_sessions"].append(agent_ref)
+            return type("StopResponse", (), {"success": True})()
+
         def delete_session(self, session_name: str) -> object:
             calls["deleted_sessions"].append(session_name)
             return type("DeleteResponse", (), {"success": True})()
@@ -175,7 +175,6 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         "_start_server_process",
         lambda **kwargs: type("Proc", (), {"pid": 4242})(),
     )
-    monkeypatch.setattr(demo_commands, "_install_pair_profile", lambda **kwargs: None)
     monkeypatch.setattr(demo_commands, "_launch_pair_session", lambda **kwargs: None)
     monkeypatch.setattr(
         demo_commands,
@@ -296,6 +295,7 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
     assert verify_payload["status"] == "ok"
     assert verify_payload["accepted_prompt_count"] == 1
     assert report["current_managed_agent"]["last_turn_result"] == "success"
+    assert state["agent_def_dir"] == str(agent_def_dir.resolve())
     assert state["active"] is False
     assert stop_payload["server_stop_status"] == "stopped"
     assert calls["submit_refs"] == ["cao-alice"]

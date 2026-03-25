@@ -118,7 +118,7 @@ from .launch_plan import (
     configured_cao_parsing_mode,
     resolve_cao_parsing_mode,
 )
-from .loaders import load_brain_manifest, load_role_package
+from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
@@ -182,6 +182,7 @@ _GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
 _GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_BRAIN_ONLY_ROLE_NAME = "brain-only"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -613,7 +614,7 @@ def start_runtime_session(
     *,
     agent_def_dir: Path,
     brain_manifest_path: Path,
-    role_name: str,
+    role_name: str | None,
     runtime_root: Path | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
@@ -644,7 +645,15 @@ def start_runtime_session(
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
-    role_package = load_role_package(agent_def_dir, role_name)
+    resolved_role_name = role_name.strip() if role_name is not None and role_name.strip() else None
+    if resolved_role_name is None:
+        role_package = RolePackage(
+            role_name=_BRAIN_ONLY_ROLE_NAME,
+            system_prompt="",
+            path=(agent_def_dir / "roles" / _BRAIN_ONLY_ROLE_NAME / "system-prompt.md").resolve(),
+        )
+    else:
+        role_package = load_role_package(agent_def_dir, resolved_role_name)
 
     try:
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
@@ -666,7 +675,7 @@ def start_runtime_session(
         resolved_runtime_identity = _resolve_start_session_identity(
             manifest=manifest,
             tool=tool,
-            role_name=role_name,
+            role_name=role_package.role_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
         )
@@ -706,7 +715,7 @@ def start_runtime_session(
             declared_config=declared_mailbox,
             runtime_root=effective_runtime_root,
             tool=tool,
-            role_name=role_name,
+            role_name=role_package.role_name,
             agent_identity=(
                 resolved_runtime_identity.canonical_agent_name
                 if resolved_runtime_identity is not None
@@ -731,7 +740,7 @@ def start_runtime_session(
             resolved_mailbox = bootstrap_resolved_mailbox(
                 resolved_mailbox,
                 manifest_path_hint=manifest_path,
-                role_name=role_name,
+                role_name=role_package.role_name,
             )
         except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
@@ -749,7 +758,7 @@ def start_runtime_session(
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
-        role_name=role_name,
+        role_name=role_package.role_name,
         role_prompt=role_package.system_prompt,
         agent_def_dir=agent_def_dir,
         api_base_url=api_base_url,
@@ -774,7 +783,7 @@ def start_runtime_session(
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
-        role_name=role_name,
+        role_name=role_package.role_name,
         brain_manifest_path=brain_manifest_path.resolve(),
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir.resolve(),

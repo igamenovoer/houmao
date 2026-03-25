@@ -44,7 +44,6 @@ That command:
 - provisions isolated Claude and Codex dummy-project workdirs
 - builds demo-owned provider homes from the tracked projection-demo recipes
 - starts a dedicated `houmao-server` for the run
-- installs the tracked `projection-demo` profile through `houmao-mgr install --port <public-port>`
 - launches one Claude session and one Codex session through `houmao-mgr launch`
 - starts one monitor tmux session
 

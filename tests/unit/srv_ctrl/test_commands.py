@@ -20,7 +20,6 @@ from houmao.cao.models import (
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
-    HoumaoInstallAgentProfileRequest,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailReplyRequest,
@@ -76,7 +75,6 @@ class _FakeHoumaoClient:
         self.m_get_session_calls: list[str] = []
         self.m_create_session_calls: list[dict[str, object]] = []
         self.m_delete_session_calls: list[str] = []
-        self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
         self.m_get_managed_agent_calls: list[str] = []
@@ -163,21 +161,6 @@ class _FakeHoumaoClient:
     def delete_session(self, session_name: str) -> object:
         self.m_delete_session_calls.append(session_name)
         return type("DeleteResponse", (), {"success": True})()
-
-    def install_agent_profile(self, request_model: HoumaoInstallAgentProfileRequest) -> object:
-        self.m_install_requests.append(request_model)
-        return type(
-            "InstallResponse",
-            (),
-            {
-                "success": True,
-                "detail": (
-                    "Pair-owned install completed through the Houmao-managed compatibility "
-                    f"profile store for provider `{request_model.provider}` and agent source "
-                    f"`{request_model.agent_source}`."
-                ),
-            },
-        )()
 
     def register_launch(self, request_model: HoumaoRegisterLaunchRequest) -> None:
         self.m_register_requests.append(request_model)
@@ -496,7 +479,7 @@ class _FakeHoumaoClient:
 
 
 def test_top_level_command_inventory_reserves_pair_namespace() -> None:
-    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "cao", "install", "launch"}
+    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "cao", "launch"}
 
 
 def test_top_level_help_advertises_native_families_and_retires_agent_gateway() -> None:
@@ -513,7 +496,7 @@ def test_top_level_help_advertises_native_families_and_retires_agent_gateway() -
 def test_cao_group_inventory_matches_pinned_upstream() -> None:
     cao_group = cli.commands["cao"]
     assert isinstance(cao_group, click.Group)
-    assert set(cao_group.commands.keys()) == _extract_upstream_cli_commands()
+    assert set(cao_group.commands.keys()) == (_extract_upstream_cli_commands() - {"install"})
 
 
 def test_cao_flow_list_uses_local_compatibility_state(
@@ -552,60 +535,6 @@ def test_cao_mcp_server_reports_pair_owned_guidance() -> None:
     assert result.exit_code != 0
     assert "The standalone CAO MCP helper is not part of the supported Houmao pair" in result.output
     assert "houmao-server" in result.output
-
-
-def test_top_level_install_routes_through_houmao_server_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    pair_checks: list[str] = []
-    client = _FakeHoumaoClient()
-    monkeypatch.chdir(tmp_path)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.install.require_supported_houmao_pair",
-        lambda *, base_url: pair_checks.append(base_url) or client,
-    )
-
-    result = CliRunner().invoke(cli, ["install", "projection-demo", "--provider", "codex"])
-
-    assert result.exit_code == 0
-    assert pair_checks == ["http://127.0.0.1:9889"]
-    assert client.m_install_requests == [
-        HoumaoInstallAgentProfileRequest(
-            agent_source="projection-demo",
-            provider="codex",
-            working_directory=str(tmp_path.resolve()),
-        )
-    ]
-    assert "Houmao-managed compatibility profile store" in result.output
-
-
-def test_cao_install_routes_through_houmao_server_pair(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    pair_checks: list[str] = []
-    client = _FakeHoumaoClient()
-    monkeypatch.chdir(tmp_path)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.install.require_supported_houmao_pair",
-        lambda *, base_url: pair_checks.append(base_url) or client,
-    )
-
-    result = CliRunner().invoke(cli, ["cao", "install", "gpu-kernel-coder"])
-
-    assert result.exit_code == 0
-    assert pair_checks == ["http://127.0.0.1:9889"]
-    assert client.m_install_requests == [
-        HoumaoInstallAgentProfileRequest(
-            agent_source="gpu-kernel-coder",
-            provider="kiro_cli",
-            working_directory=str(tmp_path.resolve()),
-        )
-    ]
-    assert "Houmao-managed compatibility profile store" in result.output
 
 
 def test_cao_info_reads_current_tmux_session_through_pair_client(

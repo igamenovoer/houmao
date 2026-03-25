@@ -41,7 +41,6 @@ from houmao.owned_paths import (
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
-    HoumaoInstallAgentProfileRequest,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoRegisterLaunchRequest,
@@ -814,19 +813,6 @@ def _provision_tui_lane(
     lane = lane_runtime.definition
     requested_session_name = f"{_FIXTURE_AGENT_PROFILE}-{lane.slug}-{run_slug}"
     lane_runtime.requested_session_name = requested_session_name
-    install_request = HoumaoInstallAgentProfileRequest(
-        agent_source=str(fixtures.compatibility_profile_path),
-        provider=lane.compatibility_provider,
-        working_directory=str(fixtures.repo_root),
-    )
-    install_response = _record_route_call(
-        recorder=lane_runtime.http_recorder,
-        label="install-profile",
-        method="POST",
-        path="/houmao/agent-profiles/install",
-        request_payload=install_request,
-        callback=lambda: client.install_agent_profile(install_request),
-    )
     _bootstrap_compat_home_for_tui_lane(
         fixtures=fixtures,
         lane_runtime=lane_runtime,
@@ -895,7 +881,6 @@ def _provision_tui_lane(
     )
     lane_runtime.tracked_agent_id = identity.tracked_agent_id
     lane_runtime.launch_metadata = {
-        "install_response": _json_ready(install_response),
         "create_session": _json_ready(terminal),
         "register_launch": _json_ready(register_response),
         "managed_identity": _json_ready(identity),

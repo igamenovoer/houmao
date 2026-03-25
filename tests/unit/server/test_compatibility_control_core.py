@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.server.config import HoumaoServerConfig
-from houmao.server.control_core.core import CompatibilityControlCore
+from houmao.server.control_core.core import (
+    CompatibilityControlCore,
+    PreparedNativeCompatibilityLaunch,
+)
 from houmao.server.control_core.models import CompatibilityAgentProfile, CompatibilityTerminalRecord
 
 
@@ -103,8 +107,8 @@ def test_initialize_terminal_uses_default_compatibility_timing_config(
         {
             "window_id": "@1",
             "command": (
-                f"export HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
-                f"export CODEX_HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                "export HOME=/tmp/houmao-test-launch-home/codex; "
+                "export CODEX_HOME=/tmp/houmao-test-launch-home/codex; "
                 "export CAO_TERMINAL_ID=abcd1234; provider --start"
             ),
         },
@@ -154,8 +158,6 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://anthropic.test")
     monkeypatch.setattr("houmao.server.control_core.core.time.sleep", lambda _seconds: None)
     tmux = _FakeTmuxController()
     adapter = _FakeAdapter("claude_code")
@@ -172,8 +174,8 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
         {
             "window_id": "@1",
             "command": (
-                f"export HOME={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
-                f"export CLAUDE_CONFIG_DIR={tmp_path / 'houmao_servers' / '127.0.0.1-9889' / 'compat_home'}; "
+                "export HOME=/tmp/houmao-test-launch-home/claude; "
+                "export CLAUDE_CONFIG_DIR=/tmp/houmao-test-launch-home/claude; "
                 "export ANTHROPIC_API_KEY=anthropic-test-key; "
                 "export ANTHROPIC_BASE_URL=https://anthropic.test; "
                 "export CAO_TERMINAL_ID=abcd1234; provider --start"
@@ -182,10 +184,102 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
     ]
 
 
-def _prepared_profile(provider_id: str) -> SimpleNamespace:
-    return SimpleNamespace(
+def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    tmux = _FakeTmuxController()
+    core = CompatibilityControlCore(config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux)
+    capture: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.server.control_core.core.resolve_native_launch_target",
+        lambda **_kwargs: SimpleNamespace(
+            selector="gpu-kernel-coder",
+            provider="codex",
+            tool="codex",
+            working_directory=tmp_path,
+            agent_def_dir=(tmp_path / "agents").resolve(),
+            recipe_path=(tmp_path / "agents" / "brains" / "brain-recipes" / "codex" / "x.yaml").resolve(),
+            recipe=SimpleNamespace(
+                tool="codex",
+                skills=[],
+                config_profile="default",
+                credential_profile="demo-default",
+                launch_overrides=None,
+                mailbox=None,
+                default_agent_name="cao-codex-demo",
+            ),
+            role_name=None,
+            role_prompt="",
+            role_prompt_path=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.server.control_core.core.build_brain_home",
+        lambda _request: SimpleNamespace(manifest_path=(tmp_path / "manifest.yaml").resolve()),
+    )
+    monkeypatch.setattr(
+        "houmao.server.control_core.core.load_brain_manifest",
+        lambda _path: {"inputs": {"tool": "codex"}},
+    )
+
+    def _capture_launch_plan(request: object) -> LaunchPlan:
+        capture["request"] = request
+        return _prepared_profile("codex").launch_plan
+
+    monkeypatch.setattr(
+        "houmao.server.control_core.core.build_launch_plan",
+        _capture_launch_plan,
+    )
+
+    prepared = core._prepare_native_launch_projection(
+        selector="gpu-kernel-coder",
+        provider="codex",
+        working_directory=tmp_path,
+    )
+
+    assert prepared.profile.system_prompt == ""
+    assert prepared.profile.provider == "codex"
+    request = capture["request"]
+    assert getattr(request, "role_package").role_name == "brain-only"
+    assert getattr(request, "role_package").system_prompt == ""
+
+
+def _prepared_profile(provider_id: str) -> PreparedNativeCompatibilityLaunch:
+    launch_home = (
+        Path("/tmp")
+        / "houmao-test-launch-home"
+        / ("codex" if provider_id == "codex" else "claude")
+    ).resolve()
+    home_env_var = "CODEX_HOME" if provider_id == "codex" else "CLAUDE_CONFIG_DIR"
+    env = (
+        {
+            "ANTHROPIC_API_KEY": "anthropic-test-key",
+            "ANTHROPIC_BASE_URL": "https://anthropic.test",
+        }
+        if provider_id == "claude_code"
+        else {}
+    )
+    return PreparedNativeCompatibilityLaunch(
         profile=CompatibilityAgentProfile(name="gpu-kernel-coder", description="GPU role"),
         resolved_provider=provider_id,
+        launch_plan=LaunchPlan(
+            backend="houmao_server_rest",
+            tool="codex" if provider_id == "codex" else "claude",
+            executable="cao",
+            args=[],
+            working_directory=Path("/tmp").resolve(),
+            home_env_var=home_env_var,
+            home_path=launch_home,
+            env=env,
+            env_var_names=sorted(env),
+            role_injection=RoleInjectionPlan(
+                method="cao_profile",
+                role_name="gpu-kernel-coder",
+                prompt="",
+            ),
+        ),
     )
 
 

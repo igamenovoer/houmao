@@ -230,12 +230,6 @@ class HoumaoServerConfig(BaseModel):
         return (self.compatibility_state_dir / "registry.json").resolve()
 
     @property
-    def compatibility_profile_index_path(self) -> Path:
-        """Return the compatibility profile index snapshot path."""
-
-        return (self.compatibility_state_dir / "profiles.json").resolve()
-
-    @property
     def pid_path(self) -> Path:
         """Return the server pid path."""
 

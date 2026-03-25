@@ -14,7 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from houmao.agents.realm_controller.agent_identity import normalize_agent_identity_name
+from houmao.agents.realm_controller.agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
+    normalize_agent_identity_name,
+)
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
 from houmao.agents.realm_controller.manifest import default_manifest_path, load_session_manifest
 from houmao.cao.models import CaoSessionDetail
@@ -77,11 +80,12 @@ def start_demo(
 
     selected_port = _select_port(requested_port)
     api_base_url = f"http://127.0.0.1:{selected_port}"
-    profile_source = _profile_source_path(env.repo_root)
-    if not profile_source.is_file():
-        raise DemoWorkflowError(f"Tracked compatibility profile not found: {profile_source}")
+    agent_def_dir = _demo_agent_def_dir_path(env.repo_root)
+    if not agent_def_dir.is_dir():
+        raise DemoWorkflowError(f"Tracked demo agent-definition root not found: {agent_def_dir}")
 
     runtime_env = _build_demo_environment(paths=paths)
+    runtime_env[AGENT_DEF_DIR_ENV_VAR] = str(agent_def_dir)
     server_process: subprocess.Popen[bytes] | None = None
     client: HoumaoServerClient | None = None
     actual_session_name: str | None = _expected_session_name(requested_session_name)
@@ -94,14 +98,6 @@ def start_demo(
             compat_shell_ready_timeout_seconds=env.compat_shell_ready_timeout_seconds,
             compat_provider_ready_timeout_seconds=env.compat_provider_ready_timeout_seconds,
             compat_codex_warmup_seconds=env.compat_codex_warmup_seconds,
-        )
-        _install_pair_profile(
-            api_base_url=api_base_url,
-            profile_source=profile_source,
-            provider=provider,
-            env=runtime_env,
-            stdout_path=paths.logs_dir / "install.stdout.log",
-            stderr_path=paths.logs_dir / "install.stderr.log",
         )
 
         client = HoumaoServerClient(api_base_url, timeout_seconds=5.0)
@@ -195,9 +191,7 @@ def start_demo(
         server_pid=server_process.pid,
         server_stdout_log_path=str(paths.logs_dir / "houmao-server.stdout.log"),
         server_stderr_log_path=str(paths.logs_dir / "houmao-server.stderr.log"),
-        install_profile_source=str(profile_source),
-        install_stdout_log_path=str(paths.logs_dir / "install.stdout.log"),
-        install_stderr_log_path=str(paths.logs_dir / "install.stderr.log"),
+        agent_def_dir=str(agent_def_dir),
         houmao_server=bridge,
         updated_at=_utc_now(),
         prompt_turn_count=0,
@@ -657,47 +651,6 @@ def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> Non
     raise DemoWorkflowError(
         f"Timed out waiting for demo-owned houmao-server health at {api_base_url}: {last_error}"
     )
-
-
-def _install_pair_profile(
-    *,
-    api_base_url: str,
-    profile_source: Path,
-    provider: str,
-    env: dict[str, str],
-    stdout_path: Path,
-    stderr_path: Path,
-) -> None:
-    """Install the tracked compatibility profile through `houmao-mgr install`."""
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "houmao.srv_ctrl",
-            "install",
-            str(profile_source),
-            "--provider",
-            provider,
-            "--port",
-            api_base_url.rsplit(":", 1)[-1],
-        ],
-        cwd=str(profile_source.parent),
-        check=False,
-        capture_output=True,
-        env=env,
-    )
-    stdout_path.write_bytes(result.stdout)
-    stderr_path.write_bytes(result.stderr)
-    if result.returncode != 0:
-        detail = (
-            result.stderr.decode("utf-8", errors="replace").strip()
-            or result.stdout.decode("utf-8", errors="replace").strip()
-            or "unknown install error"
-        )
-        raise DemoWorkflowError(
-            f"Pair-owned profile install failed for provider `{provider}`: {detail}"
-        )
 
 
 def _launch_pair_session(
@@ -1361,16 +1314,15 @@ def _server_health_ok(api_base_url: str) -> bool:
     return health.status == "ok" and health.houmao_service == "houmao-server"
 
 
-def _profile_source_path(repo_root: Path) -> Path:
-    """Return the tracked compatibility-profile asset path for the demo."""
+def _demo_agent_def_dir_path(repo_root: Path) -> Path:
+    """Return the tracked native agent-definition root for the demo."""
 
     return (
         repo_root.resolve()
         / "scripts"
         / "demo"
         / "houmao-server-interactive-full-pipeline-demo"
-        / "profiles"
-        / f"{DEFAULT_AGENT_PROFILE}.md"
+        / "agents"
     ).resolve()
 
 

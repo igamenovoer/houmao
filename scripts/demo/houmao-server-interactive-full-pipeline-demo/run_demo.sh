@@ -16,7 +16,7 @@ Usage:
 Subcommands:
   start [--provider <claude_code|codex>] [--session-name <name>] [--port <port>] [--json]
       Start or replace the pair-managed interactive session through a demo-owned
-      \`houmao-server\`, top-level \`houmao-mgr install\`, and detached
+      \`houmao-server\` and detached
       \`houmao-mgr cao launch --headless\`. The default provider is
       \`claude_code\`. Demo-owned generous compatibility startup defaults are
       applied unless overridden through the environment variables below.

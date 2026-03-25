@@ -33,8 +33,7 @@ Representative usage:
 
 ```bash
 houmao-server serve --api-base-url http://127.0.0.1:9889
-houmao-mgr install projection-demo --provider codex --port 9889
-houmao-mgr cao install projection-demo --provider codex --port 9889
+AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider codex
 houmao-mgr cao info --port 9889
 houmao-mgr cao flow list --all
 houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider codex
@@ -107,7 +106,6 @@ Retired standalone surfaces:
 `houmao-mgr` now has one native top-level tree for covered pair workflows:
 
 - `launch`
-- `install`
 - `agents`
 - `brains`
 - `admin`
@@ -155,7 +153,7 @@ That control core owns:
 - tmux session and window creation
 - provider bootstrap quirks for the supported pair launch surface
 - terminal-scoped compatibility inbox behavior
-- compatibility profile install and profile lookup
+- launch-time native selector resolution and compatibility sidecar projection
 - compatibility registry persistence for sessions, terminals, and inbox messages
 
 The watch and tracking plane remains Houmao-owned and separate from the compatibility control slice:
@@ -243,8 +241,7 @@ Filesystem-backed compatibility and debug views:
 - `run/current-instance.json` and `run/houmao-server.pid`
 - delegated-launch `sessions/<session-name>/registration.json`
 - compatibility registry snapshot under `state/cao_compat/registry.json`
-- compatibility profile index under `state/cao_compat/profiles.json`
-- Houmao-managed compatibility profile store under `compat_home/`
+- launch-scoped compatibility sidecars under `state/cao_compat/launch_projection/`
 
 Memory-primary live state:
 
@@ -276,35 +273,27 @@ This keeps the pair-owned compatibility transport details out of the persisted p
 
 ## Compatibility Storage Model
 
-`houmao-server` provisions compatibility control and profile-store state under a Houmao-owned per-server root:
+`houmao-server` provisions compatibility control state under a Houmao-owned per-server root:
 
 ```text
 <runtime-root>/houmao_servers/<host>-<port>/
-  compat_home/
-    .aws/cli-agent-orchestrator/
-      agent-store/
-      agent-context/
-    .aws/amazonq/cli-agents/
-    .kiro/agents/
   state/
     cao_compat/
       registry.json
-      profiles.json
+      launch_projection/
+        <session-name>/
+          <terminal-id>/
+            context.md
 ```
 
-Those paths are internal Houmao-managed implementation details. Operators may inspect them for debugging, but the supported install surface is:
+Launch-time native homes and manifests remain runtime-owned under the shared runtime root:
 
 ```bash
-houmao-mgr install <agent-source> --provider <provider> --port <public-port>
+<runtime-root>/homes/<tool>-brain-*/
+<runtime-root>/manifests/<tool>-brain-*.yaml
 ```
 
-or the explicit compatibility alias:
-
-```bash
-houmao-mgr cao install <agent-source> --provider <provider> --port <public-port>
-```
-
-Both routes target the selected `houmao-server`, which performs compatibility-store mutation inside the server-owned subtree.
+Those paths are internal implementation details. The supported operator workflow launches directly from native selectors (`--agents`) resolved from the effective agent-definition root.
 
 ## Migration Direction
 
@@ -323,9 +312,9 @@ Standalone `houmao-cao-server` and raw standalone `cao_rest` operator entrypoint
 - [`src/houmao/server/config.py`](../../src/houmao/server/config.py)
 - [`src/houmao/server/service.py`](../../src/houmao/server/service.py)
 - [`src/houmao/server/control_core/core.py`](../../src/houmao/server/control_core/core.py)
-- [`src/houmao/server/control_core/profile_store.py`](../../src/houmao/server/control_core/profile_store.py)
 - [`src/houmao/server/control_core/provider_adapters.py`](../../src/houmao/server/control_core/provider_adapters.py)
 - [`src/houmao/server/managed_agents.py`](../../src/houmao/server/managed_agents.py)
+- [`src/houmao/agents/native_launch_resolver.py`](../../src/houmao/agents/native_launch_resolver.py)
 - [`src/houmao/srv_ctrl/commands/admin.py`](../../src/houmao/srv_ctrl/commands/admin.py)
 - [`src/houmao/srv_ctrl/commands/brains.py`](../../src/houmao/srv_ctrl/commands/brains.py)
 - [`src/houmao/srv_ctrl/commands/agents/core.py`](../../src/houmao/srv_ctrl/commands/agents/core.py)

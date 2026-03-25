@@ -9,6 +9,7 @@ import pytest
 
 import houmao.demo.houmao_server_interactive_full_pipeline_demo.cli as demo_cli
 import houmao.demo.houmao_server_interactive_full_pipeline_demo.commands as demo_commands
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
 from houmao.cao.rest_client import CaoApiError
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
@@ -84,9 +85,7 @@ def _demo_state(paths: DemoPaths, *, active: bool = True) -> DemoState:
         server_pid=4242,
         server_stdout_log_path=str(paths.logs_dir / "houmao-server.stdout.log"),
         server_stderr_log_path=str(paths.logs_dir / "houmao-server.stderr.log"),
-        install_profile_source="/repo/scripts/demo/houmao-server-interactive-full-pipeline-demo/profiles/gpu-kernel-coder.md",
-        install_stdout_log_path=str(paths.logs_dir / "install.stdout.log"),
-        install_stderr_log_path=str(paths.logs_dir / "install.stderr.log"),
+        agent_def_dir="/repo/scripts/demo/houmao-server-interactive-full-pipeline-demo/agents",
         houmao_server=HoumaoServerSectionV1(
             api_base_url="http://127.0.0.1:19989",
             session_name="cao-alice",
@@ -165,51 +164,19 @@ def _terminal_snapshot(*, result: str) -> TerminalSnapshot:
     )
 
 
-def test_install_pair_profile_targets_public_pair_port(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Pair-profile installs should target the public demo-owned pair port."""
+def test_demo_agent_def_dir_path_points_to_tracked_pack_assets(tmp_path: Path) -> None:
+    """Startup should resolve demo-owned native agent definitions from the demo pack."""
 
-    captured: dict[str, object] = {}
-    profile_path = tmp_path / "gpu-kernel-coder.md"
-    profile_path.write_text(
-        "---\nname: gpu-kernel-coder\ndescription: demo\n---\nbody\n", encoding="utf-8"
-    )
-    stdout_path = tmp_path / "install.stdout.log"
-    stderr_path = tmp_path / "install.stderr.log"
+    repo_root = tmp_path / "repo"
+    expected = (
+        repo_root
+        / "scripts"
+        / "demo"
+        / "houmao-server-interactive-full-pipeline-demo"
+        / "agents"
+    ).resolve()
 
-    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        captured["args"] = args[0]
-        captured["cwd"] = kwargs["cwd"]
-        captured["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"ok\n", stderr=b"")
-
-    monkeypatch.setattr(demo_commands.subprocess, "run", _fake_run)
-
-    demo_commands._install_pair_profile(
-        api_base_url="http://127.0.0.1:19989",
-        profile_source=profile_path,
-        provider="codex",
-        env={"HOME": "/demo/server/home"},
-        stdout_path=stdout_path,
-        stderr_path=stderr_path,
-    )
-
-    assert captured["args"] == [
-        demo_commands.sys.executable,
-        "-m",
-        "houmao.srv_ctrl",
-        "install",
-        str(profile_path),
-        "--provider",
-        "codex",
-        "--port",
-        "19989",
-    ]
-    assert captured["cwd"] == str(profile_path.parent)
-    assert captured["env"] == {"HOME": "/demo/server/home"}
-    assert stdout_path.read_text(encoding="utf-8") == "ok\n"
+    assert demo_commands._demo_agent_def_dir_path(repo_root) == expected
 
 
 def test_launch_pair_session_uses_public_detached_compat_command_and_env(
@@ -333,18 +300,14 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     repo_root.mkdir(parents=True, exist_ok=True)
     paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
     env = _demo_env(repo_root)
-    profile_path = (
+    agent_def_dir = (
         repo_root
         / "scripts"
         / "demo"
         / "houmao-server-interactive-full-pipeline-demo"
-        / "profiles"
-        / "gpu-kernel-coder.md"
+        / "agents"
     )
-    profile_path.parent.mkdir(parents=True, exist_ok=True)
-    profile_path.write_text(
-        "---\nname: gpu-kernel-coder\ndescription: demo\n---\nbody\n", encoding="utf-8"
-    )
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
 
     class _FakeClient:
         def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
@@ -359,7 +322,6 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     monkeypatch.setattr(
         demo_commands, "_start_server_process", lambda **kwargs: type("Proc", (), {"pid": 4242})()
     )
-    monkeypatch.setattr(demo_commands, "_install_pair_profile", lambda **kwargs: None)
     monkeypatch.setattr(
         demo_commands,
         "_launch_pair_session",
@@ -435,6 +397,8 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     assert launch_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] == str(paths.runtime_root)
     assert launch_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] == str(paths.registry_root)
     assert launch_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] == str(paths.jobs_root)
+    assert launch_env[AGENT_DEF_DIR_ENV_VAR] == str(agent_def_dir.resolve())
+    assert payload.state.agent_def_dir == str(agent_def_dir.resolve())
 
 
 def test_send_turn_targets_session_name_backed_agent_ref(

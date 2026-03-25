@@ -25,8 +25,6 @@ from .models import (
     HoumaoHeadlessTurnRequest,
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
-    HoumaoInstallAgentProfileRequest,
-    HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -283,19 +281,6 @@ def create_app(
             tmux_window_name=tmux_window_name,
         )
         return resolved_service.register_launch(request_model)
-
-    @app.post("/houmao/agent-profiles/install")
-    def install_agent_profile(
-        agent_source: str,
-        provider: str,
-        working_directory: str | None = None,
-    ) -> HoumaoInstallAgentProfileResponse:
-        request_model = HoumaoInstallAgentProfileRequest(
-            agent_source=agent_source,
-            provider=provider,
-            working_directory=working_directory,
-        )
-        return resolved_service.install_agent_profile(request_model)
 
     @app.get("/houmao/agents")
     def list_managed_agents() -> HoumaoManagedAgentListResponse:

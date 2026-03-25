@@ -14,7 +14,6 @@ from .common import (
     require_supported_houmao_pair,
     resolve_server_base_url,
 )
-from .install import install_command
 from .launch import (
     _launch_session_backed_pair_command,
 )
@@ -50,7 +49,7 @@ def cao_group() -> None:
 
 
 @click.command(name="launch")
-@click.option("--agents", required=True, help="Agent profile to launch")
+@click.option("--agents", required=True, help="Native launch selector to launch")
 @click.option("--session-name", help="Name of the session (default: auto-generated)")
 @click.option("--headless", is_flag=True, help="Launch in detached mode")
 @click.option(
@@ -177,6 +176,5 @@ cao_group.add_command(cao_launch_command)
 cao_group.add_command(flow_group)
 cao_group.add_command(cao_info_command)
 cao_group.add_command(init_command)
-cao_group.add_command(install_command)
 cao_group.add_command(mcp_server_command)
 cao_group.add_command(cao_shutdown_command)

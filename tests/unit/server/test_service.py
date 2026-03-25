@@ -46,7 +46,6 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
-    HoumaoInstallAgentProfileRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoParsedSurface,
@@ -1058,60 +1057,6 @@ def test_shutdown_persists_core_state_without_prior_startup(tmp_path: Path) -> N
     assert control_core.shutdown_calls == 1
 
 
-def test_install_agent_profile_routes_through_control_core(tmp_path: Path) -> None:
-    control_core = _FakeControlCore()
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({}),
-        control_core=control_core,
-    )
-
-    response = service.install_agent_profile(
-        HoumaoInstallAgentProfileRequest(
-            agent_source="projection-demo",
-            provider="codex",
-            working_directory=str(tmp_path),
-        )
-    )
-
-    assert response.success is True
-    assert control_core.install_calls == [("projection-demo", "codex", tmp_path.resolve())]
-    assert "Houmao-managed compatibility profile store" in response.detail
-
-
-def test_install_agent_profile_returns_explicit_server_owned_failure(
-    tmp_path: Path,
-) -> None:
-    install_error = type(
-        "InstallError",
-        (Exception,),
-        {
-            "status_code": 502,
-            "detail": "Pair-owned install failed through the compatibility store.",
-        },
-    )()
-    control_core = _FakeControlCore(
-        install_error=install_error,
-    )
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({}),
-        control_core=control_core,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        service.install_agent_profile(
-            HoumaoInstallAgentProfileRequest(
-                agent_source="projection-demo",
-                provider="codex",
-                working_directory=str(tmp_path),
-            )
-        )
-
-    assert exc_info.value.status_code == 502
-    assert "compatibility store" in str(exc_info.value.detail)
-
-
 def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Path) -> None:
     transport = _FakeTransport({})
     service = HoumaoServerService(
@@ -1502,6 +1447,71 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert "gateway_host" not in recorded_start_kwargs
     assert "gateway_port" not in recorded_start_kwargs
     assert recorded_start_kwargs["registry_launch_authority"] == "external"
+
+
+def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    workdir = tmp_path / "workspace"
+    agent_def_dir = tmp_path / "agent-defs"
+    brain_manifest_path = tmp_path / "brain.yaml"
+    manifest_path = (
+        tmp_path / "runtime" / "sessions" / "claude_headless" / "claude-headless-1" / "manifest.json"
+    )
+    workdir.mkdir()
+    agent_def_dir.mkdir()
+    brain_manifest_path.write_text("inputs:\n  tool: claude\n", encoding="utf-8")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    fake_controller = _FakeHeadlessController(
+        manifest_path=manifest_path,
+        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="AGENTSYS-gpu",
+        agent_id="agent-1234",
+    )
+
+    monkeypatch.setattr(
+        "houmao.server.service.load_brain_manifest",
+        lambda _path: {"inputs": {"tool": "claude"}},
+    )
+    load_role_calls: list[object] = []
+    monkeypatch.setattr(
+        "houmao.server.service.load_role_package",
+        lambda *_args, **_kwargs: load_role_calls.append(True),
+    )
+    recorded_start_kwargs: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.server.service.start_runtime_session",
+        lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
+
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+
+    response = service.launch_headless_agent(
+        HoumaoHeadlessLaunchRequest(
+            tool="claude",
+            working_directory=str(workdir),
+            agent_def_dir=str(agent_def_dir),
+            brain_manifest_path=str(brain_manifest_path),
+            role_name=None,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    assert response.identity.transport == "headless"
+    assert load_role_calls == []
+    assert recorded_start_kwargs["role_name"] is None
 
 
 def test_headless_launch_request_rejects_gateway_fields() -> None:
