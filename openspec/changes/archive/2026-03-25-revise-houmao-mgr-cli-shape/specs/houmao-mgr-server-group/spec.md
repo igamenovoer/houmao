@@ -1,0 +1,69 @@
+## ADDED Requirements
+
+### Requirement: `houmao-mgr server` group exposes server lifecycle commands
+`houmao-mgr` SHALL expose a `server` command group for managing the `houmao-server` process lifecycle.
+
+At minimum, the `server` group SHALL include:
+
+- `start` — start the houmao-server process
+- `stop` — gracefully stop a running houmao-server
+- `status` — display server health, uptime, and active session count
+
+#### Scenario: Operator starts the server through houmao-mgr
+- **WHEN** an operator runs `houmao-mgr server start`
+- **THEN** `houmao-mgr` starts the `houmao-server` process using the same uvicorn startup path as `houmao-server serve`
+- **AND THEN** the server begins accepting HTTP requests on the configured port
+
+#### Scenario: Operator starts the server with configuration options
+- **WHEN** an operator runs `houmao-mgr server start --port 9889 --runtime-root /tmp/houmao`
+- **THEN** `houmao-mgr` passes those configuration options to the server startup path
+- **AND THEN** the server respects the same configuration surface as `houmao-server serve`
+
+#### Scenario: Operator checks server status
+- **WHEN** an operator runs `houmao-mgr server status`
+- **THEN** `houmao-mgr` contacts the server health endpoint
+- **AND THEN** the command displays whether the server is running, its URL, and a summary of active sessions
+
+#### Scenario: Server status reports when no server is running
+- **WHEN** an operator runs `houmao-mgr server status` and no server is reachable
+- **THEN** the command reports that no server is running
+- **AND THEN** it does not raise a Python exception or stack trace
+
+### Requirement: `houmao-mgr server sessions` subgroup exposes session management
+`houmao-mgr` SHALL expose a `server sessions` subgroup for inspecting and managing server-owned sessions.
+
+At minimum, the `server sessions` subgroup SHALL include:
+
+- `list` — list active server-managed sessions
+- `show <session>` — display detail for one session
+- `shutdown` — shutdown sessions (with `--all` or `--session <name>`)
+
+These commands SHALL contact the running `houmao-server` to retrieve or mutate session state.
+
+#### Scenario: Operator lists server sessions
+- **WHEN** an operator runs `houmao-mgr server sessions list`
+- **THEN** `houmao-mgr` queries the running server for active sessions
+- **AND THEN** the command displays session names and their status
+
+#### Scenario: Operator shuts down all server sessions
+- **WHEN** an operator runs `houmao-mgr server sessions shutdown --all`
+- **THEN** `houmao-mgr` requests shutdown of all sessions through the server API
+- **AND THEN** the corresponding tmux sessions are terminated
+
+#### Scenario: Operator shuts down a specific server session
+- **WHEN** an operator runs `houmao-mgr server sessions shutdown --session <name>`
+- **THEN** `houmao-mgr` requests shutdown of only that session through the server API
+- **AND THEN** other sessions remain unaffected
+
+### Requirement: `houmao-mgr server stop` gracefully shuts down the server
+`houmao-mgr server stop` SHALL send a graceful shutdown signal to the running `houmao-server` process.
+
+#### Scenario: Operator stops the server
+- **WHEN** an operator runs `houmao-mgr server stop`
+- **THEN** `houmao-mgr` sends a shutdown request to the server
+- **AND THEN** the server performs its shutdown sequence (persist state, stop supervisor, cleanup)
+
+#### Scenario: Stop reports when no server is running
+- **WHEN** an operator runs `houmao-mgr server stop` and no server is reachable
+- **THEN** the command reports that no server is running to stop
+- **AND THEN** it exits cleanly without an error stack trace

@@ -114,6 +114,9 @@ def build_brain_command(
         missing.append("--cred-profile")
     if missing:
         raise click.ClickException(f"Missing required build inputs: {', '.join(missing)}")
+    assert resolved_tool is not None
+    assert resolved_config_profile is not None
+    assert resolved_cred_profile is not None
 
     try:
         result = build_brain_home(

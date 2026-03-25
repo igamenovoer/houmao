@@ -108,7 +108,7 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 
 Pair-managed `houmao_server_rest` notes:
 
-- delegated `houmao-mgr launch` now seeds the stable gateway subtree through the same runtime-owned gateway publication seam used by direct runtime flows
+- server-backed `houmao_server_rest` sessions seed the stable gateway subtree through the same runtime-owned gateway publication seam used by direct runtime flows
 - that means `attach.json`, `state.json`, queue/bootstrap files, and stable tmux env pointers can exist before any live gateway is attached
 - current-session `houmao-mgr agents gateway attach` still remains invalid until the same logical session is registered under `/houmao/agents/*` on the persisted `api_base_url`
 - tmux window `0` is the only contractual agent surface; non-zero windows remain auxiliary and non-contractual except for the exact live gateway handle recorded in `gateway/run/current-instance.json`

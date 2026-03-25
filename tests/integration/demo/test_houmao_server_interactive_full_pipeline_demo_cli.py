@@ -11,6 +11,7 @@ import houmao.demo.houmao_server_interactive_full_pipeline_demo.cli as demo_cli
 import houmao.demo.houmao_server_interactive_full_pipeline_demo.commands as demo_commands
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
 from houmao.server.models import (
+    HoumaoHeadlessLaunchResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentRequestAcceptedResponse,
 )
@@ -20,12 +21,12 @@ def _managed_snapshot(*, result: str, turn_index: int | None) -> demo_commands.M
     """Build one managed-agent snapshot for integration assertions."""
 
     return demo_commands.ManagedAgentSnapshot(
-        tracked_agent_id="tracked-cao-alice",
+        tracked_agent_id="tracked-alice",
         transport="tui",
         tool="claude",
-        session_name="cao-alice",
+        session_name="alice",
         terminal_id="term-1",
-        manifest_path="/tmp/runtime/sessions/houmao_server_rest/cao-alice/manifest.json",
+        manifest_path="/tmp/runtime/sessions/houmao_server_rest/alice/manifest.json",
         availability="available",
         turn_phase="ready",
         active_turn_id=None,
@@ -96,7 +97,10 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         / "houmao-server-interactive-full-pipeline-demo"
         / "agents"
     )
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    fixture_agent_def_dir = repo_root / "tests" / "fixtures" / "agents"
+    fixture_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    agent_def_dir.parent.mkdir(parents=True, exist_ok=True)
+    agent_def_dir.symlink_to(Path("..") / ".." / ".." / "tests" / "fixtures" / "agents")
 
     calls: dict[str, list[str]] = {"submit_refs": [], "deleted_sessions": []}
     bundle_plan: list[dict[str, str]] = []
@@ -125,9 +129,6 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
             del base_url, timeout_seconds
 
-        def list_sessions(self) -> list[object]:
-            return [type("Session", (), {"id": "cao-alice"})()]
-
         def submit_managed_agent_request(
             self, agent_ref: str, request_model: object
         ) -> HoumaoManagedAgentRequestAcceptedResponse:
@@ -135,7 +136,7 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
             request_kind = getattr(request_model, "request_kind")
             return HoumaoManagedAgentRequestAcceptedResponse(
                 success=True,
-                tracked_agent_id="tracked-cao-alice",
+                tracked_agent_id="tracked-alice",
                 request_id=f"mreq-{len(calls['submit_refs'])}",
                 request_kind=request_kind,
                 disposition="accepted",
@@ -152,10 +153,39 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
             calls["deleted_sessions"].append(session_name)
             return type("DeleteResponse", (), {"success": True})()
 
-        def get_session(self, session_name: str) -> object:
-            return type(
-                "SessionDetail", (), {"terminals": [type("Terminal", (), {"id": "term-1"})()]}
-            )()
+    # Native headless launch mock - returns synchronously without polling
+    def _fake_launch_native_session(
+        *,
+        client: object,
+        provider: str,
+        requested_session_name: str | None,
+        workdir: Path,
+        runtime_root: Path,
+    ) -> HoumaoHeadlessLaunchResponse:
+        session_name = requested_session_name or "alice"
+        manifest_path = runtime_root / "sessions" / "houmao_server_rest" / session_name / "manifest.json"
+        session_root = runtime_root / "sessions" / "houmao_server_rest" / session_name
+        return HoumaoHeadlessLaunchResponse(
+            success=True,
+            detail="Native headless launch successful",
+            tracked_agent_id="tracked-alice",
+            identity=HoumaoManagedAgentIdentity(
+                tracked_agent_id="tracked-alice",
+                transport="tui",
+                tool="claude",
+                session_name=session_name,
+                terminal_id="term-1",
+                runtime_session_id=None,
+                tmux_session_name=session_name,
+                tmux_window_name="gpu-kernel-coder",
+                manifest_path=str(manifest_path),
+                session_root=str(session_root),
+                agent_name=session_name,
+                agent_id=f"AGENTSYS-{session_name}",
+            ),
+            manifest_path=str(manifest_path),
+            session_root=str(session_root),
+        )
 
     monkeypatch.setattr(
         demo_commands,
@@ -175,61 +205,17 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
         "_start_server_process",
         lambda **kwargs: type("Proc", (), {"pid": 4242})(),
     )
-    monkeypatch.setattr(demo_commands, "_launch_pair_session", lambda **kwargs: None)
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_launched_session_name",
-        lambda **kwargs: "cao-alice",
-    )
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_session_detail",
-        lambda **kwargs: object(),
-    )
-    monkeypatch.setattr(
-        demo_commands,
-        "_terminal_id_from_session_detail",
-        lambda **kwargs: "term-1",
-    )
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_session_manifest",
-        lambda **kwargs: (
-            Path(kwargs["runtime_root"])
-            / "sessions"
-            / "houmao_server_rest"
-            / "cao-alice"
-            / "manifest.json"
-        ),
-    )
+    monkeypatch.setattr(demo_commands, "_launch_native_session", _fake_launch_native_session)
     monkeypatch.setattr(
         demo_commands,
         "_load_manifest_bridge",
         lambda path: HoumaoServerSectionV1(
             api_base_url="http://127.0.0.1:19989",
-            session_name="cao-alice",
+            session_name="alice",
             terminal_id="term-1",
             parsing_mode="shadow_only",
             tmux_window_name="gpu-kernel-coder",
             turn_index=0,
-        ),
-    )
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_managed_agent_identity",
-        lambda **kwargs: HoumaoManagedAgentIdentity(
-            tracked_agent_id="tracked-cao-alice",
-            transport="tui",
-            tool="claude",
-            session_name="cao-alice",
-            terminal_id="term-1",
-            runtime_session_id=None,
-            tmux_session_name="cao-alice",
-            tmux_window_name="gpu-kernel-coder",
-            manifest_path="/tmp/runtime/sessions/houmao_server_rest/cao-alice/manifest.json",
-            session_root="/tmp/runtime/sessions/houmao_server_rest/cao-alice",
-            agent_name="cao-alice",
-            agent_id="AGENTSYS-cao-alice",
         ),
     )
     monkeypatch.setattr(demo_commands, "HoumaoServerClient", _FakeClient)
@@ -290,13 +276,14 @@ def test_cli_end_to_end_workflow_uses_demo_owned_server_state_and_artifacts(
     report = json.loads((workspace_root / "report.json").read_text(encoding="utf-8"))
     state = json.loads((workspace_root / "state.json").read_text(encoding="utf-8"))
 
-    assert inspect_payload["managed_agent"]["tracked_agent_id"] == "tracked-cao-alice"
+    # Native launch uses session name directly (no cao- prefix)
+    assert inspect_payload["managed_agent"]["tracked_agent_id"] == "tracked-alice"
     assert turn_payload["request_kind"] == "submit_prompt"
     assert verify_payload["status"] == "ok"
     assert verify_payload["accepted_prompt_count"] == 1
     assert report["current_managed_agent"]["last_turn_result"] == "success"
-    assert state["agent_def_dir"] == str(agent_def_dir.resolve())
+    assert state["agent_def_dir"] == str(agent_def_dir)
     assert state["active"] is False
     assert stop_payload["server_stop_status"] == "stopped"
-    assert calls["submit_refs"] == ["cao-alice"]
-    assert calls["deleted_sessions"] == ["cao-alice"]
+    assert calls["submit_refs"] == ["alice"]
+    assert calls["deleted_sessions"] == ["alice"]

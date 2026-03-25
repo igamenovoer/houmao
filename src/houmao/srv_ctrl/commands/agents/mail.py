@@ -8,36 +8,30 @@ from pathlib import Path
 import click
 
 from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentUploadV1
-from houmao.server.models import (
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailReplyRequest,
-    HoumaoManagedAgentMailSendRequest,
-)
 
-from ..common import (
-    emit_json,
-    pair_port_option,
-    pair_request,
-    resolve_body_text,
-    resolve_managed_agent_identity,
-    resolve_pair_client,
+from ..common import emit_json, pair_port_option, resolve_body_text
+from ..managed_agents import (
+    mail_check,
+    mail_reply,
+    mail_send,
+    mail_status,
+    resolve_managed_agent_target,
 )
 
 
 @click.group(name="mail")
 def mail_group() -> None:
-    """Server-backed managed-agent mailbox follow-up commands."""
+    """Managed-agent mailbox follow-up commands."""
 
 
 @mail_group.command(name="status")
 @pair_port_option()
 @click.argument("agent_ref")
 def status_mail_command(port: int | None, agent_ref: str) -> None:
-    """Show pair-owned mailbox status for one managed agent."""
+    """Show mailbox status for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(pair_request(client.get_managed_agent_mail_status, resolved.tracked_agent_id))
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(mail_status(target))
 
 
 @mail_group.command(name="check")
@@ -53,21 +47,10 @@ def check_mail_command(
     since: str | None,
     agent_ref: str,
 ) -> None:
-    """Check pair-owned mailbox contents for one managed agent."""
+    """Check mailbox contents for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(
-        pair_request(
-            client.check_managed_agent_mail,
-            resolved.tracked_agent_id,
-            HoumaoManagedAgentMailCheckRequest(
-                unread_only=unread_only,
-                limit=limit,
-                since=since,
-            ),
-        )
-    )
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(mail_check(target, unread_only=unread_only, limit=limit, since=since))
 
 
 @mail_group.command(name="send")
@@ -89,21 +72,17 @@ def send_mail_command(
     attachments: tuple[str, ...],
     agent_ref: str,
 ) -> None:
-    """Send one pair-owned mailbox message for a managed agent."""
+    """Send one mailbox message for a managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
     emit_json(
-        pair_request(
-            client.send_managed_agent_mail,
-            resolved.tracked_agent_id,
-            HoumaoManagedAgentMailSendRequest(
-                to=list(to_recipients),
-                cc=list(cc_recipients),
-                subject=subject,
-                body_content=resolve_body_text(body_content=body_content, body_file=body_file),
-                attachments=_resolve_attachment_uploads(attachments),
-            ),
+        mail_send(
+            target,
+            to_recipients=list(to_recipients),
+            cc_recipients=list(cc_recipients),
+            subject=subject,
+            body_content=resolve_body_text(body_content=body_content, body_file=body_file),
+            attachments=_resolve_attachment_uploads(attachments),
         )
     )
 
@@ -127,19 +106,15 @@ def reply_mail_command(
     attachments: tuple[str, ...],
     agent_ref: str,
 ) -> None:
-    """Reply through the pair-owned mailbox facade for one managed agent."""
+    """Reply to one mailbox message for a managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
     emit_json(
-        pair_request(
-            client.reply_managed_agent_mail,
-            resolved.tracked_agent_id,
-            HoumaoManagedAgentMailReplyRequest(
-                message_ref=message_ref,
-                body_content=resolve_body_text(body_content=body_content, body_file=body_file),
-                attachments=_resolve_attachment_uploads(attachments),
-            ),
+        mail_reply(
+            target,
+            message_ref=message_ref,
+            body_content=resolve_body_text(body_content=body_content, body_file=body_file),
+            attachments=_resolve_attachment_uploads(attachments),
         )
     )
 

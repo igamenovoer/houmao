@@ -63,6 +63,14 @@ OperatorStatus = Literal[
 CompletionAuthority = Literal["turn_anchored", "unanchored_background"]
 TurnAnchorState = Literal["active", "absent", "lost"]
 
+__all__ = (
+    "CompletionState",
+    "ParseStatus",
+    "ProcessState",
+    "ReadinessState",
+    "TransportState",
+)
+
 
 class _HoumaoModel(BaseModel):
     """Shared strict base model for Houmao payloads."""

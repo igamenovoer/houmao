@@ -58,6 +58,10 @@ def _stub_tmux(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *, session_name, env_vars: None,
     )
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",
+        lambda *, session_name: None,
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.ensure_codex_home_bootstrap",
         lambda *, home_path, env, working_directory: None,
     )

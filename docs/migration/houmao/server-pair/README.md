@@ -33,31 +33,17 @@ Implemented server scope includes:
 
 ### `houmao-mgr`
 
-`houmao-mgr` remains the pair-management CLI and keeps the explicit `cao` namespace, but the implementation is now Houmao-owned.
+`houmao-mgr` remains the pair-management CLI, but the supported command tree is now simplified and Houmao-owned end to end.
 
 Implemented CLI scope includes:
 
-- top-level pair commands:
-  - `launch`
-  - `agents`
-  - `brains`
-  - `admin`
-- explicit CAO-compatible namespace under `houmao-mgr cao`:
-  - `flow`
-  - `info`
-  - `init`
-  - `launch`
-  - `mcp-server`
-  - `shutdown`
-- pair-routed `cao launch`, `cao info`, and `cao shutdown`
-- local Houmao-owned compatibility helpers for `cao flow` and `cao init`
-- explicit retirement guidance for `cao mcp-server` instead of passthrough to standalone CAO
-- explicit launch provider coverage for `kiro_cli`, `claude_code`, `codex`, `gemini_cli`, `kimi_cli`, and `q_cli`
-- terminal-backed launch follow-up registration back into `houmao-server`
-- native top-level `launch --headless` translation into the Houmao headless launch API
-- `agents gateway attach` current-session and explicit-target flows
-- `agents prompt`, `agents mail ...`, and `agents turn ...` for covered pair-native follow-up workflows
+- `server start|stop|status|sessions ...` for server lifecycle and server-owned session management
+- `agents launch|list|show|state|history|prompt|interrupt|stop` for managed-agent lifecycle
+- `agents gateway ...`, `agents mail ...`, and `agents turn ...` for follow-up workflows
 - local `brains build` and `admin cleanup-registry` wrappers for non-server authority
+- direct local `agents launch` for Codex, Claude Code, and Gemini CLI providers without requiring `houmao-server`
+
+The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` are retired from the supported surface.
 
 ### Runtime Integration
 
@@ -70,7 +56,7 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 ## What Changed
 
 - `houmao-server` no longer supervises a child `cao-server` for the supported pair path.
-- `houmao-mgr cao ...` no longer depends on an installed `cao` executable for the supported command family.
+- `houmao-mgr` no longer depends on the explicit `cao` compatibility namespace for the supported command family.
 - pair startup no longer includes public compatibility-profile install commands.
 - standalone `houmao-cao-server` is retired and fails fast with migration guidance.
 - standalone `houmao-cli` workflows that would create or control raw `backend="cao_rest"` sessions are retired and fail fast with migration guidance.
@@ -79,7 +65,7 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 
 - `houmao-cli` remains the runtime and agent lifecycle CLI.
 - the public pair boundary remains `houmao-server + houmao-mgr`.
-- the explicit `/cao/*` HTTP namespace and `houmao-mgr cao ...` CLI namespace remain present for compatibility.
+- the explicit `/cao/*` HTTP namespace remains present for compatibility, but CLI guidance now points to `houmao-mgr server ...` and `houmao-mgr agents ...`.
 - pair-managed runtime artifacts, gateway attachability publication, and reserved tmux window `0` behavior remain centered on `houmao_server_rest`.
 
 ## Recommended Reading Order

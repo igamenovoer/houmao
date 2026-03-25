@@ -9,9 +9,9 @@ import shlex
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -45,6 +45,8 @@ from .models import (
     TerminalRecordPaneSnapshot,
     TerminalRecordPaths,
     TerminalRecordTarget,
+    InputEventSource,
+    VisualRecordingKind,
     append_ndjson,
     load_labels,
     load_live_state,
@@ -351,7 +353,9 @@ def start_terminal_record(
     recorder_session_name = _recorder_session_name(run_id=selected_run_root.name)
     if mode == "active":
         attach_command = f"env -u TMUX tmux attach-session -t {recorder_session_name}"
-    visual_recording_kind = "interactive_client" if mode == "active" else "readonly_observer"
+    visual_recording_kind: VisualRecordingKind = (
+        "interactive_client" if mode == "active" else "readonly_observer"
+    )
     input_capture_level: InputCaptureLevel = (
         "authoritative_managed" if mode == "active" else "output_only"
     )
@@ -923,10 +927,8 @@ def _build_recorder_shell_command(manifest: TerminalRecordManifest) -> str:
     return shlex.join(record_args)
 
 
-def _duration_from_seconds(value: float):
+def _duration_from_seconds(value: float) -> timedelta:
     """Return one timedelta from seconds without importing globally."""
-
-    from datetime import timedelta
 
     return timedelta(seconds=value)
 
@@ -1040,12 +1042,13 @@ def _load_input_events(path: Path) -> list[TerminalRecordInputEvent]:
             if not line:
                 continue
             payload = json.loads(line)
+            source = str(payload["source"])
             events.append(
                 TerminalRecordInputEvent(
                     event_id=str(payload["event_id"]),
                     elapsed_seconds=float(payload["elapsed_seconds"]),
                     ts_utc=str(payload["ts_utc"]),
-                    source=str(payload["source"]),
+                    source=cast(InputEventSource, source),
                     sequence=str(payload["sequence"]),
                     escape_special_keys=bool(payload["escape_special_keys"]),
                     tmux_target=(

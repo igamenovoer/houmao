@@ -314,20 +314,20 @@ class TuiTrackerSession:
                             reason="visible_draft",
                         )
                     )
-                    default_phase: TurnPhase = (
+                    visible_draft_phase: TurnPhase = (
                         "ready" if effective_signals.ready_posture == "yes" else "unknown"
                     )
                     self._log_debug(
                         "snapshot_decision",
                         at_seconds=at_seconds,
                         decision="visible_draft_overrides_terminal_signal",
-                        default_phase=default_phase,
+                        default_phase=visible_draft_phase,
                         effective_signals=_summarize_detected_turn_signals(effective_signals),
                     )
                     self._emit_state_from_signals_locked(
                         signals=effective_signals,
                         note="visible_draft_overrides_terminal_signal",
-                        turn_phase=default_phase,
+                        turn_phase=visible_draft_phase,
                         last_turn_result=last_turn_result,
                         last_turn_source=last_turn_source,
                     )

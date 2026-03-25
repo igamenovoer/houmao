@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from reactivex.scheduler import TimeoutScheduler
 from rich.console import Console, Group
@@ -887,7 +887,7 @@ def _state_style(*, label: str, value: str) -> str:
     return "white"
 
 
-def _trace_writer(*, paths: InteractiveWatchPaths):
+def _trace_writer(*, paths: InteractiveWatchPaths) -> Callable[[str, dict[str, Any]], None]:
     """Return one dense-trace writer closure."""
 
     def _write(category: str, payload: dict[str, Any]) -> None:

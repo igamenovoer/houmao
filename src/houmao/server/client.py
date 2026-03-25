@@ -111,6 +111,15 @@ class HoumaoServerClient(CaoRestClient):
             HoumaoCurrentInstance,
         )
 
+    def shutdown_server(self) -> CaoSuccessResponse:
+        """Call `POST /houmao/server/shutdown`."""
+
+        return self._request_root_model(
+            "POST",
+            "/houmao/server/shutdown",
+            CaoSuccessResponse,
+        )
+
     def terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Call `GET /houmao/terminals/{terminal_id}/state`."""
 

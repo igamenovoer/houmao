@@ -8,6 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -277,7 +278,7 @@ class CompatibilityTmuxController:
             raise CompatibilityTmuxError(f"Failed to run tmux command `{args}`: {exc}") from exc
 
     @staticmethod
-    def _tmux_detail(result: subprocess.CompletedProcess[object]) -> str:
+    def _tmux_detail(result: subprocess.CompletedProcess[Any]) -> str:
         """Return concise tmux stderr or stdout detail."""
 
         stderr = (
