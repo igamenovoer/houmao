@@ -54,25 +54,18 @@ For pair-managed agents, the preferred operator surface is still the managed-age
 
 Within that pair, `houmao-mgr` is split deliberately:
 
-- top-level `launch` and `install` remain Houmao-owned pair shortcuts
-- `agents` is the server-backed managed-agent command family
+- `server` is the server lifecycle and server-session family
+- `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
 - `admin` is the local maintenance family
-- `houmao-mgr cao ...` remains the explicit CAO-compatible namespace
 
-That `cao` namespace is also Houmao-owned in the supported pair:
+The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` are retired from the supported command tree.
 
-- `cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
-- `cao flow` and `cao init` are local compatibility helpers
-- `cao mcp-server` is retired and fails explicitly with migration guidance
+Useful pair runtime controls:
 
-Useful pair timeout overrides:
-
-- Session-backed `houmao-mgr launch` and `houmao-mgr cao launch` accept `--compat-http-timeout-seconds` and `--compat-create-timeout-seconds`.
-- When those flags are omitted, session-backed launch falls back to `HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS` and `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS`.
-- Those compatibility timeout flags do not apply to top-level native headless launch. `houmao-mgr launch --headless` rejects them explicitly.
-- `houmao-server serve` exposes `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds` for the server-owned synchronous compatibility startup chain.
-- If server-side compatibility waits are raised above the defaults, also raise the client create timeout so the session-backed launch caller does not time out first.
+- `houmao-mgr agents launch --agents <selector> --provider <provider>` performs local brain build plus launch without requiring a running `houmao-server`.
+- `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
+- `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
 
 For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
 
@@ -97,7 +90,7 @@ Command reminders:
 - `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
 - `send-keys` is the low-level CAO control-input surface for resumed legacy `cao_rest` sessions; new standalone `backend="cao_rest"` operator workflows are retired in favor of `houmao-server` with `houmao-mgr`.
-- The explicit `houmao-mgr cao ...` namespace remains the compatibility layer. Managed-agent routes and `agents ...` commands are the preferred phase-1 control seam; CAO compatibility stays outside that seam rather than redefining it.
+- Managed-agent routes and `agents ...` commands are the preferred pair seam. The retired CAO compatibility namespace is no longer part of the supported operator workflow.
 
 For the dedicated mailbox quickstart, contracts, and operational guidance, see [Mailbox Reference](mailbox/index.md).
 

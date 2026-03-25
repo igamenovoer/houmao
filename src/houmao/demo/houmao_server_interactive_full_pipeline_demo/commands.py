@@ -19,8 +19,7 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_agent_identity_name,
 )
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
-from houmao.agents.realm_controller.manifest import default_manifest_path, load_session_manifest
-from houmao.cao.models import CaoSessionDetail
+from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.cao.rest_client import CaoApiError
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     DEFAULT_AGENT_PROFILE,
@@ -49,6 +48,7 @@ from houmao.owned_paths import (
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
+    HoumaoHeadlessLaunchResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentInterruptRequest,
@@ -56,6 +56,7 @@ from houmao.server.models import (
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalStateResponse,
 )
+from houmao.srv_ctrl.commands.runtime_artifacts import materialize_headless_launch_request
 
 
 def start_demo(
@@ -82,13 +83,15 @@ def start_demo(
     api_base_url = f"http://127.0.0.1:{selected_port}"
     agent_def_dir = _demo_agent_def_dir_path(env.repo_root)
     if not agent_def_dir.is_dir():
-        raise DemoWorkflowError(f"Tracked demo agent-definition root not found: {agent_def_dir}")
+        raise DemoWorkflowError(
+            f"Tracked demo-local agent-definition root not found: {agent_def_dir}"
+        )
 
     runtime_env = _build_demo_environment(paths=paths)
     runtime_env[AGENT_DEF_DIR_ENV_VAR] = str(agent_def_dir)
     server_process: subprocess.Popen[bytes] | None = None
     client: HoumaoServerClient | None = None
-    actual_session_name: str | None = _expected_session_name(requested_session_name)
+    actual_session_name: str | None = None
     try:
         server_process = _start_server_process(
             api_base_url=api_base_url,
@@ -101,41 +104,21 @@ def start_demo(
         )
 
         client = HoumaoServerClient(api_base_url, timeout_seconds=5.0)
-        existing_session_names = _list_session_names(client)
-        _launch_pair_session(
-            api_base_url=api_base_url,
+        launch_response = _launch_native_session(
+            client=client,
             provider=provider,
             requested_session_name=requested_session_name,
             workdir=paths.workdir,
-            env=runtime_env,
-            compat_create_timeout_seconds=env.compat_create_timeout_seconds,
-        )
-        actual_session_name = _wait_for_launched_session_name(
-            client=client,
-            existing_session_names=existing_session_names,
-            expected_session_name=actual_session_name,
-            timeout_seconds=env.request_settle_timeout_seconds,
-        )
-        session_detail = _wait_for_session_detail(
-            client=client,
-            session_name=actual_session_name,
-            timeout_seconds=env.request_settle_timeout_seconds,
-        )
-        terminal_id = _terminal_id_from_session_detail(
-            session_detail=session_detail,
-            session_name=actual_session_name,
-        )
-        manifest_path = _wait_for_session_manifest(
             runtime_root=paths.runtime_root,
-            session_name=actual_session_name,
-            timeout_seconds=env.request_settle_timeout_seconds,
         )
+
+        # Extract identifiers directly from native launch response (no polling needed)
+        actual_session_name = launch_response.identity.session_name
+        terminal_id = launch_response.identity.terminal_id
+        manifest_path = Path(launch_response.manifest_path)
+        tracked_agent_id = launch_response.tracked_agent_id
+
         bridge = _load_manifest_bridge(manifest_path)
-        managed_identity = _wait_for_managed_agent_identity(
-            client=client,
-            agent_ref=actual_session_name,
-            timeout_seconds=env.request_settle_timeout_seconds,
-        )
     except Exception as exc:
         if actual_session_name is not None:
             _best_effort_delete_session(
@@ -180,7 +163,7 @@ def start_demo(
         session_root=str(manifest_path.parent.resolve()),
         session_name=actual_session_name,
         terminal_id=terminal_id,
-        tracked_agent_id=managed_identity.tracked_agent_id,
+        tracked_agent_id=tracked_agent_id,
         runtime_root=str(paths.runtime_root),
         registry_root=str(paths.registry_root),
         jobs_root=str(paths.jobs_root),
@@ -653,148 +636,43 @@ def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> Non
     )
 
 
-def _launch_pair_session(
+def _launch_native_session(
     *,
-    api_base_url: str,
+    client: HoumaoServerClient,
     provider: str,
     requested_session_name: str | None,
     workdir: Path,
-    env: dict[str, str],
-    compat_create_timeout_seconds: float,
-) -> None:
-    """Launch one detached TUI session through the public compatibility CLI."""
-
-    command = [
-        sys.executable,
-        "-m",
-        "houmao.srv_ctrl",
-        "cao",
-        "launch",
-        "--headless",
-        "--yolo",
-        "--agents",
-        DEFAULT_AGENT_PROFILE,
-        "--provider",
-        provider,
-        "--port",
-        api_base_url.rsplit(":", 1)[-1],
-        "--compat-create-timeout-seconds",
-        str(compat_create_timeout_seconds),
-    ]
-    if requested_session_name is not None and requested_session_name.strip():
-        command.extend(["--session-name", requested_session_name.strip()])
-
-    result = subprocess.run(
-        command,
-        cwd=str(workdir.resolve()),
-        check=False,
-        capture_output=True,
-        env=env,
-    )
-    if result.returncode != 0:
-        detail = (
-            result.stderr.decode("utf-8", errors="replace").strip()
-            or result.stdout.decode("utf-8", errors="replace").strip()
-            or "unknown launch error"
-        )
-        raise DemoWorkflowError(
-            "Pair-managed detached TUI launch failed via "
-            "`houmao-mgr cao launch --headless`: "
-            f"{detail}"
-        )
-
-
-def _wait_for_launched_session_name(
-    *,
-    client: HoumaoServerClient,
-    existing_session_names: set[str],
-    expected_session_name: str | None,
-    timeout_seconds: float,
-) -> str:
-    """Wait until detached compatibility launch produces one new CAO-compatible session name."""
-
-    deadline = time.monotonic() + timeout_seconds
-    last_error = "no new session appeared"
-    while time.monotonic() < deadline:
-        try:
-            session_names = _list_session_names(client)
-        except Exception as exc:
-            last_error = str(exc)
-            time.sleep(0.25)
-            continue
-        if expected_session_name is not None and expected_session_name in session_names:
-            return expected_session_name
-        new_names = session_names - existing_session_names
-        if len(new_names) == 1:
-            return next(iter(new_names))
-        if len(new_names) > 1:
-            raise DemoWorkflowError(
-                "Unable to identify the delegated pair launch uniquely; multiple new sessions "
-                f"appeared: {sorted(new_names)!r}"
-            )
-        time.sleep(0.25)
-    raise DemoWorkflowError(
-        "Timed out waiting for a new detached compatibility session to appear: "
-        f"{last_error}"
-    )
-
-
-def _wait_for_session_detail(
-    *,
-    client: HoumaoServerClient,
-    session_name: str,
-    timeout_seconds: float,
-) -> CaoSessionDetail:
-    """Wait until a launched session is visible through Houmao server queries."""
-
-    deadline = time.monotonic() + timeout_seconds
-    last_error = "session did not appear"
-    while time.monotonic() < deadline:
-        try:
-            payload = client.get_session(session_name)
-        except Exception as exc:
-            last_error = str(exc)
-            time.sleep(0.25)
-            continue
-        if payload.terminals:
-            return payload
-        last_error = f"session `{session_name}` had no terminals yet"
-        time.sleep(0.25)
-    raise DemoWorkflowError(
-        f"Timed out waiting for session registration for `{session_name}`: {last_error}"
-    )
-
-
-def _terminal_id_from_session_detail(*, session_detail: CaoSessionDetail, session_name: str) -> str:
-    """Extract the registered terminal id from one session detail payload."""
-
-    if not session_detail.terminals:
-        raise DemoWorkflowError(f"Session `{session_name}` returned no terminals.")
-    terminal_id = session_detail.terminals[0].id.strip()
-    if not terminal_id:
-        raise DemoWorkflowError(f"Session `{session_name}` returned an empty terminal id.")
-    return terminal_id
-
-
-def _wait_for_session_manifest(
-    *,
     runtime_root: Path,
-    session_name: str,
-    timeout_seconds: float,
-) -> Path:
-    """Wait until the delegated runtime manifest exists on disk."""
+) -> HoumaoHeadlessLaunchResponse:
+    """Launch one detached TUI session through the native headless launch API."""
 
-    manifest_path = default_manifest_path(
-        runtime_root, "houmao_server_rest", session_name
-    ).resolve()
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if manifest_path.is_file():
-            return manifest_path
-        time.sleep(0.25)
-    raise DemoWorkflowError(
-        f"Timed out waiting for the delegated runtime manifest to appear at `{manifest_path}`."
+    request_model = materialize_headless_launch_request(
+        runtime_root=runtime_root,
+        provider=provider,
+        agent_profile=DEFAULT_AGENT_PROFILE,
+        working_directory=workdir,
     )
+    # Override session name if explicitly requested
+    if requested_session_name is not None and requested_session_name.strip():
+        request_model.agent_name = requested_session_name.strip()
+
+    try:
+        response = client.launch_headless_agent(request_model)
+    except CaoApiError as exc:
+        raise DemoWorkflowError(f"Native headless launch failed: {exc.detail}") from exc
+    except Exception as exc:
+        raise DemoWorkflowError(f"Native headless launch failed: {exc}") from exc
+
+    return response
+
+
+# Note: Native headless launch is synchronous; polling helpers below are legacy CAO-only.
+# def _wait_for_launched_session_name(...)
+# def _wait_for_session_detail(...)
+# def _terminal_id_from_session_detail(...)
+# def _wait_for_session_manifest(...)
+# def _wait_for_managed_agent_identity(...)
+# def _list_session_names(...)
 
 
 def _load_manifest_bridge(manifest_path: Path) -> HoumaoServerSectionV1:
@@ -1315,7 +1193,7 @@ def _server_health_ok(api_base_url: str) -> bool:
 
 
 def _demo_agent_def_dir_path(repo_root: Path) -> Path:
-    """Return the tracked native agent-definition root for the demo."""
+    """Return the tracked demo-local agent-definition path for the demo."""
 
     return (
         repo_root.resolve()
@@ -1323,13 +1201,7 @@ def _demo_agent_def_dir_path(repo_root: Path) -> Path:
         / "demo"
         / "houmao-server-interactive-full-pipeline-demo"
         / "agents"
-    ).resolve()
-
-
-def _list_session_names(client: HoumaoServerClient) -> set[str]:
-    """Return the current CAO-compatible session names visible through the pair."""
-
-    return {session.id for session in client.list_sessions()}
+    )
 
 
 def _select_port(requested_port: int | None) -> int:
@@ -1351,15 +1223,6 @@ def _port_is_available(port: int) -> bool:
         except OSError:
             return False
     return True
-
-
-def _expected_session_name(requested_session_name: str | None) -> str | None:
-    """Return the expected resolved CAO-compatible session name when explicit."""
-
-    if requested_session_name is None or not requested_session_name.strip():
-        return None
-    stripped = requested_session_name.strip()
-    return stripped if stripped.startswith("cao-") else f"cao-{stripped}"
 
 
 def _load_json_file(path: Path, *, context: str) -> Any:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import re
 import sqlite3
 from pathlib import Path
+from typing import Literal
 
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditRecord,
@@ -20,6 +21,7 @@ from .models import ConversationEvent, ConversationProgressSummary, DemoState
 _THREAD_KEY_PATTERN = re.compile(r"^Thread-Key:\s*(?P<thread_key>.+?)\s*$", re.MULTILINE)
 _ROUND_PATTERN = re.compile(r"^Round:\s*(?P<round>\d+)\s*$", re.MULTILINE)
 _SUBJECT_ROUND_PATTERN = re.compile(r"\bRound\s+(?P<round>\d+)\b")
+ParticipantRole = Literal["initiator", "responder"]
 
 
 @dataclass(frozen=True)
@@ -31,7 +33,7 @@ class MailboxMessageRecord:
     created_at_utc: str
     subject: str
     sender_address: str
-    role: str
+    role: ParticipantRole
     tracked_agent_id: str
     round_index: int
 
@@ -185,7 +187,7 @@ def _load_mailbox_messages(state: DemoState) -> list[MailboxMessageRecord]:
     sqlite_path = (state.mailbox_root / "index.sqlite").resolve()
     if not sqlite_path.is_file():
         return []
-    role_by_address = {
+    role_by_address: dict[str, tuple[ParticipantRole, str]] = {
         state.initiator.mailbox_address: ("initiator", state.initiator.tracked_agent_id),
         state.responder.mailbox_address: ("responder", state.responder.tracked_agent_id),
     }

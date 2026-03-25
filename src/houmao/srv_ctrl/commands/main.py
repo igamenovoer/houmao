@@ -7,20 +7,22 @@ import click
 from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
-from .cao import cao_group
-from .launch import launch_command
+from .server import server_group
 
 
-@click.group(name="houmao-mgr")
-def cli() -> None:
-    """Houmao pair CLI with native and explicit CAO-compatible command families."""
+@click.group(name="houmao-mgr", invoke_without_command=True)
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """Houmao pair CLI with native server and managed-agent command families."""
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-cli.add_command(cao_group)
 cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
-cli.add_command(launch_command)
+cli.add_command(server_group)
 
 
 def main(argv: list[str] | None = None) -> int:

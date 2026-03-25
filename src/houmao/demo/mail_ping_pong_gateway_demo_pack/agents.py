@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Literal, Mapping
 
 from houmao.agents.brain_builder import (
     BuildRequest,
@@ -39,6 +39,7 @@ from .models import (
 )
 
 GitRunner = Callable[[list[str], Path, dict[str, str] | None], subprocess.CompletedProcess[str]]
+ParticipantRole = Literal["initiator", "responder"]
 
 
 class DemoAgentError(RuntimeError):
@@ -147,7 +148,7 @@ def launch_participant(
     participant: ParticipantParameters,
     build_result: BuildResult,
     working_directory: Path,
-    role: str,
+    role: ParticipantRole,
 ) -> ParticipantState:
     """Launch one managed headless participant through `houmao-server`."""
 

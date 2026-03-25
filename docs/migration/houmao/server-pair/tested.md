@@ -3,8 +3,8 @@
 This implementation does not claim unlimited CAO parity. The verification boundary is explicit:
 
 - CAO-compatible `/cao/*` HTTP routes are tested as request-surface and local-dispatch contracts owned by `houmao-server`
-- `houmao-mgr cao ...` is tested as a Houmao-owned compatibility namespace, with either pair-routed behavior or local compatibility helpers depending on the subcommand
-- Houmao-owned extensions, tracking, gateway, managed-agent, and native-selector launch behavior are tested directly for correctness
+- retired `houmao-mgr cao ...` and top-level `houmao-mgr launch` surfaces are no longer part of the supported CLI verification boundary
+- Houmao-owned server, managed-agent, gateway, and native-selector launch behavior are tested directly for correctness
 
 ## Compatibility Source Of Truth
 
@@ -49,24 +49,25 @@ CLI-side verification covers the contract Houmao owns at the `houmao-mgr` bounda
 
 Verified areas:
 
-- pinned upstream CAO command-family inventory matches `houmao-mgr cao`
-- local compatibility helper behavior for:
-  - `cao flow`
-  - `cao init`
-- explicit retirement guidance for:
-  - `cao mcp-server`
-- pair-routed compatibility wrapper behavior for:
-  - `cao info`
-  - `cao shutdown`
-  - `cao launch`
-- Houmao-owned top-level command behavior for:
-  - `launch`
-  - `launch --headless`
+- root help and supported top-level inventory for:
+  - `server`
+  - `agents`
+  - `brains`
+  - `admin`
+- `server` lifecycle and session-management behavior for:
+  - `server start`
+  - `server status`
+  - `server stop`
+  - `server sessions list`
+  - `server sessions show`
+  - `server sessions shutdown`
+- `agents` behavior for:
+  - `agents launch`
   - `agents gateway attach <agent-ref> --port <public-port>`
   - `agents gateway attach` current-session resolution from tmux-published gateway metadata
   - `agents prompt`, `agents mail ...`, and `agents turn ...`
-  - `brains build`
-  - `admin cleanup-registry`
+- `brains build`
+- `admin cleanup-registry`
 
 Primary test file:
 

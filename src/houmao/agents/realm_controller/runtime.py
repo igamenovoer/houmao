@@ -635,6 +635,7 @@ def start_runtime_session(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    tmux_session_name: str | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
@@ -765,7 +766,7 @@ def start_runtime_session(
         cao_profile_store_dir=cao_profile_store_dir,
         session_manifest_path=manifest_path,
         agent_identity=(
-            resolved_runtime_identity.tmux_session_name
+            tmux_session_name or resolved_runtime_identity.tmux_session_name
             if resolved_runtime_identity is not None
             else None
         ),

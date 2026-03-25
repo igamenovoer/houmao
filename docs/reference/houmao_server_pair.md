@@ -6,7 +6,6 @@ The intent of this pair is narrow and explicit:
 
 - `houmao-server` is the public HTTP authority
 - `houmao-mgr` is the pair-management CLI
-- the explicit `cao` subgroup remains as the CAO-compatible command family
 - mixed pairs such as `houmao-server + cao` or `cao-server + houmao-mgr` are unsupported
 
 For the deeper explanation of live terminal tracking and managed-agent state, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
@@ -26,50 +25,28 @@ That exact commit is the parity oracle for the CAO-compatible HTTP and CLI behav
 Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes top-level pair commands plus the explicit `cao` compatibility namespace
+- `houmao-mgr`: exposes `server`, `agents`, `brains`, and `admin`
 - `houmao-cli`: remains available for uncovered or intentionally runtime-local workflows
 
 Representative usage:
 
 ```bash
-houmao-server serve --api-base-url http://127.0.0.1:9889
-AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider codex
-houmao-mgr cao info --port 9889
-houmao-mgr cao flow list --all
-houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider codex
-houmao-mgr cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
-houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
-houmao-mgr agents prompt cao-gpu --prompt "Summarize the current state."
-houmao-mgr agents gateway attach cao-gpu --port 9889
+houmao-mgr server start --api-base-url http://127.0.0.1:9889
+AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
+houmao-mgr server status --port 9889
+houmao-mgr server sessions list --port 9889
+houmao-mgr agents launch --agents gpu-kernel-coder --provider codex --headless
+houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code
+houmao-mgr agents prompt AGENTSYS-gpu --prompt "Summarize the current state."
+houmao-mgr agents gateway attach AGENTSYS-gpu
 houmao-mgr agents gateway attach
 houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
 houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
-## Compatibility Launch Timeouts
+## Server Startup Controls
 
-Session-backed compatibility launch now has separate timeout budgets for lightweight client requests versus synchronous create operations.
-
-- Default compatibility request timeout: `15` seconds
-- Default compatibility create timeout for `POST /cao/sessions` and `POST /cao/sessions/{session_name}/terminals`: `75` seconds
-
-Operator overrides for session-backed launch:
-
-- `houmao-mgr launch ... --compat-http-timeout-seconds <seconds>`
-- `houmao-mgr launch ... --compat-create-timeout-seconds <seconds>`
-- `houmao-mgr cao launch ... --compat-http-timeout-seconds <seconds>`
-- `houmao-mgr cao launch ... --compat-create-timeout-seconds <seconds>`
-
-Environment fallback when those flags are omitted:
-
-- `HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS`
-- `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS`
-
-Precedence is `CLI flag > environment variable > built-in default`.
-
-These compatibility timeout controls apply only to session-backed launch. Top-level `houmao-mgr launch --headless` uses the native managed-headless route and rejects the compatibility-only timeout flags instead of silently ignoring them.
-
-`houmao-server` also owns the bounded synchronous waits inside compatibility session and terminal creation. The `serve` command now exposes:
+`houmao-mgr server start` and `houmao-server serve` share the same server startup flag surface. That server-owned startup chain exposes:
 
 - `--compat-shell-ready-timeout-seconds` with default `10.0`
 - `--compat-shell-ready-poll-interval-seconds` with default `0.5`
@@ -82,17 +59,10 @@ Setting `--compat-codex-warmup-seconds 0` disables the extra Codex warmup sleep.
 Example:
 
 ```bash
-houmao-server serve \
+houmao-mgr server start \
   --api-base-url http://127.0.0.1:9889 \
   --compat-provider-ready-timeout-seconds 90 \
   --compat-codex-warmup-seconds 0
-
-houmao-mgr cao launch \
-  --port 9889 \
-  --agents gpu-kernel-coder \
-  --provider codex \
-  --compat-create-timeout-seconds 90 \
-  --headless
 ```
 
 Retired standalone surfaces:
@@ -105,18 +75,18 @@ Retired standalone surfaces:
 
 `houmao-mgr` now has one native top-level tree for covered pair workflows:
 
-- `launch`
+- `server`
 - `agents`
 - `brains`
 - `admin`
-- `cao`
 
 Authority is split intentionally:
 
-- `agents ...` is server-backed and routes through `houmao-server`
+- `server ...` manages the houmao-server process and server-owned sessions
+- `agents launch` builds and launches locally without `houmao-server`
+- `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
 - `admin cleanup-registry` is local shared-registry maintenance
-- `cao ...` remains the explicit compatibility namespace
 
 For ordinary prompt submission, `houmao-mgr agents prompt <agent-ref> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt <agent-ref> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter.
 
@@ -233,7 +203,7 @@ Filesystem-authoritative artifacts:
 - runtime-owned session roots and manifests
 - runtime-owned gateway attach contracts and live gateway execution records
 - shared-registry `live_agents/<agent-id>/record.json` pointers while the bridge remains in use
-- delegated `houmao-mgr launch` manifests and session roots under `sessions/houmao_server_rest/...`
+- server-backed managed-session manifests and session roots under `sessions/houmao_server_rest/...`
 - native headless authority and per-turn records under `state/managed_agents/<tracked_agent_id>/`
 
 Filesystem-backed compatibility and debug views:
@@ -299,12 +269,12 @@ Those paths are internal implementation details. The supported operator workflow
 
 This pair is a migration strategy with Houmao as the public authority.
 
-The explicit `/cao/*` and `houmao-mgr cao ...` namespaces remain for compatibility, but the supported operator workflow is the pair itself:
+The supported operator workflow is the pair itself:
 
 - `houmao-server`
 - `houmao-mgr`
 
-Standalone `houmao-cao-server` and raw standalone `cao_rest` operator entrypoints are retired.
+The explicit `/cao/*` compatibility routes remain server-owned transport shims, but `houmao-mgr cao ...`, top-level `houmao-mgr launch`, standalone `houmao-cao-server`, and raw standalone `cao_rest` operator entrypoints are retired.
 
 ## Source References
 

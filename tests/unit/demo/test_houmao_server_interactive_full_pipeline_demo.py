@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 import houmao.demo.houmao_server_interactive_full_pipeline_demo.cli as demo_cli
 import houmao.demo.houmao_server_interactive_full_pipeline_demo.commands as demo_commands
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
 from houmao.cao.rest_client import CaoApiError
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
@@ -24,12 +22,8 @@ from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     ManagedAgentSnapshot,
     TerminalSnapshot,
 )
-from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
-)
 from houmao.server.models import (
+    HoumaoHeadlessLaunchResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentRequestAcceptedResponse,
 )
@@ -55,6 +49,31 @@ def _demo_env(repo_root: Path) -> DemoEnvironment:
     )
 
 
+def _fixture_agent_def_dir(repo_root: Path) -> Path:
+    """Return the canonical fixture-backed agent-definition root for tests."""
+
+    return repo_root / "tests" / "fixtures" / "agents"
+
+
+def _demo_agent_def_symlink(repo_root: Path) -> Path:
+    """Return the demo-local agent-definition entry for tests."""
+
+    return (
+        repo_root / "scripts" / "demo" / "houmao-server-interactive-full-pipeline-demo" / "agents"
+    )
+
+
+def _seed_demo_agent_def_symlink(repo_root: Path) -> Path:
+    """Create one demo-local symlink that points at the fixture tree."""
+
+    fixture_agent_def_dir = _fixture_agent_def_dir(repo_root)
+    fixture_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    demo_agent_def_dir = _demo_agent_def_symlink(repo_root)
+    demo_agent_def_dir.parent.mkdir(parents=True, exist_ok=True)
+    demo_agent_def_dir.symlink_to(Path("..") / ".." / ".." / "tests" / "fixtures" / "agents")
+    return demo_agent_def_dir
+
+
 def _demo_state(paths: DemoPaths, *, active: bool = True) -> DemoState:
     """Return one representative persisted demo state."""
 
@@ -66,15 +85,15 @@ def _demo_state(paths: DemoPaths, *, active: bool = True) -> DemoState:
         variant_id="claude-gpu-kernel-coder",
         api_base_url="http://127.0.0.1:19989",
         agent_identity="alice",
-        agent_ref="cao-alice",
+        agent_ref="alice",
         requested_session_name="alice",
         session_manifest_path=str(
-            paths.runtime_root / "sessions" / "houmao_server_rest" / "cao-alice" / "manifest.json"
+            paths.runtime_root / "sessions" / "houmao_server_rest" / "alice" / "manifest.json"
         ),
-        session_root=str(paths.runtime_root / "sessions" / "houmao_server_rest" / "cao-alice"),
-        session_name="cao-alice",
+        session_root=str(paths.runtime_root / "sessions" / "houmao_server_rest" / "alice"),
+        session_name="alice",
         terminal_id="term-1",
-        tracked_agent_id="tracked-cao-alice",
+        tracked_agent_id="tracked-alice",
         runtime_root=str(paths.runtime_root),
         registry_root=str(paths.registry_root),
         jobs_root=str(paths.jobs_root),
@@ -88,7 +107,7 @@ def _demo_state(paths: DemoPaths, *, active: bool = True) -> DemoState:
         agent_def_dir="/repo/scripts/demo/houmao-server-interactive-full-pipeline-demo/agents",
         houmao_server=HoumaoServerSectionV1(
             api_base_url="http://127.0.0.1:19989",
-            session_name="cao-alice",
+            session_name="alice",
             terminal_id="term-1",
             parsing_mode="shadow_only",
             tmux_window_name="gpu-kernel-coder",
@@ -104,12 +123,12 @@ def _managed_snapshot(*, phase: str, result: str, turn_index: int | None) -> Man
     """Build one managed-agent snapshot for request-artifact tests."""
 
     return ManagedAgentSnapshot(
-        tracked_agent_id="tracked-cao-alice",
+        tracked_agent_id="tracked-alice",
         transport="tui",
         tool="claude",
-        session_name="cao-alice",
+        session_name="alice",
         terminal_id="term-1",
-        manifest_path="/tmp/runtime/sessions/houmao_server_rest/cao-alice/manifest.json",
+        manifest_path="/tmp/runtime/sessions/houmao_server_rest/alice/manifest.json",
         availability="available",
         turn_phase=phase,
         active_turn_id=None if phase == "ready" else "turn-1",
@@ -164,74 +183,26 @@ def _terminal_snapshot(*, result: str) -> TerminalSnapshot:
     )
 
 
-def test_demo_agent_def_dir_path_points_to_tracked_pack_assets(tmp_path: Path) -> None:
-    """Startup should resolve demo-owned native agent definitions from the demo pack."""
+def test_demo_pack_agents_entry_exists_as_demo_local_agent_root() -> None:
+    """The tracked demo `agents` entry should exist as a usable demo-local root."""
+
+    repo_root = Path(__file__).resolve().parents[3]
+    demo_agent_def_dir = _demo_agent_def_symlink(repo_root)
+
+    assert demo_agent_def_dir.is_dir()
+
+
+def test_demo_agent_def_dir_path_preserves_demo_local_symlink_path(tmp_path: Path) -> None:
+    """Startup should keep the demo-local `agents` path instead of collapsing to the target."""
 
     repo_root = tmp_path / "repo"
-    expected = (
-        repo_root
-        / "scripts"
-        / "demo"
-        / "houmao-server-interactive-full-pipeline-demo"
-        / "agents"
-    ).resolve()
+    expected = _seed_demo_agent_def_symlink(repo_root)
 
     assert demo_commands._demo_agent_def_dir_path(repo_root) == expected
-
-
-def test_launch_pair_session_uses_public_detached_compat_command_and_env(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Detached startup should invoke the public compatibility launch surface."""
-
-    captured: dict[str, object] = {}
-    workdir = tmp_path / "wktree"
-    launch_env = {
-        "HOME": "/demo/server/home",
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: "/demo/runtime",
-        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: "/demo/registry",
-        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: "/demo/jobs",
-    }
-
-    def _fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        captured["args"] = args[0]
-        captured["cwd"] = kwargs["cwd"]
-        captured["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
-
-    monkeypatch.setattr(demo_commands.subprocess, "run", _fake_run)
-
-    demo_commands._launch_pair_session(
-        api_base_url="http://127.0.0.1:19989",
-        provider="codex",
-        requested_session_name="alice",
-        workdir=workdir,
-        env=launch_env,
-        compat_create_timeout_seconds=180.0,
+    assert (
+        demo_commands._demo_agent_def_dir_path(repo_root).resolve()
+        == _fixture_agent_def_dir(repo_root).resolve()
     )
-
-    assert captured["args"] == [
-        demo_commands.sys.executable,
-        "-m",
-        "houmao.srv_ctrl",
-        "cao",
-        "launch",
-        "--headless",
-        "--yolo",
-        "--agents",
-        "gpu-kernel-coder",
-        "--provider",
-        "codex",
-        "--port",
-        "19989",
-        "--compat-create-timeout-seconds",
-        "180.0",
-        "--session-name",
-        "alice",
-    ]
-    assert captured["cwd"] == str(workdir.resolve())
-    assert captured["env"] == launch_env
 
 
 def test_start_server_process_passes_demo_owned_compatibility_startup_overrides(
@@ -300,78 +271,72 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
     repo_root.mkdir(parents=True, exist_ok=True)
     paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
     env = _demo_env(repo_root)
-    agent_def_dir = (
-        repo_root
-        / "scripts"
-        / "demo"
-        / "houmao-server-interactive-full-pipeline-demo"
-        / "agents"
-    )
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    agent_def_dir = _seed_demo_agent_def_symlink(repo_root)
 
-    class _FakeClient:
-        def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
-            del base_url, timeout_seconds
-
-        def list_sessions(self) -> list[object]:
-            return [type("Session", (), {"id": "cao-alice"})()]
-
-    captured_launch_kwargs: dict[str, object] = {}
+    # Mock _launch_native_session to return a synchronous headless launch response
+    def _fake_launch_native_session(
+        *,
+        client: object,
+        provider: str,
+        requested_session_name: str | None,
+        workdir: Path,
+        runtime_root: Path,
+    ) -> HoumaoHeadlessLaunchResponse:
+        # Use requested session name directly (native launch doesn't add cao- prefix)
+        session_name = requested_session_name or "alice"
+        return HoumaoHeadlessLaunchResponse(
+            success=True,
+            detail="Native headless launch successful",
+            tracked_agent_id="tracked-alice",
+            identity=HoumaoManagedAgentIdentity(
+                tracked_agent_id="tracked-alice",
+                transport="tui",
+                tool="claude",
+                session_name=session_name,
+                terminal_id="term-1",
+                runtime_session_id=None,
+                tmux_session_name=session_name,
+                tmux_window_name="gpu-kernel-coder",
+                manifest_path=str(
+                    paths.runtime_root
+                    / "sessions"
+                    / "houmao_server_rest"
+                    / session_name
+                    / "manifest.json"
+                ),
+                session_root=str(
+                    paths.runtime_root / "sessions" / "houmao_server_rest" / session_name
+                ),
+                agent_name=session_name,
+                agent_id=f"AGENTSYS-{session_name}",
+            ),
+            manifest_path=str(
+                paths.runtime_root
+                / "sessions"
+                / "houmao_server_rest"
+                / session_name
+                / "manifest.json"
+            ),
+            session_root=str(paths.runtime_root / "sessions" / "houmao_server_rest" / session_name),
+        )
 
     monkeypatch.setattr(demo_commands, "_cleanup_existing_state_for_startup", lambda **kwargs: None)
     monkeypatch.setattr(
         demo_commands, "_start_server_process", lambda **kwargs: type("Proc", (), {"pid": 4242})()
     )
-    monkeypatch.setattr(
-        demo_commands,
-        "_launch_pair_session",
-        lambda **kwargs: captured_launch_kwargs.update(kwargs),
-    )
-    monkeypatch.setattr(
-        demo_commands, "_wait_for_launched_session_name", lambda **kwargs: "cao-alice"
-    )
-    monkeypatch.setattr(demo_commands, "_wait_for_session_detail", lambda **kwargs: object())
-    monkeypatch.setattr(
-        demo_commands, "_terminal_id_from_session_detail", lambda **kwargs: "term-1"
-    )
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_session_manifest",
-        lambda **kwargs: (
-            paths.runtime_root / "sessions" / "houmao_server_rest" / "cao-alice" / "manifest.json"
-        ),
-    )
+    monkeypatch.setattr(demo_commands, "_launch_native_session", _fake_launch_native_session)
     monkeypatch.setattr(
         demo_commands,
         "_load_manifest_bridge",
         lambda path: HoumaoServerSectionV1(
             api_base_url="http://127.0.0.1:19989",
-            session_name="cao-alice",
+            session_name="alice",
             terminal_id="term-1",
             parsing_mode="shadow_only",
             tmux_window_name="gpu-kernel-coder",
             turn_index=0,
         ),
     )
-    monkeypatch.setattr(
-        demo_commands,
-        "_wait_for_managed_agent_identity",
-        lambda **kwargs: HoumaoManagedAgentIdentity(
-            tracked_agent_id="tracked-cao-alice",
-            transport="tui",
-            tool="claude",
-            session_name="cao-alice",
-            terminal_id="term-1",
-            runtime_session_id=None,
-            tmux_session_name="cao-alice",
-            tmux_window_name="gpu-kernel-coder",
-            manifest_path="/tmp/runtime/sessions/houmao_server_rest/cao-alice/manifest.json",
-            session_root="/tmp/runtime/sessions/houmao_server_rest/cao-alice",
-            agent_name="cao-alice",
-            agent_id="AGENTSYS-cao-alice",
-        ),
-    )
-    monkeypatch.setattr(demo_commands, "HoumaoServerClient", _FakeClient)
 
     payload = demo_commands.start_demo(
         paths=paths,
@@ -383,22 +348,17 @@ def test_start_demo_persists_manifest_bridge_without_second_registration_post(
 
     loaded = demo_commands.load_demo_state(paths.state_path)
     assert loaded is not None
-    assert payload.state.session_name == "cao-alice"
-    assert payload.state.agent_ref == "cao-alice"
+    # Native launch uses session name directly (no cao- prefix)
+    assert payload.state.session_name == "alice"
+    assert payload.state.agent_ref == "alice"
     assert payload.state.agent_identity == "AGENTSYS-alice"
-    assert payload.state.tracked_agent_id == "tracked-cao-alice"
-    assert payload.state.houmao_server.session_name == "cao-alice"
+    assert payload.state.tracked_agent_id == "tracked-alice"
+    assert payload.state.houmao_server.session_name == "alice"
     assert loaded.session_manifest_path.endswith("manifest.json")
-    assert captured_launch_kwargs["workdir"] == paths.workdir
-    assert captured_launch_kwargs["compat_create_timeout_seconds"] == 180.0
-    launch_env = captured_launch_kwargs["env"]
-    assert isinstance(launch_env, dict)
-    assert launch_env["HOME"] == str(paths.server_home_dir)
-    assert launch_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] == str(paths.runtime_root)
-    assert launch_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] == str(paths.registry_root)
-    assert launch_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] == str(paths.jobs_root)
-    assert launch_env[AGENT_DEF_DIR_ENV_VAR] == str(agent_def_dir.resolve())
-    assert payload.state.agent_def_dir == str(agent_def_dir.resolve())
+    assert loaded.runtime_root == str(paths.runtime_root)
+    assert loaded.registry_root == str(paths.registry_root)
+    assert loaded.jobs_root == str(paths.jobs_root)
+    assert loaded.agent_def_dir == str(agent_def_dir)
 
 
 def test_send_turn_targets_session_name_backed_agent_ref(
@@ -454,7 +414,7 @@ def test_send_turn_targets_session_name_backed_agent_ref(
             captured["request_model"] = request_model
             return HoumaoManagedAgentRequestAcceptedResponse(
                 success=True,
-                tracked_agent_id="tracked-cao-alice",
+                tracked_agent_id="tracked-alice",
                 request_id="mreq-1",
                 request_kind="submit_prompt",
                 disposition="accepted",
@@ -468,7 +428,7 @@ def test_send_turn_targets_session_name_backed_agent_ref(
     artifact = demo_commands.send_turn(paths=paths, env=env, prompt="Hello from the demo")
     updated_state = demo_commands.load_demo_state(paths.state_path)
 
-    assert captured["agent_ref"] == "cao-alice"
+    assert captured["agent_ref"] == "alice"
     assert artifact.request_kind == "submit_prompt"
     assert artifact.state_change_observed is True
     assert updated_state is not None
@@ -558,8 +518,8 @@ def test_stop_demo_uses_managed_agent_stop_route_and_tolerates_stale_remote_sess
     assert payload.session_delete_status == "stale_missing"
     assert payload.stale_session_tolerated is True
     assert payload.server_stop_status == "stopped"
-    assert captured["agent_ref"] == "cao-alice"
-    assert killed_sessions == ["cao-alice"]
+    assert captured["agent_ref"] == "alice"
+    assert killed_sessions == ["alice"]
     assert updated_state is not None
     assert updated_state.active is False
 

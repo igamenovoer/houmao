@@ -9,7 +9,7 @@ demo-owned run root.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,7 +21,7 @@ import signal
 import socket
 import subprocess
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.backends.claude_bootstrap import (
     ensure_claude_home_bootstrap,
@@ -973,7 +973,7 @@ def _bootstrap_compat_home_for_tui_lane(
         shutil.copy2(settings_path, compat_home_dir / "settings.json")
         shutil.copy2(template_path, compat_home_dir / "claude_state.template.json")
         ensure_claude_home_bootstrap(home_path=compat_home_dir, env=env_values)
-        bootstrap_payload = {
+        bootstrap_payload: dict[str, object] = {
             "tool": lane.tool,
             "compat_home_dir": str(compat_home_dir),
             "settings_path": str(settings_path),
@@ -1358,13 +1358,16 @@ def _wait_for_post_request_state(
     deadline = time.monotonic() + timeout_seconds
     latest_state = state_before
     while time.monotonic() < deadline:
-        latest_state = _record_route_call(
+        latest_state = cast(
+            HoumaoManagedAgentStateResponse,
+            _record_route_call(
             recorder=lane_runtime.http_recorder,
             label="state-poll",
             method="GET",
             path=f"/houmao/agents/{tracked_agent_id}/state",
             request_payload=None,
             callback=lambda: client.get_managed_agent_state(tracked_agent_id),
+            ),
         )
         if _is_observable_post_request_progress(
             state_before=state_before,
@@ -1722,7 +1725,7 @@ def _server_health_ok(api_base_url: str) -> bool:
 
 
 @contextmanager
-def _temporary_env_var(name: str, value: str):
+def _temporary_env_var(name: str, value: str) -> Iterator[None]:
     """Set one environment variable for a bounded block."""
 
     previous = os.environ.get(name)

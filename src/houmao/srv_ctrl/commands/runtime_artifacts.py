@@ -1,4 +1,4 @@
-"""Runtime-artifact helpers for delegated `houmao-mgr launch` flows."""
+"""Runtime-artifact helpers for server-backed session registration flows."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ _HOME_ENV_BY_TOOL: dict[str, str] = {
 
 
 def _safe_role_name(value: str) -> str:
-    """Return a filesystem-safe role name for delegated launch artifacts."""
+    """Return a filesystem-safe role name for server-backed registration artifacts."""
 
     normalized = "".join(char if (char.isalnum() or char in {"-", "_"}) else "-" for char in value)
     trimmed = normalized.strip("-_")
@@ -75,7 +75,7 @@ def materialize_delegated_launch(
     agent_profile: str,
     working_directory: Path,
 ) -> tuple[Path, Path, str, str]:
-    """Materialize Houmao-owned manifest/session-root artifacts for one delegated launch."""
+    """Materialize Houmao-owned manifest/session-root artifacts for one server-backed launch."""
 
     resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
     session_root = (
@@ -98,10 +98,10 @@ def materialize_delegated_launch(
     role_prompt_path.parent.mkdir(parents=True, exist_ok=True)
     role_prompt_path.write_text(
         (
-            "# Delegated Launch\n\n"
+            "# Server-Backed Session\n\n"
             "This placeholder role exists so the runtime can keep a durable manifest for "
-            "`houmao-mgr launch` sessions. The live terminal was created by delegated "
-            "`cao launch` behavior and is managed through `houmao-server`.\n"
+            "one server-backed managed session. The live terminal is managed through "
+            "`houmao-server`.\n"
         ),
         encoding="utf-8",
     )

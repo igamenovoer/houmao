@@ -27,7 +27,11 @@ from houmao.demo.houmao_server_dual_shadow_watch.driver import (
 )
 from houmao.demo.houmao_server_dual_shadow_watch.models import load_demo_state
 from houmao.server.client import HoumaoServerClient
-from houmao.server.models import HoumaoTerminalStateResponse
+from houmao.server.models import (
+    HoumaoLifecycleAuthorityMetadata,
+    HoumaoOperatorState,
+    HoumaoTerminalStateResponse,
+)
 from houmao.server.tracking_debug import TRACKING_DEBUG_ROOT_ENV_VAR
 
 DEFAULT_DEBUG_POLL_INTERVAL_SECONDS = 0.2
@@ -287,17 +291,20 @@ def _run_server_input_path(
         _capture_pane_text(tmux_session_name),
         encoding="utf-8",
     )
+    before_operator_state = _require_operator_state(before_state)
+    after_operator_state = _require_operator_state(after_state)
+    after_lifecycle_authority = _require_lifecycle_authority(after_state)
     return {
         "path_id": "server-input",
         "prompt": prompt,
         "prompt_source": "server_input_route",
         "window_start_monotonic": before_monotonic,
         "window_end_monotonic": after_monotonic,
-        "before_completion_state": before_state.operator_state.completion_state,
-        "after_completion_state": after_state.operator_state.completion_state,
-        "after_operator_status": after_state.operator_state.status,
-        "after_turn_anchor_state": after_state.lifecycle_authority.turn_anchor_state,
-        "after_completion_authority": after_state.lifecycle_authority.completion_authority,
+        "before_completion_state": before_operator_state.completion_state,
+        "after_completion_state": after_operator_state.completion_state,
+        "after_operator_status": after_operator_state.status,
+        "after_turn_anchor_state": after_lifecycle_authority.turn_anchor_state,
+        "after_completion_authority": after_lifecycle_authority.completion_authority,
         "before_projection_sha1": _sha1_text(_projection_text(before_state)),
         "after_projection_sha1": _sha1_text(_projection_text(after_state)),
         "artifacts_dir": str(artifacts_dir),
@@ -355,17 +362,20 @@ def _run_direct_tmux_path(
         _capture_pane_text(tmux_session_name),
         encoding="utf-8",
     )
+    before_operator_state = _require_operator_state(before_state)
+    after_operator_state = _require_operator_state(after_state)
+    after_lifecycle_authority = _require_lifecycle_authority(after_state)
     return {
         "path_id": "direct-tmux",
         "prompt": prompt,
         "prompt_source": "tmux_send_keys",
         "window_start_monotonic": before_monotonic,
         "window_end_monotonic": after_monotonic,
-        "before_completion_state": before_state.operator_state.completion_state,
-        "after_completion_state": after_state.operator_state.completion_state,
-        "after_operator_status": after_state.operator_state.status,
-        "after_turn_anchor_state": after_state.lifecycle_authority.turn_anchor_state,
-        "after_completion_authority": after_state.lifecycle_authority.completion_authority,
+        "before_completion_state": before_operator_state.completion_state,
+        "after_completion_state": after_operator_state.completion_state,
+        "after_operator_status": after_operator_state.status,
+        "after_turn_anchor_state": after_lifecycle_authority.turn_anchor_state,
+        "after_completion_authority": after_lifecycle_authority.completion_authority,
         "before_projection_sha1": _sha1_text(_projection_text(before_state)),
         "after_projection_sha1": _sha1_text(_projection_text(after_state)),
         "artifacts_dir": str(artifacts_dir),
@@ -384,11 +394,13 @@ def _wait_for_ready_baseline(
     last_state: HoumaoTerminalStateResponse | None = None
     while time.monotonic() < deadline:
         last_state = client.terminal_state(terminal_id)
+        operator_state = _require_operator_state(last_state)
+        lifecycle_authority = _require_lifecycle_authority(last_state)
         if (
-            last_state.operator_state.status == "ready"
-            and last_state.operator_state.completion_state == "inactive"
-            and last_state.lifecycle_authority.completion_authority == "unanchored_background"
-            and last_state.lifecycle_authority.turn_anchor_state == "absent"
+            operator_state.status == "ready"
+            and operator_state.completion_state == "inactive"
+            and lifecycle_authority.completion_authority == "unanchored_background"
+            and lifecycle_authority.turn_anchor_state == "absent"
             and last_state.stability.stable
         ):
             return last_state
@@ -417,7 +429,7 @@ def _poll_path_timeline(
         samples.append((sample_monotonic, state))
         if _projection_text(state) != baseline_projection_text:
             saw_projection_change = True
-        if state.operator_state.completion_state in {
+        if _require_operator_state(state).completion_state in {
             "candidate_complete",
             "completed",
             "blocked",
@@ -431,6 +443,24 @@ def _poll_path_timeline(
     if not samples:
         raise RuntimeError("No timeline samples were captured for the prompt path.")
     return samples
+
+
+def _require_operator_state(response: HoumaoTerminalStateResponse) -> HoumaoOperatorState:
+    """Return one required operator-state payload from a terminal response."""
+
+    if response.operator_state is None:
+        raise RuntimeError("Tracking debug expected operator_state in terminal response.")
+    return response.operator_state
+
+
+def _require_lifecycle_authority(
+    response: HoumaoTerminalStateResponse,
+) -> HoumaoLifecycleAuthorityMetadata:
+    """Return one required lifecycle-authority payload from a terminal response."""
+
+    if response.lifecycle_authority is None:
+        raise RuntimeError("Tracking debug expected lifecycle_authority in terminal response.")
+    return response.lifecycle_authority
 
 
 def _capture_pane_text(tmux_session_name: str) -> str:

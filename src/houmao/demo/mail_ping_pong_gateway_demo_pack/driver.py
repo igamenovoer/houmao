@@ -10,6 +10,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import HoumaoManagedAgentSubmitPromptRequest
@@ -27,11 +28,17 @@ from .agents import (
 )
 from .events import build_conversation_events, build_progress_summary, collect_conversation_evidence
 from .models import (
+    ConversationProgressSummary,
     DEFAULT_DEMO_OUTPUT_DIR_RELATIVE,
     DEFAULT_EXPECTED_REPORT_RELATIVE,
     DEFAULT_PARAMETERS_RELATIVE,
+    DemoParameters,
+    DemoPaths,
     DemoState,
+    InspectSnapshot,
     KickoffRequestState,
+    ParticipantState,
+    ServerProcessState,
     build_demo_layout,
     load_demo_parameters,
     load_demo_state,
@@ -140,6 +147,8 @@ def _command_start(args: argparse.Namespace) -> int:
     )
     client = HoumaoServerClient(api_base_url)
     launched_roles: list[str] = []
+    initiator: ParticipantState | None = None
+    responder: ParticipantState | None = None
     try:
         initiator_project = ensure_project_workdir_from_fixture(
             project_fixture=project_fixture,
@@ -467,14 +476,14 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _load_parameters(args: argparse.Namespace, *, repo_root: Path):
+def _load_parameters(args: argparse.Namespace, *, repo_root: Path) -> DemoParameters:
     """Load tracked demo parameters using repository-relative resolution."""
 
     parameters_path = resolve_repo_relative_path(args.parameters, repo_root=repo_root)
     return load_demo_parameters(parameters_path)
 
 
-def _resolve_agent_def_dir(*, parameters, repo_root: Path) -> Path:
+def _resolve_agent_def_dir(*, parameters: DemoParameters, repo_root: Path) -> Path:
     """Resolve the effective agent-definition directory with env override support."""
 
     env_override = os.environ.get("AGENT_DEF_DIR")
@@ -483,14 +492,14 @@ def _resolve_agent_def_dir(*, parameters, repo_root: Path) -> Path:
     return resolve_repo_relative_path(parameters.agent_def_dir, repo_root=repo_root)
 
 
-def _resolve_paths(args: argparse.Namespace, *, repo_root: Path):
+def _resolve_paths(args: argparse.Namespace, *, repo_root: Path) -> DemoPaths:
     """Resolve the selected output-root layout."""
 
     demo_output_dir = resolve_repo_relative_path(args.demo_output_dir, repo_root=repo_root)
     return build_demo_layout(demo_output_dir=demo_output_dir)
 
 
-def _prepare_output_root(paths, *, allow_reprovision: bool) -> None:
+def _prepare_output_root(paths: DemoPaths, *, allow_reprovision: bool) -> None:
     """Prepare the selected output root for a fresh start."""
 
     if allow_reprovision and paths.output_root.exists():
@@ -509,7 +518,7 @@ def _prepare_output_root(paths, *, allow_reprovision: bool) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
-def _require_demo_state(paths) -> DemoState:
+def _require_demo_state(paths: DemoPaths) -> DemoState:
     """Load one required persisted demo state."""
 
     if not paths.state_path.is_file():
@@ -524,7 +533,12 @@ def _generate_thread_key() -> str:
     return f"mail-ping-pong-{stamp}-{uuid.uuid4().hex[:6]}"
 
 
-def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> str:
+def _build_kickoff_prompt(
+    *,
+    parameters: DemoParameters,
+    state: DemoState,
+    thread_key: str,
+) -> str:
     """Build the stable kickoff prompt for the initiator."""
 
     subject = parameters.conversation.subject_template.format(
@@ -604,10 +618,10 @@ def _build_kickoff_prompt(*, parameters, state: DemoState, thread_key: str) -> s
 
 def _refresh_artifacts(
     *,
-    paths,
+    paths: DemoPaths,
     state: DemoState,
     client: HoumaoServerClient | None,
-):
+) -> tuple[ConversationProgressSummary, InspectSnapshot, dict[str, Any]]:
     """Refresh events, inspect, and report artifacts for the current run."""
 
     evidence = collect_conversation_evidence(state)
@@ -641,15 +655,17 @@ def _best_effort_partial_stop(
     *,
     client: HoumaoServerClient,
     launched_roles: list[str],
-    initiator,
-    responder,
-    server_state,
+    initiator: ParticipantState | None,
+    responder: ParticipantState | None,
+    server_state: ServerProcessState,
     timeout_seconds: float,
 ) -> None:
     """Best-effort cleanup for failed startup sequences."""
 
     for role in reversed(launched_roles):
         participant = initiator if role == "initiator" else responder
+        if participant is None:
+            continue
         try:
             stop_participant(client=client, participant=participant)
         except Exception:

@@ -27,28 +27,28 @@ Those combinations are outside the supported contract.
 
 ## 2. Stop Depending On Installed `cao`
 
-The supported pair no longer requires the standalone `cao` executable for `houmao-mgr cao ...`.
+The supported pair no longer requires the standalone `cao` executable or the explicit `houmao-mgr cao ...` namespace.
 
-Current behavior is split intentionally:
+The supported path is now Houmao-owned end to end:
 
-- `houmao-mgr cao launch`, `info`, and `shutdown` route through `houmao-server`
-- `houmao-mgr cao flow` and `cao init` are Houmao-owned local compatibility helpers
-- `houmao-mgr cao mcp-server` is retired and fails explicitly with migration guidance
+- `houmao-mgr server ...` manages server lifecycle
+- `houmao-mgr agents launch ...` performs local launch
+- `houmao-mgr agents ...` handles post-launch control
 
-The supported path is now Houmao-owned end to end. The pinned CAO source remains the compatibility oracle, not a runtime dependency.
+The pinned CAO source remains a compatibility oracle for preserved HTTP behavior, not a runtime dependency.
 
 ## 3. Start `houmao-server`
 
 Typical local start:
 
 ```bash
-pixi run houmao-server serve --api-base-url http://127.0.0.1:9889
+pixi run houmao-mgr server start --api-base-url http://127.0.0.1:9889
 ```
 
 Optional controls:
 
 ```bash
-pixi run houmao-server serve \
+pixi run houmao-mgr server start \
   --api-base-url http://127.0.0.1:9889 \
   --runtime-root /tmp/houmao-runtime \
   --watch-poll-interval-seconds 1.0 \
@@ -66,24 +66,20 @@ What changes when you do this:
 
 ## 4. Switch Service-Management Commands To `houmao-mgr`
 
-Replace direct `cao` usage with `houmao-mgr` top-level commands for pair-owned operations and `houmao-mgr cao ...` for the explicit compatibility family.
+Replace direct `cao` usage with `houmao-mgr server ...` for server lifecycle and `houmao-mgr agents ...` for managed-agent lifecycle.
 
 Examples:
 
 ```bash
-pixi run houmao-mgr cao info
-pixi run houmao-mgr cao init
-pixi run houmao-mgr launch --agents gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-mgr cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
-pixi run houmao-mgr launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
-pixi run houmao-mgr agents prompt cao-gpu --prompt "Summarize the current state."
-pixi run houmao-mgr agents gateway attach cao-gpu --port 9889
+pixi run houmao-mgr server status
+pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
+pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code --headless
+pixi run houmao-mgr agents prompt AGENTSYS-gpu --prompt "Summarize the current state."
+pixi run houmao-mgr agents gateway attach AGENTSYS-gpu
 pixi run houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
 pixi run houmao-mgr admin cleanup-registry --grace-seconds 0
-pixi run houmao-mgr cao shutdown --all --port 9889
+pixi run houmao-mgr server sessions shutdown --all
 ```
-
-Do not alias bare `cao` to bare `houmao-mgr`. If you want compatibility-command muscle memory, alias `cao` to `houmao-mgr cao`.
 
 ## 5. Use Houmao Inspection Commands
 
@@ -118,36 +114,27 @@ History retention is intentionally split:
 
 ## 6. Understand What `launch` Does Differently Now
 
-`houmao-mgr` now exposes one native tree plus the explicit compatibility namespace:
+`houmao-mgr` now exposes one supported native tree:
 
-- top-level `launch`
-- server-backed `agents ...`
-- local `brains build`
-- local `admin cleanup-registry`
-- explicit `cao ...`
+- `server ...`
+- `agents ...`
+- `brains build`
+- `admin cleanup-registry`
 
-`houmao-mgr` still exposes two public launch families:
+`houmao-mgr agents launch` now builds the brain locally, starts the runtime directly, and publishes the shared-registry record without routing through `houmao-server`.
 
-- top-level `houmao-mgr launch` is the Houmao-owned pair launch
-- `houmao-mgr cao launch` is the explicit CAO-compatible launch surface
+Successful local launches:
 
-Terminal-backed launch through either surface now creates and controls the session through the Houmao-owned `/cao/*` authority served by `houmao-server`.
-
-Successful terminal-backed launches still:
-
-- register the launched session in `houmao-server`
 - materialize a runtime-owned session root
-- write a manifest with `backend = "houmao_server_rest"`
+- write a manifest backed by a native headless runtime backend
 - publish stable gateway attachability through the shared runtime seam
-- let `houmao-server` rediscover and continuously track the tmux-backed session from its registration seed
+- publish the live agent into the shared registry for later discovery
 
 Pair-managed gateway attach remains post-launch:
 
 - explicit attach: `pixi run houmao-mgr agents gateway attach <agent-ref> --port <public-port>`
 - current-session attach: run `pixi run houmao-mgr agents gateway attach` from inside the target tmux session
 - tmux window `0` remains the contractual agent surface for that pair-managed session
-
-Native headless launch is unchanged in shape: `houmao-mgr launch --headless` uses the Houmao-native `/houmao/agents/*` lifecycle instead of CAO terminals.
 
 For follow-up operator control after launch, treat the native `agents` tree as the default pair surface:
 
@@ -189,11 +176,11 @@ Those entrypoints now fail fast with migration guidance to `houmao-server` and `
 Recommended migration order:
 
 1. Start `houmao-server` on the public base URL you want to own.
-2. Replace operator command usage from `cao` to `houmao-mgr`.
-3. Verify `houmao-server health` and `houmao-mgr cao info`.
-4. Launch one terminal-backed session through `houmao-mgr launch` or `houmao-mgr cao launch`, or one native headless agent through `houmao-mgr launch --headless`.
-5. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
-6. Move follow-up tooling toward the persisted `houmao_server_rest` artifacts and the `/houmao/agents/*` API instead of standalone CAO endpoints.
+2. Replace operator command usage from `cao` to `houmao-mgr server ...` and `houmao-mgr agents ...`.
+3. Verify `houmao-server health` and `houmao-mgr server status`.
+4. Launch one agent through `houmao-mgr agents launch`.
+5. Inspect server-owned sessions through `houmao-server sessions` and `houmao-mgr server sessions`, and inspect launched agents through `houmao-mgr agents ...` or `/houmao/agents/*`.
+6. Move follow-up tooling toward the shared registry, runtime manifests, and `/houmao/agents/*` instead of standalone CAO endpoints.
 
 ## 10. Roll Back If Needed
 

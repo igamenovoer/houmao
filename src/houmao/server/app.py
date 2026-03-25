@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
+import signal
+import threading
 import time
 from urllib import parse
 
@@ -85,6 +88,15 @@ def create_app(
     @app.get("/houmao/server/current-instance", response_model_exclude_none=True)
     def current_instance() -> HoumaoCurrentInstance:
         return resolved_service.current_instance_response()
+
+    @app.post("/houmao/server/shutdown")
+    def shutdown_server() -> dict[str, bool]:
+        def _deferred_shutdown() -> None:
+            time.sleep(0.1)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        threading.Thread(target=_deferred_shutdown, daemon=True).start()
+        return {"success": True}
 
     @cao_router.get("/health")
     def cao_health() -> Response:

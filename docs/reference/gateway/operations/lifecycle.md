@@ -25,7 +25,7 @@ That means session start or resume can create:
 
 It does not mean a live gateway is already running.
 
-Delegated `houmao-mgr launch` for `houmao_server_rest` now reuses the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
+Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
 
 ## Post-Launch Attach Is The Official Managed-Agent Path
 

@@ -13,8 +13,6 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHoumaoServerV1,
-    GatewayRequestPayloadInterruptV1,
-    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -23,27 +21,32 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_attach_contract,
     require_gateway_paths_for_attach_contract,
 )
-from houmao.server.models import HoumaoManagedAgentGatewayRequestCreate
 
 from ..common import (
     emit_json,
     pair_port_option,
-    pair_request,
     require_supported_houmao_pair,
     resolve_managed_agent_identity,
-    resolve_pair_client,
     resolve_prompt_text,
+)
+from ..managed_agents import (
+    attach_gateway,
+    detach_gateway,
+    gateway_interrupt,
+    gateway_prompt,
+    gateway_status,
+    resolve_managed_agent_target,
 )
 
 
 @click.group(name="gateway")
 def gateway_group() -> None:
-    """Server-backed gateway lifecycle plus explicit live-gateway request commands."""
+    """Gateway lifecycle and explicit live-gateway request commands."""
 
 
 @gateway_group.command(name="attach")
 @click.argument("agent_ref", required=False)
-@pair_port_option(help_text="Houmao server port to use for explicit attach")
+@pair_port_option(help_text="Houmao server port override for explicit attach")
 def attach_gateway_command(agent_ref: str | None, port: int | None) -> None:
     """Attach or reuse a live gateway for one managed agent."""
 
@@ -55,20 +58,18 @@ def attach_gateway_command(agent_ref: str | None, port: int | None) -> None:
         emit_json(_attach_current_session())
         return
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(pair_request(client.attach_managed_agent_gateway, resolved.tracked_agent_id))
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(attach_gateway(target))
 
 
 @gateway_group.command(name="detach")
 @pair_port_option()
 @click.argument("agent_ref")
 def detach_gateway_command(port: int | None, agent_ref: str) -> None:
-    """Detach the live gateway for one managed agent through `houmao-server`."""
+    """Detach the live gateway for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(pair_request(client.detach_managed_agent_gateway, resolved.tracked_agent_id))
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(detach_gateway(target))
 
 
 @gateway_group.command(name="status")
@@ -77,9 +78,8 @@ def detach_gateway_command(port: int | None, agent_ref: str) -> None:
 def status_gateway_command(port: int | None, agent_ref: str) -> None:
     """Show live gateway status for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(pair_request(client.get_managed_agent_gateway_status, resolved.tracked_agent_id))
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(gateway_status(target))
 
 
 @gateway_group.command(name="prompt")
@@ -88,25 +88,13 @@ def status_gateway_command(port: int | None, agent_ref: str) -> None:
     default=None,
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
-@pair_port_option(help_text="Houmao server port to use for the explicit gateway prompt path")
+@pair_port_option(help_text="Houmao server port override for explicit gateway prompt")
 @click.argument("agent_ref")
 def prompt_gateway_command(port: int | None, prompt: str | None, agent_ref: str) -> None:
     """Submit the explicit gateway-mediated prompt path for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(
-        pair_request(
-            client.submit_managed_agent_gateway_request,
-            resolved.tracked_agent_id,
-            HoumaoManagedAgentGatewayRequestCreate(
-                kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(
-                    prompt=resolve_prompt_text(prompt=prompt)
-                ),
-            ),
-        )
-    )
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @gateway_group.command(name="interrupt")
@@ -115,18 +103,8 @@ def prompt_gateway_command(port: int | None, prompt: str | None, agent_ref: str)
 def interrupt_gateway_command(port: int | None, agent_ref: str) -> None:
     """Submit the explicit gateway-mediated interrupt path for one managed agent."""
 
-    client = resolve_pair_client(port=port)
-    resolved = resolve_managed_agent_identity(client, agent_ref=agent_ref)
-    emit_json(
-        pair_request(
-            client.submit_managed_agent_gateway_request,
-            resolved.tracked_agent_id,
-            HoumaoManagedAgentGatewayRequestCreate(
-                kind="interrupt",
-                payload=GatewayRequestPayloadInterruptV1(),
-            ),
-        )
-    )
+    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    emit_json(gateway_interrupt(target))
 
 
 def _attach_current_session() -> GatewayStatusV1:
@@ -194,7 +172,7 @@ def _attach_current_session() -> GatewayStatusV1:
             "Current-session attach metadata is stale: the persisted session alias no longer "
             "resolves to the expected managed agent."
         )
-    return pair_request(client.attach_managed_agent_gateway, metadata.session_name)
+    return client.attach_managed_agent_gateway(metadata.session_name)
 
 
 def _require_current_tmux_session_name() -> str:
@@ -238,6 +216,6 @@ def _require_tmux_pointer(*, session_name: str, variable_name: str) -> Path:
     if not path.is_absolute():
         raise click.ClickException(
             f"Current-session attach metadata is invalid: `{variable_name}` must be an "
-            f"absolute path, got `{value}`."
+            f"absolute path, got `{path}`."
         )
     return path.resolve()

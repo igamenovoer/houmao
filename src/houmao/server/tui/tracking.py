@@ -346,7 +346,7 @@ class LiveSessionTracker:
                 reason="server_input_route",
             )
 
-            operator_state = self.m_last_state.operator_state
+            operator_state = _require_operator_state(self.m_last_state)
             if operator_state.completion_state in {"candidate_complete", "completed"}:
                 operator_status: OperatorStatus = operator_state.status
                 if operator_status == "completed" and operator_state.readiness_state == "ready":
@@ -362,6 +362,7 @@ class LiveSessionTracker:
                 )
 
             lifecycle_authority = self._current_lifecycle_authority()
+            lifecycle_timing = _require_lifecycle_timing(self.m_last_state)
             tracker_state = self.m_tracker_session.current_state()
             updated = self.m_last_state.model_copy(
                 update={
@@ -377,24 +378,23 @@ class LiveSessionTracker:
                         observed_at_utc=observed_at_utc,
                     ),
                     "operator_state": operator_state,
-                    "lifecycle_timing": self.m_last_state.lifecycle_timing.model_copy(
+                    "lifecycle_timing": lifecycle_timing.model_copy(
                         update={"completion_candidate_elapsed_seconds": None}
                     ),
                     "lifecycle_authority": lifecycle_authority,
                 }
             )
             updated = self._publish_state(response=updated, monotonic_ts=monotonic_ts)
+            updated_lifecycle_authority = _require_lifecycle_authority(updated)
             self._emit_debug(
                 stream="tracker-anchor",
                 event_type="note_prompt_submission_applied",
                 monotonic_ts=monotonic_ts,
                 anchor_id=anchor.anchor_id,
                 data={
-                    "completion_authority": updated.lifecycle_authority.completion_authority,
-                    "turn_anchor_state": updated.lifecycle_authority.turn_anchor_state,
-                    "completion_monitoring_armed": (
-                        updated.lifecycle_authority.completion_monitoring_armed
-                    ),
+                    "completion_authority": updated_lifecycle_authority.completion_authority,
+                    "turn_anchor_state": updated_lifecycle_authority.turn_anchor_state,
+                    "completion_monitoring_armed": updated_lifecycle_authority.completion_monitoring_armed,
                 },
             )
             return updated
@@ -428,6 +428,8 @@ class LiveSessionTracker:
             self._drain_pipeline_snapshots()
             if output_text is not None:
                 self.m_tracker_session.on_snapshot(output_text)
+            previous_operator_state = _require_operator_state(self.m_last_state)
+            previous_lifecycle_authority = _require_lifecycle_authority(self.m_last_state)
             self._emit_debug(
                 stream="tracker-cycle",
                 event_type="record_cycle_start",
@@ -441,14 +443,10 @@ class LiveSessionTracker:
                     "parse_error": _error_message(parse_error),
                     "output_text_length": len(output_text) if output_text is not None else 0,
                     "parsed_surface": _parsed_surface_debug_payload(parsed_surface),
-                    "previous_operator_status": self.m_last_state.operator_state.status,
-                    "previous_completion_state": self.m_last_state.operator_state.completion_state,
-                    "previous_completion_authority": (
-                        self.m_last_state.lifecycle_authority.completion_authority
-                    ),
-                    "previous_turn_anchor_state": (
-                        self.m_last_state.lifecycle_authority.turn_anchor_state
-                    ),
+                    "previous_operator_status": previous_operator_state.status,
+                    "previous_completion_state": previous_operator_state.completion_state,
+                    "previous_completion_authority": previous_lifecycle_authority.completion_authority,
+                    "previous_turn_anchor_state": previous_lifecycle_authority.turn_anchor_state,
                 },
             )
 
@@ -818,6 +816,8 @@ class LiveSessionTracker:
         """Store one response as the current state and append visible transitions."""
 
         transition = _build_transition(previous=self.m_last_state, current=response)
+        response_operator_state = _require_operator_state(response)
+        response_lifecycle_authority = _require_lifecycle_authority(response)
         if transition is not None:
             self.m_recent_transitions.append(transition)
             self.m_recent_transitions = self.m_recent_transitions[-self.m_recent_transition_limit :]
@@ -836,9 +836,9 @@ class LiveSessionTracker:
                 data={
                     "summary": transition.summary,
                     "changed_fields": list(transition.changed_fields),
-                    "operator_status": response.operator_state.status,
-                    "completion_state": response.operator_state.completion_state,
-                    "completion_authority": response.lifecycle_authority.completion_authority,
+                    "operator_status": response_operator_state.status,
+                    "completion_state": response_operator_state.completion_state,
+                    "completion_authority": response_lifecycle_authority.completion_authority,
                 },
             )
         else:
@@ -852,9 +852,9 @@ class LiveSessionTracker:
                     else None
                 ),
                 data={
-                    "operator_status": response.operator_state.status,
-                    "completion_state": response.operator_state.completion_state,
-                    "completion_authority": response.lifecycle_authority.completion_authority,
+                    "operator_status": response_operator_state.status,
+                    "completion_state": response_operator_state.completion_state,
+                    "completion_authority": response_lifecycle_authority.completion_authority,
                 },
             )
         self.m_last_state = response
@@ -1073,6 +1073,36 @@ def _build_operator_state(
     )
 
 
+def _require_operator_state(response: HoumaoTerminalStateResponse) -> HoumaoOperatorState:
+    """Return the required operator state for one published response."""
+
+    if response.operator_state is None:
+        raise RuntimeError("Live session tracker invariant violated: operator_state is missing.")
+    return response.operator_state
+
+
+def _require_lifecycle_timing(
+    response: HoumaoTerminalStateResponse,
+) -> HoumaoLifecycleTimingMetadata:
+    """Return the required lifecycle timing metadata for one published response."""
+
+    if response.lifecycle_timing is None:
+        raise RuntimeError("Live session tracker invariant violated: lifecycle_timing is missing.")
+    return response.lifecycle_timing
+
+
+def _require_lifecycle_authority(
+    response: HoumaoTerminalStateResponse,
+) -> HoumaoLifecycleAuthorityMetadata:
+    """Return the required lifecycle authority metadata for one published response."""
+
+    if response.lifecycle_authority is None:
+        raise RuntimeError(
+            "Live session tracker invariant violated: lifecycle_authority is missing."
+        )
+    return response.lifecycle_authority
+
+
 def _visible_signature_payload(
     *,
     diagnostics: HoumaoTrackedDiagnostics,
@@ -1155,8 +1185,9 @@ def _build_transition(
         for field_name, before, after in field_pairs
         if before != after
     )
+    current_operator_state = _require_operator_state(current)
     return HoumaoRecentTransition(
-        recorded_at_utc=current.last_turn.updated_at_utc or current.operator_state.updated_at_utc,
+        recorded_at_utc=current.last_turn.updated_at_utc or current_operator_state.updated_at_utc,
         summary=summary,
         changed_fields=list(changed_fields),
         diagnostics_availability=current.diagnostics.availability,
@@ -1166,7 +1197,7 @@ def _build_transition(
         transport_state=current.transport_state,
         process_state=current.process_state,
         parse_status=current.parse_status,
-        operator_status=current.operator_state.status,
+        operator_status=current_operator_state.status,
     )
 
 

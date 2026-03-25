@@ -4,26 +4,37 @@ Define the Houmao-owned native `houmao-mgr` command tree for covered pair workfl
 ## Requirements
 
 ### Requirement: `houmao-mgr` exposes a native pair-operations command tree
-`houmao-mgr` SHALL expose a Houmao-owned top-level native command tree in addition to top-level `launch`, `install`, and the explicit `cao` compatibility namespace.
+`houmao-mgr` SHALL expose a Houmao-owned top-level native command tree.
 
 At minimum, that native tree SHALL include:
 
+- `server`
 - `agents`
 - `brains`
 - `admin`
 
-Those command families SHALL be documented as Houmao-owned pair commands rather than as CAO-compatible vocabulary.
+Those command families SHALL be documented as Houmao-owned pair commands.
+
+The root group SHALL use `invoke_without_command=True` so that running `houmao-mgr` without arguments prints help text instead of raising a Python exception.
+
+Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the supported command tree.
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
-- **THEN** the help output includes `agents`, `brains`, and `admin`
-- **AND THEN** those commands appear alongside the existing native pair shortcuts and the explicit `cao` namespace
+- **THEN** the help output includes `server`, `agents`, `brains`, and `admin`
+- **AND THEN** the help output does NOT include `cao` or top-level `launch`
+
+#### Scenario: Bare invocation prints help instead of raising an exception
+- **WHEN** an operator runs `houmao-mgr` without any arguments
+- **THEN** the CLI prints help text showing available command groups
+- **AND THEN** the CLI does NOT raise a Python exception or print a stack trace
 
 ### Requirement: `houmao-mgr agents` is the preferred pair-native managed-agent command family
 `houmao-mgr agents ...` SHALL be the preferred pair-native command family for managed-agent operations.
 
 At minimum, the `agents` family SHALL include commands for:
 
+- `launch`
 - `list`
 - `show`
 - `state`
@@ -37,18 +48,18 @@ Within that family, `show` SHALL present the detail-oriented managed-agent view,
 
 #### Scenario: Operator inspects managed-agent state through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents state <agent-ref>`
-- **THEN** `houmao-mgr` resolves that managed-agent reference through the supported pair authority
+- **THEN** `houmao-mgr` resolves that managed-agent reference through registry-first discovery or the supported pair authority
 - **AND THEN** the command returns the managed-agent state without requiring the operator to switch to raw CAO session or terminal identities
 
 #### Scenario: Operator inspects managed-agent detail through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents show <agent-ref>`
-- **THEN** `houmao-mgr` returns the detail-oriented managed-agent view through the supported pair authority
+- **THEN** `houmao-mgr` returns the detail-oriented managed-agent view
 - **AND THEN** the command does not collapse to an identity-only payload when a managed-agent detail view exists
 
 #### Scenario: Operator submits a prompt through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents prompt <agent-ref> --prompt "..." `
-- **THEN** `houmao-mgr` submits that request through the pair-managed agent control authority
-- **AND THEN** the command does not require the operator to use `houmao-cli send-prompt` for the preferred pair-native workflow
+- **THEN** `houmao-mgr` submits that request through registry-first discovery or the pair-managed agent control authority
+- **AND THEN** the command does not require the operator to know whether the agent is server-backed or locally-backed
 
 ### Requirement: `houmao-mgr agents gateway` exposes gateway lifecycle and gateway-mediated request commands
 `houmao-mgr` SHALL expose a native `agents gateway ...` command family for managed-agent gateway operations.
@@ -153,31 +164,29 @@ That command SHALL remain a local maintenance operation over local runtime-owned
 - **THEN** `houmao-mgr` performs stale shared-registry cleanup on the local host
 - **AND THEN** the command does not require a new `houmao-server` admin endpoint to complete that maintenance
 
-### Requirement: Native `houmao-mgr` expansion retires legacy `agent-gateway` while keeping the supported pair CLI surface coherent
-Expanding `houmao-mgr` SHALL keep the supported pair CLI surface coherent by moving pair-owned gateway operations to the native `agents gateway ...` tree and retiring the legacy top-level `agent-gateway` command family.
+### Requirement: Native `houmao-mgr` expansion retires `cao` namespace and top-level `launch`
+Expanding `houmao-mgr` SHALL retire the `cao` command group and the top-level `launch` command entirely.
 
-This change SHALL NOT remove or repurpose existing `houmao-cli` runtime commands.
+- `houmao-mgr cao *` commands SHALL be removed from the supported command tree.
+- Top-level `houmao-mgr launch` SHALL be removed. Agent launch moves to `houmao-mgr agents launch`.
+- The `server` group replaces server-lifecycle commands previously under `cao` (info, shutdown).
+- The `agents launch` command replaces `cao launch` and top-level `launch`.
 
-Existing top-level `houmao-mgr` commands such as `launch`, `install`, and `cao ...` SHALL remain supported.
+Repo-owned docs, tests, examples, and scripts SHALL use `houmao-mgr agents launch` and `houmao-mgr server *` rather than `cao launch` or top-level `launch`.
 
-The public `houmao-mgr` command tree SHALL NOT continue exposing `agent-gateway` as a supported top-level command family after this change.
+#### Scenario: `cao` namespace is no longer available
+- **WHEN** an operator runs `houmao-mgr cao launch --agents ...`
+- **THEN** the command fails because `cao` is not a recognized command group
+- **AND THEN** help text does not list `cao` as an option
 
-Repo-owned docs, tests, examples, and scripts SHALL use `houmao-mgr agents gateway attach` rather than `houmao-mgr agent-gateway attach`.
+#### Scenario: Top-level launch is no longer available
+- **WHEN** an operator runs `houmao-mgr launch --agents ...`
+- **THEN** the command fails because `launch` is not a recognized top-level command
+- **AND THEN** the operator is directed to use `houmao-mgr agents launch` instead
 
-#### Scenario: Existing `houmao-cli` runtime workflow remains available during native `srv-ctrl` expansion
-- **WHEN** an operator continues using `houmao-cli` after this change
-- **THEN** the existing `houmao-cli` command surface remains available
-- **AND THEN** the new native `houmao-mgr` tree expands pair-native workflows without requiring immediate retirement of `houmao-cli`
-
-#### Scenario: Native help output no longer advertises `agent-gateway`
-- **WHEN** an operator runs `houmao-mgr --help` after this change
-- **THEN** the public help output does not include `agent-gateway` as a supported top-level command family
-- **AND THEN** gateway attach guidance points operators to `houmao-mgr agents gateway attach`
-
-#### Scenario: Repo-owned command usage migrates to `agents gateway attach`
-- **WHEN** repo-owned docs, tests, examples, or scripts need to invoke the pair-managed gateway attach flow
-- **THEN** they use `houmao-mgr agents gateway attach`
-- **AND THEN** they do not continue using `houmao-mgr agent-gateway attach`
+#### Scenario: Repo-owned scripts use the new command paths
+- **WHEN** repo-owned scripts, tests, or docs reference agent launch
+- **THEN** they use `houmao-mgr agents launch` rather than `houmao-mgr cao launch` or `houmao-mgr launch`
 
 ### Requirement: Repo-owned docs prefer `houmao-mgr` over `houmao-cli` for covered pair workflows
 Repo-owned documentation under `docs/` SHALL prefer `houmao-mgr` over `houmao-cli` whenever the new native pair command tree covers the documented workflow.

@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import subprocess
-from typing import ParamSpec, Sequence, TypeVar
+from typing import Any, ParamSpec, Sequence, TypeVar
 
 import click
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ from houmao.server.client import HoumaoServerClient
 _CAO_DEFAULT_PORT = int(os.environ.get("CAO_PORT", "9889"))
 _COMPAT_HTTP_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS"
 _COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
+_FC = TypeVar("_FC", bound=Callable[..., Any])
 _ParamT = ParamSpec("_ParamT")
 _ReturnT = TypeVar("_ReturnT")
 
@@ -101,13 +102,13 @@ def has_flag(args: Sequence[str], flag_name: str) -> bool:
     return any(value == flag_name for value in args)
 
 
-def pair_port_option(*, help_text: str = "Houmao server port to use") -> Callable:
+def pair_port_option(*, help_text: str = "Houmao server port to use") -> Callable[[_FC], _FC]:
     """Return the shared `--port` click option decorator."""
 
     return click.option("--port", default=None, type=int, help=help_text)
 
 
-def compatibility_launch_timeout_options(function: Callable) -> Callable:
+def compatibility_launch_timeout_options(function: _FC) -> _FC:
     """Attach shared compatibility launch timeout controls."""
 
     function = click.option(
@@ -150,7 +151,7 @@ def resolve_compatibility_launch_timeouts(
     )
 
 
-def managed_agent_argument(function: Callable) -> Callable:
+def managed_agent_argument(function: _FC) -> _FC:
     """Attach the shared managed-agent positional argument decorator."""
 
     return click.argument("agent_ref")(function)
