@@ -1,0 +1,9 @@
+schema_version: 1
+name: gpu-kernel-coder-default
+tool: claude
+default_agent_name: cao-claude-demo
+skills: []
+config_profile: default
+credential_profile: demo-default
+launch_policy:
+  operator_prompt_mode: unattended

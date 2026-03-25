@@ -1,6 +1,6 @@
 # Houmao-Server Interactive Full-Pipeline Demo
 
-This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server`, top-level `houmao-mgr install`, and detached `houmao-mgr cao launch --headless`, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
+This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` and detached `houmao-mgr cao launch --headless`, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
 
 The pack intentionally uses a demo-owned generous compatibility startup profile so detached launch stays reliable under automation and slow provider startup:
 
@@ -16,7 +16,7 @@ The pack intentionally uses a demo-owned generous compatibility startup profile 
 - `tmux`
 - a working Claude Code or Codex CLI, depending on the selected provider
 
-The demo does not assume an operator-managed `houmao-server` is already running. Each `start` provisions a fresh run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, starts a loopback `houmao-server` owned by that run, installs the tracked compatibility profile, and launches one detached delegated TUI session into a demo-owned git worktree.
+The demo does not assume an operator-managed `houmao-server` is already running. Each `start` provisions a fresh run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, starts a loopback `houmao-server` owned by that run, resolves the tracked native selector from the demo pack's own `agents/` tree, and launches one detached delegated TUI session into a demo-owned git worktree.
 
 ## Quick Start
 
@@ -78,7 +78,7 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 
 1. Creates a fresh run root and a demo-owned git worktree at `<run-root>/wktree`.
 2. Starts `sys.executable -m houmao.server serve` on a selected loopback port with demo-owned runtime, registry, jobs, and HOME roots.
-3. Installs the tracked `gpu-kernel-coder` compatibility profile into that server through `houmao-mgr install`.
+3. Resolves selector `gpu-kernel-coder` from the tracked native agent-definition root `scripts/demo/houmao-server-interactive-full-pipeline-demo/agents/`.
 4. Launches one detached delegated TUI session through `houmao-mgr cao launch --headless --yolo` without attaching the caller terminal.
 5. Waits for the delegated runtime manifest under the demo-owned run root, loads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
 
@@ -130,7 +130,6 @@ Useful files inside one run root:
 - `turns/turn-*.json`: prompt-request acceptance plus bounded post-request state evidence
 - `interrupts/interrupt-*.json`: interrupt-request acceptance plus bounded post-request state evidence
 - `logs/houmao-server.stdout.log` and `logs/houmao-server.stderr.log`: demo-owned server logs
-- `logs/install.stdout.log` and `logs/install.stderr.log`: pair-owned install logs
 - `runtime/sessions/houmao_server_rest/<session-name>/manifest.json`: delegated runtime manifest discovered after launch
 
 The shell wrappers resolve the active run from `tmp/demo/houmao-server-interactive-full-pipeline-demo/current_run_root.txt` unless `DEMO_WORKSPACE_ROOT` is set explicitly.

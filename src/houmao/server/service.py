@@ -111,8 +111,6 @@ from houmao.server.models import (
     HoumaoHeadlessTurnRequest,
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
-    HoumaoInstallAgentProfileRequest,
-    HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -444,50 +442,6 @@ class HoumaoServerService:
             server_root=str(self.m_config.server_root),
         )
 
-    def install_agent_profile(
-        self, request_model: HoumaoInstallAgentProfileRequest
-    ) -> HoumaoInstallAgentProfileResponse:
-        """Install one agent profile into the Houmao-managed compatibility store."""
-
-        working_directory = (
-            Path(request_model.working_directory).expanduser().resolve()
-            if request_model.working_directory is not None
-            else None
-        )
-        if working_directory is not None and (
-            not working_directory.exists() or not working_directory.is_dir()
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Pair-owned install requires an existing working directory when one is "
-                    "provided."
-                ),
-            )
-
-        try:
-            detail = self.m_control_core.install_profile(
-                agent_source=request_model.agent_source,
-                provider=request_model.provider,
-                working_directory=working_directory,
-            )
-        except Exception as exc:
-            status_code = getattr(exc, "status_code", 500)
-            detail = getattr(exc, "detail", str(exc))
-            raise HTTPException(status_code=status_code, detail=detail) from exc
-
-        LOGGER.info(
-            "Pair-owned install completed for provider=%s agent_source=%s",
-            request_model.provider,
-            request_model.agent_source,
-        )
-        return HoumaoInstallAgentProfileResponse(
-            success=True,
-            agent_source=request_model.agent_source,
-            provider=request_model.provider,
-            detail=detail,
-        )
-
     def sync_created_terminal(self, payload: object) -> None:
         """Accept the proxied create payload without admitting tracking authority."""
 
@@ -788,9 +742,14 @@ class HoumaoServerService:
                 detail="Native headless launch requires an existing brain_manifest_path file.",
             )
 
+        resolved_role_name = None
+        if request_model.role_name is not None and request_model.role_name.strip():
+            resolved_role_name = request_model.role_name.strip()
+
         try:
             manifest = load_brain_manifest(brain_manifest_path)
-            load_role_package(agent_def_dir, request_model.role_name)
+            if resolved_role_name is not None:
+                load_role_package(agent_def_dir, resolved_role_name)
         except (LaunchPlanError, SessionManifestError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -822,7 +781,7 @@ class HoumaoServerService:
             controller = start_runtime_session(
                 agent_def_dir=agent_def_dir,
                 brain_manifest_path=brain_manifest_path,
-                role_name=request_model.role_name,
+                role_name=resolved_role_name,
                 backend=resolved_headless_backend,
                 working_directory=resolved_workdir,
                 api_base_url=self.m_config.api_base_url,

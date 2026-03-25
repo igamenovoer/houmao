@@ -24,7 +24,7 @@ Implemented server scope includes:
 - server-local dispatch for the preserved `/cao/*` route family instead of reverse proxying to a supervised child `cao-server`
 - preserved root `GET /health` compatibility identity with `service="cli-agent-orchestrator"` plus `houmao_service="houmao-server"`, without `child_cao` metadata
 - Houmao-owned current-instance metadata under `/houmao/server/current-instance`
-- Houmao-owned compatibility profile store and profile index under the server root
+- launch-time native selector resolution and compatibility projection for session-backed startup
 - Houmao-owned compatibility registry persistence for CAO-shaped sessions, terminals, and inbox messages
 - shared managed-agent routes under `/houmao/agents/*`
 - native headless lifecycle routes for launch, stop, turns, events, artifacts, and best-effort interrupt
@@ -38,7 +38,6 @@ Implemented server scope includes:
 Implemented CLI scope includes:
 
 - top-level pair commands:
-  - `install`
   - `launch`
   - `agents`
   - `brains`
@@ -47,11 +46,10 @@ Implemented CLI scope includes:
   - `flow`
   - `info`
   - `init`
-  - `install`
   - `launch`
   - `mcp-server`
   - `shutdown`
-- pair-routed `cao launch`, `cao info`, `cao shutdown`, and `cao install`
+- pair-routed `cao launch`, `cao info`, and `cao shutdown`
 - local Houmao-owned compatibility helpers for `cao flow` and `cao init`
 - explicit retirement guidance for `cao mcp-server` instead of passthrough to standalone CAO
 - explicit launch provider coverage for `kiro_cli`, `claude_code`, `codex`, `gemini_cli`, `kimi_cli`, and `q_cli`
@@ -73,7 +71,7 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 
 - `houmao-server` no longer supervises a child `cao-server` for the supported pair path.
 - `houmao-mgr cao ...` no longer depends on an installed `cao` executable for the supported command family.
-- pair-targeted install now writes to a Houmao-managed compatibility profile store under the selected server root.
+- pair startup no longer includes public compatibility-profile install commands.
 - standalone `houmao-cao-server` is retired and fails fast with migration guidance.
 - standalone `houmao-cli` workflows that would create or control raw `backend="cao_rest"` sessions are retired and fail fast with migration guidance.
 

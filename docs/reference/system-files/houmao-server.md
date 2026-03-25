@@ -8,12 +8,6 @@ For one configured public base URL, `houmao-server` derives a stable root under 
 
 ```text
 <runtime-root>/houmao_servers/<host>-<port>/
-  compat_home/
-    .aws/cli-agent-orchestrator/
-      agent-store/
-      agent-context/
-    .aws/amazonq/cli-agents/
-    .kiro/agents/
   logs/
   run/
     current-instance.json
@@ -21,7 +15,10 @@ For one configured public base URL, `houmao-server` derives a stable root under 
   state/
     cao_compat/
       registry.json
-      profiles.json
+      launch_projection/
+        <session-name>/
+          <terminal-id>/
+            context.md
     managed_agents/<tracked-agent-id>/
       authority.json
       active_turn.json
@@ -36,16 +33,11 @@ There is no supported child `cao-server` subtree in this pair design.
 | Path pattern | Created by | Later written by | Purpose | Contract level | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/houmao_servers/<host>-<port>/` | `houmao-server` config resolution | `houmao-server` | Stable per-public-listener root | Stable path family | Public listener identity drives the path |
-| `<server-root>/compat_home/` | compatibility profile-store bootstrap | `houmao-server` compatibility install and launch paths | Houmao-managed compatibility home anchor | Internal support path family | Not a caller-facing config contract |
-| `<server-root>/compat_home/.aws/cli-agent-orchestrator/agent-store/` | compatibility install | compatibility install | Stored compatibility profile markdown | Internal support path family | Pair-targeted install writes here |
-| `<server-root>/compat_home/.aws/cli-agent-orchestrator/agent-context/` | compatibility launch | compatibility launch | Materialized compatibility prompt/context files | Internal support path family | Derived from stored profile markdown |
-| `<server-root>/compat_home/.aws/amazonq/cli-agents/` | compatibility launch | compatibility launch | Provider-specific `q_cli` materializations | Internal support path family | Present when that provider is used |
-| `<server-root>/compat_home/.kiro/agents/` | compatibility launch | compatibility launch | Provider-specific `kiro_cli` materializations | Internal support path family | Present when that provider is used |
 | `<server-root>/logs/` | `houmao-server` startup | `houmao-server` | Log directory for server-owned artifacts | Stable placement | Log content is operational, not schema-stable |
 | `<server-root>/run/current-instance.json` | `houmao-server` startup | `houmao-server` | Current live instance metadata | Stable operator-facing artifact | Compatibility/debug view of the live process |
 | `<server-root>/run/houmao-server.pid` | `houmao-server` startup | `houmao-server` | Live pid file | Stable operator-facing artifact | Remove only after confirmed stop |
 | `<server-root>/state/cao_compat/registry.json` | compatibility-core startup | compatibility core | Persisted CAO-compatible sessions, terminals, and inbox messages | Stable v1 compatibility artifact | Schema is Houmao-owned |
-| `<server-root>/state/cao_compat/profiles.json` | compatibility install or launch | compatibility profile store | Persisted profile index and provider materialization metadata | Stable v1 compatibility artifact | References files under `compat_home/` |
+| `<server-root>/state/cao_compat/launch_projection/<session>/<terminal>/context.md` | compatibility launch | compatibility launch | Launch-scoped profile/context projection for providers that require sidecars | Internal support path family | Materialized from native selector resolution at launch time |
 | `<server-root>/state/managed_agents/<tracked_agent_id>/authority.json` | native headless launch | `houmao-server` | Server-owned authority record for one managed headless agent | Stable v1 headless control-plane artifact | Stores tracked-agent identity, runtime manifest pointer, session root, tmux session name, and identity hints |
 | `<server-root>/state/managed_agents/<tracked_agent_id>/active_turn.json` | first accepted headless turn | `houmao-server` | Active-turn admission and interrupt target for one managed headless agent | Stable v1 headless control-plane artifact | Restart reconciliation reads this before admitting a later turn |
 | `<server-root>/state/managed_agents/<tracked_agent_id>/turns/<turn_id>.json` | headless turn acceptance | `houmao-server` | Durable coarse per-turn server record | Stable v1 headless inspection artifact | Points at runtime-owned turn artifacts without copying them into server state |
@@ -57,10 +49,9 @@ Houmao owns the entire `<server-root>/` tree and the rule that maps one public l
 
 Within that tree:
 
-- `compat_home/` is internal Houmao-managed support state for compatibility profiles and provider materializations
 - `run/` exposes operator-facing instance metadata
 - `sessions/` exposes the delegated-launch bridge
-- `state/cao_compat/` exposes persisted compatibility control-plane state for `/cao/*`
+- `state/cao_compat/` exposes persisted compatibility control-plane state plus launch-scoped projection sidecars for `/cao/*`
 - `state/managed_agents/` exposes native headless authority and restart-recovery state
 
 The server-owned live tracker is memory-primary:
@@ -76,7 +67,7 @@ For native headless agents, the server-owned control-plane truth is split cleanl
 - `state/managed_agents/<tracked_agent_id>/turns/<turn_id>.json` provides durable coarse per-turn inspection metadata
 - runtime-owned turn artifacts remain under the runtime session root and are exposed through `/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/*`
 
-The detailed contents under `compat_home/` are intentionally not treated as a public contract. They exist so the internal compatibility control core can preserve the supported pair surface.
+Detailed contents under `state/cao_compat/launch_projection/` are intentionally not treated as a public contract. They exist so the internal compatibility control core can preserve the supported pair surface while launching from native selectors.
 
 ## Related References
 
@@ -90,5 +81,5 @@ The detailed contents under `compat_home/` are intentionally not treated as a pu
 - [`src/houmao/server/config.py`](../../../src/houmao/server/config.py)
 - [`src/houmao/server/service.py`](../../../src/houmao/server/service.py)
 - [`src/houmao/server/control_core/core.py`](../../../src/houmao/server/control_core/core.py)
-- [`src/houmao/server/control_core/profile_store.py`](../../../src/houmao/server/control_core/profile_store.py)
+- [`src/houmao/server/control_core/provider_adapters.py`](../../../src/houmao/server/control_core/provider_adapters.py)
 - [`src/houmao/server/managed_agents.py`](../../../src/houmao/server/managed_agents.py)

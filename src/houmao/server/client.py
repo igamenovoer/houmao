@@ -32,8 +32,6 @@ from .models import (
     HoumaoHeadlessTurnRequest,
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
-    HoumaoInstallAgentProfileRequest,
-    HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -156,23 +154,6 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             "/houmao/launches/register",
             HoumaoRegisterLaunchResponse,
-            params={key: str(value) for key, value in query_params.items()},
-        )
-
-    def install_agent_profile(
-        self, request_model: HoumaoInstallAgentProfileRequest
-    ) -> HoumaoInstallAgentProfileResponse:
-        """Call `POST /houmao/agent-profiles/install`."""
-
-        query_params = {
-            key: value
-            for key, value in request_model.model_dump(mode="json").items()
-            if value is not None
-        }
-        return self._request_root_model(
-            "POST",
-            "/houmao/agent-profiles/install",
-            HoumaoInstallAgentProfileResponse,
             params={key: str(value) for key, value in query_params.items()},
         )
 

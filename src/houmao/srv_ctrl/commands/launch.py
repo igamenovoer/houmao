@@ -7,6 +7,7 @@ import subprocess
 
 import click
 
+from houmao.agents.native_launch_resolver import tool_for_provider
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.cao.models import CaoSessionTerminalSummary, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
@@ -46,7 +47,7 @@ _PROVIDERS_REQUIRING_WORKSPACE_ACCESS = frozenset(
 
 
 @click.command(name="launch")
-@click.option("--agents", required=True, help="Agent profile to launch")
+@click.option("--agents", required=True, help="Native launch selector to launch")
 @click.option("--session-name", help="Name of the session (default: auto-generated)")
 @click.option("--headless", is_flag=True, help="Launch in detached mode")
 @click.option(
@@ -122,16 +123,6 @@ def launch_command(
     )
 
 
-def _tool_from_provider(provider: str) -> str:
-    if provider == "claude_code":
-        return "claude"
-    if provider == "codex":
-        return "codex"
-    if provider == "gemini_cli":
-        return "gemini"
-    return provider
-
-
 def _optional_terminal_string(value: object) -> str | None:
     """Return one stripped optional terminal metadata string."""
 
@@ -200,7 +191,7 @@ def _launch_session_backed_pair_command(
         request_model=HoumaoRegisterLaunchRequest(
             session_name=terminal.session_name,
             terminal_id=terminal.id,
-            tool=_tool_from_provider(provider),
+            tool=tool_for_provider(provider),
             observed_tool_version=observed_tool_version,
             manifest_path=str(manifest_path),
             session_root=str(session_root),

@@ -4,7 +4,7 @@ This implementation does not claim unlimited CAO parity. The verification bounda
 
 - CAO-compatible `/cao/*` HTTP routes are tested as request-surface and local-dispatch contracts owned by `houmao-server`
 - `houmao-mgr cao ...` is tested as a Houmao-owned compatibility namespace, with either pair-routed behavior or local compatibility helpers depending on the subcommand
-- Houmao-owned extensions, tracking, gateway, managed-agent, and install behavior are tested directly for correctness
+- Houmao-owned extensions, tracking, gateway, managed-agent, and native-selector launch behavior are tested directly for correctness
 
 ## Compatibility Source Of Truth
 
@@ -34,7 +34,7 @@ Verified areas:
 - Houmao-owned server behavior:
   - root `/health` identity fields without `child_cao`
   - current-instance payload without child metadata
-  - install validation and explicit server-owned install failures
+  - session-backed native-selector projection for compatibility startup
   - compatibility registry persistence and shutdown behavior
   - terminal history ordering and limiting
 
@@ -59,9 +59,7 @@ Verified areas:
   - `cao info`
   - `cao shutdown`
   - `cao launch`
-  - `cao install`
 - Houmao-owned top-level command behavior for:
-  - `install`
   - `launch`
   - `launch --headless`
   - `agents gateway attach <agent-ref> --port <public-port>`

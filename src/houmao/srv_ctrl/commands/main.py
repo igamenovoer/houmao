@@ -8,7 +8,6 @@ from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
 from .cao import cao_group
-from .install import install_command
 from .launch import launch_command
 
 
@@ -21,7 +20,6 @@ cli.add_command(cao_group)
 cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
-cli.add_command(install_command)
 cli.add_command(launch_command)
 
 

@@ -3,26 +3,34 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shlex
 import threading
 import time
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from urllib import parse
 
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.native_launch_resolver import resolve_native_launch_target
+from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
+from houmao.agents.realm_controller.loaders import RolePackage, load_brain_manifest
+from houmao.agents.realm_controller.models import LaunchPlan
 from houmao.cao.models import CaoInboxMessageStatus
 from houmao.server.config import HoumaoServerConfig
 
 from .models import (
+    CompatibilityAgentProfile,
     CompatibilityInboxMessageRecord,
     CompatibilityRegistrySnapshot,
     CompatibilitySessionRecord,
     CompatibilityTerminalRecord,
+    CompatibilityTerminalStatus,
 )
-from .profile_store import CompatibilityProfileInstallError, CompatibilityProfileStore
 from .provider_adapters import (
+    CompatibilityProviderAdapter,
     CompatibilityProviderError,
     normalize_terminal_status,
     require_provider_adapter,
@@ -36,24 +44,15 @@ _COMPAT_HOME_ENV_BY_PROVIDER: dict[str, str] = {
     "codex": "CODEX_HOME",
     "gemini_cli": "GEMINI_HOME",
 }
-_COMPAT_CREDENTIAL_ENV_BY_PROVIDER: dict[str, tuple[str, ...]] = {
-    "claude_code": (
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_SUBAGENT_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-    ),
-    "codex": (
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "OPENAI_ORG_ID",
-    ),
-}
+
+
+@dataclass(frozen=True)
+class PreparedNativeCompatibilityLaunch:
+    """Prepared launch projection used by provider startup."""
+
+    profile: CompatibilityAgentProfile
+    resolved_provider: str
+    launch_plan: LaunchPlan
 
 
 class CompatibilityControlError(RuntimeError):
@@ -74,13 +73,11 @@ class CompatibilityControlCore:
         self,
         *,
         config: HoumaoServerConfig,
-        profile_store: CompatibilityProfileStore | None = None,
         tmux_controller: CompatibilityTmuxController | None = None,
     ) -> None:
         """Initialize the native compatibility control core."""
 
         self.m_config = config
-        self.m_profile_store = profile_store or CompatibilityProfileStore(config=config)
         self.m_tmux = tmux_controller or CompatibilityTmuxController()
         self.m_lock = threading.RLock()
         self.m_sessions: dict[str, CompatibilitySessionRecord] = {}
@@ -91,7 +88,7 @@ class CompatibilityControlCore:
     def startup(self) -> None:
         """Load persisted compatibility state and ensure storage roots exist."""
 
-        self.m_profile_store.ensure_directories()
+        self._ensure_compatibility_state_root()
         with self.m_lock:
             snapshot = self._read_registry_snapshot()
             self.m_sessions = {item.session_name: item for item in snapshot.sessions}
@@ -106,28 +103,9 @@ class CompatibilityControlCore:
     def shutdown(self) -> None:
         """Persist the current compatibility registry snapshot."""
 
-        self.m_profile_store.ensure_directories()
+        self._ensure_compatibility_state_root()
         with self.m_lock:
             self._persist_registry_locked()
-
-    def install_profile(
-        self,
-        *,
-        agent_source: str,
-        provider: str,
-        working_directory: Path | None = None,
-    ) -> str:
-        """Install one compatibility profile into the server-owned store."""
-
-        record = self.m_profile_store.install_profile(
-            agent_source=agent_source,
-            provider=provider,
-            working_directory=working_directory,
-        )
-        return (
-            "Pair-owned install completed through the Houmao-managed compatibility profile "
-            f"store for provider `{record.resolved_provider}` as profile `{record.profile_name}`."
-        )
 
     def health_payload(self) -> dict[str, str]:
         """Return the CAO-compatible health payload."""
@@ -164,11 +142,12 @@ class CompatibilityControlCore:
                     detail=f"Session `{resolved_session_name}` already exists.",
                 )
 
-        prepared_profile = self._load_prepared_profile(
-            profile_name=agent_profile,
+        prepared_projection = self._prepare_native_launch_projection(
+            selector=agent_profile,
             provider=provider,
+            working_directory=resolved_working_directory,
         )
-        adapter = require_provider_adapter(prepared_profile.resolved_provider)
+        adapter = require_provider_adapter(prepared_projection.resolved_provider)
         window_name = self._next_window_name(
             session_name=resolved_session_name,
             agent_profile=agent_profile,
@@ -186,18 +165,17 @@ class CompatibilityControlCore:
                 window_name=window.window_name,
                 window_id=window.window_id,
                 window_index=window.window_index,
-                provider=prepared_profile.resolved_provider,
-                agent_profile=prepared_profile.profile.name,
+                provider=prepared_projection.resolved_provider,
+                agent_profile=prepared_projection.profile.name,
                 working_directory=str(resolved_working_directory),
             )
             self._initialize_terminal(
                 terminal_record=terminal_record,
                 working_directory=resolved_working_directory,
-                prepared_provider_profile=prepared_profile,
+                prepared_provider_profile=prepared_projection,
                 adapter=adapter,
             )
         except (
-            CompatibilityProfileInstallError,
             CompatibilityProviderError,
             CompatibilityTmuxError,
         ):
@@ -255,11 +233,12 @@ class CompatibilityControlCore:
         """Create one additional terminal in an existing session."""
 
         resolved_working_directory = self._resolve_working_directory(working_directory)
-        prepared_profile = self._load_prepared_profile(
-            profile_name=agent_profile,
+        prepared_projection = self._prepare_native_launch_projection(
+            selector=agent_profile,
             provider=provider,
+            working_directory=resolved_working_directory,
         )
-        adapter = require_provider_adapter(prepared_profile.resolved_provider)
+        adapter = require_provider_adapter(prepared_projection.resolved_provider)
         with self.m_lock:
             session_record = self._require_session_locked(session_name=session_name)
             window_name = self._next_window_name(
@@ -278,15 +257,15 @@ class CompatibilityControlCore:
             window_name=window.window_name,
             window_id=window.window_id,
             window_index=window.window_index,
-            provider=prepared_profile.resolved_provider,
-            agent_profile=prepared_profile.profile.name,
+            provider=prepared_projection.resolved_provider,
+            agent_profile=prepared_projection.profile.name,
             working_directory=str(resolved_working_directory),
         )
         try:
             self._initialize_terminal(
                 terminal_record=terminal_record,
                 working_directory=resolved_working_directory,
-                prepared_provider_profile=prepared_profile,
+                prepared_provider_profile=prepared_projection,
                 adapter=adapter,
             )
         except (CompatibilityProviderError, CompatibilityTmuxError):
@@ -485,8 +464,8 @@ class CompatibilityControlCore:
         *,
         terminal_record: CompatibilityTerminalRecord,
         working_directory: Path,
-        prepared_provider_profile: object,
-        adapter: object,
+        prepared_provider_profile: PreparedNativeCompatibilityLaunch,
+        adapter: CompatibilityProviderAdapter,
     ) -> None:
         """Wait for the shell, start the provider, and wait for readiness."""
 
@@ -496,53 +475,53 @@ class CompatibilityControlCore:
                 status_code=500,
                 detail=f"Terminal `{terminal_record.terminal_id}` is missing a tmux window binding.",
             )
-        prepared = prepared_provider_profile
-        if not hasattr(prepared, "profile") or not hasattr(prepared, "resolved_provider"):
-            raise CompatibilityControlError(
-                status_code=500,
-                detail="Compatibility provider profile preparation returned an invalid payload.",
-            )
-        typed_adapter = adapter
         self.m_tmux.wait_for_shell(
             window_id=terminal_record.window_id,
             timeout_seconds=self.m_config.compat_shell_ready_timeout_seconds,
             polling_interval_seconds=self.m_config.compat_shell_ready_poll_interval_seconds,
         )
-        if getattr(typed_adapter, "provider_id", "") == "codex":
+        if adapter.provider_id == "codex":
             self.m_tmux.send_command(window_id=terminal_record.window_id, command="echo ready")
             if self.m_config.compat_codex_warmup_seconds > 0:
                 time.sleep(self.m_config.compat_codex_warmup_seconds)
 
-        profile = getattr(prepared, "profile")
-        command = typed_adapter.build_command(
+        profile = prepared_provider_profile.profile
+        self._materialize_launch_sidecars(
+            prepared_projection=prepared_provider_profile,
+            terminal_record=terminal_record,
+        )
+        command = adapter.build_command(
             profile=profile,
             profile_name=terminal_record.agent_profile,
             terminal_id=terminal_record.terminal_id,
             working_directory=Path(terminal_record.working_directory),
         )
         launch_exports = [
-            f"export HOME={shlex.quote(str(self.m_config.compatibility_home_dir))}",
+            f"export HOME={shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}",
         ]
-        home_selector_env_var = _COMPAT_HOME_ENV_BY_PROVIDER.get(
-            getattr(typed_adapter, "provider_id", "")
-        )
-        if home_selector_env_var is not None:
+        home_selector_env_var = prepared_provider_profile.launch_plan.home_env_var
+        if home_selector_env_var.strip():
             launch_exports.append(
                 f"export {home_selector_env_var}="
-                f"{shlex.quote(str(self.m_config.compatibility_home_dir))}"
+                f"{shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}"
             )
-        for env_var_name in _COMPAT_CREDENTIAL_ENV_BY_PROVIDER.get(
-            getattr(typed_adapter, "provider_id", ""),
-            (),
-        ):
-            env_var_value = os.environ.get(env_var_name)
-            if env_var_value is None or not env_var_value.strip():
+        compatibility_home_env_var = _COMPAT_HOME_ENV_BY_PROVIDER.get(
+            adapter.provider_id
+        )
+        if compatibility_home_env_var is not None and compatibility_home_env_var != home_selector_env_var:
+            launch_exports.append(
+                f"export {compatibility_home_env_var}="
+                f"{shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}"
+            )
+        for env_var_name in sorted(prepared_provider_profile.launch_plan.env):
+            env_var_value = prepared_provider_profile.launch_plan.env[env_var_name]
+            if not env_var_value.strip():
                 continue
             launch_exports.append(f"export {env_var_name}={shlex.quote(env_var_value)}")
         launch_exports.append(f"export CAO_TERMINAL_ID={shlex.quote(terminal_record.terminal_id)}")
         launch_command = "; ".join([*launch_exports, command])
         self.m_tmux.send_command(window_id=terminal_record.window_id, command=launch_command)
-        typed_adapter.wait_until_ready(
+        adapter.wait_until_ready(
             tmux=self.m_tmux,
             window_id=terminal_record.window_id,
             profile_name=terminal_record.agent_profile,
@@ -550,12 +529,158 @@ class CompatibilityControlCore:
             polling_interval_seconds=self.m_config.compat_provider_ready_poll_interval_seconds,
         )
 
-    def _load_prepared_profile(self, *, profile_name: str, provider: str) -> object:
-        """Load one prepared profile through the Houmao-managed store."""
+    def _prepare_native_launch_projection(
+        self,
+        *,
+        selector: str,
+        provider: str,
+        working_directory: Path,
+    ) -> PreparedNativeCompatibilityLaunch:
+        """Resolve native inputs and project a profile-shaped compatibility payload."""
 
-        return self.m_profile_store.load_profile(
-            profile_name=profile_name, requested_provider=provider
+        try:
+            resolved_target = resolve_native_launch_target(
+                selector=selector,
+                provider=provider,
+                working_directory=working_directory,
+            )
+            build_result = build_brain_home(
+                BuildRequest(
+                    agent_def_dir=resolved_target.agent_def_dir,
+                    runtime_root=self.m_config.runtime_root,
+                    tool=resolved_target.recipe.tool,
+                    skills=resolved_target.recipe.skills,
+                    config_profile=resolved_target.recipe.config_profile,
+                    credential_profile=resolved_target.recipe.credential_profile,
+                    recipe_path=resolved_target.recipe_path,
+                    recipe_launch_overrides=resolved_target.recipe.launch_overrides,
+                    mailbox=resolved_target.recipe.mailbox,
+                    agent_name=resolved_target.recipe.default_agent_name,
+                )
+            )
+            manifest = load_brain_manifest(build_result.manifest_path)
+            role_name = (
+                resolved_target.role_name
+                if resolved_target.role_name is not None
+                else "brain-only"
+            )
+            role_path = (
+                resolved_target.role_prompt_path
+                if resolved_target.role_prompt_path is not None
+                else (
+                    resolved_target.agent_def_dir / "roles" / "brain-only" / "system-prompt.md"
+                ).resolve()
+            )
+            launch_plan = build_launch_plan(
+                LaunchPlanRequest(
+                    brain_manifest=manifest,
+                    role_package=RolePackage(
+                        role_name=role_name,
+                        system_prompt=resolved_target.role_prompt,
+                        path=role_path,
+                    ),
+                    backend="houmao_server_rest",
+                    working_directory=working_directory,
+                    mailbox=None,
+                )
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            raise CompatibilityControlError(status_code=422, detail=str(exc)) from exc
+
+        return PreparedNativeCompatibilityLaunch(
+            profile=CompatibilityAgentProfile(
+                name=resolved_target.selector,
+                description=f"Launch-time projection for selector `{resolved_target.selector}`.",
+                provider=resolved_target.provider,
+                system_prompt=resolved_target.role_prompt,
+            ),
+            resolved_provider=resolved_target.provider,
+            launch_plan=launch_plan,
         )
+
+    def _materialize_launch_sidecars(
+        self,
+        *,
+        prepared_projection: PreparedNativeCompatibilityLaunch,
+        terminal_record: CompatibilityTerminalRecord,
+    ) -> None:
+        """Materialize launch-scoped compatibility sidecars for providers that need files."""
+
+        projection_root = (
+            self.m_config.compatibility_state_dir
+            / "launch_projection"
+            / terminal_record.session_name
+            / terminal_record.terminal_id
+        ).resolve()
+        projection_root.mkdir(parents=True, exist_ok=True)
+        context_path = (projection_root / "context.md").resolve()
+        context_path.write_text(
+            _profile_markdown(prepared_projection.profile),
+            encoding="utf-8",
+        )
+        self._materialize_provider_artifacts(
+            profile=prepared_projection.profile,
+            resolved_provider=prepared_projection.resolved_provider,
+            context_path=context_path,
+            launch_plan=prepared_projection.launch_plan,
+        )
+
+    def _materialize_provider_artifacts(
+        self,
+        *,
+        profile: CompatibilityAgentProfile,
+        resolved_provider: str,
+        context_path: Path,
+        launch_plan: LaunchPlan,
+    ) -> None:
+        """Materialize provider-specific profile sidecars from the launch projection."""
+
+        allowed_tools = (
+            list(profile.allowedTools)
+            if profile.allowedTools is not None
+            else ["@builtin", "fs_*", "execute_bash"]
+        )
+        if profile.mcpServers:
+            for server_name in profile.mcpServers:
+                allowed_tools.append(f"@{server_name}")
+        payload = {
+            "name": profile.name,
+            "description": profile.description,
+            "tools": profile.tools if profile.tools is not None else ["*"],
+            "allowedTools": allowed_tools,
+            "useLegacyMcpJson": bool(profile.useLegacyMcpJson)
+            if profile.useLegacyMcpJson is not None
+            else False,
+            "resources": [f"file://{context_path.absolute()}"],
+            "prompt": profile.prompt,
+            "mcpServers": profile.mcpServers,
+            "toolAliases": profile.toolAliases,
+            "toolsSettings": profile.toolsSettings,
+            "hooks": profile.hooks,
+            "model": profile.model,
+        }
+        if resolved_provider == "q_cli":
+            artifact_path = (
+                launch_plan.home_path
+                / ".aws"
+                / "amazonq"
+                / "cli-agents"
+                / f"{profile.name.replace('/', '__')}.json"
+            )
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(_drop_none(payload), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if resolved_provider == "kiro_cli":
+            artifact_path = (
+                launch_plan.home_path / ".kiro" / "agents" / f"{profile.name.replace('/', '__')}.json"
+            )
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(_drop_none(payload), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
 
     def _session_payload(self, record: CompatibilitySessionRecord) -> dict[str, object]:
         """Project one internal session record to the CAO-compatible payload."""
@@ -599,7 +724,7 @@ class CompatibilityControlCore:
             "last_active": record.last_active_utc,
         }
 
-    def _terminal_status(self, record: CompatibilityTerminalRecord) -> str:
+    def _terminal_status(self, record: CompatibilityTerminalRecord) -> CompatibilityTerminalStatus:
         """Return the live CAO-compatible status string for one terminal."""
 
         if record.window_id is None:
@@ -674,6 +799,11 @@ class CompatibilityControlCore:
                 detail=f"Terminal `{terminal_id}` was not found.",
             )
         return record
+
+    def _ensure_compatibility_state_root(self) -> None:
+        """Ensure the compatibility-core durability roots exist."""
+
+        self.m_config.compatibility_state_dir.mkdir(parents=True, exist_ok=True)
 
     def _read_registry_snapshot(self) -> CompatibilityRegistrySnapshot:
         """Read the current registry snapshot from disk."""
@@ -762,7 +892,7 @@ class LocalCompatibilityTransport:
                 path=path,
                 params=params or {},
             )
-        except (CompatibilityControlError, CompatibilityProfileInstallError) as exc:
+        except CompatibilityControlError as exc:
             return exc.status_code, {"detail": exc.detail}
         except (CompatibilityProviderError, CompatibilityTmuxError) as exc:
             return 503, {"detail": str(exc)}
@@ -862,6 +992,39 @@ class LocalCompatibilityTransport:
             status_code=404,
             detail=f"Unsupported compatibility route: {method} {path}",
         )
+
+
+def _profile_markdown(profile: CompatibilityAgentProfile) -> str:
+    """Render one compatibility profile projection to markdown."""
+
+    frontmatter = {
+        "name": profile.name,
+        "description": profile.description,
+        "provider": profile.provider,
+        "prompt": profile.prompt,
+        "mcpServers": profile.mcpServers,
+        "tools": profile.tools,
+        "toolAliases": profile.toolAliases,
+        "allowedTools": profile.allowedTools,
+        "toolsSettings": profile.toolsSettings,
+        "resources": profile.resources,
+        "hooks": profile.hooks,
+        "useLegacyMcpJson": profile.useLegacyMcpJson,
+        "model": profile.model,
+    }
+    cleaned = _drop_none(frontmatter)
+    return (
+        "---\n"
+        f"{json.dumps(cleaned, indent=2, sort_keys=True)}\n"
+        "---\n"
+        f"{profile.system_prompt.rstrip()}\n"
+    )
+
+
+def _drop_none(payload: Mapping[str, object]) -> dict[str, object]:
+    """Return one shallow mapping without `None` values."""
+
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _require_param(params: dict[str, str], key: str) -> str:

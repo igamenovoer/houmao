@@ -31,7 +31,7 @@ The supported pair no longer requires the standalone `cao` executable for `houma
 
 Current behavior is split intentionally:
 
-- `houmao-mgr cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
+- `houmao-mgr cao launch`, `info`, and `shutdown` route through `houmao-server`
 - `houmao-mgr cao flow` and `cao init` are Houmao-owned local compatibility helpers
 - `houmao-mgr cao mcp-server` is retired and fails explicitly with migration guidance
 
@@ -61,7 +61,7 @@ What changes when you do this:
 - root `/health` keeps `service="cli-agent-orchestrator"` and adds `houmao_service="houmao-server"`, without `child_cao`
 - the preserved `/cao/*` route family is served locally by `houmao-server`
 - live terminal tracking remains server-owned and runs from direct tmux/process observation
-- pair-targeted installs are written into a Houmao-managed compatibility profile store under the server root
+- session-backed launch resolves native selectors at launch time from the effective agent-definition root
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
 
 ## 4. Switch Service-Management Commands To `houmao-mgr`
@@ -73,8 +73,6 @@ Examples:
 ```bash
 pixi run houmao-mgr cao info
 pixi run houmao-mgr cao init
-pixi run houmao-mgr install gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-mgr cao install gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-mgr launch --agents gpu-kernel-coder --provider codex --port 9889
 pixi run houmao-mgr cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
 pixi run houmao-mgr launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
@@ -122,7 +120,7 @@ History retention is intentionally split:
 
 `houmao-mgr` now exposes one native tree plus the explicit compatibility namespace:
 
-- top-level `launch` and `install`
+- top-level `launch`
 - server-backed `agents ...`
 - local `brains build`
 - local `admin cleanup-registry`
@@ -193,10 +191,9 @@ Recommended migration order:
 1. Start `houmao-server` on the public base URL you want to own.
 2. Replace operator command usage from `cao` to `houmao-mgr`.
 3. Verify `houmao-server health` and `houmao-mgr cao info`.
-4. Install agent profiles through `houmao-mgr install` or `houmao-mgr cao install`.
-5. Launch one terminal-backed session through `houmao-mgr launch` or `houmao-mgr cao launch`, or one native headless agent through `houmao-mgr launch --headless`.
-6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
-7. Move follow-up tooling toward the persisted `houmao_server_rest` artifacts and the `/houmao/agents/*` API instead of standalone CAO endpoints.
+4. Launch one terminal-backed session through `houmao-mgr launch` or `houmao-mgr cao launch`, or one native headless agent through `houmao-mgr launch --headless`.
+5. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
+6. Move follow-up tooling toward the persisted `houmao_server_rest` artifacts and the `/houmao/agents/*` API instead of standalone CAO endpoints.
 
 ## 10. Roll Back If Needed
 

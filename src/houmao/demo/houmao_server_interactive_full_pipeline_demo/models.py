@@ -260,9 +260,7 @@ class DemoState(_StrictModel):
     server_pid: int
     server_stdout_log_path: str
     server_stderr_log_path: str
-    install_profile_source: str
-    install_stdout_log_path: str
-    install_stderr_log_path: str
+    agent_def_dir: str
     houmao_server: HoumaoServerSectionV1
     updated_at: str
     prompt_turn_count: int = 0
@@ -291,9 +289,7 @@ class DemoState(_StrictModel):
         "server_runtime_root",
         "server_stdout_log_path",
         "server_stderr_log_path",
-        "install_profile_source",
-        "install_stdout_log_path",
-        "install_stderr_log_path",
+        "agent_def_dir",
         "updated_at",
     )
     @classmethod
