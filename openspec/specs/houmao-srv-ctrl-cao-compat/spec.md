@@ -6,19 +6,24 @@ Define the public `houmao-mgr` contract as the Houmao-managed CAO-compatible ser
 
 CAO-compatible command entrypoints SHALL live only under the explicit `houmao-mgr cao ...` namespace.
 
-Top-level CAO verbs such as `info`, `shutdown`, `init`, `flow`, and `mcp-server` SHALL NOT remain supported as top-level aliases.
+Top-level CAO verbs such as `info`, `shutdown`, `init`, `flow`, `mcp-server`, and `install` SHALL NOT remain supported as top-level aliases.
 
-Top-level `launch` and `install` MAY remain, but they SHALL be documented and implemented as Houmao-owned pair commands rather than top-level CAO compatibility verbs.
+Top-level `launch` MAY remain, but it SHALL be documented and implemented as a Houmao-owned pair command rather than as a top-level CAO compatibility verb.
 
 #### Scenario: Removed top-level CAO verb is replaced by the explicit `cao` namespace
 - **WHEN** an operator needs the CAO-compatible info command through `houmao-mgr`
 - **THEN** the supported invocation is `houmao-mgr cao info`
 - **AND THEN** `houmao-mgr` does not require top-level `info` compatibility to remain available
 
-#### Scenario: Top-level pair workflows remain available after the boundary reset
-- **WHEN** an operator wants the canonical pair launch or install workflow
-- **THEN** the operator uses top-level `houmao-mgr launch` or `houmao-mgr install`
-- **AND THEN** those commands are treated as Houmao-owned pair UX rather than CAO compatibility aliases
+#### Scenario: Top-level pair launch workflow remains available after the boundary reset
+- **WHEN** an operator wants the canonical pair launch workflow
+- **THEN** the operator uses top-level `houmao-mgr launch`
+- **AND THEN** that command is treated as Houmao-owned pair UX rather than a CAO compatibility alias
+
+#### Scenario: Removed top-level install does not remain part of the pair workflow
+- **WHEN** an operator tries to use top-level `houmao-mgr install`
+- **THEN** that command is not part of the supported top-level `houmao-mgr` surface
+- **AND THEN** migration guidance points the operator at native agent-definition-based launch instead of preinstalled compatibility profiles
 
 ### Requirement: `houmao-mgr` exposes a CAO-compatible command surface
 The system SHALL expose a CAO-compatible command surface on a dedicated service-management binary named `houmao-mgr`.
@@ -30,7 +35,6 @@ At minimum, the CAO-compatible command family under `houmao-mgr cao` SHALL inclu
 - `flow`
 - `info`
 - `init`
-- `install`
 - `launch`
 - `mcp-server`
 - `shutdown`
@@ -39,7 +43,7 @@ This capability SHALL NOT require aliasing `cao` directly to `houmao-mgr`, and i
 
 This capability SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-compatible service-management surface.
 
-#### Scenario: Explicit `cao` namespace accepts supported CAO command patterns
+#### Scenario: Explicit `cao` namespace accepts supported CAO-compatible command patterns
 - **WHEN** an operator invokes a supported CAO-compatible command pattern through `houmao-mgr cao ...`
 - **THEN** `houmao-mgr` accepts that command pattern with CAO-compatible behavior
 - **AND THEN** the operator does not need top-level CAO verb compatibility to access the explicit compatibility surface
@@ -47,7 +51,7 @@ This capability SHALL NOT repurpose the existing `houmao-cli` binary as the CAO-
 ### Requirement: Session-backed compatibility commands use Houmao-owned pair authority
 When a supported `houmao-mgr cao ...` command creates, inspects, mutates, or shuts down a session in the supported pair, `houmao-mgr` SHALL execute that behavior through Houmao-owned pair APIs rather than through an external `cao` subprocess.
 
-This requirement applies at minimum to `houmao-mgr cao launch`, `houmao-mgr cao info`, `houmao-mgr cao shutdown`, and `houmao-mgr cao install`.
+This requirement applies at minimum to `houmao-mgr cao launch`, `houmao-mgr cao info`, and `houmao-mgr cao shutdown`.
 
 #### Scenario: Namespaced compatibility launch uses the pair authority directly
 - **WHEN** an operator runs `houmao-mgr cao launch ...` against the supported pair
@@ -58,6 +62,30 @@ This requirement applies at minimum to `houmao-mgr cao launch`, `houmao-mgr cao 
 - **WHEN** an operator runs `houmao-mgr cao info`
 - **THEN** `houmao-mgr` reads compatibility-significant session information through Houmao-owned pair authority
 - **AND THEN** the command does not require a raw `cao-server` deployment as its supported target
+
+### Requirement: Session-backed pair launch resolves native agent definitions instead of installed compatibility profiles
+For session-backed TUI launch in the supported pair, top-level `houmao-mgr launch` and explicit `houmao-mgr cao launch` SHALL interpret `--agents` as a native launch selector resolved from the effective agent-definition root rather than as a preinstalled compatibility profile name.
+
+The effective agent-definition root used by session-backed launch SHALL follow the same native root contract used by top-level native headless translation.
+
+In the first cut, session-backed selector resolution SHALL support tool-lane brain recipes from that root for the selected provider or tool lane.
+
+This first cut SHALL NOT require blueprint-by-name resolution on the session-backed pair-launch surface.
+
+Session-backed launch SHALL NOT require a separate public install step to preload compatibility profile state before launch.
+
+When the resolved native launch target has no role binding or no matching role package, session-backed launch SHALL remain valid and SHALL treat that launch as a brain-only launch with an empty system prompt.
+
+#### Scenario: Session-backed top-level launch resolves a native selector without install
+- **WHEN** an operator runs `houmao-mgr launch --agents gpu-kernel-coder --provider codex`
+- **THEN** `houmao-mgr` resolves `gpu-kernel-coder` from the effective native agent-definition root for that launch
+- **AND THEN** the resolved native target comes from the selected tool lane's recipe store rather than a preinstalled compatibility profile
+- **AND THEN** the launch does not require prior `houmao-mgr install` or any preloaded compatibility profile state
+
+#### Scenario: Namespaced compatibility launch accepts a brain-only native target
+- **WHEN** an operator runs `houmao-mgr cao launch ...` and the resolved native launch target has no role package
+- **THEN** `houmao-mgr` still launches that session-backed agent through the supported pair
+- **AND THEN** the launch uses an empty system prompt instead of failing for missing role metadata
 
 ### Requirement: `houmao-mgr` compatibility is pinned to one exact CAO source of truth
 For this capability, the CAO CLI compatibility source of truth SHALL be pinned to:
@@ -234,8 +262,8 @@ Houmao-owned CLI behavior SHALL be tested directly and more strictly. That verif
 
 - native headless top-level `launch --headless`
 - session-backed top-level `launch` registration and runtime artifact materialization
-- namespaced compatibility launch/info/shutdown/install through the pair
-- top-level `install` routing through `houmao-server`
+- namespaced compatibility launch/info/shutdown through the pair
+- native selector resolution for both headless and session-backed launch, including brain-only empty-prompt behavior
 
 #### Scenario: Compatibility verification catches namespace regressions
 - **WHEN** a `houmao-mgr cao` command changes in a way that breaks CAO-compatible invocation shape or compatibility-significant behavior
@@ -243,26 +271,9 @@ Houmao-owned CLI behavior SHALL be tested directly and more strictly. That verif
 - **AND THEN** the implementation can reject that change before claiming namespaced CAO compatibility
 
 #### Scenario: Houmao-owned verification catches pair-command regressions
-- **WHEN** a top-level or namespaced Houmao-owned command changes in a way that breaks pair launch, install, or compatibility-wrapper behavior
+- **WHEN** a top-level or namespaced Houmao-owned command changes in a way that breaks pair launch, native selector resolution, or compatibility-wrapper behavior
 - **THEN** direct Houmao behavior verification detects the regression
 - **AND THEN** the implementation can reject that change even though no external `cao` subprocess is involved
-
-### Requirement: Pair-targeted install routes through `houmao-server`
-Top-level `houmao-mgr install` SHALL route through `houmao-server` rather than mutating whichever ambient local `HOME` happens to be active.
-
-At minimum, top-level `houmao-mgr install` SHALL target the selected public `houmao-server` listener by its configured or default base URL, and it SHALL verify the supported pair before performing the install.
-
-The explicit compatibility command `houmao-mgr cao install` SHALL preserve the CAO-compatible invocation shape but SHALL resolve through the same Houmao-owned compatibility install authority rather than requiring a raw local CAO install path.
-
-#### Scenario: Top-level install uses the public pair authority
-- **WHEN** an operator runs `houmao-mgr install projection-demo --provider codex`
-- **THEN** `houmao-mgr` targets the selected `houmao-server` instance rather than performing a local raw CAO install
-- **AND THEN** the install mutates that server's Houmao-managed compatibility profile state without requiring the caller to know any hidden storage path
-
-#### Scenario: Namespaced compatibility install keeps CAO shape without external CAO state
-- **WHEN** an operator runs `houmao-mgr cao install projection-demo --provider codex`
-- **THEN** `houmao-mgr` accepts the CAO-compatible command shape
-- **AND THEN** the implementation resolves that install through Houmao-owned compatibility install behavior instead of mutating an external CAO home
 
 ### Requirement: Delegated launch preserves authoritative tmux window identity
 When `houmao-mgr launch` completes successfully inside the supported pair, it SHALL recover tmux window identity from the pair authority's session-detail response and SHALL persist that window identity into Houmao-owned registration and runtime artifacts whenever the metadata is available.
@@ -316,4 +327,3 @@ These additive timeout controls SHALL affect only the CAO-compatible pair client
 - **WHEN** an operator runs top-level `houmao-mgr launch --headless` and also supplies `--compat-http-timeout-seconds` or `--compat-create-timeout-seconds`
 - **THEN** the command fails explicitly
 - **AND THEN** it does not imply that native headless launch honors CAO-compatible timeout controls
-
