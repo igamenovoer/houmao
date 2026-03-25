@@ -152,7 +152,7 @@ class HoumaoServerClient(CaoRestClient):
             for key, value in request_model.model_dump(mode="json").items()
             if value is not None
         }
-        return self._request_model(
+        return self._request_root_model(
             "POST",
             "/houmao/launches/register",
             HoumaoRegisterLaunchResponse,
