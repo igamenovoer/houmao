@@ -2,7 +2,7 @@
 
 This page covers the current operator-facing failure modes for pair-managed `houmao_server_rest` gateway attach and same-session gateway lifecycle.
 
-## `houmao-srv-ctrl agents gateway attach` Reports Missing Stable Tmux Metadata
+## `houmao-mgr agents gateway attach` Reports Missing Stable Tmux Metadata
 
 If current-session attach says the tmux session does not publish `AGENTSYS_GATEWAY_ATTACH_PATH` or `AGENTSYS_GATEWAY_ROOT`, the command is not running against a session that has published stable gateway capability yet.
 
@@ -15,7 +15,7 @@ Check:
 If you need to attach before current-session metadata is available, use explicit pair attach instead:
 
 ```bash
-houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>
+houmao-mgr agents gateway attach <agent-ref> --port <public-port>
 ```
 
 ## Current-Session Attach Reports Stale Metadata

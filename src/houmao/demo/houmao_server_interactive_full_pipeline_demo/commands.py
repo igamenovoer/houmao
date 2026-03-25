@@ -655,7 +655,7 @@ def _install_pair_profile(
     stdout_path: Path,
     stderr_path: Path,
 ) -> None:
-    """Install the tracked compatibility profile through `houmao-srv-ctrl install`."""
+    """Install the tracked compatibility profile through `houmao-mgr install`."""
 
     result = subprocess.run(
         [
@@ -696,7 +696,7 @@ def _launch_pair_session(
 ) -> None:
     """Launch one pair-managed TUI session without attaching the caller's terminal.
 
-    The public `houmao-srv-ctrl launch` command always attaches to tmux for TUI
+    The public `houmao-mgr launch` command always attaches to tmux for TUI
     sessions. The demo needs the same launch logic, but it must return control
     to the wrapper immediately, so it reuses the underlying pair-native helper
     with `attach_to_tmux=False`.
@@ -714,7 +714,7 @@ def _launch_pair_session(
         )
     except Exception as exc:
         raise DemoWorkflowError(
-            "Pair-managed session launch failed via the `houmao-srv-ctrl launch` implementation: "
+            "Pair-managed session launch failed via the `houmao-mgr launch` implementation: "
             f"{exc}"
         ) from exc
 

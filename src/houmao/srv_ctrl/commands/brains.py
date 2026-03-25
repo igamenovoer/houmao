@@ -1,4 +1,4 @@
-"""Local brain-construction commands for `houmao-srv-ctrl`."""
+"""Local brain-construction commands for `houmao-mgr`."""
 
 from __future__ import annotations
 

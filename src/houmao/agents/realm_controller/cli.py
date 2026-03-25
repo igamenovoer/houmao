@@ -49,7 +49,7 @@ _CONTROL_AGENT_DEF_DIR_HELP = (
 )
 _DEPRECATED_CAO_RUNTIME_GUIDANCE = (
     "Standalone backend='cao_rest' operator workflows are retired. "
-    "Use `houmao-server` with `houmao-srv-ctrl` instead."
+    "Use `houmao-server` with `houmao-mgr` instead."
 )
 
 

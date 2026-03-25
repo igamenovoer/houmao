@@ -503,6 +503,7 @@ def test_top_level_help_advertises_native_families_and_retires_agent_gateway() -
     result = CliRunner().invoke(cli, ["--help"])
 
     assert result.exit_code == 0
+    assert "Usage: houmao-mgr " in result.output
     assert "agents" in result.output
     assert "brains" in result.output
     assert "admin" in result.output

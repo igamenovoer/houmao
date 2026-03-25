@@ -109,7 +109,7 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend, `houmao-cao-server`, or the `houmao-server + houmao-srv-ctrl` replacement pair.
+CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend, `houmao-cao-server`, or the `houmao-server + houmao-mgr` replacement pair.
 
 In normal operator workflows, prefer the Houmao utilities over invoking raw `cao` or `cao-server` directly. Houmao still depends on CAO internally for the `cao_rest` backend and CAO-compatible control surfaces.
 
@@ -133,7 +133,7 @@ command -v tmux
 - `houmao-cli`: build/start/prompt/stop lifecycle
 - `houmao-cao-server`: local `cao-server` start/status/stop (optional)
 - `houmao-server`: Houmao-owned CAO-compatible server with Houmao extension routes
-- `houmao-srv-ctrl`: CAO-compatible wrapper CLI paired with `houmao-server`
+- `houmao-mgr`: Pair-management CLI paired with `houmao-server`
 
 Prefer these Houmao entry points for normal use. Raw `cao` and `cao-server` are still part of the underlying dependency stack, but they are not the recommended primary interface for Houmao workflows.
 
@@ -141,7 +141,7 @@ Prefer these Houmao entry points for normal use. Raw `cao` and `cao-server` are 
 houmao-cli --help
 houmao-cao-server --help
 houmao-server --help
-houmao-srv-ctrl --help
+houmao-mgr --help
 ```
 
 ### 1. Create / Choose An Agent Definition Directory
@@ -475,7 +475,7 @@ pixi run test-runtime
 CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used internally by the `cao_rest` backend and by Houmao's CAO-compatible launcher or server flows.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
-For normal Houmao usage, prefer `houmao-cao-server`, `houmao-server`, and `houmao-srv-ctrl` instead of invoking raw `cao` or `cao-server` directly. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's wrappers.
+For normal Houmao usage, prefer `houmao-cao-server`, `houmao-server`, and `houmao-mgr` instead of invoking raw `cao` or `cao-server` directly. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's wrappers.
 
 Install CAO from the supported fork / pinned compatibility commit and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
 

@@ -7,7 +7,7 @@ Its purpose is straightforward: start dedicated server-backed Claude Code and Co
 It demonstrates the supported public pair directly:
 
 - `houmao-server` is the live tracking authority
-- `houmao-srv-ctrl` is the delegated launch CLI
+- `houmao-mgr` is the delegated launch CLI
 
 The monitor in this pack does not poll raw CAO output and does not run a demo-local parser, lifecycle reducer, or state tracker. It is a server-state observation surface that renders only what `houmao-server` reports.
 
@@ -18,7 +18,7 @@ The monitor in this pack does not poll raw CAO output and does not run a demo-lo
 - `tmux`
 - `cao`
 - `houmao-server`
-- `houmao-srv-ctrl`
+- `houmao-mgr`
 - `claude`
 - `codex`
 - usable tool config and credential material under `tests/fixtures/agents/brains/cli-configs/` and `tests/fixtures/agents/brains/api-creds/` for the tracked `projection-demo-*` recipes
@@ -44,8 +44,8 @@ That command:
 - provisions isolated Claude and Codex dummy-project workdirs
 - builds demo-owned provider homes from the tracked projection-demo recipes
 - starts a dedicated `houmao-server` for the run
-- installs the tracked `projection-demo` profile through `houmao-srv-ctrl install --port <public-port>`
-- launches one Claude session and one Codex session through `houmao-srv-ctrl launch`
+- installs the tracked `projection-demo` profile through `houmao-mgr install --port <public-port>`
+- launches one Claude session and one Codex session through `houmao-mgr launch`
 - starts one monitor tmux session
 
 Attach to the live sessions:

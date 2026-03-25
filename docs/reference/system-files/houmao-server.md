@@ -49,7 +49,7 @@ There is no supported child `cao-server` subtree in this pair design.
 | `<server-root>/state/managed_agents/<tracked_agent_id>/authority.json` | native headless launch | `houmao-server` | Server-owned authority record for one managed headless agent | Stable v1 headless control-plane artifact | Stores tracked-agent identity, runtime manifest pointer, session root, tmux session name, and identity hints |
 | `<server-root>/state/managed_agents/<tracked_agent_id>/active_turn.json` | first accepted headless turn | `houmao-server` | Active-turn admission and interrupt target for one managed headless agent | Stable v1 headless control-plane artifact | Restart reconciliation reads this before admitting a later turn |
 | `<server-root>/state/managed_agents/<tracked_agent_id>/turns/<turn_id>.json` | headless turn acceptance | `houmao-server` | Durable coarse per-turn server record | Stable v1 headless inspection artifact | Points at runtime-owned turn artifacts without copying them into server state |
-| `<server-root>/sessions/<session-name>/registration.json` | `houmao-srv-ctrl launch` registration | registration updates | Delegated-launch registration payload | Stable v1 bridge artifact | Server-local view of delegated launch metadata |
+| `<server-root>/sessions/<session-name>/registration.json` | `houmao-mgr launch` registration | registration updates | Delegated-launch registration payload | Stable v1 bridge artifact | Server-local view of delegated launch metadata |
 
 ## Ownership Boundary
 

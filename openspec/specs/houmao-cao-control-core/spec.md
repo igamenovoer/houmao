@@ -26,7 +26,7 @@ The supported pair SHALL NOT require a supervised child `cao-server` process or 
 - **AND THEN** the request does not depend on starting or reaching a separate child `cao-server` process
 
 #### Scenario: Pair control works without installed `cao`
-- **WHEN** `houmao-srv-ctrl` executes a supported CAO-compatible pair command that creates, inspects, or mutates a session
+- **WHEN** `houmao-mgr` executes a supported CAO-compatible pair command that creates, inspects, or mutates a session
 - **THEN** the command succeeds through Houmao-owned control components
 - **AND THEN** it does not require `cao` to be installed on `PATH`
 
@@ -46,7 +46,7 @@ Compatibility-only fields, route naming, and CLI wording SHALL remain confined t
 - **AND THEN** they do not need to restore CAO as a runtime framework dependency to add that behavior
 
 ### Requirement: V1 control-core provider coverage preserves the current pair compatibility launch surface
-The control core SHALL preserve the current pair compatibility launch surface accepted by `houmao-srv-ctrl launch` and `houmao-srv-ctrl cao launch` in v1.
+The control core SHALL preserve the current pair compatibility launch surface accepted by `houmao-mgr launch` and `houmao-mgr cao launch` in v1.
 
 At minimum, the v1 provider-adapter registry SHALL cover these provider identifiers:
 

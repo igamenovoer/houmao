@@ -1,4 +1,4 @@
-"""Managed-agent command family for `houmao-srv-ctrl`."""
+"""Managed-agent command family for `houmao-mgr`."""
 
 from __future__ import annotations
 

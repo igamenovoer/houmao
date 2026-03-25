@@ -1,4 +1,4 @@
-"""Local maintenance commands for `houmao-srv-ctrl`."""
+"""Local maintenance commands for `houmao-mgr`."""
 
 from __future__ import annotations
 

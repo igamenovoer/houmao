@@ -1,6 +1,6 @@
 # Houmao-Server Interactive Full-Pipeline Demo
 
-This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` plus pair-managed `houmao-srv-ctrl` install/launch, and every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
+This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` plus pair-managed `houmao-mgr` install/launch, and every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
 
 ## Prerequisites
 
@@ -63,8 +63,8 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 
 1. Creates a fresh run root and a demo-owned git worktree at `<run-root>/wktree`.
 2. Starts `sys.executable -m houmao.server serve` on a selected loopback port with demo-owned runtime, registry, jobs, and HOME roots.
-3. Installs the tracked `gpu-kernel-coder` compatibility profile into that server through `houmao-srv-ctrl install`.
-4. Launches one delegated TUI session through the `houmao-srv-ctrl launch` implementation without attaching the caller terminal.
+3. Installs the tracked `gpu-kernel-coder` compatibility profile into that server through `houmao-mgr install`.
+4. Launches one delegated TUI session through the `houmao-mgr launch` implementation without attaching the caller terminal.
 5. Waits for the delegated runtime manifest, loads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
 
 The persisted v1 route contract is:
@@ -89,7 +89,7 @@ After startup, the demo only talks to the recorded `houmao-server` authority:
 - `stop` tears down the TUI session through:
   - `DELETE /cao/sessions/{session_name}`
 
-The demo does not use post-launch `houmao-srv-ctrl agents ...`, `houmao-cli`, or any raw control-input `send-keys` equivalent.
+The demo does not use post-launch `houmao-mgr agents ...`, `houmao-cli`, or any raw control-input `send-keys` equivalent.
 
 ## `launch_alice.sh` Behavior
 

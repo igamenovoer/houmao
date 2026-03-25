@@ -3,14 +3,14 @@
 This migration pack describes the supported Houmao-managed replacement pair:
 
 - `houmao-server`
-- `houmao-srv-ctrl`
+- `houmao-mgr`
 
 Together, those tools replace the supported operator path that used to be expressed as:
 
 - `cao-server`
 - `cao`
 
-Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported.
+Mixed pairs such as `houmao-server + cao` or `cao-server + houmao-mgr` are unsupported.
 
 ## What We Implemented
 
@@ -31,9 +31,9 @@ Implemented server scope includes:
 - direct tmux/process watch, official parser integration, and Houmao-owned tracked terminal state
 - server-owned managed-agent authority records under `state/managed_agents/<tracked_agent_id>/`
 
-### `houmao-srv-ctrl`
+### `houmao-mgr`
 
-`houmao-srv-ctrl` remains the pair service-management CLI and keeps the explicit `cao` namespace, but the implementation is now Houmao-owned.
+`houmao-mgr` remains the pair-management CLI and keeps the explicit `cao` namespace, but the implementation is now Houmao-owned.
 
 Implemented CLI scope includes:
 
@@ -43,7 +43,7 @@ Implemented CLI scope includes:
   - `agents`
   - `brains`
   - `admin`
-- explicit CAO-compatible namespace under `houmao-srv-ctrl cao`:
+- explicit CAO-compatible namespace under `houmao-mgr cao`:
   - `flow`
   - `info`
   - `init`
@@ -72,7 +72,7 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 ## What Changed
 
 - `houmao-server` no longer supervises a child `cao-server` for the supported pair path.
-- `houmao-srv-ctrl cao ...` no longer depends on an installed `cao` executable for the supported command family.
+- `houmao-mgr cao ...` no longer depends on an installed `cao` executable for the supported command family.
 - pair-targeted install now writes to a Houmao-managed compatibility profile store under the selected server root.
 - standalone `houmao-cao-server` is retired and fails fast with migration guidance.
 - standalone `houmao-cli` workflows that would create or control raw `backend="cao_rest"` sessions are retired and fail fast with migration guidance.
@@ -80,8 +80,8 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 ## What Stayed The Same
 
 - `houmao-cli` remains the runtime and agent lifecycle CLI.
-- the public pair boundary remains `houmao-server + houmao-srv-ctrl`.
-- the explicit `/cao/*` HTTP namespace and `houmao-srv-ctrl cao ...` CLI namespace remain present for compatibility.
+- the public pair boundary remains `houmao-server + houmao-mgr`.
+- the explicit `/cao/*` HTTP namespace and `houmao-mgr cao ...` CLI namespace remain present for compatibility.
 - pair-managed runtime artifacts, gateway attachability publication, and reserved tmux window `0` behavior remain centered on `houmao_server_rest`.
 
 ## Recommended Reading Order

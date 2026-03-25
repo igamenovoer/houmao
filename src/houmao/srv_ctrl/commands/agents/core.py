@@ -1,4 +1,4 @@
-"""Server-backed managed-agent commands for `houmao-srv-ctrl`."""
+"""Server-backed managed-agent commands for `houmao-mgr`."""
 
 from __future__ import annotations
 

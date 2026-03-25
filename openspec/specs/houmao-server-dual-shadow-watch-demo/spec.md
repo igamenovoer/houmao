@@ -1,5 +1,5 @@
 ## Purpose
-Define the standalone Houmao-owned dual shadow-watch demo pack that validates the `houmao-server + houmao-srv-ctrl` pair through an interactive Claude/Codex monitoring workflow.
+Define the standalone Houmao-owned dual shadow-watch demo pack that validates the `houmao-server + houmao-mgr` pair through an interactive Claude/Codex monitoring workflow.
 
 ## Requirements
 
@@ -64,8 +64,8 @@ Any wait for server start, delegated session launch, monitor readiness, inspect 
 ### Requirement: Demo startup SHALL launch one Claude session, one Codex session, and one monitor session through the supported Houmao pair
 The start flow SHALL launch:
 
-- one Claude session through `houmao-srv-ctrl launch`,
-- one Codex session through `houmao-srv-ctrl launch`, and
+- one Claude session through `houmao-mgr launch`,
+- one Codex session through `houmao-mgr launch`, and
 - one separate tmux monitor session.
 
 For supported Claude and Codex sessions in this pack, the effective persisted Houmao session identity SHALL remain `houmao_server_rest` and the effective parsing posture SHALL remain `shadow_only`.
@@ -76,7 +76,7 @@ Startup SHALL surface attach commands for the Claude session, the Codex session,
 
 #### Scenario: Successful startup surfaces three live tmux sessions through the Houmao pair
 - **WHEN** the operator runs the demo start command with prerequisites satisfied
-- **THEN** the demo launches one Claude session and one Codex session through `houmao-srv-ctrl` against the demo-owned `houmao-server`
+- **THEN** the demo launches one Claude session and one Codex session through `houmao-mgr` against the demo-owned `houmao-server`
 - **AND THEN** the resulting tracked sessions are registered in `houmao-server`
 - **AND THEN** the demo starts a separate tmux session for the monitor dashboard
 - **AND THEN** startup output includes attach commands for the Claude session, the Codex session, and the monitor session
@@ -217,7 +217,7 @@ The demo-pack README SHALL document:
 - prerequisites,
 - the standalone purpose of the pack,
 - the dummy-project workdir posture,
-- the supported `houmao-server + houmao-srv-ctrl` pair boundary,
+- the supported `houmao-server + houmao-mgr` pair boundary,
 - the start, inspect, attach, and stop workflow,
 - that the operator manually prompts the live Claude Code and Codex TUIs while watching server-tracked state change in the monitor,
 - the meaning of the displayed parser, lifecycle, lifecycle-authority, stability, and timing fields, and

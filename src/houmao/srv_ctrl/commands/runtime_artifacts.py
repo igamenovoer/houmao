@@ -1,4 +1,4 @@
-"""Runtime-artifact helpers for delegated `houmao-srv-ctrl launch` flows."""
+"""Runtime-artifact helpers for delegated `houmao-mgr launch` flows."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def materialize_delegated_launch(
         (
             "# Delegated Launch\n\n"
             "This placeholder role exists so the runtime can keep a durable manifest for "
-            "`houmao-srv-ctrl launch` sessions. The live terminal was created by delegated "
+            "`houmao-mgr launch` sessions. The live terminal was created by delegated "
             "`cao launch` behavior and is managed through `houmao-server`.\n"
         ),
         encoding="utf-8",

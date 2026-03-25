@@ -179,7 +179,7 @@ Important attach behavior:
 - attach returns HTTP `409` when reconciliation is required or the underlying attach reports an already-in-use conflict
 - attach returns HTTP `503` when runtime control is not resumable or gateway startup fails for an unavailable reason
 
-For pair-managed `houmao_server_rest` sessions, operators normally reach this route through `houmao-srv-ctrl agents gateway attach`.
+For pair-managed `houmao_server_rest` sessions, operators normally reach this route through `houmao-mgr agents gateway attach`.
 
 - explicit mode resolves `<agent-ref>` through the managed-agent alias space first and then calls the managed-agent gateway attach route
 - current-session mode runs inside the target tmux session, validates `AGENTSYS_GATEWAY_ATTACH_PATH` plus `AGENTSYS_GATEWAY_ROOT`, requires a readable `houmao_server_rest` attach contract, and uses its persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` as the authoritative route target
@@ -192,7 +192,7 @@ For pair-managed `houmao_server_rest` sessions, operators normally reach this ro
 
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails.
 
-The default documented prompt path remains `houmao-srv-ctrl agents prompt ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-srv-ctrl agents gateway prompt ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path.
+The default documented prompt path remains `houmao-mgr agents prompt ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-mgr agents gateway prompt ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path.
 
 ## Pair-Owned Mail Follow-Up
 

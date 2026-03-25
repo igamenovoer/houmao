@@ -100,7 +100,7 @@ launch_overrides:
     include_partial_messages: true
 ```
 
-Explicit builds can pass the same shape through `houmao-srv-ctrl brains build --launch-overrides <path-or-inline-json>` on the pair CLI, or through `build-brain --launch-overrides <path-or-inline-json>` on the runtime CLI.
+Explicit builds can pass the same shape through `houmao-mgr brains build --launch-overrides <path-or-inline-json>` on the pair CLI, or through `build-brain --launch-overrides <path-or-inline-json>` on the runtime CLI.
 
 Ownership rules:
 
@@ -199,7 +199,7 @@ Once you want repo-owned lifecycle control instead of raw helper execution, the 
 - [Runtime-Managed Agents Reference](./agents/index.md)
 - [Agent Gateway Reference](./gateway/index.md)
 
-Once you move to the paired `houmao-server + houmao-srv-ctrl` workflow, prefer the managed-agent routes and `houmao-srv-ctrl agents ...` commands as the public control surface. Attached gateways enrich that same surface automatically with richer live control behavior; they do not replace it with a second operator API. The explicit `cao` compatibility namespace remains separate from this managed-agent seam in phase 1.
+Once you move to the paired `houmao-server + houmao-mgr` workflow, prefer the managed-agent routes and `houmao-mgr agents ...` commands as the public control surface. Attached gateways enrich that same surface automatically with richer live control behavior; they do not replace it with a second operator API. The explicit `cao` compatibility namespace remains separate from this managed-agent seam in phase 1.
 
 ## Roles
 

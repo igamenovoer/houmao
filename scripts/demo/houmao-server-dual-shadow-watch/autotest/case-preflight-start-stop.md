@@ -31,4 +31,4 @@ Fail signal:
 - the script exits non-zero
 - `result.json` contains `"status": "failed"`
 
-This case intentionally does not require manual `tmux attach`. It only proves that the demo can preflight, start, inspect, and stop through the supported `houmao-server + houmao-srv-ctrl` boundary.
+This case intentionally does not require manual `tmux attach`. It only proves that the demo can preflight, start, inspect, and stop through the supported `houmao-server + houmao-mgr` boundary.

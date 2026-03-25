@@ -25,7 +25,7 @@ That means session start or resume can create:
 
 It does not mean a live gateway is already running.
 
-Delegated `houmao-srv-ctrl launch` for `houmao_server_rest` now reuses the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
+Delegated `houmao-mgr launch` for `houmao_server_rest` now reuses the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
 
 ## Post-Launch Attach Is The Official Managed-Agent Path
 
@@ -49,18 +49,18 @@ Before registration completes, the seeded offline gateway artifacts may already 
 
 ## Pair-Owned Managed-Agent Attach
 
-For pair-managed terminal sessions, the supported public CLI is `houmao-srv-ctrl agents gateway attach`.
+For pair-managed terminal sessions, the supported public CLI is `houmao-mgr agents gateway attach`.
 
 Explicit target mode:
 
 ```bash
-houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
+houmao-mgr agents gateway attach cao-gpu --port 9889
 ```
 
 Current-session mode:
 
 ```bash
-houmao-srv-ctrl agents gateway attach
+houmao-mgr agents gateway attach
 ```
 
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent attach route:

@@ -1,4 +1,4 @@
-"""Simple passthrough CAO-compatible commands for `houmao-srv-ctrl`."""
+"""Simple passthrough CAO-compatible commands for `houmao-mgr`."""
 
 from __future__ import annotations
 

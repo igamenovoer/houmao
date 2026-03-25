@@ -1,4 +1,4 @@
-"""Managed headless turn commands for `houmao-srv-ctrl agents`."""
+"""Managed headless turn commands for `houmao-mgr agents`."""
 
 from __future__ import annotations
 
@@ -119,6 +119,6 @@ def _require_headless_identity(
     if identity.transport != "headless":
         raise click.ClickException(
             "Managed headless turn commands are unavailable for TUI-backed agents. "
-            "Use `houmao-srv-ctrl agents prompt` for the default prompt path."
+            "Use `houmao-mgr agents prompt` for the default prompt path."
         )
     return identity

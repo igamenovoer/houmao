@@ -1,4 +1,4 @@
-"""Shared helpers for `houmao-srv-ctrl`."""
+"""Shared helpers for `houmao-mgr`."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def require_supported_houmao_pair(*, base_url: str) -> HoumaoServerClient:
         raise click.ClickException(f"Failed to reach `houmao-server` at {base_url}: {exc}") from exc
     if health.houmao_service != "houmao-server":
         raise click.ClickException(
-            "The supported replacement is `houmao-server + houmao-srv-ctrl`; "
+            "The supported replacement is `houmao-server + houmao-mgr`; "
             "mixed usage with raw `cao-server` is unsupported."
         )
     return client
