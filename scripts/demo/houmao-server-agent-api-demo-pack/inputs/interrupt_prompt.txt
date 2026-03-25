@@ -1,0 +1,1 @@
+Work deliberately and produce a detailed numbered checklist with at least twenty items describing how you would inspect the copied dummy project before making any change. Do not summarize early.
