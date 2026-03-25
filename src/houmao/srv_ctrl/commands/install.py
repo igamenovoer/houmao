@@ -1,4 +1,4 @@
-"""Install command for `houmao-srv-ctrl`."""
+"""Install command for `houmao-mgr`."""
 
 from __future__ import annotations
 

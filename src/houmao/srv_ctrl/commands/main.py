@@ -1,4 +1,4 @@
-"""Top-level click command tree for `houmao-srv-ctrl`."""
+"""Top-level click command tree for `houmao-mgr`."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .install import install_command
 from .launch import launch_command
 
 
-@click.group(name="houmao-srv-ctrl")
+@click.group(name="houmao-mgr")
 def cli() -> None:
     """Houmao pair CLI with native and explicit CAO-compatible command families."""
 
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the click CLI and return an exit code."""
 
     try:
-        cli.main(args=argv, prog_name="houmao-srv-ctrl", standalone_mode=False)
+        cli.main(args=argv, prog_name="houmao-mgr", standalone_mode=False)
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else 1

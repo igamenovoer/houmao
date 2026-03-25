@@ -10,7 +10,7 @@ The standalone CAO launcher workflow is retired:
 Those entrypoints now fail fast with migration guidance to:
 
 ```text
-houmao-server + houmao-srv-ctrl
+houmao-server + houmao-mgr
 ```
 
 ## Why This Page Still Exists

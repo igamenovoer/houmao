@@ -229,7 +229,7 @@ def preflight_demo(
             "tmux",
             "cao",
             "houmao-server",
-            "houmao-srv-ctrl",
+            "houmao-mgr",
             "claude",
             "codex",
         )
@@ -1081,7 +1081,7 @@ def _launch_lane(
     timeout_seconds: float,
     env: dict[str, str],
 ) -> AgentSessionState:
-    """Launch one live session through `houmao-srv-ctrl` and persist its metadata."""
+    """Launch one live session through `houmao-mgr` and persist its metadata."""
 
     stdout_path = paths.logs_dir / f"launch-{lane.slot}.stdout.log"
     stderr_path = paths.logs_dir / f"launch-{lane.slot}.stderr.log"
@@ -1118,7 +1118,7 @@ def _launch_lane(
             ).strip()
         )
         raise HoumaoServerDualShadowWatchError(
-            f"timed out or failed while launching `{lane.slot}` through houmao-srv-ctrl: {detail}"
+            f"timed out or failed while launching `{lane.slot}` through houmao-mgr: {detail}"
         )
 
     session_payload = _wait_for_session_registration(

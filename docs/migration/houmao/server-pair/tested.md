@@ -3,7 +3,7 @@
 This implementation does not claim unlimited CAO parity. The verification boundary is explicit:
 
 - CAO-compatible `/cao/*` HTTP routes are tested as request-surface and local-dispatch contracts owned by `houmao-server`
-- `houmao-srv-ctrl cao ...` is tested as a Houmao-owned compatibility namespace, with either pair-routed behavior or local compatibility helpers depending on the subcommand
+- `houmao-mgr cao ...` is tested as a Houmao-owned compatibility namespace, with either pair-routed behavior or local compatibility helpers depending on the subcommand
 - Houmao-owned extensions, tracking, gateway, managed-agent, and install behavior are tested directly for correctness
 
 ## Compatibility Source Of Truth
@@ -45,11 +45,11 @@ Primary test files:
 
 ## CLI Verification
 
-CLI-side verification covers the contract Houmao owns at the `houmao-srv-ctrl` boundary.
+CLI-side verification covers the contract Houmao owns at the `houmao-mgr` boundary.
 
 Verified areas:
 
-- pinned upstream CAO command-family inventory matches `houmao-srv-ctrl cao`
+- pinned upstream CAO command-family inventory matches `houmao-mgr cao`
 - local compatibility helper behavior for:
   - `cao flow`
   - `cao init`
@@ -110,6 +110,6 @@ The current verification intentionally does not claim:
 
 - full downstream re-testing of every CAO business behavior beyond the supported Houmao-owned boundary
 - byte-for-byte human-prose stdout or stderr parity for compatibility commands
-- support for mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl`
+- support for mixed pairs such as `houmao-server + cao` or `cao-server + houmao-mgr`
 
 Those omissions are deliberate. They match the implemented boundary and avoid over-claiming behavior outside the supported pair.

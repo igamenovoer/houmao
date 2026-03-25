@@ -93,7 +93,7 @@ The system SHALL treat that exact source as the parity oracle for `houmao-server
 - **AND THEN** the parity target does not drift with a floating upstream branch
 
 ### Requirement: `houmao-server` compatibility is defined within the supported Houmao pair
-The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
+The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-mgr` replacement pair for `cao-server + cao`.
 
 This capability SHALL NOT require `houmao-server` to support arbitrary external `cao` clients as a public compatibility contract.
 

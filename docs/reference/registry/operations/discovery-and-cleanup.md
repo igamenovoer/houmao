@@ -102,8 +102,8 @@ Default behavior:
 Examples:
 
 ```bash
-pixi run houmao-srv-ctrl admin cleanup-registry
-pixi run houmao-srv-ctrl admin cleanup-registry --grace-seconds 0
+pixi run houmao-mgr admin cleanup-registry
+pixi run houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
 Representative result:

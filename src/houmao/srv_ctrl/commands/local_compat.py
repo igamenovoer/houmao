@@ -1,4 +1,4 @@
-"""Local-only CAO-compatibility helpers for `houmao-srv-ctrl cao ...`."""
+"""Local-only CAO-compatibility helpers for `houmao-mgr cao ...`."""
 
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ def mcp_server_command() -> None:
 
     raise click.ClickException(
         "The standalone CAO MCP helper is not part of the supported Houmao pair. "
-        "Use `houmao-server` with `houmao-srv-ctrl launch` or `agents gateway` instead."
+        "Use `houmao-server` with `houmao-mgr launch` or `agents gateway` instead."
     )
 
 

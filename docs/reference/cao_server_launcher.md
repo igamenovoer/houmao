@@ -10,15 +10,15 @@ The following entrypoints now fail fast with migration guidance and exit code `2
 Use the supported pair instead:
 
 ```text
-houmao-server + houmao-srv-ctrl
+houmao-server + houmao-mgr
 ```
 
 Typical replacement flow:
 
 ```bash
 pixi run houmao-server serve --api-base-url http://127.0.0.1:9889
-pixi run houmao-srv-ctrl install projection-demo --provider codex --port 9889
-pixi run houmao-srv-ctrl launch --agents projection-demo --provider codex --port 9889
+pixi run houmao-mgr install projection-demo --provider codex --port 9889
+pixi run houmao-mgr launch --agents projection-demo --provider codex --port 9889
 ```
 
 This page remains only as a retirement note. The standalone launcher is no longer a supported operator workflow.

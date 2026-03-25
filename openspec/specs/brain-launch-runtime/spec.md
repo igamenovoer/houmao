@@ -131,7 +131,7 @@ The system SHALL optionally support CAO-compatible session control through a RES
 
 For supported operator workflows after this change, that CAO-compatible control SHALL be reached through the Houmao-owned pair authority rather than through public `houmao-cli` flows that create or control standalone `cao_rest` sessions.
 
-The runtime MAY retain internal CAO-compatible adapter code for parity, debugging, or transition purposes, but public runtime-management CLI entrypoints that would create or control standalone CAO-backed sessions SHALL fail fast with explicit migration guidance to `houmao-server` and `houmao-srv-ctrl`.
+The runtime MAY retain internal CAO-compatible adapter code for parity, debugging, or transition purposes, but public runtime-management CLI entrypoints that would create or control standalone CAO-backed sessions SHALL fail fast with explicit migration guidance to `houmao-server` and `houmao-mgr`.
 
 That public deprecation guard SHALL reject deprecated `backend="cao_rest"` operator selections at the CLI entrypoint layer before standalone runtime-session construction begins.
 
@@ -144,7 +144,7 @@ When the runtime uses a pair-backed compatibility authority internally, it SHALL
 
 #### Scenario: Deprecated raw CAO-backed runtime start fails with migration guidance
 - **WHEN** a developer invokes `houmao-cli` in a way that would start a standalone `cao_rest` session
-- **THEN** the command exits non-zero with explicit guidance to use `houmao-server` and `houmao-srv-ctrl`
+- **THEN** the command exits non-zero with explicit guidance to use `houmao-server` and `houmao-mgr`
 - **AND THEN** it does not create a new standalone CAO-backed session as a supported operator workflow
 
 #### Scenario: CLI rejects deprecated backend selection before runtime construction
@@ -1816,7 +1816,7 @@ When that mode is selected, the runtime SHALL:
 - persist the `houmao-server` base URL plus session and terminal identity in the session manifest
 - treat `houmao-server` as the server authority for later control operations
 - keep any `houmao-server` upstream-adapter details out of the public runtime backend identity
-- treat `houmao-server` as part of the supported `houmao-server + houmao-srv-ctrl` pair rather than as a mixed-pair bridge to raw `cao`
+- treat `houmao-server` as part of the supported `houmao-server + houmao-mgr` pair rather than as a mixed-pair bridge to raw `cao`
 
 For supported loopback `houmao-server` base URLs, runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
@@ -1910,7 +1910,7 @@ The runtime SHALL allow auxiliary windows to exist later in the same tmux sessio
 Runtime-controlled pair-managed turns and pair-managed tmux resolution SHALL continue targeting the agent surface in window `0` even when another tmux window is currently selected in the foreground for observability.
 
 #### Scenario: Pair launch creates a gateway-capable tmux session before live attach
-- **WHEN** a developer launches a pair-managed TUI session through `houmao-srv-ctrl`
+- **WHEN** a developer launches a pair-managed TUI session through `houmao-mgr`
 - **THEN** the runtime persists the actual tmux session name for that live session
 - **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH`
 - **AND THEN** the tmux session environment contains `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`

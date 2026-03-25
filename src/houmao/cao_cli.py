@@ -6,7 +6,7 @@ import sys
 
 _MIGRATION_GUIDANCE = (
     "The standalone `houmao-cao-server` launcher has been retired. "
-    "Use `houmao-server` with `houmao-srv-ctrl` instead."
+    "Use `houmao-server` with `houmao-mgr` instead."
 )
 
 

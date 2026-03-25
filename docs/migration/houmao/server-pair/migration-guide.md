@@ -8,32 +8,32 @@ This guide is for operators and developers moving from:
 to the supported Houmao-managed pair:
 
 - `houmao-server`
-- `houmao-srv-ctrl`
+- `houmao-mgr`
 
 ## 1. Understand The Support Boundary
 
 The supported migration target is:
 
 ```text
-houmao-server + houmao-srv-ctrl
+houmao-server + houmao-mgr
 ```
 
 Do not plan around mixed deployments such as:
 
 - `houmao-server + cao`
-- `cao-server + houmao-srv-ctrl`
+- `cao-server + houmao-mgr`
 
 Those combinations are outside the supported contract.
 
 ## 2. Stop Depending On Installed `cao`
 
-The supported pair no longer requires the standalone `cao` executable for `houmao-srv-ctrl cao ...`.
+The supported pair no longer requires the standalone `cao` executable for `houmao-mgr cao ...`.
 
 Current behavior is split intentionally:
 
-- `houmao-srv-ctrl cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
-- `houmao-srv-ctrl cao flow` and `cao init` are Houmao-owned local compatibility helpers
-- `houmao-srv-ctrl cao mcp-server` is retired and fails explicitly with migration guidance
+- `houmao-mgr cao launch`, `info`, `install`, and `shutdown` route through `houmao-server`
+- `houmao-mgr cao flow` and `cao init` are Houmao-owned local compatibility helpers
+- `houmao-mgr cao mcp-server` is retired and fails explicitly with migration guidance
 
 The supported path is now Houmao-owned end to end. The pinned CAO source remains the compatibility oracle, not a runtime dependency.
 
@@ -64,28 +64,28 @@ What changes when you do this:
 - pair-targeted installs are written into a Houmao-managed compatibility profile store under the server root
 - server-owned state is written under `<runtime-root>/houmao_servers/<host>-<port>/`
 
-## 4. Switch Service-Management Commands To `houmao-srv-ctrl`
+## 4. Switch Service-Management Commands To `houmao-mgr`
 
-Replace direct `cao` usage with `houmao-srv-ctrl` top-level commands for pair-owned operations and `houmao-srv-ctrl cao ...` for the explicit compatibility family.
+Replace direct `cao` usage with `houmao-mgr` top-level commands for pair-owned operations and `houmao-mgr cao ...` for the explicit compatibility family.
 
 Examples:
 
 ```bash
-pixi run houmao-srv-ctrl cao info
-pixi run houmao-srv-ctrl cao init
-pixi run houmao-srv-ctrl install gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-srv-ctrl cao install gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider codex --port 9889
-pixi run houmao-srv-ctrl cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
-pixi run houmao-srv-ctrl launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
-pixi run houmao-srv-ctrl agents prompt cao-gpu --prompt "Summarize the current state."
-pixi run houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
-pixi run houmao-srv-ctrl brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
-pixi run houmao-srv-ctrl admin cleanup-registry --grace-seconds 0
-pixi run houmao-srv-ctrl cao shutdown --all --port 9889
+pixi run houmao-mgr cao info
+pixi run houmao-mgr cao init
+pixi run houmao-mgr install gpu-kernel-coder --provider codex --port 9889
+pixi run houmao-mgr cao install gpu-kernel-coder --provider codex --port 9889
+pixi run houmao-mgr launch --agents gpu-kernel-coder --provider codex --port 9889
+pixi run houmao-mgr cao launch --agents gpu-kernel-coder --provider codex --headless --port 9889
+pixi run houmao-mgr launch --agents gpu-kernel-coder --provider claude_code --headless --port 9889
+pixi run houmao-mgr agents prompt cao-gpu --prompt "Summarize the current state."
+pixi run houmao-mgr agents gateway attach cao-gpu --port 9889
+pixi run houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
+pixi run houmao-mgr admin cleanup-registry --grace-seconds 0
+pixi run houmao-mgr cao shutdown --all --port 9889
 ```
 
-Do not alias bare `cao` to bare `houmao-srv-ctrl`. If you want compatibility-command muscle memory, alias `cao` to `houmao-srv-ctrl cao`.
+Do not alias bare `cao` to bare `houmao-mgr`. If you want compatibility-command muscle memory, alias `cao` to `houmao-mgr cao`.
 
 ## 5. Use Houmao Inspection Commands
 
@@ -120,7 +120,7 @@ History retention is intentionally split:
 
 ## 6. Understand What `launch` Does Differently Now
 
-`houmao-srv-ctrl` now exposes one native tree plus the explicit compatibility namespace:
+`houmao-mgr` now exposes one native tree plus the explicit compatibility namespace:
 
 - top-level `launch` and `install`
 - server-backed `agents ...`
@@ -128,10 +128,10 @@ History retention is intentionally split:
 - local `admin cleanup-registry`
 - explicit `cao ...`
 
-`houmao-srv-ctrl` still exposes two public launch families:
+`houmao-mgr` still exposes two public launch families:
 
-- top-level `houmao-srv-ctrl launch` is the Houmao-owned pair launch
-- `houmao-srv-ctrl cao launch` is the explicit CAO-compatible launch surface
+- top-level `houmao-mgr launch` is the Houmao-owned pair launch
+- `houmao-mgr cao launch` is the explicit CAO-compatible launch surface
 
 Terminal-backed launch through either surface now creates and controls the session through the Houmao-owned `/cao/*` authority served by `houmao-server`.
 
@@ -145,11 +145,11 @@ Successful terminal-backed launches still:
 
 Pair-managed gateway attach remains post-launch:
 
-- explicit attach: `pixi run houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>`
-- current-session attach: run `pixi run houmao-srv-ctrl agents gateway attach` from inside the target tmux session
+- explicit attach: `pixi run houmao-mgr agents gateway attach <agent-ref> --port <public-port>`
+- current-session attach: run `pixi run houmao-mgr agents gateway attach` from inside the target tmux session
 - tmux window `0` remains the contractual agent surface for that pair-managed session
 
-Native headless launch is unchanged in shape: `houmao-srv-ctrl launch --headless` uses the Houmao-native `/houmao/agents/*` lifecycle instead of CAO terminals.
+Native headless launch is unchanged in shape: `houmao-mgr launch --headless` uses the Houmao-native `/houmao/agents/*` lifecycle instead of CAO terminals.
 
 For follow-up operator control after launch, treat the native `agents` tree as the default pair surface:
 
@@ -184,17 +184,17 @@ The following standalone CAO-facing surfaces are retired:
 - `houmao-cli start-session --backend cao_rest`
 - resumed `houmao-cli` control flows against standalone raw `cao_rest` sessions
 
-Those entrypoints now fail fast with migration guidance to `houmao-server` and `houmao-srv-ctrl`.
+Those entrypoints now fail fast with migration guidance to `houmao-server` and `houmao-mgr`.
 
 ## 9. Roll Out In A Safe Sequence
 
 Recommended migration order:
 
 1. Start `houmao-server` on the public base URL you want to own.
-2. Replace operator command usage from `cao` to `houmao-srv-ctrl`.
-3. Verify `houmao-server health` and `houmao-srv-ctrl cao info`.
-4. Install agent profiles through `houmao-srv-ctrl install` or `houmao-srv-ctrl cao install`.
-5. Launch one terminal-backed session through `houmao-srv-ctrl launch` or `houmao-srv-ctrl cao launch`, or one native headless agent through `houmao-srv-ctrl launch --headless`.
+2. Replace operator command usage from `cao` to `houmao-mgr`.
+3. Verify `houmao-server health` and `houmao-mgr cao info`.
+4. Install agent profiles through `houmao-mgr install` or `houmao-mgr cao install`.
+5. Launch one terminal-backed session through `houmao-mgr launch` or `houmao-mgr cao launch`, or one native headless agent through `houmao-mgr launch --headless`.
 6. Inspect terminal-backed sessions through `houmao-server sessions` and `houmao-server terminals`, and inspect native headless agents through `/houmao/agents/*`.
 7. Move follow-up tooling toward the persisted `houmao_server_rest` artifacts and the `/houmao/agents/*` API instead of standalone CAO endpoints.
 
@@ -203,7 +203,7 @@ Recommended migration order:
 Rollback remains pairwise:
 
 - stop `houmao-server`
-- stop using `houmao-srv-ctrl`
+- stop using `houmao-mgr`
 - return operators to `cao-server + cao`
 
 Do not keep one side on Houmao and the other side on raw CAO. The supported story is pairwise in both directions:

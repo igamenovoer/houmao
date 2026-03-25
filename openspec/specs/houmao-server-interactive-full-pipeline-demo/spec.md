@@ -26,8 +26,8 @@ The pack SHALL implement its own workflow and SHALL NOT delegate post-launch int
 - **AND THEN** the pack-owned startup assets needed for pair-managed launch are present
 - **AND THEN** the pack can be understood and run from that directory without depending on sibling demo wrappers for its core workflow
 
-### Requirement: Demo startup SHALL use pair-managed `houmao-srv-ctrl` install and launch with a demo-owned `houmao-server`
-The startup workflow SHALL install one tracked compatibility profile into the demo-owned server through `houmao-srv-ctrl install`, launch one TUI session through `houmao-srv-ctrl launch`, and persist the selected demo variant in local demo state.
+### Requirement: Demo startup SHALL use pair-managed `houmao-mgr` install and launch with a demo-owned `houmao-server`
+The startup workflow SHALL install one tracked compatibility profile into the demo-owned server through `houmao-mgr install`, launch one TUI session through `houmao-mgr launch`, and persist the selected demo variant in local demo state.
 
 The demo SHALL provision one demo-owned `houmao-server` listener on loopback for the run and SHALL persist the resolved `api_base_url` in demo state rather than assuming an unrelated server instance already exists.
 
@@ -56,7 +56,7 @@ The persisted startup state SHALL include at minimum:
 
 #### Scenario: Default startup uses the tracked Claude provider and compatibility profile
 - **WHEN** the operator runs the demo startup command without a provider override
-- **THEN** the demo installs and launches the tracked `gpu-kernel-coder` profile through `houmao-srv-ctrl`
+- **THEN** the demo installs and launches the tracked `gpu-kernel-coder` profile through `houmao-mgr`
 - **AND THEN** the delegated session uses `provider = claude_code`
 - **AND THEN** persisted startup state records `tool = claude`
 - **AND THEN** persisted startup state records `agent_profile = gpu-kernel-coder`
@@ -64,7 +64,7 @@ The persisted startup state SHALL include at minimum:
 
 #### Scenario: Startup accepts an explicit Codex provider
 - **WHEN** the operator runs startup with `--provider codex`
-- **THEN** the demo installs and launches the tracked `gpu-kernel-coder` profile through `houmao-srv-ctrl`
+- **THEN** the demo installs and launches the tracked `gpu-kernel-coder` profile through `houmao-mgr`
 - **AND THEN** the delegated session uses `provider = codex`
 - **AND THEN** persisted startup state records `tool = codex`
 - **AND THEN** persisted startup state records `agent_profile = gpu-kernel-coder`
@@ -76,7 +76,7 @@ The persisted startup state SHALL include at minimum:
 - **AND THEN** persisted startup state records the canonicalized `agent_identity` derived from `alice`
 
 ### Requirement: Startup SHALL rely on pair-managed delegated launch artifacts and auto-registration
-After the interactive pair launch succeeds, the demo SHALL discover the runtime-owned manifest and delegated session artifacts produced by `houmao-srv-ctrl launch`.
+After the interactive pair launch succeeds, the demo SHALL discover the runtime-owned manifest and delegated session artifacts produced by `houmao-mgr launch`.
 
 The demo SHALL use the manifest `houmao_server` section as the startup-to-follow-up data bridge.
 
@@ -88,7 +88,7 @@ The demo MAY additionally persist a later-discovered `tracked_agent_id`, but fol
 
 #### Scenario: Pair-managed launch auto-registers the delegated session
 - **WHEN** the operator completes a successful demo startup
-- **THEN** the session launched through `houmao-srv-ctrl launch` becomes addressable through server-managed discovery and inspection routes
+- **THEN** the session launched through `houmao-mgr launch` becomes addressable through server-managed discovery and inspection routes
 - **AND THEN** the demo does not send a second manual registration request
 
 #### Scenario: Startup persists both delegated runtime-owned and server-facing identifiers
@@ -107,7 +107,7 @@ After startup completes, the demo SHALL use direct `houmao-server` HTTP calls fo
 
 `inspect` SHALL read managed-agent state through `GET /houmao/agents/{agent_ref}/state` and `GET /houmao/agents/{agent_ref}/state/detail`. When the demo exposes optional parser-derived text or deeper tracked-terminal inspection, it SHALL read that information through `GET /houmao/terminals/{terminal_id}/state`, and it SHALL expose parser-derived dialog tail only behind an explicit operator opt-in.
 
-The demo SHALL NOT call post-launch control commands from `houmao-srv-ctrl` or `houmao-cli`.
+The demo SHALL NOT call post-launch control commands from `houmao-mgr` or `houmao-cli`.
 
 The pack SHALL NOT provide a raw control-input `send-keys` equivalent in v1.
 

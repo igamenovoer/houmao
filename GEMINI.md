@@ -52,7 +52,7 @@ Always prefer `pixi run ...` over direct command execution.
 - `houmao-cli`: Main lifecycle management (build/start/prompt/stop).
 - `houmao-cao-server`: Local CAO server launcher.
 - `houmao-server`: Custom Houmao-owned CAO-compatible server.
-- `houmao-srv-ctrl`: Wrapper CLI for `houmao-server`.
+- `houmao-mgr`: Pair-management CLI for `houmao-server`.
 
 ## 4. Development Conventions
 

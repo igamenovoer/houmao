@@ -1,13 +1,13 @@
 # Houmao Server Pair
 
-`houmao-server` and `houmao-srv-ctrl` are the supported Houmao-managed replacement pair for `cao-server` and `cao`.
+`houmao-server` and `houmao-mgr` are the supported Houmao-managed replacement pair for `cao-server` and `cao`.
 
 The intent of this pair is narrow and explicit:
 
 - `houmao-server` is the public HTTP authority
-- `houmao-srv-ctrl` is the pair CLI
+- `houmao-mgr` is the pair-management CLI
 - the explicit `cao` subgroup remains as the CAO-compatible command family
-- mixed pairs such as `houmao-server + cao` or `cao-server + houmao-srv-ctrl` are unsupported
+- mixed pairs such as `houmao-server + cao` or `cao-server + houmao-mgr` are unsupported
 
 For the deeper explanation of live terminal tracking and managed-agent state, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
 
@@ -26,25 +26,25 @@ That exact commit is the parity oracle for the CAO-compatible HTTP and CLI behav
 Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` compatibility namespace
-- `houmao-srv-ctrl`: exposes top-level pair commands plus the explicit `cao` compatibility namespace
+- `houmao-mgr`: exposes top-level pair commands plus the explicit `cao` compatibility namespace
 - `houmao-cli`: remains available for uncovered or intentionally runtime-local workflows
 
 Representative usage:
 
 ```bash
 houmao-server serve --api-base-url http://127.0.0.1:9889
-houmao-srv-ctrl install projection-demo --provider codex --port 9889
-houmao-srv-ctrl cao install projection-demo --provider codex --port 9889
-houmao-srv-ctrl cao info --port 9889
-houmao-srv-ctrl cao flow list --all
-houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider codex
-houmao-srv-ctrl cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
-houmao-srv-ctrl launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
-houmao-srv-ctrl agents prompt cao-gpu --prompt "Summarize the current state."
-houmao-srv-ctrl agents gateway attach cao-gpu --port 9889
-houmao-srv-ctrl agents gateway attach
-houmao-srv-ctrl brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
-houmao-srv-ctrl admin cleanup-registry --grace-seconds 0
+houmao-mgr install projection-demo --provider codex --port 9889
+houmao-mgr cao install projection-demo --provider codex --port 9889
+houmao-mgr cao info --port 9889
+houmao-mgr cao flow list --all
+houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider codex
+houmao-mgr cao launch --port 9889 --agents gpu-kernel-coder --provider codex --headless
+houmao-mgr launch --port 9889 --agents gpu-kernel-coder --provider claude_code --headless
+houmao-mgr agents prompt cao-gpu --prompt "Summarize the current state."
+houmao-mgr agents gateway attach cao-gpu --port 9889
+houmao-mgr agents gateway attach
+houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
+houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
 Retired standalone surfaces:
@@ -55,7 +55,7 @@ Retired standalone surfaces:
 
 ## Pair-Native CLI Tree
 
-`houmao-srv-ctrl` now has one native top-level tree for covered pair workflows:
+`houmao-mgr` now has one native top-level tree for covered pair workflows:
 
 - `launch`
 - `install`
@@ -71,16 +71,16 @@ Authority is split intentionally:
 - `admin cleanup-registry` is local shared-registry maintenance
 - `cao ...` remains the explicit compatibility namespace
 
-For ordinary prompt submission, `houmao-srv-ctrl agents prompt <agent-ref> --prompt "..."` is the default documented path. `houmao-srv-ctrl agents gateway prompt <agent-ref> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter.
+For ordinary prompt submission, `houmao-mgr agents prompt <agent-ref> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt <agent-ref> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter.
 
 ## Pair-Managed Gateway Attach
 
-For pair-managed terminal sessions, the supported public attach command is `houmao-srv-ctrl agents gateway attach`.
+For pair-managed terminal sessions, the supported public attach command is `houmao-mgr agents gateway attach`.
 
 Supported modes:
 
-- explicit target mode: `houmao-srv-ctrl agents gateway attach <agent-ref> --port <public-port>`
-- current-session mode: run `houmao-srv-ctrl agents gateway attach` from inside the tmux session that owns the managed agent
+- explicit target mode: `houmao-mgr agents gateway attach <agent-ref> --port <public-port>`
+- current-session mode: run `houmao-mgr agents gateway attach` from inside the tmux session that owns the managed agent
 
 Current-session mode is intentionally strict:
 
@@ -186,7 +186,7 @@ Filesystem-authoritative artifacts:
 - runtime-owned session roots and manifests
 - runtime-owned gateway attach contracts and live gateway execution records
 - shared-registry `live_agents/<agent-id>/record.json` pointers while the bridge remains in use
-- delegated `houmao-srv-ctrl launch` manifests and session roots under `sessions/houmao_server_rest/...`
+- delegated `houmao-mgr launch` manifests and session roots under `sessions/houmao_server_rest/...`
 - native headless authority and per-turn records under `state/managed_agents/<tracked_agent_id>/`
 
 Filesystem-backed compatibility and debug views:
@@ -246,13 +246,13 @@ This keeps the pair-owned compatibility transport details out of the persisted p
 Those paths are internal Houmao-managed implementation details. Operators may inspect them for debugging, but the supported install surface is:
 
 ```bash
-houmao-srv-ctrl install <agent-source> --provider <provider> --port <public-port>
+houmao-mgr install <agent-source> --provider <provider> --port <public-port>
 ```
 
 or the explicit compatibility alias:
 
 ```bash
-houmao-srv-ctrl cao install <agent-source> --provider <provider> --port <public-port>
+houmao-mgr cao install <agent-source> --provider <provider> --port <public-port>
 ```
 
 Both routes target the selected `houmao-server`, which performs compatibility-store mutation inside the server-owned subtree.
@@ -261,10 +261,10 @@ Both routes target the selected `houmao-server`, which performs compatibility-st
 
 This pair is a migration strategy with Houmao as the public authority.
 
-The explicit `/cao/*` and `houmao-srv-ctrl cao ...` namespaces remain for compatibility, but the supported operator workflow is the pair itself:
+The explicit `/cao/*` and `houmao-mgr cao ...` namespaces remain for compatibility, but the supported operator workflow is the pair itself:
 
 - `houmao-server`
-- `houmao-srv-ctrl`
+- `houmao-mgr`
 
 Standalone `houmao-cao-server` and raw standalone `cao_rest` operator entrypoints are retired.
 

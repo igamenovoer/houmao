@@ -25,7 +25,7 @@ dependencies = [
 houmao-cli = "houmao.cli:main"
 houmao-cao-server = "houmao.cao_cli:main"
 houmao-server = "houmao.server.cli:main"
-houmao-srv-ctrl = "houmao.srv_ctrl.cli:main"
+houmao-mgr = "houmao.srv_ctrl.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/igamenovoer/houmao"

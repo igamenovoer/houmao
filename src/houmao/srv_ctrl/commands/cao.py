@@ -1,4 +1,4 @@
-"""Explicit CAO-compatibility command namespace for `houmao-srv-ctrl`."""
+"""Explicit CAO-compatibility command namespace for `houmao-mgr`."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def cao_launch_command(
             f"The underlying provider ({provider}) will be trusted to perform all actions "
             f"(read, write, and execute) in:\n"
             f"  {working_directory}\n\n"
-            f"To skip this confirmation, use: houmao-srv-ctrl cao launch --yolo\n"
+            f"To skip this confirmation, use: houmao-mgr cao launch --yolo\n"
         )
         if not click.confirm("Do you trust all the actions in this folder?", default=True):
             raise click.ClickException("Launch cancelled by user")
