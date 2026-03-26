@@ -2,6 +2,35 @@
 
 Modules: `src/houmao/shared_tui_tracking/reducer.py` and `src/houmao/shared_tui_tracking/session.py`
 
+## Replay Pipeline
+
+```mermaid
+sequenceDiagram
+    participant CA as Caller
+    participant SSR as StreamState<br/>Reducer
+    participant TTS as TuiTracker<br/>Session
+    participant REG as Detector<br/>Registry
+    participant DET as Detector
+
+    CA->>SSR: new(tool, version)
+    SSR->>TTS: from_config(app_id)
+    TTS->>REG: select detector
+
+    loop Each observation
+        CA->>SSR: feed(observation)
+        SSR->>DET: detect(output_text)
+        DET-->>SSR: DetectedTurnSignals
+        SSR->>DET: build_temporal_frame()
+        DET-->>SSR: temporal frame
+        SSR->>DET: derive_temporal_hints()
+        DET-->>SSR: TemporalHintSignals
+        SSR->>TTS: process signals
+    end
+
+    CA->>SSR: latest_signals
+    SSR-->>CA: TrackedStateSnapshot
+```
+
 ## Overview
 
 The replay engine converts raw TUI pane observations into structured tracked state. It serves two modes of operation: **offline replay** for analysis and validation of detector behavior against recorded sessions, and **live tracking** for real-time state inference during active agent sessions.

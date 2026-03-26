@@ -4,6 +4,24 @@ Module: `src/houmao/agents/launch_overrides/` — "Shared launch-override models
 
 Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → recipe overrides → direct overrides.
 
+### Override Precedence
+
+```mermaid
+flowchart TD
+    A["ToolAdapter LaunchDefaults<br/>(lowest priority)"]
+    B["Recipe launch_overrides"]
+    C["Direct launch_overrides<br/>(highest priority)"]
+    D["merge_launch_intent()"]
+    E["resolve_launch_behavior()"]
+    F["Final LaunchBehavior<br/>(args + tool_params)"]
+
+    A --> D
+    B --> D
+    C --> D
+    D --> E
+    E --> F
+```
+
 ## LaunchDefaults
 
 `LaunchDefaults` is a frozen dataclass owned by the tool adapter. It defines the baseline launch arguments and tool parameters that apply when no overrides are specified.

@@ -2,6 +2,33 @@
 
 The build phase resolves three declarative artifacts — brain recipes, tool adapters, and blueprints — to determine what gets projected into a runtime home.
 
+### How Recipe + Adapter Compose
+
+```mermaid
+flowchart LR
+    subgraph Recipe ["BrainRecipe YAML"]
+        R1["tool"]
+        R2["skills"]
+        R3["config_profile"]
+        R4["credential_profile"]
+        R5["launch_overrides"]
+    end
+
+    subgraph Adapter ["ToolAdapter YAML"]
+        A1["launch_executable"]
+        A2["launch_defaults<br/>(args, env)"]
+        A3["credential_file_mappings"]
+        A4["env_injection_mode"]
+    end
+
+    R1 -->|selects| Adapter
+    R5 -->|merged with| A2
+
+    Recipe --> Build["BuildRequest"]
+    Adapter --> Build
+    Build --> Home["Runtime Home<br/>+ Manifest"]
+```
+
 ## BrainRecipe
 
 A `BrainRecipe` is a frozen dataclass that serves as a declarative preset for building a brain. It selects a tool, a subset of skills, and the config/credential profiles to use.

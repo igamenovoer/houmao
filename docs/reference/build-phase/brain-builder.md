@@ -4,6 +4,21 @@ Module: `src/houmao/agents/brain_builder.py` — "Brain builder for reusable too
 
 The brain builder is the core of the build phase. It takes a `BuildRequest` describing the desired agent brain configuration, resolves it against the agent definition directory, and produces a self-contained runtime home on disk along with a manifest and launch helper.
 
+### Build Pipeline Overview
+
+```mermaid
+flowchart TD
+    A["BuildRequest"] --> B["Resolve ToolAdapter<br/>(tool-adapters/&lbrace;tool&rbrace;.yaml)"]
+    B --> C["Validate<br/>(tool params, directories)"]
+    C --> D["Create Runtime Home<br/>(homes/&lbrace;home_id&rbrace;/)"]
+    D --> E["Project Config<br/>(config_profile → home)"]
+    E --> F["Project Skills<br/>(skills → home)"]
+    F --> G["Project Credentials<br/>(cred files → home, parse env)"]
+    G --> H["Build Launch Helper<br/>(launch.sh)"]
+    H --> I["Persist Manifest<br/>(manifests/&lbrace;home_id&rbrace;.yaml)"]
+    I --> J["BuildResult"]
+```
+
 ## BuildRequest
 
 `BuildRequest` is a frozen dataclass that captures all inputs for a brain build.
@@ -51,6 +66,28 @@ The brain builder is the core of the build phase. It takes a `BuildRequest` desc
 6. **Project credentials** — Maps credential files from `brains/api-creds/<tool>/<profile>/` into the runtime home according to the adapter's `credential_file_mappings`.
 7. **Generate manifest JSON** — Writes a secret-free manifest describing the built brain: tool, skills, config profile, launch arguments, env var names, and paths. The manifest intentionally records env var names and local paths, not secret values.
 8. **Generate launch helper script** — Writes a shell script that sets the required environment and invokes the tool executable with the resolved launch arguments.
+
+### Build Sequence
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant BB as BrainBuilder
+    participant TA as ToolAdapter
+    participant FS as Filesystem
+
+    Op->>BB: build_brain_home(request)
+    BB->>TA: load adapter YAML
+    TA-->>BB: adapter config
+    BB->>BB: validate overrides
+    BB->>FS: create home dir
+    BB->>FS: project config
+    BB->>FS: project skills
+    BB->>FS: project credentials
+    BB->>FS: write launch.sh
+    BB->>FS: write manifest JSON
+    BB-->>Op: BuildResult
+```
 
 ## Key Functions
 
