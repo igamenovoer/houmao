@@ -1,39 +1,37 @@
-"""Lifecycle commands for the Houmao-server interactive full-pipeline demo."""
+"""Lifecycle commands for the interactive full-pipeline demo."""
 
 from __future__ import annotations
 
 import json
 import os
 import shutil
-import signal
-import socket
 import subprocess
-import sys
 import time
+import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
-from houmao.agents.realm_controller.agent_identity import (
-    AGENT_DEF_DIR_ENV_VAR,
-    normalize_agent_identity_name,
-)
-from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
-from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.cao.rest_client import CaoApiError
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.native_launch_resolver import resolve_native_launch_target
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     DEFAULT_AGENT_PROFILE,
     DEFAULT_HISTORY_LIMIT,
     DEFAULT_WORKTREE_DIRNAME,
     DemoEnvironment,
     DemoPaths,
+    DemoRequestRecord,
     DemoState,
     DemoWorkflowError,
     InspectPayload,
     ManagedAgentHistorySnapshot,
     ManagedAgentSnapshot,
-    StartupPayload,
     STALE_STOP_MARKERS,
+    StartupPayload,
     StopPayload,
     TerminalSnapshot,
     TurnArtifact,
@@ -46,17 +44,21 @@ from houmao.owned_paths import (
     AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
     AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
 )
-from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
-    HoumaoHeadlessLaunchResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHistoryResponse,
-    HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentStateResponse,
-    HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalStateResponse,
 )
-from houmao.srv_ctrl.commands.runtime_artifacts import materialize_headless_launch_request
+from houmao.srv_ctrl.commands.managed_agents import (
+    _local_tui_runtime_for_controller,
+    interrupt_managed_agent,
+    managed_agent_detail_payload,
+    managed_agent_history_payload,
+    managed_agent_state_payload,
+    prompt_managed_agent,
+    resolve_managed_agent_target,
+)
 
 
 def start_demo(
@@ -65,121 +67,97 @@ def start_demo(
     env: DemoEnvironment,
     provider: str,
     requested_session_name: str | None,
-    requested_port: int | None,
 ) -> StartupPayload:
     """Start or replace the interactive demo run."""
 
     resolved_tool = tool_for_provider(provider)
-    if requested_port is not None and not _port_is_available(requested_port):
-        raise DemoWorkflowError(f"Requested loopback port is unavailable: {requested_port}")
-
     _ensure_workspace(paths)
     replaced_previous_session_name = _cleanup_existing_state_for_startup(paths=paths, env=env)
     if env.provision_worktree:
         _provision_default_worktree(paths=paths, repo_root=env.repo_root)
     _reset_demo_artifacts(paths)
+    _reset_runtime_ownership_roots(paths)
 
-    selected_port = _select_port(requested_port)
-    api_base_url = f"http://127.0.0.1:{selected_port}"
     agent_def_dir = _demo_agent_def_dir_path(env.repo_root)
     if not agent_def_dir.is_dir():
         raise DemoWorkflowError(
             f"Tracked demo-local agent-definition root not found: {agent_def_dir}"
         )
 
-    runtime_env = _build_demo_environment(paths=paths)
-    runtime_env[AGENT_DEF_DIR_ENV_VAR] = str(agent_def_dir)
-    server_process: subprocess.Popen[bytes] | None = None
-    client: HoumaoServerClient | None = None
-    actual_session_name: str | None = None
+    agent_name = _launch_agent_name(
+        requested_session_name=requested_session_name,
+        resolved_tool=resolved_tool,
+    )
+    runtime_env = _demo_environment(paths=paths, agent_def_dir=agent_def_dir)
+    controller = None
     try:
-        server_process = _start_server_process(
-            api_base_url=api_base_url,
-            paths=paths,
-            timeout_seconds=env.server_start_timeout_seconds,
-            env=runtime_env,
-            compat_shell_ready_timeout_seconds=env.compat_shell_ready_timeout_seconds,
-            compat_provider_ready_timeout_seconds=env.compat_provider_ready_timeout_seconds,
-            compat_codex_warmup_seconds=env.compat_codex_warmup_seconds,
-        )
-
-        client = HoumaoServerClient(
-            api_base_url,
-            timeout_seconds=5.0,
-            create_timeout_seconds=env.compat_create_timeout_seconds,
-        )
-        launch_response = _launch_native_session(
-            client=client,
-            provider=provider,
-            requested_session_name=requested_session_name,
-            workdir=paths.workdir,
-            runtime_root=paths.runtime_root,
-        )
-
-        # Extract identifiers directly from native launch response (no polling needed)
-        actual_session_name = launch_response.identity.session_name
-        terminal_id = launch_response.identity.terminal_id
-        manifest_path = Path(launch_response.manifest_path)
-        tracked_agent_id = launch_response.tracked_agent_id
-
-        bridge = _load_manifest_bridge(manifest_path)
+        with _temporary_environment_bindings(runtime_env):
+            target = resolve_native_launch_target(
+                selector=DEFAULT_AGENT_PROFILE,
+                provider=provider,
+                working_directory=paths.workdir,
+            )
+            build_result = build_brain_home(
+                BuildRequest(
+                    agent_def_dir=target.agent_def_dir,
+                    runtime_root=paths.runtime_root,
+                    tool=target.recipe.tool,
+                    skills=target.recipe.skills,
+                    config_profile=target.recipe.config_profile,
+                    credential_profile=target.recipe.credential_profile,
+                    recipe_path=target.recipe_path,
+                    recipe_launch_overrides=target.recipe.launch_overrides,
+                    operator_prompt_mode=target.recipe.operator_prompt_mode,
+                    mailbox=target.recipe.mailbox,
+                    agent_name=agent_name,
+                )
+            )
+            resolved_backend = backend_for_tool(target.tool, prefer_local_interactive=True)
+            controller = start_runtime_session(
+                agent_def_dir=target.agent_def_dir,
+                brain_manifest_path=build_result.manifest_path.resolve(),
+                role_name=target.role_name,
+                runtime_root=paths.runtime_root,
+                backend=resolved_backend,
+                working_directory=paths.workdir,
+                agent_name=agent_name,
+                tmux_session_name=requested_session_name,
+            )
+        assert controller is not None
+        _wait_for_controller_launch_readiness(controller=controller, env=env)
     except Exception as exc:
-        if actual_session_name is not None:
-            _best_effort_delete_session(
-                api_base_url=api_base_url,
-                session_name=actual_session_name,
-                timeout_seconds=env.server_stop_timeout_seconds,
-            )
-            _best_effort_kill_tmux_session(actual_session_name)
-        if server_process is not None:
-            _stop_server_process(
-                pid=server_process.pid,
-                api_base_url=api_base_url,
-                timeout_seconds=env.server_stop_timeout_seconds,
-            )
+        if controller is not None:
+            _best_effort_stop_controller(controller=controller, runtime_env=runtime_env)
         if isinstance(exc, DemoWorkflowError):
             raise
         raise DemoWorkflowError(str(exc)) from exc
 
-    if bridge.session_name != actual_session_name:
-        raise DemoWorkflowError(
-            "Delegated manifest `houmao_server.session_name` did not match the launched session "
-            f"({bridge.session_name!r} != {actual_session_name!r})."
-        )
-    if bridge.terminal_id != terminal_id:
-        raise DemoWorkflowError(
-            "Delegated manifest `houmao_server.terminal_id` did not match the registered "
-            f"terminal ({bridge.terminal_id!r} != {terminal_id!r})."
-        )
+    if controller.agent_identity is None:
+        raise DemoWorkflowError("Local interactive launch did not publish a managed-agent name.")
+    if controller.agent_id is None:
+        raise DemoWorkflowError("Local interactive launch did not publish an authoritative agent_id.")
+    if controller.tmux_session_name is None:
+        raise DemoWorkflowError("Local interactive launch did not publish a tmux session name.")
 
-    identity_source = requested_session_name or actual_session_name
     state = DemoState(
         active=True,
         provider=provider,
         tool=resolved_tool,
         agent_profile=DEFAULT_AGENT_PROFILE,
-        variant_id=f"{resolved_tool}-{DEFAULT_AGENT_PROFILE}",
-        api_base_url=api_base_url,
-        agent_identity=normalize_agent_identity_name(identity_source).canonical_name,
-        agent_ref=actual_session_name,
+        variant_id=_variant_id(resolved_tool),
+        agent_name=controller.agent_identity,
+        agent_id=controller.agent_id,
         requested_session_name=requested_session_name,
-        session_manifest_path=str(manifest_path),
-        session_root=str(manifest_path.parent.resolve()),
-        session_name=actual_session_name,
-        terminal_id=terminal_id,
-        tracked_agent_id=tracked_agent_id,
+        tmux_session_name=controller.tmux_session_name,
+        tracked_agent_id=None,
+        session_manifest_path=str(controller.manifest_path),
+        session_root=str(controller.manifest_path.parent.resolve()),
         runtime_root=str(paths.runtime_root),
         registry_root=str(paths.registry_root),
         jobs_root=str(paths.jobs_root),
         workspace_dir=str(paths.workspace_root),
         workdir=str(paths.workdir),
-        server_home_dir=str(paths.server_home_dir),
-        server_runtime_root=str(paths.server_runtime_root),
-        server_pid=server_process.pid,
-        server_stdout_log_path=str(paths.logs_dir / "houmao-server.stdout.log"),
-        server_stderr_log_path=str(paths.logs_dir / "houmao-server.stderr.log"),
         agent_def_dir=str(agent_def_dir),
-        houmao_server=bridge,
         updated_at=_utc_now(),
         prompt_turn_count=0,
         interrupt_count=0,
@@ -197,7 +175,7 @@ def inspect_demo(
     paths: DemoPaths,
     dialog_tail_chars: int | None = None,
 ) -> InspectPayload:
-    """Inspect persisted demo state plus live server state when available."""
+    """Inspect persisted demo state plus live local state when available."""
 
     state = load_demo_state(paths.state_path)
     if state is None:
@@ -210,17 +188,15 @@ def inspect_demo(
     history: ManagedAgentHistorySnapshot | None = None
     terminal: TerminalSnapshot | None = None
     dialog_tail: str | None = None
+    tracked_agent_id = state.tracked_agent_id
     if state.active:
         try:
-            live_bundle = _fetch_live_bundle(
-                api_base_url=state.api_base_url,
-                agent_ref=state.agent_ref,
-                terminal_id=state.terminal_id,
-            )
+            live_bundle = _fetch_live_bundle(state=state)
             managed_agent = _managed_agent_snapshot(
                 state_response=live_bundle["state"],
                 detail_response=live_bundle["detail"],
             )
+            tracked_agent_id = managed_agent.tracked_agent_id
             history = _history_snapshot(live_bundle["history"])
             terminal_response = live_bundle["terminal"]
             terminal = (
@@ -234,7 +210,7 @@ def inspect_demo(
         except Exception as exc:
             live_error = str(exc)
     else:
-        live_error = "Demo state is inactive; live server inspection skipped."
+        live_error = "Demo state is inactive; local managed-agent inspection skipped."
 
     return InspectPayload(
         active=state.active,
@@ -242,12 +218,11 @@ def inspect_demo(
         tool=state.tool,
         agent_profile=state.agent_profile,
         variant_id=state.variant_id,
-        api_base_url=state.api_base_url,
-        agent_identity=state.agent_identity,
-        agent_ref=state.agent_ref,
-        session_name=state.session_name,
-        terminal_id=state.terminal_id,
-        tracked_agent_id=state.tracked_agent_id,
+        agent_name=state.agent_name,
+        agent_id=state.agent_id,
+        requested_session_name=state.requested_session_name,
+        tmux_session_name=state.tmux_session_name,
+        tracked_agent_id=tracked_agent_id,
         workspace_dir=state.workspace_dir,
         workdir=state.workdir,
         session_manifest_path=state.session_manifest_path,
@@ -267,7 +242,7 @@ def send_turn(
     env: DemoEnvironment,
     prompt: str,
 ) -> TurnArtifact:
-    """Submit one prompt through the managed-agent request route."""
+    """Submit one prompt through the local managed-agent control surface."""
 
     if not prompt.strip():
         raise DemoWorkflowError("Prompt text must not be empty.")
@@ -285,7 +260,7 @@ def interrupt_demo(
     paths: DemoPaths,
     env: DemoEnvironment,
 ) -> TurnArtifact:
-    """Submit one interrupt through the managed-agent request route."""
+    """Submit one interrupt through the local managed-agent control surface."""
 
     return _submit_request_artifact(
         paths=paths,
@@ -297,7 +272,7 @@ def interrupt_demo(
 
 
 def verify_demo(*, paths: DemoPaths) -> VerificationReport:
-    """Build one sanitized verification report from request artifacts and server state."""
+    """Build one sanitized verification report from artifacts and live local state."""
 
     state = load_demo_state(paths.state_path)
     if state is None:
@@ -314,27 +289,25 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
     )
     request_summaries = [_verification_request_summary(artifact) for artifact in combined_artifacts]
 
-    evidence_source: Literal["live_server", "captured_artifacts"] = "captured_artifacts"
+    evidence_source: Literal["live_local", "captured_artifacts"] = "captured_artifacts"
     current_managed_agent = combined_artifacts[-1].state_after
     current_history = combined_artifacts[-1].history_after
     current_terminal = combined_artifacts[-1].terminal_after
+    tracked_agent_id = combined_artifacts[-1].tracked_agent_id
     if state.active:
         try:
-            live_bundle = _fetch_live_bundle(
-                api_base_url=state.api_base_url,
-                agent_ref=state.agent_ref,
-                terminal_id=state.terminal_id,
-            )
+            live_bundle = _fetch_live_bundle(state=state)
             current_managed_agent = _managed_agent_snapshot(
                 state_response=live_bundle["state"],
                 detail_response=live_bundle["detail"],
             )
+            tracked_agent_id = current_managed_agent.tracked_agent_id
             current_history = _history_snapshot(live_bundle["history"])
             terminal_response = live_bundle["terminal"]
             current_terminal = (
                 _terminal_snapshot(terminal_response) if terminal_response is not None else None
             )
-            evidence_source = "live_server"
+            evidence_source = "live_local"
         except Exception:
             evidence_source = "captured_artifacts"
 
@@ -344,7 +317,7 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
         and current_managed_agent.last_turn_result == "none"
     ):
         raise DemoWorkflowError(
-            "Verification requires server-tracked evidence beyond accepted request records."
+            "Verification requires tracked local evidence beyond accepted request records."
         )
 
     report = VerificationReport(
@@ -354,12 +327,11 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
         tool=state.tool,
         agent_profile=state.agent_profile,
         variant_id=state.variant_id,
-        api_base_url=state.api_base_url,
-        agent_identity=state.agent_identity,
-        agent_ref=state.agent_ref,
-        session_name=state.session_name,
-        terminal_id=state.terminal_id,
-        tracked_agent_id=state.tracked_agent_id,
+        agent_name=state.agent_name,
+        agent_id=state.agent_id,
+        requested_session_name=state.requested_session_name,
+        tmux_session_name=state.tmux_session_name,
+        tracked_agent_id=tracked_agent_id,
         session_manifest_path=state.session_manifest_path,
         workspace_dir=state.workspace_dir,
         workdir=state.workdir,
@@ -383,18 +355,17 @@ def stop_demo(
     """Stop the active interactive demo session and deactivate local state."""
 
     state = require_active_state(paths.state_path, command_name="stop")
-    delete_status, stale_tolerated, server_status = _stop_live_state(
+    stop_status, stale_tolerated = _stop_live_state(
         state=state,
-        timeout_seconds=env.server_stop_timeout_seconds,
         tolerate_stale=True,
     )
     inactive_state = state.model_copy(update={"active": False, "updated_at": _utc_now()})
     save_demo_state(paths.state_path, inactive_state)
+    _write_current_run_root(env.current_run_root_path, paths.workspace_root)
     return StopPayload(
         state=inactive_state,
-        session_delete_status=delete_status,
+        stop_status=stop_status,
         stale_session_tolerated=stale_tolerated,
-        server_stop_status=server_status,
     )
 
 
@@ -444,14 +415,9 @@ def _ensure_workspace(paths: DemoPaths) -> None:
 
     for path in (
         paths.workspace_root,
-        paths.runtime_root,
-        paths.registry_root,
-        paths.jobs_root,
         paths.logs_dir,
         paths.turns_dir,
         paths.interrupts_dir,
-        paths.server_home_dir,
-        paths.server_runtime_root,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -465,6 +431,15 @@ def _reset_demo_artifacts(paths: DemoPaths) -> None:
         directory.mkdir(parents=True, exist_ok=True)
     if paths.report_path.exists():
         paths.report_path.unlink()
+
+
+def _reset_runtime_ownership_roots(paths: DemoPaths) -> None:
+    """Recreate run-owned runtime, registry, and jobs roots from scratch."""
+
+    for directory in (paths.runtime_root, paths.registry_root, paths.jobs_root):
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 def _provision_default_worktree(*, paths: DemoPaths, repo_root: Path) -> None:
@@ -516,10 +491,9 @@ def _cleanup_existing_state_for_startup(*, paths: DemoPaths, env: DemoEnvironmen
         if state is None or not state.active:
             continue
         if replaced_previous_session_name is None:
-            replaced_previous_session_name = state.session_name
+            replaced_previous_session_name = state.tmux_session_name
         _stop_live_state(
             state=state,
-            timeout_seconds=env.server_stop_timeout_seconds,
             tolerate_stale=True,
         )
         _mark_state_inactive(candidate_paths.state_path, state)
@@ -551,202 +525,171 @@ def _remove_stale_state_file(path: Path) -> None:
         path.unlink()
 
 
-def _build_demo_environment(*, paths: DemoPaths) -> dict[str, str]:
-    """Return the shared environment used by the demo-owned server and pair helpers."""
+def _launch_agent_name(*, requested_session_name: str | None, resolved_tool: str) -> str:
+    """Resolve the friendly managed-agent name used for the local launch."""
 
-    env = dict(os.environ)
-    env["HOME"] = str(paths.server_home_dir)
-    env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
-    env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
-    return env
-
-
-def _start_server_process(
-    *,
-    api_base_url: str,
-    paths: DemoPaths,
-    timeout_seconds: float,
-    env: dict[str, str],
-    compat_shell_ready_timeout_seconds: float,
-    compat_provider_ready_timeout_seconds: float,
-    compat_codex_warmup_seconds: float,
-) -> subprocess.Popen[bytes]:
-    """Start the demo-owned Houmao server and wait for health readiness."""
-
-    stdout_path = paths.logs_dir / "houmao-server.stdout.log"
-    stderr_path = paths.logs_dir / "houmao-server.stderr.log"
-    stdout_handle = stdout_path.open("wb")
-    stderr_handle = stderr_path.open("wb")
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "houmao.server",
-            "serve",
-            "--api-base-url",
-            api_base_url,
-            "--runtime-root",
-            str(paths.server_runtime_root),
-            "--compat-shell-ready-timeout-seconds",
-            str(compat_shell_ready_timeout_seconds),
-            "--compat-provider-ready-timeout-seconds",
-            str(compat_provider_ready_timeout_seconds),
-            "--compat-codex-warmup-seconds",
-            str(compat_codex_warmup_seconds),
-        ],
-        cwd=str(paths.workspace_root),
-        env=env,
-        stdout=stdout_handle,
-        stderr=stderr_handle,
-        start_new_session=True,
-    )
-    stdout_handle.close()
-    stderr_handle.close()
-    _wait_for_server_health(api_base_url=api_base_url, timeout_seconds=timeout_seconds)
-    return process
-
-
-def _wait_for_server_health(*, api_base_url: str, timeout_seconds: float) -> None:
-    """Wait until the selected Houmao server reports healthy status."""
-
-    client = HoumaoServerClient(api_base_url, timeout_seconds=1.0)
-    deadline = time.monotonic() + timeout_seconds
-    last_error = "server did not become healthy"
-    while time.monotonic() < deadline:
-        try:
-            health = client.health_extended()
-            cao_health = client.health()
-        except Exception as exc:
-            last_error = str(exc)
-            time.sleep(0.25)
-            continue
-        if (
-            health.status == "ok"
-            and health.houmao_service == "houmao-server"
-            and cao_health.status == "ok"
-        ):
-            return
-        last_error = json.dumps(
-            {
-                "houmao": health.model_dump(mode="json"),
-                "cao": cao_health.model_dump(mode="json"),
-            },
-            sort_keys=True,
-        )
-        time.sleep(0.25)
-    raise DemoWorkflowError(
-        f"Timed out waiting for demo-owned houmao-server health at {api_base_url}: {last_error}"
-    )
-
-
-def _launch_native_session(
-    *,
-    client: HoumaoServerClient,
-    provider: str,
-    requested_session_name: str | None,
-    workdir: Path,
-    runtime_root: Path,
-) -> HoumaoHeadlessLaunchResponse:
-    """Launch one detached TUI session through the native headless launch API."""
-
-    request_model = materialize_headless_launch_request(
-        runtime_root=runtime_root,
-        provider=provider,
-        agent_profile=DEFAULT_AGENT_PROFILE,
-        working_directory=workdir,
-    )
-    # Override session name if explicitly requested
     if requested_session_name is not None and requested_session_name.strip():
-        request_model.agent_name = requested_session_name.strip()
+        return requested_session_name.strip()
+    return _variant_id(resolved_tool)
 
+
+def _variant_id(resolved_tool: str) -> str:
+    """Return the stable demo variant identifier."""
+
+    return f"{resolved_tool}-{DEFAULT_AGENT_PROFILE}"
+
+
+def _demo_environment(*, paths: DemoPaths, agent_def_dir: Path) -> dict[str, str]:
+    """Return the run-local environment used for registry and runtime ownership."""
+
+    return {
+        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(paths.runtime_root.resolve()),
+        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(paths.registry_root.resolve()),
+        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(paths.jobs_root.resolve()),
+        AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir.resolve()),
+    }
+
+
+def _state_environment(state: DemoState) -> dict[str, str]:
+    """Return the run-local environment reconstructed from persisted state."""
+
+    return {
+        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(Path(state.runtime_root).expanduser().resolve()),
+        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(state.registry_root).expanduser().resolve()),
+        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(Path(state.jobs_root).expanduser().resolve()),
+        AGENT_DEF_DIR_ENV_VAR: str(Path(state.agent_def_dir).expanduser().resolve()),
+    }
+
+
+@contextmanager
+def _temporary_environment_bindings(overrides: dict[str, str]) -> Iterator[None]:
+    """Temporarily apply environment overrides for one bounded block."""
+
+    previous: dict[str, str | None] = {name: os.environ.get(name) for name in overrides}
+    for name, value in overrides.items():
+        os.environ[name] = value
     try:
-        response = client.launch_headless_agent(request_model)
-    except CaoApiError as exc:
-        raise DemoWorkflowError(f"Native headless launch failed: {exc.detail}") from exc
-    except Exception as exc:
-        raise DemoWorkflowError(f"Native headless launch failed: {exc}") from exc
-
-    return response
-
-
-# Note: Native headless launch is synchronous; polling helpers below are legacy CAO-only.
-# def _wait_for_launched_session_name(...)
-# def _wait_for_session_detail(...)
-# def _terminal_id_from_session_detail(...)
-# def _wait_for_session_manifest(...)
-# def _wait_for_managed_agent_identity(...)
-# def _list_session_names(...)
+        yield
+    finally:
+        for name, previous_value in previous.items():
+            if previous_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous_value
 
 
-def _load_manifest_bridge(manifest_path: Path) -> HoumaoServerSectionV1:
-    """Load and validate the persisted `houmao_server` manifest bridge section."""
+def _wait_for_controller_launch_readiness(*, controller: Any, env: DemoEnvironment) -> None:
+    """Wait for the local TUI session to become available and ready."""
 
-    payload = load_session_manifest(manifest_path).payload
-    if not isinstance(payload, dict):
-        raise DemoWorkflowError(f"Session manifest `{manifest_path}` did not contain a mapping.")
-    raw_bridge = payload.get("houmao_server")
-    if not isinstance(raw_bridge, dict):
-        raise DemoWorkflowError(
-            f"Session manifest `{manifest_path}` is missing the `houmao_server` section."
-        )
-    try:
-        return HoumaoServerSectionV1.model_validate(raw_bridge)
-    except Exception as exc:
-        raise DemoWorkflowError(
-            f"Session manifest `{manifest_path}` contained an invalid `houmao_server` section: {exc}"
-        ) from exc
+    runtime = _local_tui_runtime_for_controller(controller)
+    poll_interval = env.request_poll_interval_seconds
 
-
-def _wait_for_managed_agent_identity(
-    *,
-    client: HoumaoServerClient,
-    agent_ref: str,
-    timeout_seconds: float,
-) -> Any:
-    """Wait until the launched session is server-addressable as a managed agent."""
-
-    deadline = time.monotonic() + timeout_seconds
-    last_error = "managed-agent route did not become available"
-    while time.monotonic() < deadline:
+    shell_deadline = time.monotonic() + env.compat_shell_ready_timeout_seconds
+    last_error = "local tracked session did not become available"
+    while time.monotonic() < shell_deadline:
         try:
-            identity = client.get_managed_agent(agent_ref)
+            tracked_state = runtime.refresh_once()
         except Exception as exc:
             last_error = str(exc)
-            time.sleep(0.25)
+            time.sleep(poll_interval)
             continue
-        if identity.transport == "tui" and identity.session_name == agent_ref:
-            return identity
+        if tracked_state.diagnostics.availability == "available":
+            break
         last_error = (
-            "managed-agent route returned an unexpected identity "
-            f"(transport={identity.transport!r}, session_name={identity.session_name!r})"
+            "availability="
+            f"{tracked_state.diagnostics.availability} "
+            f"transport_state={tracked_state.diagnostics.transport_state} "
+            f"process_state={tracked_state.diagnostics.process_state}"
         )
-        time.sleep(0.25)
+        time.sleep(poll_interval)
+    else:
+        raise DemoWorkflowError(
+            "Timed out waiting for the local interactive session shell to become available: "
+            f"{last_error}"
+        )
+
+    provider_deadline = time.monotonic() + env.compat_provider_ready_timeout_seconds
+    last_error = "tracked terminal did not reach ready posture"
+    while time.monotonic() < provider_deadline:
+        try:
+            tracked_state = runtime.refresh_once()
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(poll_interval)
+            continue
+        if tracked_state.surface.ready_posture == "yes":
+            if controller.launch_plan.tool == "codex" and env.compat_codex_warmup_seconds > 0:
+                time.sleep(env.compat_codex_warmup_seconds)
+            return
+        last_error = (
+            f"ready_posture={tracked_state.surface.ready_posture} "
+            f"turn_phase={tracked_state.turn.phase}"
+        )
+        time.sleep(poll_interval)
     raise DemoWorkflowError(
-        "Timed out waiting for the detached compatibility launch to become "
-        f"server-addressable without a second registration POST: {last_error}"
+        "Timed out waiting for the local interactive provider to become ready: "
+        f"{last_error}"
     )
 
 
-def _fetch_live_bundle(
-    *,
-    api_base_url: str,
-    agent_ref: str,
-    terminal_id: str,
-) -> dict[str, Any]:
-    """Fetch the live managed-agent and tracked-terminal bundle for one session."""
+def _resolve_local_target(state: DemoState) -> Any:
+    """Resolve the persisted managed agent through the run-local registry."""
 
-    client = HoumaoServerClient(api_base_url, timeout_seconds=5.0)
-    state_response = client.get_managed_agent_state(agent_ref)
-    detail_response = client.get_managed_agent_state_detail(agent_ref)
-    history_response = client.get_managed_agent_history(agent_ref, limit=DEFAULT_HISTORY_LIMIT)
-    terminal_response = client.terminal_state(terminal_id)
+    with _temporary_environment_bindings(_state_environment(state)):
+        target = resolve_managed_agent_target(
+            agent_id=state.agent_id,
+            agent_name=None,
+            port=None,
+        )
+    if target.mode != "local":
+        raise DemoWorkflowError(
+            "Demo state unexpectedly resolved to a non-local managed-agent target."
+        )
+    if target.identity.transport != "tui":
+        raise DemoWorkflowError("Demo state unexpectedly resolved to a non-TUI managed-agent target.")
+    return target
+
+
+def _resume_local_controller(state: DemoState) -> Any:
+    """Resume the local runtime controller directly from persisted manifest metadata."""
+
+    agent_def_dir = Path(state.agent_def_dir).expanduser().resolve()
+    manifest_path = Path(state.session_manifest_path).expanduser().resolve()
+    return resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=manifest_path,
+    )
+
+
+def _fetch_live_bundle(*, state: DemoState) -> dict[str, Any]:
+    """Fetch the live managed-agent and tracked-terminal bundle for one local session."""
+
+    target = _resolve_local_target(state)
+    return _fetch_live_bundle_from_target(target=target)
+
+
+def _fetch_live_bundle_from_target(*, target: Any) -> dict[str, Any]:
+    """Fetch the live bundle for one already-resolved local managed-agent target."""
+
+    state_response = managed_agent_state_payload(target)
+    detail_response = managed_agent_detail_payload(target)
+    history_response = managed_agent_history_payload(target, limit=DEFAULT_HISTORY_LIMIT)
+    terminal_response = _local_terminal_state(target)
     return {
         "state": state_response,
         "detail": detail_response,
         "history": history_response,
         "terminal": terminal_response,
     }
+
+
+def _local_terminal_state(target: Any) -> HoumaoTerminalStateResponse | None:
+    """Return one live tracked-terminal state for a local TUI target."""
+
+    controller = getattr(target, "controller", None)
+    if controller is None:
+        return None
+    return _local_tui_runtime_for_controller(controller).refresh_once()
 
 
 def _managed_agent_snapshot(
@@ -757,6 +700,7 @@ def _managed_agent_snapshot(
     """Build one sanitized managed-agent snapshot from live route payloads."""
 
     detail_payload = detail_response.detail
+    terminal_id = state_response.identity.terminal_id
     terminal_state_route: str | None = None
     terminal_history_route: str | None = None
     parsed_surface_present: bool | None = None
@@ -766,6 +710,7 @@ def _managed_agent_snapshot(
     can_accept_prompt_now: bool | None = None
     interruptible: bool | None = None
     if detail_payload.transport == "tui":
+        terminal_id = detail_payload.terminal_id
         terminal_state_route = detail_payload.canonical_terminal_state_route
         terminal_history_route = detail_payload.canonical_terminal_history_route
         parsed_surface_present = detail_payload.parsed_surface is not None
@@ -785,7 +730,7 @@ def _managed_agent_snapshot(
         transport=state_response.identity.transport,
         tool=state_response.identity.tool,
         session_name=state_response.identity.session_name,
-        terminal_id=state_response.identity.terminal_id,
+        terminal_id=terminal_id,
         manifest_path=state_response.identity.manifest_path,
         availability=state_response.availability,
         turn_phase=state_response.turn.phase,
@@ -879,50 +824,49 @@ def _submit_request_artifact(
     """Submit one managed-agent request and persist the recorded artifact."""
 
     state = require_active_state(paths.state_path, command_name=artifact_kind)
-    live_bundle = _fetch_live_bundle(
-        api_base_url=state.api_base_url,
-        agent_ref=state.agent_ref,
-        terminal_id=state.terminal_id,
-    )
+    target = _resolve_local_target(state)
+    live_bundle = _fetch_live_bundle_from_target(target=target)
     state_before = _managed_agent_snapshot(
         state_response=live_bundle["state"],
         detail_response=live_bundle["detail"],
     )
+    history_before = _history_snapshot(live_bundle["history"])
+    terminal_before = (
+        _terminal_snapshot(live_bundle["terminal"])
+        if live_bundle["terminal"] is not None
+        else None
+    )
     baseline_signature = _bundle_signature(
         managed_agent=state_before,
-        history=_history_snapshot(live_bundle["history"]),
-        terminal=_terminal_snapshot(live_bundle["terminal"]),
+        history=history_before,
+        terminal=terminal_before,
     )
-    client = HoumaoServerClient(state.api_base_url, timeout_seconds=5.0)
     requested_at_utc = _utc_now()
-    request_model: HoumaoManagedAgentSubmitPromptRequest | HoumaoManagedAgentInterruptRequest
-    if request_kind == "submit_prompt":
-        request_model = HoumaoManagedAgentSubmitPromptRequest(prompt=prompt or "")
-    elif request_kind == "interrupt":
-        request_model = HoumaoManagedAgentInterruptRequest()
-    else:
-        raise DemoWorkflowError(f"Unsupported request kind `{request_kind}`.")
-    response = client.submit_managed_agent_request(state.agent_ref, request_model)
+    request_record = _submit_request_record(
+        target=target,
+        request_kind=request_kind,
+        prompt=prompt,
+    )
 
     poll_iterations = 0
     state_change_observed = False
     latest_state_snapshot = state_before
-    latest_history_snapshot = _history_snapshot(live_bundle["history"])
-    latest_terminal_snapshot = _terminal_snapshot(live_bundle["terminal"])
+    latest_history_snapshot = history_before
+    latest_terminal_snapshot = terminal_before
     deadline = time.monotonic() + env.request_settle_timeout_seconds
     while True:
         poll_iterations += 1
-        polled_bundle = _fetch_live_bundle(
-            api_base_url=state.api_base_url,
-            agent_ref=state.agent_ref,
-            terminal_id=state.terminal_id,
-        )
+        polled_bundle = _fetch_live_bundle_from_target(target=target)
         latest_state_snapshot = _managed_agent_snapshot(
             state_response=polled_bundle["state"],
             detail_response=polled_bundle["detail"],
         )
         latest_history_snapshot = _history_snapshot(polled_bundle["history"])
-        latest_terminal_snapshot = _terminal_snapshot(polled_bundle["terminal"])
+        latest_terminal_snapshot = (
+            _terminal_snapshot(polled_bundle["terminal"])
+            if polled_bundle["terminal"] is not None
+            else None
+        )
         if (
             _bundle_signature(
                 managed_agent=latest_state_snapshot,
@@ -946,13 +890,15 @@ def _submit_request_artifact(
         sequence_number=sequence_number,
         request_kind=request_kind,  # type: ignore[arg-type]
         prompt=prompt,
-        agent_ref=state.agent_ref,
-        tracked_agent_id=response.tracked_agent_id,
+        agent_name=state.agent_name,
+        agent_id=state.agent_id,
+        tmux_session_name=state.tmux_session_name,
+        tracked_agent_id=latest_state_snapshot.tracked_agent_id,
         requested_at_utc=requested_at_utc,
         settled_at_utc=settled_at_utc,
         poll_iterations=poll_iterations,
         state_change_observed=state_change_observed,
-        request=response,
+        request=request_record,
         state_before=state_before,
         state_after=latest_state_snapshot,
         history_after=latest_history_snapshot,
@@ -965,12 +911,9 @@ def _submit_request_artifact(
     )
     _write_json_file(artifact_path, artifact.model_dump(mode="json"))
 
-    next_turn_index = state.houmao_server.turn_index
-    if latest_state_snapshot.last_turn_index is not None:
-        next_turn_index = max(next_turn_index, latest_state_snapshot.last_turn_index)
     updated_state = state.model_copy(
         update={
-            "tracked_agent_id": response.tracked_agent_id,
+            "tracked_agent_id": latest_state_snapshot.tracked_agent_id,
             "updated_at": settled_at_utc,
             "prompt_turn_count": sequence_number
             if artifact_kind == "send-turn"
@@ -978,11 +921,79 @@ def _submit_request_artifact(
             "interrupt_count": sequence_number
             if artifact_kind == "interrupt"
             else state.interrupt_count,
-            "houmao_server": state.houmao_server.model_copy(update={"turn_index": next_turn_index}),
         }
     )
     save_demo_state(paths.state_path, updated_state)
     return artifact
+
+
+def _submit_request_record(*, target: Any, request_kind: str, prompt: str | None) -> DemoRequestRecord:
+    """Submit one request through the local managed-agent helper surface."""
+
+    if request_kind == "submit_prompt":
+        response = prompt_managed_agent(target, prompt=prompt or "")
+        record = _request_record_from_prompt_response(response)
+        if not record.success or record.disposition != "accepted":
+            raise DemoWorkflowError(f"Prompt request was not accepted: {record.detail}")
+        return record
+    if request_kind == "interrupt":
+        response = interrupt_managed_agent(target)
+        record = _request_record_from_interrupt_response(
+            response=response,
+            tracked_agent_id=target.identity.tracked_agent_id,
+        )
+        if not record.success:
+            raise DemoWorkflowError(f"Interrupt request failed: {record.detail}")
+        return record
+    raise DemoWorkflowError(f"Unsupported request kind `{request_kind}`.")
+
+
+def _request_record_from_prompt_response(response: object) -> DemoRequestRecord:
+    """Normalize one prompt-submission response into the demo artifact schema."""
+
+    request_id = getattr(response, "request_id", None)
+    tracked_agent_id = getattr(response, "tracked_agent_id", None)
+    detail = getattr(response, "detail", None)
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise DemoWorkflowError("Prompt response did not include a usable request id.")
+    if not isinstance(tracked_agent_id, str) or not tracked_agent_id.strip():
+        raise DemoWorkflowError("Prompt response did not include a usable tracked_agent_id.")
+    if not isinstance(detail, str) or not detail.strip():
+        raise DemoWorkflowError("Prompt response did not include a usable detail message.")
+    success = getattr(response, "success", True)
+    disposition = getattr(response, "disposition", "accepted")
+    return DemoRequestRecord(
+        request_id=request_id,
+        request_kind="submit_prompt",
+        tracked_agent_id=tracked_agent_id,
+        detail=detail,
+        success=bool(success),
+        disposition="accepted" if str(disposition) == "accepted" else "accepted",
+    )
+
+
+def _request_record_from_interrupt_response(
+    *,
+    response: object,
+    tracked_agent_id: str,
+) -> DemoRequestRecord:
+    """Normalize one interrupt-action response into the demo artifact schema."""
+
+    response_tracked_agent_id = getattr(response, "tracked_agent_id", None)
+    detail = getattr(response, "detail", None)
+    if not isinstance(detail, str) or not detail.strip():
+        raise DemoWorkflowError("Interrupt response did not include a usable detail message.")
+    normalized_tracked_agent_id = tracked_agent_id
+    if isinstance(response_tracked_agent_id, str) and response_tracked_agent_id.strip():
+        normalized_tracked_agent_id = response_tracked_agent_id
+    return DemoRequestRecord(
+        request_id=f"interrupt-{uuid.uuid4().hex}",
+        request_kind="interrupt",
+        tracked_agent_id=normalized_tracked_agent_id,
+        detail=detail,
+        success=bool(getattr(response, "success", False)),
+        disposition="action",
+    )
 
 
 def _bundle_signature(
@@ -1050,80 +1061,48 @@ def _load_artifacts(*, pattern: str, root: Path) -> list[TurnArtifact]:
 def _stop_live_state(
     *,
     state: DemoState,
-    timeout_seconds: float,
     tolerate_stale: bool,
-) -> tuple[str, bool, str]:
-    """Stop one active demo session and its demo-owned server."""
+) -> tuple[str, bool]:
+    """Stop one active demo session through the local runtime controller."""
 
-    delete_status = "not_attempted"
+    stop_status = "not_attempted"
     stale_tolerated = False
     try:
-        client = HoumaoServerClient(state.api_base_url, timeout_seconds=3.0)
-        client.stop_managed_agent(state.agent_ref)
-        _wait_for_session_absent(
-            client=client,
-            session_name=state.session_name,
-            timeout_seconds=timeout_seconds,
-        )
-        delete_status = "stopped"
+        controller = _resume_local_controller(state)
+        with _temporary_environment_bindings(_state_environment(state)):
+            result = controller.stop(force_cleanup=True)
+        if result.status != "ok":
+            raise DemoWorkflowError(result.detail)
+        stop_status = "stopped"
     except Exception as exc:
         if tolerate_stale and _is_stale_stop_error(exc):
-            delete_status = "stale_missing"
+            stop_status = "stale_missing"
             stale_tolerated = True
         else:
             raise DemoWorkflowError(
-                f"Failed to stop the managed demo agent `{state.agent_ref}`: {exc}"
+                f"Failed to stop the managed demo agent `{state.agent_name}`: {exc}"
             ) from exc
     finally:
-        _best_effort_kill_tmux_session(state.session_name)
+        _best_effort_kill_tmux_session(state.tmux_session_name)
+        _best_effort_cleanup_session_root(Path(state.session_root).expanduser().resolve())
 
-    server_stop_status = _stop_server_process(
-        pid=state.server_pid,
-        api_base_url=state.api_base_url,
-        timeout_seconds=timeout_seconds,
-    )["status"]
-    return (delete_status, stale_tolerated, server_stop_status)
+    return (stop_status, stale_tolerated)
 
 
-def _wait_for_session_absent(
-    *,
-    client: HoumaoServerClient,
-    session_name: str,
-    timeout_seconds: float,
-) -> None:
-    """Wait until one session disappears from server queries."""
-
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            client.get_session(session_name)
-        except CaoApiError as exc:
-            if exc.status_code == 404:
-                return
-        except Exception:
-            return
-        time.sleep(0.25)
-    raise DemoWorkflowError(
-        f"Timed out waiting for `{session_name}` to disappear from houmao-server."
-    )
-
-
-def _best_effort_delete_session(
-    *,
-    api_base_url: str,
-    session_name: str,
-    timeout_seconds: float,
-) -> None:
-    """Best-effort session delete used during partial-start cleanup."""
+def _best_effort_stop_controller(*, controller: Any, runtime_env: dict[str, str]) -> None:
+    """Stop one partially started controller during startup error cleanup."""
 
     try:
-        client = HoumaoServerClient(api_base_url, timeout_seconds=3.0)
-        client.delete_session(session_name)
-        _wait_for_session_absent(
-            client=client, session_name=session_name, timeout_seconds=timeout_seconds
-        )
+        with _temporary_environment_bindings(runtime_env):
+            controller.stop(force_cleanup=True)
     except Exception:
-        return
+        pass
+    tmux_session_name = getattr(controller, "tmux_session_name", None)
+    if isinstance(tmux_session_name, str) and tmux_session_name.strip():
+        _best_effort_kill_tmux_session(tmux_session_name)
+    manifest_path = getattr(controller, "manifest_path", None)
+    if isinstance(manifest_path, Path):
+        _best_effort_cleanup_session_root(manifest_path.parent.resolve())
 
 
 def _best_effort_kill_tmux_session(session_name: str) -> None:
@@ -1140,60 +1119,21 @@ def _best_effort_kill_tmux_session(session_name: str) -> None:
         return
 
 
+def _best_effort_cleanup_session_root(session_root: Path) -> None:
+    """Best-effort deletion of one stale runtime session root."""
+
+    if not session_root.exists() or session_root == session_root.parent:
+        return
+    shutil.rmtree(session_root, ignore_errors=True)
+
+
 def _is_stale_stop_error(exc: Exception) -> bool:
     """Return whether one stop failure matches a stale-session outcome."""
 
-    if isinstance(exc, CaoApiError) and exc.status_code == 404:
+    if isinstance(exc, FileNotFoundError):
         return True
     rendered = str(exc).lower()
     return any(marker in rendered for marker in STALE_STOP_MARKERS)
-
-
-def _stop_server_process(*, pid: int, api_base_url: str, timeout_seconds: float) -> dict[str, Any]:
-    """Stop the demo-owned Houmao server process and wait for exit."""
-
-    if pid <= 0:
-        return {"status": "already_stopped", "pid": pid}
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return {"status": "already_stopped", "pid": pid}
-
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if not _pid_exists(pid) and not _server_health_ok(api_base_url):
-            return {"status": "stopped", "pid": pid}
-        time.sleep(0.25)
-
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return {"status": "stopped", "pid": pid}
-    time.sleep(0.2)
-    return {"status": "forced", "pid": pid}
-
-
-def _pid_exists(pid: int) -> bool:
-    """Return whether one process id currently exists."""
-
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _server_health_ok(api_base_url: str) -> bool:
-    """Return whether one Houmao server still responds healthy."""
-
-    try:
-        client = HoumaoServerClient(api_base_url, timeout_seconds=1.0)
-        health = client.health_extended()
-    except Exception:
-        return False
-    return health.status == "ok" and health.houmao_service == "houmao-server"
 
 
 def _demo_agent_def_dir_path(repo_root: Path) -> Path:
@@ -1206,27 +1146,6 @@ def _demo_agent_def_dir_path(repo_root: Path) -> Path:
         / "houmao-server-interactive-full-pipeline-demo"
         / "agents"
     )
-
-
-def _select_port(requested_port: int | None) -> int:
-    """Select one loopback port for the demo-owned server."""
-
-    if requested_port is not None:
-        return requested_port
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def _port_is_available(port: int) -> bool:
-    """Return whether one requested loopback port is free to bind."""
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind(("127.0.0.1", port))
-        except OSError:
-            return False
-    return True
 
 
 def _load_json_file(path: Path, *, context: str) -> Any:

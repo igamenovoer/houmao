@@ -1,4 +1,4 @@
-"""CLI entrypoint for the Houmao-server interactive full-pipeline demo."""
+"""CLI entrypoint for the interactive full-pipeline demo."""
 
 from __future__ import annotations
 
@@ -21,15 +21,12 @@ from houmao.demo.houmao_server_interactive_full_pipeline_demo.commands import (
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     CURRENT_RUN_ROOT_FILENAME,
     DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
-    DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
     DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
     DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
     DEFAULT_DEMO_ROOT_DIRNAME,
     DEFAULT_PROVIDER,
     DEFAULT_REQUEST_POLL_INTERVAL_SECONDS,
     DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS,
-    DEFAULT_SERVER_START_TIMEOUT_SECONDS,
-    DEFAULT_SERVER_STOP_TIMEOUT_SECONDS,
     DemoEnvironment,
     DemoInvocation,
     DemoPaths,
@@ -52,7 +49,6 @@ def main(argv: list[str] | None = None) -> int:
                 env=invocation.env,
                 provider=str(args.provider),
                 requested_session_name=getattr(args, "session_name", None),
-                requested_port=getattr(args, "port", None),
             )
             if bool(getattr(args, "json", False)):
                 _print_json(start_payload.model_dump(mode="json"))
@@ -101,7 +97,7 @@ def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the interactive demo."""
 
     parser = argparse.ArgumentParser(
-        description="Houmao-server interactive full-pipeline demo commands."
+        description="Local interactive full-pipeline demo commands."
     )
     parser.add_argument(
         "--repo-root",
@@ -116,16 +112,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Workspace root for persisted demo state, artifacts, and runtime files.",
     )
     parser.add_argument(
-        "--server-start-timeout-seconds",
-        type=float,
-        default=DEFAULT_SERVER_START_TIMEOUT_SECONDS,
-        help="Timeout budget while waiting for the demo-owned server to become healthy.",
-    )
-    parser.add_argument(
         "--request-settle-timeout-seconds",
         type=float,
         default=DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS,
-        help="Bounded wait budget for launch registration and request-state changes.",
+        help="Bounded wait budget for local request-state changes.",
     )
     parser.add_argument(
         "--request-poll-interval-seconds",
@@ -134,39 +124,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Polling interval used while waiting for request-state changes.",
     )
     parser.add_argument(
-        "--server-stop-timeout-seconds",
-        type=float,
-        default=DEFAULT_SERVER_STOP_TIMEOUT_SECONDS,
-        help="Timeout budget while stopping the demo-owned server.",
-    )
-    parser.add_argument(
         "--compat-shell-ready-timeout-seconds",
         type=_positive_float,
         default=DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS,
-        help="Demo-owned compatibility shell-readiness timeout passed to `houmao-server serve`.",
+        help="Bounded wait budget for the launched local shell to become available.",
     )
     parser.add_argument(
         "--compat-provider-ready-timeout-seconds",
         type=_positive_float,
         default=DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS,
-        help=(
-            "Demo-owned compatibility provider-readiness timeout passed to `houmao-server serve`."
-        ),
+        help="Bounded wait budget for the launched local provider UI to become ready.",
     )
     parser.add_argument(
         "--compat-codex-warmup-seconds",
         type=_non_negative_float,
         default=DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
-        help="Demo-owned Codex warmup override passed to `houmao-server serve`.",
-    )
-    parser.add_argument(
-        "--compat-create-timeout-seconds",
-        type=_positive_float,
-        default=DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS,
-        help=(
-            "Demo-owned native headless launch create timeout passed to the "
-            "`houmao-server` launch request."
-        ),
+        help="Extra post-readiness warmup sleep applied only to local Codex launches.",
     )
 
     subparsers = parser.add_subparsers(dest="command")
@@ -176,18 +149,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--provider",
         choices=PROVIDER_CHOICES,
         default=DEFAULT_PROVIDER,
-        help="Selected pair-managed provider.",
+        help="Selected local managed-agent provider.",
     )
     start.add_argument(
         "--session-name",
         default=None,
-        help="Optional pair-managed session-name override.",
-    )
-    start.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Optional loopback port for the demo-owned server.",
+        help="Optional managed-agent name and tmux-session override.",
     )
     start.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
@@ -230,14 +197,11 @@ def _resolve_demo_invocation(args: argparse.Namespace) -> DemoInvocation:
         demo_base_root=demo_base_root,
         current_run_root_path=current_run_root_path,
         provision_worktree=True,
-        server_start_timeout_seconds=float(args.server_start_timeout_seconds),
         request_settle_timeout_seconds=float(args.request_settle_timeout_seconds),
         request_poll_interval_seconds=float(args.request_poll_interval_seconds),
-        server_stop_timeout_seconds=float(args.server_stop_timeout_seconds),
         compat_shell_ready_timeout_seconds=float(args.compat_shell_ready_timeout_seconds),
         compat_provider_ready_timeout_seconds=float(args.compat_provider_ready_timeout_seconds),
         compat_codex_warmup_seconds=float(args.compat_codex_warmup_seconds),
-        compat_create_timeout_seconds=float(args.compat_create_timeout_seconds),
     )
     return DemoInvocation(paths=DemoPaths.from_workspace_root(workspace_root), env=env)
 
@@ -329,14 +293,13 @@ def _render_start_output(payload: object) -> str:
     state = getattr(payload, "state")
     return "\n".join(
         [
-            "Houmao-server interactive demo started.",
+            "Local interactive demo started.",
             f"provider: {state.provider}",
             f"tool: {state.tool}",
             f"variant: {state.variant_id}",
-            f"api_base_url: {state.api_base_url}",
-            f"session_name: {state.session_name}",
-            f"agent_ref: {state.agent_ref}",
-            f"terminal_id: {state.terminal_id}",
+            f"agent_name: {state.agent_name}",
+            f"agent_id: {state.agent_id}",
+            f"tmux_session_name: {state.tmux_session_name}",
             f"workdir: {state.workdir}",
         ]
     )
@@ -350,10 +313,9 @@ def _render_inspect_output(payload: dict[str, object]) -> str:
         f"provider: {payload['provider']}",
         f"tool: {payload['tool']}",
         f"variant: {payload['variant_id']}",
-        f"api_base_url: {payload['api_base_url']}",
-        f"session_name: {payload['session_name']}",
-        f"agent_ref: {payload['agent_ref']}",
-        f"terminal_id: {payload['terminal_id']}",
+        f"agent_name: {payload['agent_name']}",
+        f"agent_id: {payload['agent_id']}",
+        f"tmux_session_name: {payload['tmux_session_name']}",
     ]
     managed_agent = payload.get("managed_agent")
     if isinstance(managed_agent, dict):

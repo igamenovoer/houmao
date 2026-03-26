@@ -14,24 +14,22 @@ Usage:
   $(basename "$0") [-y] <subcommand> [options]
 
 Subcommands:
-  start [--provider <claude_code|codex>] [--session-name <name>] [--port <port>] [--json]
-      Start or replace the pair-managed interactive session through a demo-owned
-      \`houmao-server\` and its native headless launch API. The default provider is
-      \`claude_code\`. Demo-owned generous compatibility startup defaults are
-      applied unless overridden through the environment variables below.
+  start [--provider <claude_code|codex>] [--session-name <name>] [--json]
+      Start or replace one local managed-agent session without \`houmao-server\`.
+      The default provider is \`claude_code\`. The demo keeps bounded local
+      shell/provider readiness budgets and an optional Codex warmup override.
   inspect [--json] [--with-dialog-tail <num-tail-chars>]
-      Inspect the persisted demo state and live server-owned session routes.
+      Inspect the persisted demo state plus live local managed-agent / tracked
+      terminal state.
   send-turn (--prompt <text> | --prompt-file <path>)
-      Submit one prompt through \`POST /houmao/agents/{agent_ref}/requests\`.
+      Submit one prompt through the local managed-agent controller path.
   interrupt
-      Submit one interrupt through \`POST /houmao/agents/{agent_ref}/requests\`.
+      Submit one interrupt through the local managed-agent controller path.
   verify
       Generate a sanitized \`report.json\` from accepted request artifacts and
-      server-tracked state evidence.
+      local tracked state evidence.
   stop
-      Tear down the active TUI session through the recorded
-      \`POST /houmao/agents/{agent_ref}/stop\` route and mark local state
-      inactive.
+      Tear down the active local TUI session and mark local state inactive.
 
 Environment defaults:
   DEMO_WORKSPACE_ROOT=<override>
@@ -39,19 +37,15 @@ Environment defaults:
       $DEMO_BASE_ROOT/<utc-ts>/
       Follow-up commands reuse the current run recorded in:
       $CURRENT_RUN_ROOT_FILE
-  DEMO_SERVER_PORT=<override>
-      Optional loopback port override for the demo-owned \`houmao-server\`.
   DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS=<override>
   DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=<override>
   DEMO_COMPAT_CODEX_WARMUP_SECONDS=<override>
-  DEMO_COMPAT_CREATE_TIMEOUT_SECONDS=<override>
-      Override the demo-owned startup budgets passed to \`houmao-server serve\`
-      and the native headless launch request.
+      Override the bounded local launch-readiness budgets.
 
 Flags:
   -y, --yes
       Accepted as a compatibility no-op to preserve the older demo wrapper
-      contract. The Houmao-server pack does not prompt during startup.
+      contract. The local demo pack does not prompt during startup.
 
 Examples:
   $(basename "$0") start
@@ -89,17 +83,11 @@ PYTHON_ARGS=(
 if [[ -n "${DEMO_WORKSPACE_ROOT:-}" ]]; then
   PYTHON_ARGS+=(--workspace-root "$DEMO_WORKSPACE_ROOT")
 fi
-if [[ -n "${DEMO_SERVER_START_TIMEOUT_SECONDS:-}" ]]; then
-  PYTHON_ARGS+=(--server-start-timeout-seconds "$DEMO_SERVER_START_TIMEOUT_SECONDS")
-fi
 if [[ -n "${DEMO_REQUEST_SETTLE_TIMEOUT_SECONDS:-}" ]]; then
   PYTHON_ARGS+=(--request-settle-timeout-seconds "$DEMO_REQUEST_SETTLE_TIMEOUT_SECONDS")
 fi
 if [[ -n "${DEMO_REQUEST_POLL_INTERVAL_SECONDS:-}" ]]; then
   PYTHON_ARGS+=(--request-poll-interval-seconds "$DEMO_REQUEST_POLL_INTERVAL_SECONDS")
-fi
-if [[ -n "${DEMO_SERVER_STOP_TIMEOUT_SECONDS:-}" ]]; then
-  PYTHON_ARGS+=(--server-stop-timeout-seconds "$DEMO_SERVER_STOP_TIMEOUT_SECONDS")
 fi
 if [[ -n "${DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS:-}" ]]; then
   PYTHON_ARGS+=(--compat-shell-ready-timeout-seconds "$DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS")
@@ -110,15 +98,7 @@ fi
 if [[ -n "${DEMO_COMPAT_CODEX_WARMUP_SECONDS:-}" ]]; then
   PYTHON_ARGS+=(--compat-codex-warmup-seconds "$DEMO_COMPAT_CODEX_WARMUP_SECONDS")
 fi
-if [[ -n "${DEMO_COMPAT_CREATE_TIMEOUT_SECONDS:-}" ]]; then
-  PYTHON_ARGS+=(--compat-create-timeout-seconds "$DEMO_COMPAT_CREATE_TIMEOUT_SECONDS")
-fi
-
-if [[ "${FORWARD_ARGS[0]:-}" == "start" && -n "${DEMO_SERVER_PORT:-}" ]]; then
-  PYTHON_ARGS+=("${FORWARD_ARGS[@]:0:1}" --port "$DEMO_SERVER_PORT" "${FORWARD_ARGS[@]:1}")
-else
-  PYTHON_ARGS+=("${FORWARD_ARGS[@]}")
-fi
+PYTHON_ARGS+=("${FORWARD_ARGS[@]}")
 
 if [[ "$YES_TO_ALL" -eq 1 ]]; then
   :

@@ -9,10 +9,10 @@ Usage:
   $(basename "$0") [-y] [--provider <claude_code|codex>] [--help]
 
 Launch or replace the interactive session with the fixed demo session-name
-\`alice\`. The current native launch flow keeps that value as the persisted
-session name while the demo still derives the operator-facing
-\`AGENTSYS-alice\` identity from it. Demo-owned startup timeout overrides may be
-provided through the same environment variables supported by \`run_demo.sh\`.
+\`alice\`. The revised local launch flow uses that value as both the friendly
+managed-agent name and the tmux session name for the stable demo wrapper.
+Local readiness timeout overrides may be provided through the same environment
+variables supported by \`run_demo.sh\`.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh [-y] start --session-name alice [--provider <provider>]

@@ -8,8 +8,8 @@ show_usage() {
 Usage:
   $(basename "$0") [--json] [--with-dialog-tail <num-tail-chars>] [--help]
 
-Inspect the persisted demo state and the live managed-agent / tracked-terminal
-routes owned by the recorded \`houmao-server\`.
+Inspect the persisted demo state and the live local managed-agent /
+tracked-terminal state.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh inspect [--json] [--with-dialog-tail <num-tail-chars>]
