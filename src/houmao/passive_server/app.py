@@ -11,9 +11,13 @@ from starlette.responses import Response
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
@@ -126,6 +130,15 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/send-keys")
+    def gateway_send_control_input(
+        agent_ref: str, payload: GatewayControlInputRequestV1
+    ) -> GatewayControlInputResultV1:
+        result = resolved_service.gateway_send_control_input(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
     @app.post("/houmao/agents/{agent_ref}/gateway/attach")
     def gateway_attach(agent_ref: str) -> PassiveNotImplementedResponse:
         return JSONResponse(  # type: ignore[return-value]
@@ -149,6 +162,29 @@ def create_app(
                 ),
             ).model_dump(mode="json"),
         )
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def gateway_mail_notifier_status(agent_ref: str) -> GatewayMailNotifierStatusV1:
+        result = resolved_service.gateway_mail_notifier_status(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.put("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def gateway_mail_notifier_enable(
+        agent_ref: str, payload: GatewayMailNotifierPutV1
+    ) -> GatewayMailNotifierStatusV1:
+        result = resolved_service.gateway_mail_notifier_enable(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.delete("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    def gateway_mail_notifier_disable(agent_ref: str) -> GatewayMailNotifierStatusV1:
+        result = resolved_service.gateway_mail_notifier_disable(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
 
     @app.get("/houmao/agents/{agent_ref}/mail/status")
     def gateway_mail_status(agent_ref: str) -> GatewayMailStatusV1:

@@ -19,7 +19,6 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     read_tmux_session_environment_value,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -31,6 +30,8 @@ from houmao.agents.realm_controller.session_authority import (
     ManifestSessionAuthority,
     resolve_manifest_session_authority,
 )
+from houmao.server.models import HoumaoManagedAgentIdentity
+from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from ..common import (
     emit_json,
@@ -42,10 +43,16 @@ from ..common import (
     resolve_prompt_text,
 )
 from ..managed_agents import (
+    ManagedAgentTarget,
+    _identity_from_controller,
     attach_gateway,
     detach_gateway,
+    gateway_mail_notifier_disable,
+    gateway_mail_notifier_enable,
+    gateway_mail_notifier_status,
     gateway_interrupt,
     gateway_prompt,
+    gateway_send_keys,
     gateway_status,
     resolve_managed_agent_target,
 )
@@ -54,6 +61,19 @@ from ..managed_agents import (
 @click.group(name="gateway")
 def gateway_group() -> None:
     """Gateway lifecycle and explicit live-gateway request commands for managed agents."""
+
+
+def _current_session_option(function):
+    """Attach the shared `--current-session` option decorator."""
+
+    return click.option(
+        "--current-session",
+        is_flag=True,
+        help=(
+            "Resolve the target from the current tmux session's managed-agent metadata. "
+            "Implied when no selector is provided inside tmux."
+        ),
+    )(function)
 
 
 @gateway_group.command(name="attach")
@@ -66,54 +86,69 @@ def gateway_group() -> None:
         "non-zero gateway window index."
     ),
 )
+@_current_session_option
 @pair_port_option(help_text="Houmao server port override for explicit attach")
 @managed_agent_selector_options
 def attach_gateway_command(
     foreground: bool,
+    current_session: bool,
     port: int | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Attach or reuse a live gateway for one managed agent, including serverless local TUIs."""
 
-    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+    target = _resolve_gateway_command_target(
         agent_id=agent_id,
         agent_name=agent_name,
-        allow_missing=True,
-    )
-    if selected_agent_id is None and selected_agent_name is None:
-        if port is not None:
-            raise click.ClickException(
-                "`--port` is only supported with an explicit `--agent-id` or `--agent-name` attach target."
-            )
-        emit_json(_attach_current_session(foreground=foreground))
-        return
-
-    target = resolve_managed_agent_target(
-        agent_id=selected_agent_id,
-        agent_name=selected_agent_name,
         port=port,
+        current_session=current_session,
+        operation_name="attach",
     )
     emit_json(attach_gateway(target, foreground=foreground))
 
 
 @gateway_group.command(name="detach")
+@_current_session_option
 @pair_port_option()
 @managed_agent_selector_options
-def detach_gateway_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
+def detach_gateway_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
     """Detach the live gateway for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="detach",
+    )
     emit_json(detach_gateway(target))
 
 
 @gateway_group.command(name="status")
+@_current_session_option
 @pair_port_option()
 @managed_agent_selector_options
-def status_gateway_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
+def status_gateway_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
     """Show live gateway status, including foreground execution-mode metadata when present."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="status",
+    )
     emit_json(gateway_status(target))
 
 
@@ -123,9 +158,11 @@ def status_gateway_command(port: int | None, agent_id: str | None, agent_name: s
     default=None,
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
+@_current_session_option
 @pair_port_option(help_text="Houmao server port override for explicit gateway prompt")
 @managed_agent_selector_options
 def prompt_gateway_command(
+    current_session: bool,
     port: int | None,
     prompt: str | None,
     agent_id: str | None,
@@ -133,22 +170,154 @@ def prompt_gateway_command(
 ) -> None:
     """Submit the explicit gateway-mediated prompt path for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="prompt",
+    )
     emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @gateway_group.command(name="interrupt")
+@_current_session_option
 @pair_port_option()
 @managed_agent_selector_options
 def interrupt_gateway_command(
+    current_session: bool,
     port: int | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Submit the explicit gateway-mediated interrupt path for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="interrupt",
+    )
     emit_json(gateway_interrupt(target))
+
+
+@gateway_group.command(name="send-keys")
+@click.option(
+    "--sequence",
+    required=True,
+    help="Raw control-input sequence to deliver through the live gateway.",
+)
+@click.option(
+    "--escape-special-keys",
+    is_flag=True,
+    help="Treat the entire sequence literally instead of parsing `<[key-name]>` tokens.",
+)
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit gateway raw control input")
+@managed_agent_selector_options
+def send_keys_gateway_command(
+    sequence: str,
+    escape_special_keys: bool,
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Submit the explicit gateway raw control-input path for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="send-keys",
+    )
+    emit_json(
+        gateway_send_keys(
+            target,
+            sequence=sequence,
+            escape_special_keys=escape_special_keys,
+        )
+    )
+
+
+@gateway_group.group(name="mail-notifier")
+def mail_notifier_gateway_group() -> None:
+    """Gateway mail-notifier lifecycle and inspection commands."""
+
+
+@mail_notifier_gateway_group.command(name="status")
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit notifier status")
+@managed_agent_selector_options
+def status_gateway_mail_notifier_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Show gateway mail-notifier status for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="mail-notifier status",
+    )
+    emit_json(gateway_mail_notifier_status(target))
+
+
+@mail_notifier_gateway_group.command(name="enable")
+@click.option(
+    "--interval-seconds",
+    required=True,
+    type=click.IntRange(min=1),
+    help="Unread-mail polling interval in seconds.",
+)
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit notifier enable")
+@managed_agent_selector_options
+def enable_gateway_mail_notifier_command(
+    interval_seconds: int,
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Enable or reconfigure gateway mail-notifier behavior for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="mail-notifier enable",
+    )
+    emit_json(gateway_mail_notifier_enable(target, interval_seconds=interval_seconds))
+
+
+@mail_notifier_gateway_group.command(name="disable")
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit notifier disable")
+@managed_agent_selector_options
+def disable_gateway_mail_notifier_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Disable gateway mail-notifier behavior for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="mail-notifier disable",
+    )
+    emit_json(gateway_mail_notifier_disable(target))
 
 
 @dataclass(frozen=True)
@@ -160,37 +329,101 @@ class _CurrentSessionManifestResolution:
     registry_record: LiveAgentRegistryRecordV2 | None = None
 
 
-def _attach_current_session(*, foreground: bool) -> GatewayStatusV1:
-    """Attach by resolving the current tmux session's manifest-backed authority."""
+def _resolve_gateway_command_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+    current_session: bool,
+    operation_name: str,
+) -> ManagedAgentTarget:
+    """Resolve one gateway command target from explicit selectors or current-session metadata."""
 
-    session_name = _require_current_tmux_session_name()
-    resolution = _resolve_current_session_manifest(session_name=session_name)
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        allow_missing=True,
+    )
+    if current_session:
+        if selected_agent_id is not None or selected_agent_name is not None:
+            raise click.ClickException(
+                "`--current-session` cannot be combined with `--agent-id` or `--agent-name`."
+            )
+        if port is not None:
+            raise click.ClickException(
+                "`--port` is only supported with an explicit `--agent-id` or `--agent-name` "
+                f"`{operation_name}` target."
+            )
+        return _resolve_gateway_current_session_target()
+
+    if selected_agent_id is not None or selected_agent_name is not None:
+        return resolve_managed_agent_target(
+            agent_id=selected_agent_id,
+            agent_name=selected_agent_name,
+            port=port,
+        )
+
+    if port is not None:
+        raise click.ClickException(
+            "`--port` is only supported with an explicit `--agent-id` or `--agent-name` "
+            f"`{operation_name}` target."
+        )
+
+    session_name = _try_current_tmux_session_name()
+    if session_name is None:
+        raise click.ClickException(
+            "Exactly one of `--agent-id` or `--agent-name` is required unless the command is "
+            "run inside the target tmux session or `--current-session` is provided."
+        )
+    return _resolve_gateway_current_session_target(session_name=session_name)
+
+
+def _resolve_gateway_current_session_target(*, session_name: str | None = None) -> ManagedAgentTarget:
+    """Resolve one managed-agent target from current-session tmux metadata."""
+
+    resolved_session_name = session_name or _require_current_tmux_session_name()
+    resolution = _resolve_current_session_manifest(session_name=resolved_session_name)
     authority = resolution.authority
 
     try:
         if authority.backend == "houmao_server_rest":
-            return _attach_current_pair_session(authority=authority)
+            managed_agent_ref, identity, client = _resolve_current_session_pair_target(
+                authority=authority
+            )
+            return ManagedAgentTarget(
+                mode="server",
+                agent_ref=managed_agent_ref,
+                identity=identity,
+                client=client,
+                record=resolution.registry_record,
+            )
 
         agent_def_dir = _resolve_current_session_agent_def_dir(
-            session_name=session_name,
+            session_name=resolved_session_name,
             registry_record=resolution.registry_record,
         )
         controller = resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=resolution.manifest_path,
         )
-        result = controller.attach_gateway(
-            execution_mode_override="tmux_auxiliary_window" if foreground else None
+        return ManagedAgentTarget(
+            mode="local",
+            agent_ref=controller.agent_id
+            or controller.agent_identity
+            or controller.manifest_path.parent.name,
+            identity=_identity_from_controller(controller),
+            controller=controller,
+            record=resolution.registry_record,
         )
-        if result.status != "ok":
-            raise click.ClickException(result.detail)
-        return controller.gateway_status()
     except (OSError, RuntimeError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _attach_current_pair_session(*, authority: ManifestSessionAuthority) -> GatewayStatusV1:
-    """Attach one pair-managed current session using manifest-declared authority."""
+def _resolve_current_session_pair_target(
+    *,
+    authority: ManifestSessionAuthority,
+) -> tuple[str, HoumaoManagedAgentIdentity, PairAuthorityClientProtocol]:
+    """Resolve one pair-managed current session to a managed-agent ref and pair client."""
 
     try:
         api_base_url, managed_agent_ref = authority.attach.require_pair_target()
@@ -211,7 +444,7 @@ def _attach_current_pair_session(*, authority: ManifestSessionAuthority) -> Gate
             "Current-session attach metadata is stale: the persisted session alias no longer "
             "resolves to the expected managed agent."
         )
-    return client.attach_managed_agent_gateway(managed_agent_ref)
+    return managed_agent_ref, resolved, client
 
 
 def _resolve_current_session_manifest(*, session_name: str) -> _CurrentSessionManifestResolution:
@@ -365,6 +598,22 @@ def _require_current_tmux_session_name() -> str:
             "Current-session attach could not determine the current tmux session name."
         )
     return session_name
+
+
+def _try_current_tmux_session_name() -> str | None:
+    """Return the current tmux session name, or `None` when not in tmux."""
+
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#S"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    session_name = result.stdout.strip()
+    return session_name or None
 
 
 def _read_tmux_env_value(*, session_name: str, variable_name: str) -> str | None:

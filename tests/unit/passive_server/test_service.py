@@ -9,7 +9,13 @@ from unittest.mock import MagicMock, patch
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
+    GatewayStatusV1,
+)
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
@@ -258,6 +264,30 @@ def _agent_with_gateway(
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
 
+def _control_input_result() -> GatewayControlInputResultV1:
+    """Return a valid control-input response for passive gateway tests."""
+
+    return GatewayControlInputResultV1(detail="delivered")
+
+
+def _mail_notifier_status(
+    *,
+    enabled: bool,
+    interval_seconds: int | None,
+) -> GatewayMailNotifierStatusV1:
+    """Return a valid notifier status for passive gateway tests."""
+
+    return GatewayMailNotifierStatusV1(
+        enabled=enabled,
+        interval_seconds=interval_seconds,
+        supported=True,
+        support_error=None,
+        last_poll_at_utc=None,
+        last_notification_at_utc=None,
+        last_error=None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # _gateway_client_for_agent tests
 # ---------------------------------------------------------------------------
@@ -343,5 +373,112 @@ class TestGatewayStatus:
             ],
         )
         result = svc.gateway_status("alpha")
+        assert isinstance(result, tuple)
+        assert result[0] == 409
+
+
+class TestGatewayControlInput:
+    """gateway_send_control_input() service method."""
+
+    def test_success_returns_result(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _control_input_result()
+        with patch.object(GatewayClient, "send_control_input", return_value=expected):
+            result = svc.gateway_send_control_input(
+                "abc123",
+                GatewayControlInputRequestV1(sequence="<[Escape]>"),
+            )
+        assert result == expected
+
+    def test_agent_not_found_returns_404(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        result = svc.gateway_send_control_input(
+            "missing",
+            GatewayControlInputRequestV1(sequence="<[Escape]>"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent()])
+        result = svc.gateway_send_control_input(
+            "abc123",
+            GatewayControlInputRequestV1(sequence="<[Escape]>"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "No gateway" in result[1]["detail"]
+
+    def test_gateway_error_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        with patch.object(
+            GatewayClient,
+            "send_control_input",
+            side_effect=GatewayHttpError(
+                method="POST",
+                url="http://127.0.0.1:9901/v1/control/send-keys",
+                detail="Connection refused",
+            ),
+        ):
+            result = svc.gateway_send_control_input(
+                "abc123",
+                GatewayControlInputRequestV1(sequence="<[Escape]>"),
+            )
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "Connection refused" in result[1]["detail"]
+
+
+class TestGatewayMailNotifier:
+    """gateway_mail_notifier_*() service methods."""
+
+    def test_status_success_returns_status(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _mail_notifier_status(enabled=False, interval_seconds=None)
+        with patch.object(GatewayClient, "get_mail_notifier", return_value=expected):
+            result = svc.gateway_mail_notifier_status("abc123")
+        assert result == expected
+
+    def test_enable_success_returns_status(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _mail_notifier_status(enabled=True, interval_seconds=30)
+        with patch.object(GatewayClient, "put_mail_notifier", return_value=expected):
+            result = svc.gateway_mail_notifier_enable(
+                "abc123",
+                GatewayMailNotifierPutV1(interval_seconds=30),
+            )
+        assert result == expected
+
+    def test_disable_success_returns_status(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _mail_notifier_status(enabled=False, interval_seconds=None)
+        with patch.object(GatewayClient, "delete_mail_notifier", return_value=expected):
+            result = svc.gateway_mail_notifier_disable("abc123")
+        assert result == expected
+
+    def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent()])
+        result = svc.gateway_mail_notifier_status("abc123")
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "No gateway" in result[1]["detail"]
+
+    def test_ambiguous_returns_409(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(
+            svc,
+            [
+                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+            ],
+        )
+        result = svc.gateway_mail_notifier_status("alpha")
         assert isinstance(result, tuple)
         assert result[0] == 409

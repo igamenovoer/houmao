@@ -52,21 +52,26 @@ Before registration completes, the seeded offline gateway artifacts may already 
 
 ## Pair-Owned Managed-Agent Attach
 
-For pair-managed terminal sessions, the supported public CLI is `houmao-mgr agents gateway attach`.
+For pair-managed terminal sessions, the supported public CLI family is `houmao-mgr agents gateway ...`.
 
 Explicit target mode:
 
 ```bash
 houmao-mgr agents gateway attach --agent-name cao-gpu --port 9889
+houmao-mgr agents gateway send-keys --agent-name cao-gpu --port 9889 --sequence "<[Escape]>"
+houmao-mgr agents gateway mail-notifier enable --agent-name cao-gpu --port 9889 --interval-seconds 60
 ```
 
 Current-session mode:
 
 ```bash
 houmao-mgr agents gateway attach
+houmao-mgr agents gateway status
+houmao-mgr agents gateway send-keys --sequence "<[Escape]>"
+houmao-mgr agents gateway mail-notifier status
 ```
 
-Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent attach route:
+Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
 
 - `AGENTSYS_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `AGENTSYS_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
 - the resolved manifest belongs to the current tmux session

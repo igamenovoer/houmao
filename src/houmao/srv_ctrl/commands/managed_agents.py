@@ -27,7 +27,11 @@ from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManif
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailAttachmentUploadV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
@@ -511,6 +515,91 @@ def gateway_interrupt(target: ManagedAgentTarget) -> GatewayAcceptedRequestV1:
 
     assert target.controller is not None
     return target.controller.interrupt_via_gateway()
+
+
+def gateway_send_keys(
+    target: ManagedAgentTarget,
+    *,
+    sequence: str,
+    escape_special_keys: bool,
+) -> GatewayControlInputResultV1:
+    """Submit raw gateway control input for one managed agent."""
+
+    request_model = GatewayControlInputRequestV1(
+        sequence=sequence,
+        escape_special_keys=escape_special_keys,
+    )
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.send_managed_agent_gateway_control_input,
+            target.agent_ref,
+            request_model,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.send_control_input(request_model)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
+    """Return gateway mail-notifier status for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.get_managed_agent_gateway_mail_notifier, target.agent_ref)
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.get_mail_notifier()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_mail_notifier_enable(
+    target: ManagedAgentTarget,
+    *,
+    interval_seconds: int,
+) -> GatewayMailNotifierStatusV1:
+    """Enable or update gateway mail-notifier state for one managed agent."""
+
+    request_model = GatewayMailNotifierPutV1(interval_seconds=interval_seconds)
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.put_managed_agent_gateway_mail_notifier,
+            target.agent_ref,
+            request_model,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.put_mail_notifier(request_model)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
+    """Disable gateway mail-notifier state for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.delete_managed_agent_gateway_mail_notifier,
+            target.agent_ref,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.delete_mail_notifier()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
 
 
 def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
@@ -1153,6 +1242,20 @@ def _local_gateway_summary(
         gateway_host=status.gateway_host,
         gateway_port=status.gateway_port,
     )
+
+
+def _require_live_gateway_client_for_controller(
+    controller: RuntimeSessionController,
+) -> GatewayClient:
+    """Return a verified live gateway client or fail with attach guidance."""
+
+    client = _live_gateway_client_for_controller(controller)
+    if client is None:
+        raise click.ClickException(
+            "No live gateway is attached to the managed agent. "
+            "Run `houmao-mgr agents gateway attach` and retry."
+        )
+    return client
 
 
 def _local_mailbox_summary(

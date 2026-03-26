@@ -190,9 +190,11 @@ For pair-managed `houmao_server_rest` sessions, operators normally reach this ro
 
 `POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_prompt` and `interrupt` requests. It rejects the request explicitly when no eligible live gateway is attached instead of silently falling back to the transport-neutral `/requests` surface.
 
+`POST /houmao/agents/{agent_ref}/gateway/control/send-keys` proxies the live gateway raw control-input route. It carries the same `<[key-name]>` grammar and `escape_special_keys` behavior as the direct gateway `POST /v1/control/send-keys` contract.
+
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails.
 
-The default documented prompt path remains `houmao-mgr agents prompt --agent-name <friendly-name> ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-mgr agents gateway prompt --agent-name <friendly-name> ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path. When a friendly name is ambiguous, operators should retry with `--agent-id <authoritative-id>`.
+The default documented prompt path remains `houmao-mgr agents prompt --agent-name <friendly-name> ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-mgr agents gateway prompt --agent-name <friendly-name> ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path. `houmao-mgr agents gateway send-keys ...` and `houmao-mgr agents gateway mail-notifier ...` follow the same managed-agent selector rules outside tmux and the same manifest-first current-session resolution rules inside tmux. When a friendly name is ambiguous, operators should retry with `--agent-id <authoritative-id>`.
 
 ## Pair-Owned Mail Follow-Up
 
