@@ -152,6 +152,7 @@ class SingleSessionTrackingRuntime:
             target = self.m_transport_resolver.resolve_target(
                 session_name=identity.tmux_session_name,
                 window_name=identity.tmux_window_name,
+                window_index="0",
             )
         except TmuxCommandError as exc:
             self.m_tracker.record_cycle(

@@ -35,3 +35,6 @@ class GeminiHeadlessSession(HeadlessInteractiveSession):
 
     def _base_command_args(self) -> list[str]:
         return ["-p"]
+
+    def _latest_resume_args(self) -> list[str]:
+        return ["--resume", "latest"]

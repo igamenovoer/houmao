@@ -43,3 +43,6 @@ class ClaudeHeadlessSession(HeadlessInteractiveSession):
         if self._output_format == "stream-json":
             args.append("--verbose")
         return args
+
+    def _latest_resume_args(self) -> list[str]:
+        return ["--continue"]

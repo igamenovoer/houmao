@@ -221,12 +221,13 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         )
         pane_command = f"sh -lc {shlex.quote(script)}"
 
-        try:
-            prepare_headless_agent_window_shared(session_name=session_name)
-        except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to prepare tmux interactive agent surface in `{session_name}`: {exc}"
-            ) from exc
+        if not self._uses_joined_surface():
+            try:
+                prepare_headless_agent_window_shared(session_name=session_name)
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare tmux interactive agent surface in `{session_name}`: {exc}"
+                ) from exc
 
         try:
             result = run_tmux_shared(["respawn-pane", "-k", "-t", pane_target, pane_command])

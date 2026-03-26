@@ -7,7 +7,17 @@ from types import SimpleNamespace
 import pytest
 
 import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    write_session_manifest,
+)
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.models import (
+    LaunchPlan,
+    RoleInjectionPlan,
+    SessionControlResult,
+)
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
@@ -16,14 +26,23 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
+    HoumaoStabilityMetadata,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSessionIdentity,
+    HoumaoTrackedSurface,
+    HoumaoTrackedTurn,
 )
 from houmao.srv_ctrl.commands.managed_agents import (
     ManagedAgentTarget,
     attach_gateway,
     detach_gateway,
+    interrupt_managed_agent,
     list_managed_agents,
     managed_agent_detail_payload,
     managed_agent_state_payload,
+    prompt_managed_agent,
     relaunch_managed_agent,
     resolve_managed_agent_target,
     submit_headless_turn,
@@ -256,6 +275,108 @@ def _managed_detail(state: HoumaoManagedAgentStateResponse) -> HoumaoManagedAgen
             gateway=None,
             diagnostics=[],
         ),
+    )
+
+
+def _sample_launch_plan(
+    *,
+    tmp_path: Path,
+    backend: str,
+    tool: str = "codex",
+) -> LaunchPlan:
+    return LaunchPlan(
+        backend=backend,
+        tool=tool,
+        executable=tool,
+        args=[],
+        working_directory=tmp_path.resolve(),
+        home_env_var=f"{tool.upper()}_HOME",
+        home_path=(tmp_path / f"{tool}-home").resolve(),
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="cao_profile",
+            role_name="r",
+            prompt="role prompt",
+        ),
+        metadata={"session_origin": "joined_tmux"},
+    )
+
+
+def _write_manifest(
+    *,
+    tmp_path: Path,
+    launch_plan: LaunchPlan,
+    tmux_window_name: str,
+) -> Path:
+    manifest_path = (tmp_path / "session-root" / "manifest.json").resolve()
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=launch_plan,
+            role_name="r",
+            brain_manifest_path=(tmp_path / "brain_manifest.json").resolve(),
+            backend_state={
+                "turn_index": 0,
+                "role_bootstrap_applied": True,
+                "working_directory": str(tmp_path.resolve()),
+            },
+            agent_name="joined-agent",
+            agent_id="agent-joined",
+            tmux_session_name="join-sess",
+            session_id="joined-session",
+            agent_def_dir=(tmp_path / "agent-def").resolve(),
+            job_dir=(tmp_path / ".houmao" / "jobs" / "joined-session").resolve(),
+        )
+    )
+    assert payload["tmux"] is not None
+    payload["tmux"]["primary_window_name"] = tmux_window_name
+    write_session_manifest(manifest_path, payload)
+    return manifest_path
+
+
+def _sample_local_tui_state(
+    *, manifest_path: Path, tmux_window_name: str
+) -> HoumaoTerminalStateResponse:
+    identity = HoumaoTrackedSessionIdentity(
+        tracked_session_id="agent-joined",
+        session_name="join-sess",
+        tool="codex",
+        tmux_session_name="join-sess",
+        tmux_window_name=tmux_window_name,
+        agent_name="joined-agent",
+        agent_id="agent-joined",
+        manifest_path=str(manifest_path),
+        session_root=str(manifest_path.parent),
+    )
+    return HoumaoTerminalStateResponse(
+        terminal_id="term-1",
+        tracked_session=identity,
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="available",
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+        ),
+        probe_snapshot=None,
+        parsed_surface=None,
+        surface=HoumaoTrackedSurface(
+            accepting_input="yes",
+            editing_input="no",
+            ready_posture="yes",
+        ),
+        turn=HoumaoTrackedTurn(phase="ready"),
+        last_turn=HoumaoTrackedLastTurn(
+            result="none",
+            source="none",
+            updated_at_utc="2026-01-01T00:00:00+00:00",
+        ),
+        stability=HoumaoStabilityMetadata(
+            signature="ready",
+            stable=True,
+            stable_for_seconds=2.0,
+            stable_since_utc="2026-01-01T00:00:00+00:00",
+        ),
+        recent_transitions=[],
     )
 
 
@@ -496,3 +617,160 @@ def test_relaunch_managed_agent_requires_local_authority_for_passive_pair() -> N
 
     with pytest.raises(click.ClickException, match="requires local manifest authority"):
         relaunch_managed_agent(target)
+
+
+def test_identity_from_record_uses_persisted_tmux_window_name(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=_sample_launch_plan(tmp_path=tmp_path, backend="local_interactive"),
+        tmux_window_name="manual",
+    )
+    record = SimpleNamespace(
+        agent_name="joined-agent",
+        agent_id="agent-joined",
+        identity=SimpleNamespace(backend="local_interactive", tool="codex"),
+        runtime=SimpleNamespace(
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            manifest_path=str(manifest_path),
+            session_root=str(manifest_path.parent),
+        ),
+        terminal=SimpleNamespace(session_name="join-sess"),
+    )
+
+    identity = managed_agents_module._identity_from_record(record)
+
+    assert identity.transport == "tui"
+    assert identity.tmux_window_name == "manual"
+    assert identity.tmux_session_name == "join-sess"
+
+
+def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="local_interactive")
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=launch_plan,
+        tmux_window_name="manual",
+    )
+    controller = SimpleNamespace(
+        manifest_path=manifest_path,
+        tmux_session_name="join-sess",
+        launch_plan=launch_plan,
+        agent_identity="joined-agent",
+        agent_id="agent-joined",
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=managed_agents_module._identity_from_controller(controller),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_refresh_local_tui_state",
+        lambda *, controller: _sample_local_tui_state(
+            manifest_path=manifest_path,
+            tmux_window_name="manual",
+        ),
+    )
+
+    state = managed_agent_state_payload(target)
+    detail = managed_agent_detail_payload(target)
+
+    assert state.identity.tmux_window_name == "manual"
+    assert detail.identity.tmux_window_name == "manual"
+    assert detail.detail.transport == "tui"
+
+
+def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
+    calls: list[str] = []
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=_managed_identity(),
+        controller=SimpleNamespace(
+            send_prompt=lambda prompt: calls.append(prompt),
+            interrupt=lambda: SessionControlResult(status="ok", action="interrupt", detail="done"),
+        ),
+    )
+
+    prompt_response = prompt_managed_agent(target, prompt="hello")
+    interrupt_response = interrupt_managed_agent(target)
+
+    assert prompt_response.success is True
+    assert prompt_response.request_kind == "submit_prompt"
+    assert interrupt_response.success is True
+    assert interrupt_response.detail == "done"
+    assert calls == ["hello"]
+
+
+def test_attach_gateway_uses_local_runtime_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = _FakeGatewayController()
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._gateway_status_for_controller",
+        lambda resolved_controller: _gateway_status(),
+    )
+
+    response = attach_gateway(target)
+
+    assert response.gateway_port == 9901
+    assert controller.attach_calls == [None]
+
+
+def test_submit_headless_turn_uses_local_runtime_controller(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="codex_headless")
+    calls: list[str] = []
+    controller = SimpleNamespace(
+        send_prompt=lambda prompt: calls.append(prompt),
+        launch_plan=launch_plan,
+        manifest_path=(tmp_path / "session-root" / "manifest.json").resolve(),
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=_managed_identity(),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(managed_agents_module, "_next_turn_index", lambda resolved_controller: 1)
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_turn_snapshot_from_id",
+        lambda *, controller, turn_id: managed_agents_module._LocalHeadlessTurnSnapshot(
+            turn_id=turn_id,
+            turn_index=1,
+            status="completed",
+            started_at_utc="2026-01-01T00:00:00+00:00",
+            completed_at_utc="2026-01-01T00:00:02+00:00",
+            completion_source="process_exit",
+            stdout_path=None,
+            stderr_path=None,
+            status_path=None,
+            returncode=0,
+            history_summary=None,
+            error=None,
+        ),
+    )
+
+    response = submit_headless_turn(target, prompt="summarize")
+
+    assert response.success is True
+    assert response.turn_id == "turn-0001"
+    assert calls == ["summarize"]

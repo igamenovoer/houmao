@@ -115,6 +115,14 @@ Pair-managed `houmao_server_rest` notes:
 - current-session `houmao-mgr agents gateway attach` still remains invalid until the same logical session is registered under `/houmao/agents/*` on the persisted `api_base_url`
 - tmux window `0` is the only contractual agent surface; non-zero windows remain auxiliary and non-contractual except for the exact live gateway handle recorded in `gateway/run/current-instance.json`
 
+Joined-session notes:
+
+- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and workspace-local `job_dir` envelope that native launches expect.
+- For joined sessions, `manifest.json` becomes the source of truth for secret-free relaunch posture through `agent_launch_authority`, including `session_origin=joined_tmux`, explicit `posture_kind`, structured `launch_args`, and structured Docker-style `launch_env`.
+- Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
+- The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
+- Shared-registry publication for joined sessions uses a long sentinel lease instead of a short renewable lease because `agents join` is a one-shot adoption command rather than a resident launcher.
+
 ## Mailbox Binding And Secret Lifecycle
 
 For Stalwart-backed sessions, the runtime deliberately splits mailbox capability from secret material.

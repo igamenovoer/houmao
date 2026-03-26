@@ -12,7 +12,13 @@ from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
 from ..errors import BackendExecutionError
-from ..models import BackendKind, LaunchPlan, SessionControlResult, SessionEvent
+from ..models import (
+    BackendKind,
+    HeadlessResumeSelectionKind,
+    LaunchPlan,
+    SessionControlResult,
+    SessionEvent,
+)
 from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
 from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
 from .headless_runner import HeadlessCliRunner
@@ -43,6 +49,9 @@ class HeadlessSessionState:
     role_bootstrap_applied: bool = False
     working_directory: str = ""
     tmux_session_name: str | None = None
+    resume_selection_kind: HeadlessResumeSelectionKind = "none"
+    resume_selection_value: str | None = None
+    joined_session: bool = False
 
 
 class HeadlessInteractiveSession:
@@ -243,7 +252,8 @@ class HeadlessInteractiveSession:
             )
 
         try:
-            prepare_headless_agent_window_shared(session_name=session_name)
+            if not self._uses_joined_surface():
+                prepare_headless_agent_window_shared(session_name=session_name)
             self._publish_tmux_session_environment()
         except TmuxCommandError as exc:
             return SessionControlResult(
@@ -262,17 +272,24 @@ class HeadlessInteractiveSession:
         )
 
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
-        command = [self._plan.executable, *self._plan.args, *self._base_command_args()]
+        command = [self._plan.executable, *self._plan.args]
+        if not self._uses_joined_operator_launch_args():
+            command.extend(self._base_command_args())
         effective_prompt = prompt
 
         if self._state.session_id:
             command.extend(self._resume_args(self._state.session_id))
         else:
-            command.extend(self._bootstrap_args())
-            effective_prompt = self._bootstrap_prompt(prompt)
+            resume_selector_args = self._initial_resume_selector_args()
+            if resume_selector_args:
+                command.extend(resume_selector_args)
+            else:
+                command.extend(self._bootstrap_args())
+                effective_prompt = self._bootstrap_prompt(prompt)
 
         command.append(effective_prompt)
-        command.extend(["--output-format", self._output_format])
+        if not self._uses_joined_operator_launch_args() or "--output-format" not in self._plan.args:
+            command.extend(["--output-format", self._output_format])
         return command, effective_prompt
 
     def _bootstrap_prompt(self, prompt: str) -> str:
@@ -292,6 +309,9 @@ class HeadlessInteractiveSession:
     def _resume_args(self, session_id: str) -> list[str]:
         return ["--resume", session_id]
 
+    def _latest_resume_args(self) -> list[str]:
+        return []
+
     def _ensure_tmux_container(self, *, requested_tmux_session_name: str | None) -> None:
         try:
             ensure_tmux_available_shared()
@@ -310,12 +330,13 @@ class HeadlessInteractiveSession:
                     "Tmux-backed resume requires existing tmux session "
                     f"`{persisted}` but it is unavailable: {detail}"
                 )
-            try:
-                prepare_headless_agent_window_shared(session_name=persisted)
-            except TmuxCommandError as exc:
-                raise BackendExecutionError(
-                    f"Failed to prepare tmux agent surface in `{persisted}`: {exc}"
-                ) from exc
+            if not self._uses_joined_surface():
+                try:
+                    prepare_headless_agent_window_shared(session_name=persisted)
+                except TmuxCommandError as exc:
+                    raise BackendExecutionError(
+                        f"Failed to prepare tmux agent surface in `{persisted}`: {exc}"
+                    ) from exc
             self._state.tmux_session_name = persisted
             self._publish_tmux_session_environment()
             return
@@ -394,6 +415,31 @@ class HeadlessInteractiveSession:
             )
         return session_name
 
+    def _initial_resume_selector_args(self) -> list[str]:
+        """Return the persisted first-turn resume selector args when present."""
+
+        if self._state.resume_selection_kind == "none":
+            return []
+        if self._state.resume_selection_kind == "last":
+            return self._latest_resume_args()
+        if self._state.resume_selection_value is None:
+            raise BackendExecutionError(
+                f"{self.backend}: missing exact resume selector for joined headless launch."
+            )
+        return self._resume_args(self._state.resume_selection_value)
+
+    def _uses_joined_surface(self) -> bool:
+        """Return whether this backend adopts an existing joined tmux surface."""
+
+        return (
+            self._state.joined_session or self._plan.metadata.get("session_origin") == "joined_tmux"
+        )
+
+    def _uses_joined_operator_launch_args(self) -> bool:
+        """Return whether joined headless operator args already describe provider startup."""
+
+        return bool(self._uses_joined_surface() and self.backend != "local_interactive")
+
 
 def headless_backend_state_payload(state: HeadlessSessionState) -> dict[str, Any]:
     """Convert headless state to manifest backend payload."""
@@ -404,6 +450,8 @@ def headless_backend_state_payload(state: HeadlessSessionState) -> dict[str, Any
         "role_bootstrap_applied": state.role_bootstrap_applied,
         "working_directory": state.working_directory,
         "tmux_session_name": state.tmux_session_name,
+        "resume_selection_kind": state.resume_selection_kind,
+        "resume_selection_value": state.resume_selection_value,
     }
 
 

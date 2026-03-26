@@ -10,9 +10,10 @@ For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior 
 
 ## Reference Pages
 
+- [Houmao Server Pair](houmao_server_pair.md): operator-facing pair workflow, including `houmao-mgr agents join` for adopting existing tmux sessions into managed-agent control
 - [System Files Reference](system-files/index.md)
 - [Realm Controller](realm_controller.md)
-- [Runtime-Managed Agents Reference](agents/index.md)
+- [Runtime-Managed Agents Reference](agents/index.md): runtime session model for launched and joined managed agents
 - [Shared Registry Reference](registry/index.md)
 - [Agent Gateway Reference](gateway/index.md)
 - [Mailbox Reference](mailbox/index.md)
@@ -22,7 +23,6 @@ For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior 
 - [Houmao-Server Interactive Full-Pipeline Demo Pack](../../scripts/demo/houmao-server-interactive-full-pipeline-demo/README.md)
 - [Interactive CAO Demo Retirement Note](cao_interactive_demo.md)
 - [Agents And Brains](agents_brains.md)
-- [Houmao Server Pair](houmao_server_pair.md)
 - [Managed-Agent API](managed_agent_api.md)
 - [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md)
 - [CAO Server Launcher](cao_server_launcher.md)
