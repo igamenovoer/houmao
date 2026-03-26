@@ -3,39 +3,7 @@
 
 ## Current Status
 
-### Development State
-
-Houmao is under active development, and the operator-facing workflow is still stabilizing. Expect rough edges, incomplete coverage, and interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
-
-### Current Proof Of Concept
-
-The current end-to-end proof-of-concept is the headless ping-pong demo pack at `scripts/demo/mail-ping-pong-gateway-demo-pack/`. It launches one headless Claude agent and one headless Codex agent, lets them coordinate through the shared mailbox and gateway surfaces, and verifies the resulting conversation from demo-owned artifacts.
-
-### Current Limitations
-
-- **Headless only:** the demo uses headless calls, so the operator does not get an in-band interactive user surface during the run.
-- **Raw artifact viewing:** its primary outputs are raw JSON inspect/report artifacts, which are good for verification but not yet a polished human-facing viewing experience.
-
-### Recommended First Run
-
-If you want to try Houmao today, start by following that demo instead of assembling a custom workflow from scratch. Treat its practice as the current recommended path:
-
-- use a tracked agent-definition directory with recipes, roles, and projected runtime-owned skills
-- keep generated runtime, mailbox, project, and server state under one dedicated output root
-- drive the system through the managed `start -> kickoff -> wait/inspect -> verify -> stop` flow
-- use the persisted inspect and report artifacts as the source of truth for what happened
-- prefer the gateway-first shared mailbox workflow demonstrated there for multi-agent coordination
-
-Once that demo works in your environment, use it as the baseline pattern for adapting Houmao to your own agents and tasks.
-
-### Watching The Demo
-
-Even though the ping-pong proof-of-concept is headless, the started agent processes are still tmux-backed diagnostic surfaces.
-
-- Run `scripts/demo/mail-ping-pong-gateway-demo-pack/run_demo.sh inspect --demo-output-dir <output-root>` to refresh the persisted state.
-- Read `control/demo_state.json` under that output root to find each participant's `tmux_session_name`.
-- Attach directly with `tmux attach -t <tmux_session_name>` and watch window `0` (`agent`) for the live CLI output.
-- For web-based viewing, prefer `tailmux` pointed at those same tmux sessions instead of reading the raw JSON files by hand.
+Houmao is under active development. The operator-facing workflow is stabilizing around the `houmao-mgr` + `houmao-server` pair, with `local_interactive` (tmux-backed) as the primary backend. Expect interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
 
 ## Project Introduction
 
@@ -60,8 +28,8 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 ### What The Framework Provides
 
 - **Construction**: build agent runtimes from tool specs + skills + roles (and optional blueprints).
-- **Management**: start/resume/prompt/stop agents with `houmao-cli` (typically tmux-backed so you can inspect and interact).
-- **Team communication**: a shared control/communication plane for groups of terminals (currently built on CAO internally, optional).
+- **Management**: start/resume/prompt/stop agents with `houmao-mgr` (typically tmux-backed so you can attach and interact).
+- **Team communication**: a shared gateway and mailbox plane for groups of agents (built on Houmao's own gateway service).
 
 ### Why This Is Useful (Benefits)
 
@@ -79,8 +47,8 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 ### How Agents Join Your Workflow
 
-- **Managed launch (recommended):** construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-cli`.
-- **Bring-your-own process:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and still participate in the same “agent team” workflow. First-class adoption/attach of an already-running tmux session is a design goal; today, the management commands assume the session was launched by `houmao-cli`.
+- **Managed launch (recommended):** construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-mgr`.
+- **Bring-your-own process:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and still participate in the same “agent team” workflow. First-class adoption/attach of an already-running tmux session is a design goal; today, the management commands assume the session was launched by `houmao-mgr`.
 
 ## Installation
 
@@ -107,22 +75,11 @@ Or editable install:
 pip install -e .
 ```
 
-### CAO (optional)
+### tmux (required)
 
-CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend or the `houmao-server + houmao-mgr` pair. The standalone `houmao-cao-server` launcher is retired and now exits with migration guidance.
-
-In normal operator workflows, prefer the Houmao utilities over invoking raw `cao` or `cao-server` directly. Houmao still depends on CAO internally for the `cao_rest` backend and CAO-compatible control surfaces.
-
-Install CAO from the pinned compatibility commit used by this repository:
+The primary backend (`local_interactive`) runs each agent CLI inside a tmux session. Ensure tmux is installed:
 
 ```bash
-uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6
-```
-
-Verify the required executables are available:
-
-```bash
-command -v cao-server
 command -v tmux
 ```
 
@@ -130,18 +87,17 @@ command -v tmux
 
 ### CLI Entry Points
 
-- `houmao-cli`: build/start/prompt/stop lifecycle
-- `houmao-cao-server`: retired standalone launcher shim that exits with migration guidance
-- `houmao-server`: Houmao-owned CAO-compatible server with Houmao extension routes
-- `houmao-mgr`: Pair-management CLI paired with `houmao-server`
-
-Prefer these Houmao entry points for normal use. Raw `cao` and `cao-server` are still part of the underlying dependency stack, but they are not the recommended primary interface for Houmao workflows.
+| Entrypoint | Purpose | Status |
+|---|---|---|
+| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
+| `houmao-server` | Houmao-owned REST server for multi-agent coordination | **Active** |
+| `houmao-passive-server` | Lightweight passive validation server (no CAO dependency) | **Active** |
+| `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
+| `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
 ```bash
-houmao-cli --help
-houmao-cao-server --help
-houmao-server --help
 houmao-mgr --help
+houmao-server --help
 ```
 
 ### 1. Create / Choose An Agent Definition Directory
@@ -308,63 +264,54 @@ role: gpu-kernel-coder
 
 ### 3. Basic Workflow (Local tmux)
 
-Build a brain home:
+Build a brain, start a session, interact, and stop:
 
 ```bash
-houmao-cli build-brain \
+# Build a runtime home from a recipe
+houmao-mgr build-brain \
   --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml \
   --runtime-root tmp/agents-runtime
-```
 
-Output is JSON including `home_path`, `manifest_path`, and `launch_helper_path`.
-
-Manual start option: if you want to run the tool yourself (outside `start-session`), execute the returned `launch_helper_path` inside your own tmux/window. Managed lifecycle commands (`send-prompt`, `stop-session`) require a session started by `houmao-cli`.
-
-Start a session and send a prompt:
-
-```bash
-houmao-cli start-session \
+# Start a managed session (output includes agent-identity)
+houmao-mgr start-session \
   --brain-manifest <manifest-path-from-build-output> \
   --role gpu-kernel-coder \
   --agent-identity my-agent
 
-houmao-cli send-prompt \
+# Send a prompt and wait for the structured turn result
+houmao-mgr send-prompt \
   --agent-identity my-agent \
   --prompt "Review the latest commit for security issues"
 
-houmao-cli stop-session --agent-identity my-agent
+# Stop and clean up
+houmao-mgr stop-session --agent-identity my-agent
 ```
+
+The build step outputs JSON with `home_path`, `manifest_path`, and `launch_helper_path`. You can also run the tool manually via `launch_helper_path` inside your own tmux window; managed lifecycle commands require a session started through `houmao-mgr`.
 
 ### 4. Blueprint-Driven Preset (Recipe + Role)
 
 ```bash
-houmao-cli build-brain --blueprint blueprints/gpu-kernel-coder.yaml
+houmao-mgr build-brain --blueprint blueprints/gpu-kernel-coder.yaml
 
-houmao-cli start-session \
+houmao-mgr start-session \
   --brain-manifest <manifest-path-from-build-output> \
   --blueprint blueprints/gpu-kernel-coder.yaml
 ```
 
-### 5. CAO-Backed Sessions (Optional)
+### 5. Server-Backed Multi-Agent Coordination
 
-The standalone `houmao-cao-server` workflow is retired.
-
-For a maintained interactive walkthrough, use:
+For multi-agent workflows that need a shared gateway and mailbox, use the `houmao-server` + `houmao-mgr` pair:
 
 ```bash
-scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start
-scripts/demo/houmao-server-interactive-full-pipeline-demo/send_prompt.sh --prompt "Summarize the current open tasks."
-scripts/demo/houmao-server-interactive-full-pipeline-demo/inspect_demo.sh
-scripts/demo/houmao-server-interactive-full-pipeline-demo/verify_demo.sh
-scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
-```
-
-For lower-level supported pair control, use:
-
-```bash
+# Start the Houmao server
 pixi run houmao-mgr server start --api-base-url http://127.0.0.1:9889
+
+# Launch a managed agent through the server
 pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
 ```
+
+See [docs/reference/houmao_server_pair.md](docs/reference/houmao_server_pair.md) for the full server-pair workflow.
 
 ## Developer Guide
 
@@ -373,10 +320,10 @@ pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
 ```mermaid
 flowchart TB
     subgraph agentdef ["Agent Definition Directory"]
-        adapter["Tool Adapter<br/>per-tool build & launch rules"]
-        recipe["Brain Recipe<br/>tool + skills + config & cred profiles"]
-        role["Role<br/>system prompt package"]
-        blueprint["Blueprint  (optional)<br/>recipe + role binding"]
+        adapter["Tool Adapter<br/>(per-tool build & launch rules)"]
+        recipe["Brain Recipe<br/>(tool + skills + profiles)"]
+        role["Role<br/>(system prompt package)"]
+        blueprint["Blueprint (optional)<br/>(recipe + role binding)"]
     end
 
     subgraph buildphase ["① Build Phase"]
@@ -386,37 +333,31 @@ flowchart TB
     end
 
     subgraph runphase ["② Run Phase"]
-        runtime["Session Driver"]
-        subgraph backends ["Launch Backend  (pick one)"]
+        runtime["Session Driver<br/>(LaunchPlan)"]
+        subgraph backends ["Backend"]
             direction LR
-            tmux_b["tmux<br/>(local)"]
-            cao_b["CAO REST<br/>(optional)"]
+            local["local_interactive<br/>(tmux — primary)"]
+            headless["Headless<br/>(codex · claude · gemini)"]
         end
-        toolcli["Tool CLI Process<br/>codex · claude · gemini"]
-        runtime --> tmux_b & cao_b --> toolcli
+        toolcli["Tool CLI Process"]
+        runtime --> local & headless --> toolcli
     end
 
-    extcao(["CAO Server<br/>(optional external)"])
-    caocli["houmao-cao-server"]
-    agentscli["houmao-cli<br/>build · start · prompt · stop"]
+    mgrcli["houmao-mgr<br/>(build · launch · prompt · stop)"]
+    srvpair["houmao-server<br/>(multi-agent coordination)"]
 
-    %% Build inputs
     adapter --> builder
     recipe --> builder
-    blueprint -. "shorthand: recipe + role" .-> builder
+    blueprint -. "shorthand" .-> builder
 
-    %% Phase handoff
     artifact --> runtime
     role --> runtime
     blueprint -. "role ref" .-> runtime
 
-    %% CAO path
-    cao_b <--> extcao
-    caocli --> extcao
-
-    %% CLI orchestrates both phases
-    agentscli --> builder
-    agentscli --> runtime
+    mgrcli --> builder
+    mgrcli --> runtime
+    mgrcli -. "server control" .-> srvpair
+    srvpair -. "gateway + mailbox" .-> runtime
 ```
 
 ### Sequence (UML)
@@ -424,35 +365,31 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User
-    participant CLI as houmao-cli
-    participant Builder as Brain builder
-    participant Runtime as Runtime
-    participant TMUX as tmux
-    participant CAO as CAO (optional)
+    actor Op as Operator
+    participant Mgr as houmao-mgr
+    participant Bld as BrainBuilder
+    participant Drv as SessionDriver
+    participant Tmux as tmux
     participant Tool as Tool CLI
 
-    User->>CLI: build-brain (--recipe / --blueprint)
-    CLI->>Builder: load agent-def-dir + inputs
-    Builder-->>CLI: manifest_path (plus home_path)
+    Op->>Mgr: build-brain --recipe R
+    Mgr->>Bld: resolve adapter, project<br/>configs, skills, creds
+    Bld-->>Mgr: manifest_path, home_path
 
-    User->>CLI: start-session (--brain-manifest, --role/--blueprint)
-    CLI->>Runtime: launch session
+    Op->>Mgr: start-session --brain-manifest M --role R
+    Mgr->>Drv: build LaunchPlan
+    Drv->>Tmux: create session/window
+    Drv->>Tool: exec tool CLI under tmux
 
-    alt Local tmux backend
-        Runtime->>TMUX: create session/window
-        Runtime->>Tool: exec tool under tmux
-    else CAO backend
-        Runtime->>CAO: create session + terminal
-        Runtime->>Tool: exec tool under CAO-managed tmux
-    end
+    Op->>Mgr: send-prompt --agent-identity A
+    Mgr->>Drv: submit prompt
+    Drv->>Tool: paste prompt into tmux pane
+    Tool-->>Drv: (TUI state tracking detects turn completion)
+    Drv-->>Mgr: structured turn result
 
-    User->>CLI: send-prompt (--agent-identity)
-    CLI->>Runtime: submit prompt
-    Runtime-->>CLI: structured turn result
-
-    User->>CLI: stop-session (--agent-identity)
-    CLI->>Runtime: stop/cleanup
+    Op->>Mgr: stop-session --agent-identity A
+    Mgr->>Drv: stop / cleanup
+    Drv->>Tmux: kill session
 ```
 
 ### Development Checks
@@ -466,23 +403,14 @@ pixi run test-runtime
 
 ## Appendix
 
-### CAO
+### Legacy: CAO Integration
 
-CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used internally by the `cao_rest` backend and by Houmao's CAO-compatible launcher or server flows.
-It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
+Houmao was originally inspired by and built on [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Part of CAO's functionality has been integrated into Houmao's own runtime (the `cao_rest` and `houmao_server_rest` backends), but this integration is planned for removal in favor of Houmao's native `local_interactive` backend and the `houmao-server` + `houmao-mgr` pair.
 
-For normal Houmao usage, prefer `houmao-server` and `houmao-mgr` instead of invoking raw `cao` or `cao-server` directly. The standalone `houmao-cao-server` launcher is retired. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's compatibility layers.
+If you encounter legacy paths that reference CAO, prefer the native Houmao equivalents:
 
-Install CAO from the supported fork / pinned compatibility commit and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
-
-```bash
-uv tool install --upgrade git+https://github.com/imsight-forks/cli-agent-orchestrator.git@0fb3e5196570586593736a21262996ca622f53b6
-command -v cao-server
-command -v tmux
-```
-
-Primary CAO links:
-
-- Supported fork: <https://github.com/imsight-forks/cli-agent-orchestrator/tree/hz-release>
-- Fork README (install + usage): <https://github.com/imsight-forks/cli-agent-orchestrator/tree/hz-release#readme>
-- Original upstream project: <https://github.com/awslabs/cli-agent-orchestrator>
+| Legacy | Replacement |
+|---|---|
+| `houmao-cao-server` | `houmao-server` (managed via `houmao-mgr server start`) |
+| `houmao-cli` | `houmao-mgr` |
+| `cao_rest` backend | `local_interactive` backend (default) |
