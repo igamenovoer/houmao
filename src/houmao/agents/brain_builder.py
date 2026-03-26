@@ -723,9 +723,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             else None
         )
         managed_agent_id = (
-            normalize_managed_agent_id(request.agent_id)
-            if request.agent_id is not None
-            else None
+            normalize_managed_agent_id(request.agent_id) if request.agent_id is not None else None
         )
         manifest["identity"] = {
             "canonical_agent_name": managed_agent_name,

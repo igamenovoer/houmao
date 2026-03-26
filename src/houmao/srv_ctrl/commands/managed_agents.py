@@ -66,8 +66,6 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHeadlessDetailView,
-    HoumaoManagedAgentHistoryEntry,
-    HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
@@ -80,7 +78,6 @@ from houmao.server.models import (
     ManagedAgentLastTurnResult,
     ManagedAgentTransportKind,
     ManagedAgentTurnStatus,
-    HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
@@ -352,39 +349,6 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
         identity=summary_state.identity,
         summary_state=summary_state,
         detail=detail,
-    )
-
-
-def managed_agent_history_payload(
-    target: ManagedAgentTarget,
-    *,
-    limit: int,
-) -> HoumaoManagedAgentHistoryResponse:
-    """Return a managed-agent history payload for one resolved target."""
-
-    if target.mode == "server":
-        assert target.client is not None
-        return pair_request(target.client.get_managed_agent_history, target.agent_ref, limit=limit)
-
-    assert target.controller is not None
-    if target.identity.transport == "tui":
-        runtime = _local_tui_runtime_for_controller(target.controller)
-        runtime.refresh_once()
-        return _local_tui_history_response(raw_history=runtime.history(limit=limit))
-    entries = [
-        HoumaoManagedAgentHistoryEntry(
-            recorded_at_utc=snapshot.completed_at_utc or snapshot.started_at_utc,
-            summary=snapshot.history_summary or f"{snapshot.turn_id} {snapshot.status}",
-            availability="available",
-            turn_phase="active" if snapshot.status == "active" else "ready",
-            last_turn_result=_last_turn_result_from_snapshot(snapshot),
-            turn_id=snapshot.turn_id,
-        )
-        for snapshot in _list_local_headless_turns(controller=target.controller)[:limit]
-    ]
-    return HoumaoManagedAgentHistoryResponse(
-        tracked_agent_id=target.identity.tracked_agent_id,
-        entries=entries,
     )
 
 
@@ -1106,28 +1070,6 @@ def _local_tui_detail_response_from_state(
     )
 
 
-def _local_tui_history_response(
-    *,
-    raw_history: HoumaoTerminalHistoryResponse,
-) -> HoumaoManagedAgentHistoryResponse:
-    """Project one local TUI tracker history into managed-agent history."""
-
-    return HoumaoManagedAgentHistoryResponse(
-        tracked_agent_id=raw_history.tracked_session_id,
-        entries=[
-            HoumaoManagedAgentHistoryEntry(
-                recorded_at_utc=entry.recorded_at_utc,
-                summary=entry.summary,
-                availability=_availability_from_local_tui_transition(entry),
-                turn_phase=entry.turn_phase,
-                last_turn_result=entry.last_turn_result,
-                turn_id=None,
-            )
-            for entry in raw_history.entries
-        ],
-    )
-
-
 def _managed_identity_from_local_tui_state(
     *,
     controller: RuntimeSessionController,
@@ -1160,19 +1102,6 @@ def _availability_from_local_tui_state(
     if tracked_state.diagnostics.availability == "error":
         return "error"
     if tracked_state.diagnostics.availability in {"unavailable", "tui_down"}:
-        return "unavailable"
-    return "available"
-
-
-def _availability_from_local_tui_transition(
-    entry: object,
-) -> ManagedAgentAvailability:
-    """Map one tracked TUI history transition into the coarse availability enum."""
-
-    diagnostics_availability = getattr(entry, "diagnostics_availability", "unknown")
-    if diagnostics_availability == "error":
-        return "error"
-    if diagnostics_availability in {"unavailable", "tui_down"}:
         return "unavailable"
     return "available"
 

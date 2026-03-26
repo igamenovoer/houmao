@@ -7,6 +7,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from houmao.server.models import (
+    HoumaoParsedSurface,
+    HoumaoProbeSnapshot,
+    HoumaoRecentTransition,
+    HoumaoStabilityMetadata,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSurface,
+    HoumaoTrackedTurn,
+)
+
 
 class _PassiveModel(BaseModel):
     """Shared strict base model for passive-server payloads."""
@@ -68,3 +79,49 @@ class DiscoveredAgentConflictResponse(_PassiveModel):
 
     detail: str
     agent_ids: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Agent TUI observation response models
+# ---------------------------------------------------------------------------
+
+
+class AgentTuiStateResponse(_PassiveModel):
+    """Compact observation state for one discovered agent.
+
+    Omits ``probe_snapshot`` and ``parsed_surface`` — use the detail endpoint
+    for the full observation payload.
+    """
+
+    agent_id: str
+    agent_name: str
+    diagnostics: HoumaoTrackedDiagnostics
+    surface: HoumaoTrackedSurface
+    turn: HoumaoTrackedTurn
+    last_turn: HoumaoTrackedLastTurn
+    stability: HoumaoStabilityMetadata
+
+
+class AgentTuiDetailResponse(_PassiveModel):
+    """Full observation state for one discovered agent.
+
+    Extends the compact response with ``probe_snapshot`` and ``parsed_surface``.
+    """
+
+    agent_id: str
+    agent_name: str
+    diagnostics: HoumaoTrackedDiagnostics
+    probe_snapshot: HoumaoProbeSnapshot | None = None
+    parsed_surface: HoumaoParsedSurface | None = None
+    surface: HoumaoTrackedSurface
+    turn: HoumaoTrackedTurn
+    last_turn: HoumaoTrackedLastTurn
+    stability: HoumaoStabilityMetadata
+
+
+class AgentTuiHistoryResponse(_PassiveModel):
+    """Recent state transitions for one discovered agent."""
+
+    agent_id: str
+    agent_name: str
+    entries: list[HoumaoRecentTransition] = Field(default_factory=list)

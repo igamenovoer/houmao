@@ -20,7 +20,6 @@ from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     DEFAULT_AGENT_PROFILE,
-    DEFAULT_HISTORY_LIMIT,
     DEFAULT_WORKTREE_DIRNAME,
     DemoEnvironment,
     DemoPaths,
@@ -46,7 +45,6 @@ from houmao.owned_paths import (
 )
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
-    HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoTerminalStateResponse,
 )
@@ -54,7 +52,6 @@ from houmao.srv_ctrl.commands.managed_agents import (
     _local_tui_runtime_for_controller,
     interrupt_managed_agent,
     managed_agent_detail_payload,
-    managed_agent_history_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
     resolve_managed_agent_target,
@@ -135,7 +132,9 @@ def start_demo(
     if controller.agent_identity is None:
         raise DemoWorkflowError("Local interactive launch did not publish a managed-agent name.")
     if controller.agent_id is None:
-        raise DemoWorkflowError("Local interactive launch did not publish an authoritative agent_id.")
+        raise DemoWorkflowError(
+            "Local interactive launch did not publish an authoritative agent_id."
+        )
     if controller.tmux_session_name is None:
         raise DemoWorkflowError("Local interactive launch did not publish a tmux session name.")
 
@@ -197,8 +196,8 @@ def inspect_demo(
                 detail_response=live_bundle["detail"],
             )
             tracked_agent_id = managed_agent.tracked_agent_id
-            history = _history_snapshot(live_bundle["history"])
             terminal_response = live_bundle["terminal"]
+            history = _history_snapshot(terminal_response)
             terminal = (
                 _terminal_snapshot(terminal_response) if terminal_response is not None else None
             )
@@ -302,8 +301,8 @@ def verify_demo(*, paths: DemoPaths) -> VerificationReport:
                 detail_response=live_bundle["detail"],
             )
             tracked_agent_id = current_managed_agent.tracked_agent_id
-            current_history = _history_snapshot(live_bundle["history"])
             terminal_response = live_bundle["terminal"]
+            current_history = _history_snapshot(terminal_response)
             current_terminal = (
                 _terminal_snapshot(terminal_response) if terminal_response is not None else None
             )
@@ -627,8 +626,7 @@ def _wait_for_controller_launch_readiness(*, controller: Any, env: DemoEnvironme
         )
         time.sleep(poll_interval)
     raise DemoWorkflowError(
-        "Timed out waiting for the local interactive provider to become ready: "
-        f"{last_error}"
+        f"Timed out waiting for the local interactive provider to become ready: {last_error}"
     )
 
 
@@ -646,7 +644,9 @@ def _resolve_local_target(state: DemoState) -> Any:
             "Demo state unexpectedly resolved to a non-local managed-agent target."
         )
     if target.identity.transport != "tui":
-        raise DemoWorkflowError("Demo state unexpectedly resolved to a non-TUI managed-agent target.")
+        raise DemoWorkflowError(
+            "Demo state unexpectedly resolved to a non-TUI managed-agent target."
+        )
     return target
 
 
@@ -673,12 +673,10 @@ def _fetch_live_bundle_from_target(*, target: Any) -> dict[str, Any]:
 
     state_response = managed_agent_state_payload(target)
     detail_response = managed_agent_detail_payload(target)
-    history_response = managed_agent_history_payload(target, limit=DEFAULT_HISTORY_LIMIT)
     terminal_response = _local_terminal_state(target)
     return {
         "state": state_response,
         "detail": detail_response,
-        "history": history_response,
         "terminal": terminal_response,
     }
 
@@ -753,14 +751,17 @@ def _managed_agent_snapshot(
     )
 
 
-def _history_snapshot(response: HoumaoManagedAgentHistoryResponse) -> ManagedAgentHistorySnapshot:
-    """Build one sanitized managed-agent history summary."""
+def _history_snapshot(
+    terminal_state: HoumaoTerminalStateResponse | None,
+) -> ManagedAgentHistorySnapshot:
+    """Build one sanitized local transition summary from tracked terminal state."""
 
+    recent_transitions = [] if terminal_state is None else terminal_state.recent_transitions
     latest_entry = None
-    if response.entries:
-        latest_entry = max(response.entries, key=lambda entry: entry.recorded_at_utc)
+    if recent_transitions:
+        latest_entry = max(recent_transitions, key=lambda entry: entry.recorded_at_utc)
     return ManagedAgentHistorySnapshot(
-        entry_count=len(response.entries),
+        entry_count=len(recent_transitions),
         latest_recorded_at_utc=latest_entry.recorded_at_utc if latest_entry is not None else None,
         latest_summary=latest_entry.summary if latest_entry is not None else None,
         latest_turn_phase=latest_entry.turn_phase if latest_entry is not None else None,
@@ -830,11 +831,10 @@ def _submit_request_artifact(
         state_response=live_bundle["state"],
         detail_response=live_bundle["detail"],
     )
-    history_before = _history_snapshot(live_bundle["history"])
+    terminal_response = live_bundle["terminal"]
+    history_before = _history_snapshot(terminal_response)
     terminal_before = (
-        _terminal_snapshot(live_bundle["terminal"])
-        if live_bundle["terminal"] is not None
-        else None
+        _terminal_snapshot(terminal_response) if terminal_response is not None else None
     )
     baseline_signature = _bundle_signature(
         managed_agent=state_before,
@@ -861,11 +861,10 @@ def _submit_request_artifact(
             state_response=polled_bundle["state"],
             detail_response=polled_bundle["detail"],
         )
-        latest_history_snapshot = _history_snapshot(polled_bundle["history"])
+        terminal_response = polled_bundle["terminal"]
+        latest_history_snapshot = _history_snapshot(terminal_response)
         latest_terminal_snapshot = (
-            _terminal_snapshot(polled_bundle["terminal"])
-            if polled_bundle["terminal"] is not None
-            else None
+            _terminal_snapshot(terminal_response) if terminal_response is not None else None
         )
         if (
             _bundle_signature(
@@ -927,7 +926,9 @@ def _submit_request_artifact(
     return artifact
 
 
-def _submit_request_record(*, target: Any, request_kind: str, prompt: str | None) -> DemoRequestRecord:
+def _submit_request_record(
+    *, target: Any, request_kind: str, prompt: str | None
+) -> DemoRequestRecord:
     """Submit one request through the local managed-agent helper surface."""
 
     if request_kind == "submit_prompt":

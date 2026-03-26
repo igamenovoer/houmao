@@ -38,13 +38,13 @@ At minimum, the `agents` family SHALL include commands for:
 - `list`
 - `show`
 - `state`
-- `history`
 - `prompt`
 - `interrupt`
 - `stop`
 
 Those commands SHALL target managed-agent references rather than raw `terminal_id` or raw CAO session names as their normative addressing model.
 Within that family, `show` SHALL present the detail-oriented managed-agent view, while `state` SHALL present the operational summary view.
+The native `agents` family SHALL NOT advertise or require a generic `history` command as part of its supported managed-agent inspection contract.
 
 #### Scenario: Operator inspects managed-agent state through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents state <agent-ref>`
@@ -60,6 +60,11 @@ Within that family, `show` SHALL present the detail-oriented managed-agent view,
 - **WHEN** an operator runs `houmao-mgr agents prompt <agent-ref> --prompt "..." `
 - **THEN** `houmao-mgr` submits that request through registry-first discovery or the pair-managed agent control authority
 - **AND THEN** the command does not require the operator to know whether the agent is server-backed or locally-backed
+
+#### Scenario: Help output does not advertise a retired history command
+- **WHEN** an operator runs `houmao-mgr agents --help`
+- **THEN** the help output does not list `history`
+- **AND THEN** supported inspection guidance points operators to `state`, `show`, or `agents turn ...` rather than a generic managed-agent history command
 
 ### Requirement: `houmao-mgr agents gateway` exposes gateway lifecycle and gateway-mediated request commands
 `houmao-mgr` SHALL expose a native `agents gateway ...` command family for managed-agent gateway operations.
@@ -192,7 +197,7 @@ Repo-owned docs, tests, examples, and scripts SHALL use `houmao-mgr agents launc
 Repo-owned documentation under `docs/` SHALL prefer `houmao-mgr` over `houmao-cli` whenever the new native pair command tree covers the documented workflow.
 
 This change SHALL NOT erase valid `houmao-cli` documentation for workflows that remain uncovered by `houmao-mgr` or that are intentionally runtime-local rather than pair-managed.
-Repo-owned documentation for managed-agent history SHALL explain where history is retained so operators can understand what accumulates during long-running tasks.
+Repo-owned documentation for managed-agent inspection SHALL NOT present `houmao-mgr agents history` as a supported native inspection surface.
 
 #### Scenario: Docs replace `houmao-cli` examples for covered pair workflows
 - **WHEN** a repo-owned document under `docs/` describes a pair-managed workflow now covered by `houmao-mgr`
@@ -204,11 +209,10 @@ Repo-owned documentation for managed-agent history SHALL explain where history i
 - **THEN** that document may continue using `houmao-cli`
 - **AND THEN** the retained `houmao-cli` usage is limited to those uncovered or intentionally runtime-local workflows
 
-#### Scenario: Docs explain managed-agent history retention and storage
-- **WHEN** repo-owned docs under `docs/` explain `houmao-mgr agents history` or long-running managed-agent operation
-- **THEN** they state whether the relevant history is retained in memory or persisted on disk
-- **AND THEN** they distinguish the bounded in-memory recent-transition history of TUI-managed agents from the persisted turn-record history of managed headless agents
-- **AND THEN** they give operators enough guidance to understand what can accumulate over time on a long-running server
+#### Scenario: Docs do not present retired managed-agent history as a supported native path
+- **WHEN** repo-owned docs under `docs/` explain managed-agent inspection or long-running local/serverless operation
+- **THEN** they use supported surfaces such as `houmao-mgr agents state`, `houmao-mgr agents show`, gateway TUI state, or `houmao-mgr agents turn ...`
+- **AND THEN** they do not present `houmao-mgr agents history` as a supported native inspection command
 
 ### Requirement: Managed-agent-targeting native CLI commands use explicit identity selectors
 

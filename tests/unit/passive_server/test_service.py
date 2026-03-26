@@ -37,14 +37,24 @@ class TestStartup:
 
     def test_creates_current_instance_file(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "start"), patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.startup()
             assert svc.m_config.current_instance_path.exists()
             svc.shutdown()
 
     def test_current_instance_file_has_correct_pid(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "start"), patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.startup()
             payload = json.loads(svc.m_config.current_instance_path.read_text())
             assert payload["pid"] == os.getpid()
@@ -52,7 +62,12 @@ class TestStartup:
 
     def test_current_instance_file_has_correct_url(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "start"), patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.startup()
             payload = json.loads(svc.m_config.current_instance_path.read_text())
             assert payload["api_base_url"] == "http://127.0.0.1:19891"
@@ -60,7 +75,12 @@ class TestStartup:
 
     def test_run_dir_created(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "start"), patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.startup()
             assert svc.m_config.run_dir.is_dir()
             svc.shutdown()
@@ -71,7 +91,12 @@ class TestShutdown:
 
     def test_removes_current_instance_file(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "start"), patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.startup()
             assert svc.m_config.current_instance_path.exists()
             svc.shutdown()
@@ -79,7 +104,10 @@ class TestShutdown:
 
     def test_shutdown_without_startup_is_safe(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        with patch.object(svc.m_discovery, "stop"):
+        with (
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "stop"),
+        ):
             svc.shutdown()  # should not raise
 
 
@@ -133,9 +161,7 @@ def _agent(
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent for test injection."""
 
-    record = _make_record(
-        agent_id=agent_id, agent_name=agent_name, session_name=session_name
-    )
+    record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
 
@@ -149,10 +175,13 @@ class TestListAgents:
 
     def test_returns_all_agents(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [
-            _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-            _agent(agent_id="b1", agent_name="AGENTSYS-beta", session_name="s2"),
-        ])
+        _populate_index(
+            svc,
+            [
+                _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
+                _agent(agent_id="b1", agent_name="AGENTSYS-beta", session_name="s2"),
+            ],
+        )
         resp = svc.list_agents()
         assert len(resp.agents) == 2
         assert resp.agents[0].agent_name == "AGENTSYS-alpha"
@@ -193,10 +222,13 @@ class TestResolveAgent:
 
     def test_resolve_ambiguous(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [
-            _agent(agent_id="abc123", agent_name="AGENTSYS-alpha", session_name="s1"),
-            _agent(agent_id="def456", agent_name="AGENTSYS-alpha", session_name="s2"),
-        ])
+        _populate_index(
+            svc,
+            [
+                _agent(agent_id="abc123", agent_name="AGENTSYS-alpha", session_name="s1"),
+                _agent(agent_id="def456", agent_name="AGENTSYS-alpha", session_name="s2"),
+            ],
+        )
         result = svc.resolve_agent("alpha")
         assert isinstance(result, DiscoveredAgentConflictResponse)
         assert set(result.agent_ids) == {"abc123", "def456"}
@@ -216,9 +248,7 @@ def _agent_with_gateway(
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent with live gateway coordinates."""
 
-    record = _make_record(
-        agent_id=agent_id, agent_name=agent_name, session_name=session_name
-    )
+    record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
     record.gateway = RegistryGatewayV1(
         gateway_root="/tmp/gw",
         attach_path="/tmp/gw/attach.json",
@@ -311,10 +341,13 @@ class TestGatewayStatus:
 
     def test_ambiguous_returns_409(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [
-            _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-            _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
-        ])
+        _populate_index(
+            svc,
+            [
+                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+            ],
+        )
         result = svc.gateway_status("alpha")
         assert isinstance(result, tuple)
         assert result[0] == 409

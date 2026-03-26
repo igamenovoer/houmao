@@ -512,6 +512,20 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     assert resolve_live_agent_record("gpu") is None
 
 
+def test_houmao_mgr_agents_help_retires_history_command() -> None:
+    """`agents --help` should not advertise the retired history surface."""
+
+    runner = CliRunner()
+
+    help_result = runner.invoke(cli, ["agents", "--help"])
+    assert help_result.exit_code == 0, help_result.output
+    assert "history" not in help_result.output
+
+    history_result = runner.invoke(cli, ["agents", "history", "--help"])
+    assert history_result.exit_code != 0
+    assert "No such command 'history'" in history_result.output
+
+
 def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     tmp_path: Path,
 ) -> None:

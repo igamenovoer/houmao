@@ -9,7 +9,7 @@ strategies:
       - codex_app_server
       - cao_rest
       - houmao_server_rest
-    supported_versions: ">=0.116.0,<0.117.0"
+    supported_versions: ">=0.116.0"
     minimal_inputs:
       credential_forms:
         - auth.json

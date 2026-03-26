@@ -32,6 +32,7 @@ class PassiveServerConfig(BaseModel):
     api_base_url: str = Field(default=_DEFAULT_API_BASE_URL)
     runtime_root: Path = Field(default_factory=resolve_runtime_root)
     discovery_poll_interval_seconds: float = Field(default=5.0, gt=0.0)
+    observation_poll_interval_seconds: float = Field(default=2.0, ge=0.5)
 
     @field_validator("api_base_url")
     @classmethod

@@ -31,7 +31,6 @@ from ..managed_agents import (
     list_managed_agents,
     managed_agent_detail_payload,
     managed_agent_state_payload,
-    managed_agent_history_payload,
     prompt_managed_agent,
     resolve_managed_agent_target,
     stop_managed_agent,
@@ -209,22 +208,6 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(managed_agent_state_payload(target))
-
-
-@agents_group.command(name="history")
-@click.option("--limit", default=20, type=int, show_default=True, help="History entry limit.")
-@pair_port_option()
-@managed_agent_selector_options
-def history_agent_command(
-    port: int | None,
-    limit: int,
-    agent_id: str | None,
-    agent_name: str | None,
-) -> None:
-    """Show bounded managed-agent history."""
-
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(managed_agent_history_payload(target, limit=limit))
 
 
 @agents_group.command(name="prompt")

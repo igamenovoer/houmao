@@ -709,7 +709,7 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_without_
     assert identity.manifest_path == str(manifest_path)
 
 
-def test_gateway_service_exposes_local_interactive_tui_tracking_routes(
+def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -765,12 +765,6 @@ def test_gateway_service_exposes_local_interactive_tui_tracking_routes(
         )
         assert state_response.json()["tracked_session"]["terminal_aliases"] == []
 
-        history_response = client.get("/v1/control/tui/history", params={"limit": 3})
-        assert history_response.status_code == 200
-        assert history_response.json()["terminal_id"] == "local-interactive-1"
-        assert history_response.json()["tracked_session_id"] == "local-interactive-1"
-        assert history_response.json()["entries"][0]["summary"] == "limit=3"
-
         note_response = client.post(
             "/v1/control/tui/note-prompt",
             json=GatewayRequestPayloadSubmitPromptV1(
@@ -780,6 +774,9 @@ def test_gateway_service_exposes_local_interactive_tui_tracking_routes(
         )
         assert note_response.status_code == 200
         assert note_response.json()["terminal_id"] == "local-interactive-1"
+        assert (
+            note_response.json()["tracked_session"]["tracked_session_id"] == "local-interactive-1"
+        )
         assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["route-note"]
     finally:
         runtime.shutdown()

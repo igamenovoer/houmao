@@ -249,11 +249,15 @@ Current availability rules:
 
 For attached `local_interactive`, the gateway synthesizes tracked identity from `attach.json.runtime_session_id` (falling back to `attach_identity`), keeps `terminal_aliases` empty, and therefore exposes the runtime session id as the public `terminal_id` on this route.
 
+For attached runtime-owned `local_interactive` sessions outside `houmao-server`, repo-owned local/serverless workflow guidance now centers on this route together with `POST /v1/control/tui/note-prompt`. That pairing is the supported local inspection and explicit-input-provenance surface.
+
 ### `GET /v1/control/tui/history`
 
 This route returns the gateway-owned live `HoumaoTerminalHistoryResponse` for the same tracked TUI session.
 
 The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
+
+For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route remains a compatibility surface for shared consumers rather than part of the supported repo-owned local/serverless workflow. Local operator guidance should rely on `GET /v1/control/tui/state` plus explicit prompt-note evidence instead.
 
 ### `POST /v1/control/tui/note-prompt`
 

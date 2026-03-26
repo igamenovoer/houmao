@@ -180,9 +180,7 @@ class TestRegistryDiscoveryScan:
 
         svc = self._make_service(tmp_path)
         with (
-            patch(
-                "houmao.passive_server.discovery.global_registry_paths"
-            ) as mock_paths,
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
             patch(
                 "houmao.passive_server.discovery._get_live_tmux_session_names",
                 return_value={"AGENTSYS-alpha-abc123"},
@@ -210,9 +208,7 @@ class TestRegistryDiscoveryScan:
 
         svc = self._make_service(tmp_path)
         with (
-            patch(
-                "houmao.passive_server.discovery.global_registry_paths"
-            ) as mock_paths,
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
             patch(
                 "houmao.passive_server.discovery._get_live_tmux_session_names",
                 return_value={"AGENTSYS-alpha-expired1"},
@@ -234,9 +230,7 @@ class TestRegistryDiscoveryScan:
 
         svc = self._make_service(tmp_path)
         with (
-            patch(
-                "houmao.passive_server.discovery.global_registry_paths"
-            ) as mock_paths,
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
             patch(
                 "houmao.passive_server.discovery._get_live_tmux_session_names",
                 return_value=set(),  # no live sessions
@@ -259,9 +253,7 @@ class TestRegistryDiscoveryScan:
 
         svc = self._make_service(tmp_path)
         with (
-            patch(
-                "houmao.passive_server.discovery.global_registry_paths"
-            ) as mock_paths,
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
             patch(
                 "houmao.passive_server.discovery._get_live_tmux_session_names",
                 return_value=set(),
@@ -294,9 +286,7 @@ class TestRegistryDiscoveryScan:
         svc = self._make_service(tmp_path)
         registry_root = tmp_path / "registry"
         with (
-            patch(
-                "houmao.passive_server.discovery.global_registry_paths"
-            ) as mock_paths,
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
             patch(
                 "houmao.passive_server.discovery._get_live_tmux_session_names",
                 return_value=set(),

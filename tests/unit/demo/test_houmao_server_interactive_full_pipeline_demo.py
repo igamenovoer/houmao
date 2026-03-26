@@ -219,7 +219,9 @@ def test_start_demo_persists_local_managed_agent_state(
 
     def _fake_build_brain_home(request: object) -> object:
         captured["build_request"] = request
-        return SimpleNamespace(manifest_path=paths.runtime_root / "brains" / "demo-home" / "manifest.json")
+        return SimpleNamespace(
+            manifest_path=paths.runtime_root / "brains" / "demo-home" / "manifest.json"
+        )
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured["start_kwargs"] = kwargs
@@ -237,7 +239,9 @@ def test_start_demo_persists_local_managed_agent_state(
 
     monkeypatch.setattr(demo_commands, "build_brain_home", _fake_build_brain_home)
     monkeypatch.setattr(demo_commands, "start_runtime_session", _fake_start_runtime_session)
-    monkeypatch.setattr(demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None)
+    monkeypatch.setattr(
+        demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None
+    )
 
     payload = demo_commands.start_demo(
         paths=paths,
@@ -300,7 +304,9 @@ def test_start_demo_derives_default_agent_name_from_variant_when_session_name_om
 
     def _fake_build_brain_home(request: object) -> object:
         captured["build_request"] = request
-        return SimpleNamespace(manifest_path=paths.runtime_root / "brains" / "demo-home" / "manifest.json")
+        return SimpleNamespace(
+            manifest_path=paths.runtime_root / "brains" / "demo-home" / "manifest.json"
+        )
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured["start_kwargs"] = kwargs
@@ -318,7 +324,9 @@ def test_start_demo_derives_default_agent_name_from_variant_when_session_name_om
 
     monkeypatch.setattr(demo_commands, "build_brain_home", _fake_build_brain_home)
     monkeypatch.setattr(demo_commands, "start_runtime_session", _fake_start_runtime_session)
-    monkeypatch.setattr(demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None)
+    monkeypatch.setattr(
+        demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None
+    )
 
     payload = demo_commands.start_demo(
         paths=paths,
@@ -359,13 +367,15 @@ def test_send_turn_records_local_artifact_and_updates_state(
     target = SimpleNamespace(identity=SimpleNamespace(tracked_agent_id="tracked-alice"))
     bundles = iter(
         [
-            {"state": "before", "detail": "before", "history": "before", "terminal": "before"},
-            {"state": "after", "detail": "after", "history": "after", "terminal": "after"},
+            {"state": "before", "detail": "before", "terminal": "before"},
+            {"state": "after", "detail": "after", "terminal": "after"},
         ]
     )
 
     monkeypatch.setattr(demo_commands, "_resolve_local_target", lambda state: target)
-    monkeypatch.setattr(demo_commands, "_fetch_live_bundle_from_target", lambda **kwargs: next(bundles))
+    monkeypatch.setattr(
+        demo_commands, "_fetch_live_bundle_from_target", lambda **kwargs: next(bundles)
+    )
     monkeypatch.setattr(
         demo_commands,
         "_managed_agent_snapshot",
@@ -418,7 +428,7 @@ def test_inspect_omits_dialog_tail_unless_requested(
 
     paths = DemoPaths.from_workspace_root(tmp_path / "workspace")
     demo_commands.save_demo_state(paths.state_path, _demo_state(paths))
-    bundle = {"state": "live", "detail": "live", "history": "live", "terminal": "live"}
+    bundle = {"state": "live", "detail": "live", "terminal": "live"}
 
     monkeypatch.setattr(demo_commands, "_fetch_live_bundle", lambda **kwargs: bundle)
     monkeypatch.setattr(
@@ -472,7 +482,9 @@ def test_stop_demo_tolerates_stale_local_session(
         "_best_effort_kill_tmux_session",
         lambda session_name: killed_sessions.append(session_name),
     )
-    monkeypatch.setattr(demo_commands, "_best_effort_cleanup_session_root", lambda session_root: None)
+    monkeypatch.setattr(
+        demo_commands, "_best_effort_cleanup_session_root", lambda session_root: None
+    )
 
     payload = demo_commands.stop_demo(paths=paths, env=env)
     updated_state = demo_commands.load_demo_state(paths.state_path)
