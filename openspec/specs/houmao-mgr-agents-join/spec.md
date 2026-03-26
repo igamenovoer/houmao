@@ -23,11 +23,19 @@ When `--working-directory` is omitted, the command SHALL derive it from the targ
 
 A successful TUI join SHALL materialize the managed-agent identity and runtime artifacts through the join runtime path without restarting the current TUI process.
 
+After a successful TUI join, later local `houmao-mgr agents state` and `houmao-mgr agents show` commands SHALL continue to use the adopted tmux window identity for that joined session rather than falling back to the native-launch default window name `agent`.
+
 #### Scenario: Successful TUI join auto-detects the provider from the primary pane
 - **WHEN** an operator runs `houmao-mgr agents join --agent-name coder` from tmux window `1` of a session whose window `0`, pane `0` already hosts a live Codex TUI
 - **THEN** the command auto-detects `codex` from the primary pane process tree
 - **AND THEN** it adopts that tmux session into managed-agent control as a `local_interactive` session without restarting the live Codex process
 - **AND THEN** later `houmao-mgr agents state --agent-name coder` resolves that adopted managed agent through the normal local discovery path
+
+#### Scenario: Joined TUI remains inspectable through later local state and detail commands
+- **WHEN** an operator joins a live Claude TUI whose adopted window `0` is still named `claude`
+- **AND WHEN** the operator later runs `houmao-mgr agents state --agent-name tester` or `houmao-mgr agents show --agent-name tester`
+- **THEN** those local managed-agent commands probe the adopted TUI surface using the persisted joined window identity
+- **AND THEN** they do not fail only because the joined session was not running in a window named `agent`
 
 ### Requirement: `houmao-mgr agents join --headless` adopts a tmux-backed native headless logical session
 `houmao-mgr agents join --headless` SHALL adopt a tmux-backed native headless logical session between turns rather than a live provider TUI surface.
