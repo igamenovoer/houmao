@@ -7,7 +7,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from houmao.agents.realm_controller.agent_identity import normalize_agent_identity_name
+from houmao.agents.realm_controller.agent_identity import (
+    normalize_managed_agent_id,
+    normalize_managed_agent_name,
+)
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
 
@@ -202,16 +206,6 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
             raise ValueError("must not be empty")
         return value
 
-    @field_validator("agent_id")
-    @classmethod
-    def _agent_id_safe_for_paths(cls, value: str) -> str:
-        """Validate that ``agent_id`` is safe for filesystem keying."""
-
-        stripped = value.strip()
-        if "/" in stripped or "\\" in stripped:
-            raise ValueError("agent_id must not contain path separators")
-        return stripped
-
     @model_validator(mode="after")
     def _validate_schema_and_identity(self) -> "LiveAgentRegistryRecordV2":
         """Validate schema version, canonical name, and lease ordering."""
@@ -219,9 +213,15 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
         if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {REGISTRY_SCHEMA_VERSION}")
 
-        normalized = normalize_agent_identity_name(self.agent_name)
-        if normalized.canonical_name != self.agent_name:
-            raise ValueError("agent_name must use canonical `AGENTSYS-...` form")
+        try:
+            normalized_agent_name = normalize_managed_agent_name(self.agent_name)
+            normalized_agent_id = normalize_managed_agent_id(self.agent_id)
+        except SessionManifestError as exc:
+            raise ValueError(str(exc)) from exc
+        if normalized_agent_name != self.agent_name:
+            raise ValueError("agent_name must not include leading or trailing whitespace")
+        if normalized_agent_id != self.agent_id:
+            raise ValueError("agent_id must not include leading or trailing whitespace")
 
         published_at = _parse_iso8601_timestamp(self.published_at, field_name="published_at")
         lease_expires_at = _parse_iso8601_timestamp(
@@ -234,9 +234,9 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
 
 
 def canonicalize_registry_agent_name(value: str) -> str:
-    """Canonicalize registry-facing agent input to ``AGENTSYS-...`` form."""
+    """Validate and normalize registry-facing agent input."""
 
-    return normalize_agent_identity_name(value).canonical_name
+    return normalize_managed_agent_name(value)
 
 
 def format_registry_validation_error(prefix: str, exc: ValidationError) -> str:

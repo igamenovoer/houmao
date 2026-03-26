@@ -112,6 +112,7 @@ Current v1 routes:
 - `GET /v1/control/tui/state`
 - `GET /v1/control/tui/history`
 - `POST /v1/control/tui/note-prompt`
+- `POST /v1/control/send-keys`
 - `GET /v1/control/headless/state`
 - `POST /v1/requests`
 - `GET /v1/mail/status`
@@ -201,6 +202,8 @@ Current public request kinds:
 
 The notifier reminder path does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
+`POST /v1/requests` stays the semantic queued prompt surface. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
+
 Representative prompt submission:
 
 ```json
@@ -257,6 +260,37 @@ The `limit` query parameter defaults to `100`. Attached `local_interactive` sess
 This route records explicit-input evidence on the gateway-owned tracker for the attached session and returns the updated `HoumaoTerminalStateResponse`.
 
 It accepts the same payload shape as prompt submission (`GatewayRequestPayloadSubmitPromptV1`), but only the `prompt` value is consumed by the tracker. Successful `submit_prompt` execution through `POST /v1/requests` already records this prompt note automatically, so callers only need this route when they must preserve explicit-input provenance without routing the prompt through the gateway request queue.
+
+### `POST /v1/control/send-keys`
+
+This route is the dedicated raw control-input surface for gateway-managed sessions. It bypasses the durable prompt queue and therefore does not claim that a managed prompt turn was submitted.
+
+Representative request:
+
+```json
+{
+  "sequence": "/model<[Enter]><[Down]>",
+  "escape_special_keys": false
+}
+```
+
+Representative success response:
+
+```json
+{
+  "status": "ok",
+  "action": "control_input",
+  "detail": "Delivered control input to the local interactive session."
+}
+```
+
+Current behavior:
+
+- the route accepts the same exact `<[key-name]>` grammar as runtime `send-keys`, including optional whole-string literal escaping with `escape_special_keys=true`
+- the route does not enqueue a `submit_prompt` request in `queue.sqlite`
+- the route does not create gateway-owned prompt-tracking notes by itself
+- for attached `local_interactive` sessions, semantic prompt submission still belongs on `POST /v1/requests` with kind `submit_prompt`, while `POST /v1/control/send-keys` remains the operator/debug raw-control path
+- REST-backed and server-managed headless gateway targets currently reject this route with HTTP `422` because they do not preserve exact tmux key semantics on that path
 
 ### `GET /v1/control/headless/state`
 

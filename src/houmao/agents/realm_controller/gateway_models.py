@@ -397,6 +397,39 @@ class GatewayRequestPayloadInterruptV1(_StrictGatewayModel):
     pass
 
 
+class GatewayControlInputRequestV1(_StrictGatewayModel):
+    """`POST /v1/control/send-keys` request body."""
+
+    sequence: str
+    escape_special_keys: bool = False
+
+    @field_validator("sequence")
+    @classmethod
+    def _sequence_not_blank(cls, value: str) -> str:
+        """Validate the raw control-input sequence."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayControlInputResultV1(_StrictGatewayModel):
+    """Successful raw control-input response body."""
+
+    status: Literal["ok"] = "ok"
+    action: Literal["control_input"] = "control_input"
+    detail: str
+
+    @field_validator("detail")
+    @classmethod
+    def _detail_not_blank(cls, value: str) -> str:
+        """Validate the successful control-input detail string."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class GatewayRequestCreateV1(_StrictGatewayModel):
     """`POST /v1/requests` request body."""
 

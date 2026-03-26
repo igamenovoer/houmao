@@ -21,6 +21,7 @@ from houmao.agents.realm_controller.errors import GatewayHttpError, LaunchPlanEr
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
+    GatewayControlInputRequestV1,
     GatewayMailCheckRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailReplyRequestV1,
@@ -618,6 +619,67 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
         runtime.shutdown()
 
     assert fake_controller.interrupt_calls == 1
+
+
+def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/send-keys",
+            json=GatewayControlInputRequestV1(
+                sequence="hello world",
+                escape_special_keys=False,
+            ).model_dump(mode="json"),
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ok",
+            "action": "control_input",
+            "detail": "Delivered control input to the local interactive session.",
+        }
+        assert fake_controller.send_input_event.wait(timeout=2.0)
+        assert runtime.status().queue_depth == 0
+    finally:
+        runtime.shutdown()
+
+    assert fake_controller.send_input_calls == [("hello world", False)]
+    assert fake_session.prompt_calls == []
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
 
 
 def test_gateway_service_builds_local_interactive_tui_tracking_identity_without_manifest_enrichment(
@@ -1334,6 +1396,8 @@ class _FakeGatewayHeadlessController:
         self.persist_manifest_calls: list[bool] = []
         self.interrupt_calls = 0
         self.interrupted_event = threading.Event()
+        self.send_input_calls: list[tuple[str, bool]] = []
+        self.send_input_event = threading.Event()
 
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         self.persist_manifest_calls.append(refresh_registry)
@@ -1342,6 +1406,17 @@ class _FakeGatewayHeadlessController:
         self.interrupt_calls += 1
         self.interrupted_event.set()
         return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+    def send_input_ex(
+        self, sequence: str, *, escape_special_keys: bool = False
+    ) -> SessionControlResult:
+        self.send_input_calls.append((sequence, escape_special_keys))
+        self.send_input_event.set()
+        return SessionControlResult(
+            status="ok",
+            action="control_input",
+            detail="Delivered control input to the local interactive session.",
+        )
 
 
 def _tracked_terminal_id(identity: HoumaoTrackedSessionIdentity) -> str:

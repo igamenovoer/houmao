@@ -157,6 +157,25 @@ def managed_agent_argument(function: _FC) -> _FC:
     return click.argument("agent_ref")(function)
 
 
+def managed_agent_selector_options(function: _FC) -> _FC:
+    """Attach the shared managed-agent selector options."""
+
+    function = click.option(
+        "--agent-name",
+        default=None,
+        help=(
+            "Friendly managed-agent name. For local serverless control, an exact unique tmux "
+            "session name may also resolve through the shared registry."
+        ),
+    )(function)
+    function = click.option(
+        "--agent-id",
+        default=None,
+        help="Authoritative managed-agent id.",
+    )(function)
+    return function
+
+
 def require_managed_agent_ref(agent_ref: str) -> str:
     """Validate and normalize one managed-agent reference."""
 
@@ -164,6 +183,29 @@ def require_managed_agent_ref(agent_ref: str) -> str:
     if not candidate:
         raise click.ClickException("`agent_ref` must not be empty.")
     return candidate
+
+
+def resolve_managed_agent_selector(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    allow_missing: bool = False,
+) -> tuple[str | None, str | None]:
+    """Validate the shared managed-agent selector contract."""
+
+    normalized_agent_id = _normalize_optional_selector_value(
+        option_name="--agent-id",
+        value=agent_id,
+    )
+    normalized_agent_name = _normalize_optional_selector_value(
+        option_name="--agent-name",
+        value=agent_name,
+    )
+    if normalized_agent_id is not None and normalized_agent_name is not None:
+        raise click.ClickException("Use exactly one of `--agent-id` or `--agent-name`.")
+    if not allow_missing and normalized_agent_id is None and normalized_agent_name is None:
+        raise click.ClickException("Exactly one of `--agent-id` or `--agent-name` is required.")
+    return normalized_agent_id, normalized_agent_name
 
 
 def emit_json(payload: object) -> None:
@@ -241,6 +283,17 @@ def resolve_managed_agent_identity(
     """Resolve one managed-agent identity through the pair authority."""
 
     return pair_request(client.get_managed_agent, require_managed_agent_ref(agent_ref))
+
+
+def _normalize_optional_selector_value(*, option_name: str, value: str | None) -> str | None:
+    """Normalize one optional selector value or fail clearly."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException(f"`{option_name}` must not be empty.")
+    return stripped
 
 
 def _resolve_optional_timeout_from_env(

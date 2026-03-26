@@ -9,7 +9,7 @@ import click
 
 from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentUploadV1
 
-from ..common import emit_json, pair_port_option, resolve_body_text
+from ..common import emit_json, managed_agent_selector_options, pair_port_option, resolve_body_text
 from ..managed_agents import (
     mail_check,
     mail_reply,
@@ -26,11 +26,11 @@ def mail_group() -> None:
 
 @mail_group.command(name="status")
 @pair_port_option()
-@click.argument("agent_ref")
-def status_mail_command(port: int | None, agent_ref: str) -> None:
+@managed_agent_selector_options
+def status_mail_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Show mailbox status for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(mail_status(target))
 
 
@@ -39,17 +39,18 @@ def status_mail_command(port: int | None, agent_ref: str) -> None:
 @click.option("--limit", default=None, type=int, help="Maximum number of messages to return.")
 @click.option("--since", default=None, help="Optional RFC3339 lower bound.")
 @pair_port_option()
-@click.argument("agent_ref")
+@managed_agent_selector_options
 def check_mail_command(
     port: int | None,
     unread_only: bool,
     limit: int | None,
     since: str | None,
-    agent_ref: str,
+    agent_id: str | None,
+    agent_name: str | None,
 ) -> None:
     """Check mailbox contents for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(mail_check(target, unread_only=unread_only, limit=limit, since=since))
 
 
@@ -61,7 +62,7 @@ def check_mail_command(
 @click.option("--body-file", default=None, help="Body content file path.")
 @click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
 @pair_port_option()
-@click.argument("agent_ref")
+@managed_agent_selector_options
 def send_mail_command(
     port: int | None,
     to_recipients: tuple[str, ...],
@@ -70,11 +71,12 @@ def send_mail_command(
     body_content: str | None,
     body_file: str | None,
     attachments: tuple[str, ...],
-    agent_ref: str,
+    agent_id: str | None,
+    agent_name: str | None,
 ) -> None:
     """Send one mailbox message for a managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(
         mail_send(
             target,
@@ -97,18 +99,19 @@ def send_mail_command(
 @click.option("--body-file", default=None, help="Body content file path.")
 @click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
 @pair_port_option()
-@click.argument("agent_ref")
+@managed_agent_selector_options
 def reply_mail_command(
     port: int | None,
     message_ref: str,
     body_content: str | None,
     body_file: str | None,
     attachments: tuple[str, ...],
-    agent_ref: str,
+    agent_id: str | None,
+    agent_name: str | None,
 ) -> None:
     """Reply to one mailbox message for a managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(
         mail_reply(
             target,

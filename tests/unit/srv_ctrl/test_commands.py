@@ -206,7 +206,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
         agent_id="agent-1234",
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="gpu",
         tmux_session_name="gpu-session",
     )
 
@@ -237,6 +237,8 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "launch",
             "--agents",
             "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
             "--provider",
             "codex",
             "--session-name",
@@ -247,10 +249,16 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
 
     assert result.exit_code == 0
     assert "Managed agent launch complete:" in result.output
-    assert "agent=agent-1234" in result.output
-    assert f"manifest={controller.manifest_path}" in result.output
+    assert "agent_name=gpu" in result.output
+    assert "agent_id=agent-1234" in result.output
+    assert "tmux_session_name=gpu-session" in result.output
+    assert f"manifest_path={controller.manifest_path}" in result.output
     assert captured["build_request"].operator_prompt_mode == "unattended"
+    assert captured["build_request"].agent_name == "gpu"
+    assert captured["build_request"].agent_id is None
     assert captured["start_kwargs"]["backend"] == "local_interactive"
+    assert captured["start_kwargs"]["agent_name"] == "gpu"
+    assert captured["start_kwargs"]["agent_id"] is None
     assert attach_calls == [["tmux", "attach-session", "-t", "gpu-session"]]
 
 
@@ -282,8 +290,8 @@ def test_agents_launch_headless_keeps_native_headless_backend(
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
         agent_id="agent-claude",
-        agent_identity="AGENTSYS-claude",
-        tmux_session_name="AGENTSYS-claude",
+        agent_identity="claude",
+        tmux_session_name="claude-session",
     )
 
     monkeypatch.chdir(working_directory)
@@ -311,6 +319,8 @@ def test_agents_launch_headless_keeps_native_headless_backend(
             "launch",
             "--agents",
             "researcher",
+            "--agent-name",
+            "claude",
             "--provider",
             "claude_code",
             "--headless",
@@ -380,6 +390,8 @@ def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
             "launch",
             "--agents",
             "researcher",
+            "--agent-name",
+            "claude",
             "--provider",
             "claude_code",
             "--yolo",
@@ -452,6 +464,8 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
             "launch",
             "--agents",
             "researcher",
+            "--agent-name",
+            "claude",
             "--provider",
             "claude_code",
             "--headless",
@@ -469,7 +483,17 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
 def test_agents_launch_rejects_unsupported_provider() -> None:
     result = CliRunner().invoke(
         cli,
-        ["agents", "launch", "--agents", "gpu-kernel-coder", "--provider", "kiro_cli", "--yolo"],
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "kiro_cli",
+            "--yolo",
+        ],
     )
 
     assert result.exit_code != 0

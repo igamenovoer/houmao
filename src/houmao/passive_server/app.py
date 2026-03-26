@@ -6,9 +6,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
+    DiscoveredAgentConflictResponse,
+    DiscoveredAgentListResponse,
+    DiscoveredAgentSummary,
     PassiveCurrentInstance,
     PassiveHealthResponse,
     PassiveShutdownResponse,
@@ -54,5 +58,24 @@ def create_app(
     def shutdown_server() -> PassiveShutdownResponse:
         resolved_service.request_shutdown()
         return PassiveShutdownResponse()
+
+    @app.get("/houmao/agents")
+    def list_agents() -> DiscoveredAgentListResponse:
+        return resolved_service.list_agents()
+
+    @app.get("/houmao/agents/{agent_ref}")
+    def resolve_agent(agent_ref: str) -> DiscoveredAgentSummary:
+        result = resolved_service.resolve_agent(agent_ref)
+        if result is None:
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=404,
+                content={"detail": f"Agent not found: {agent_ref}"},
+            )
+        if isinstance(result, DiscoveredAgentConflictResponse):
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=409,
+                content=result.model_dump(mode="json"),
+            )
+        return result
 
     return app

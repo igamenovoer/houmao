@@ -1,4 +1,4 @@
-"""Agent-identity parsing and normalization helpers.
+"""Agent-identity parsing and managed-agent naming helpers.
 
 This module provides the canonical parsing and validation rules for
 runtime-facing agent identities.
@@ -13,9 +13,13 @@ Functions
 is_path_like_agent_identity
     Determine whether an identity should be treated as a manifest path.
 normalize_agent_identity_name
-    Normalize and validate name-based identities into `AGENTSYS-...`.
+    Normalize and validate legacy tmux/runtime identities into `AGENTSYS-...`.
+normalize_managed_agent_name
+    Validate a managed-agent friendly name without adding a prefix.
+normalize_managed_agent_id
+    Validate a managed-agent authoritative id without adding a prefix.
 derive_auto_agent_name_base
-    Build a short safe base for auto-generated CAO identities.
+    Build a short safe base for auto-generated identities.
 """
 
 from __future__ import annotations
@@ -33,6 +37,10 @@ AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
 AGENT_ID_HEXDIGEST_LENGTH = 32
 DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH = 6
+SAFE_MANAGED_AGENT_COMPONENT_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
+SAFE_MANAGED_AGENT_COMPONENT_DESCRIPTION = (
+    "ASCII letters/digits plus `_` and `-`, starting with a letter or digit"
+)
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
@@ -40,7 +48,7 @@ _INEXACT_AGENTSYS_RE = re.compile(r"agentsys", re.IGNORECASE)
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
-_AGENT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SAFE_MANAGED_AGENT_COMPONENT_RE = re.compile(SAFE_MANAGED_AGENT_COMPONENT_PATTERN)
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,18 @@ def normalize_agent_identity_name(value: str) -> AgentIdentityNormalization:
     )
 
 
+def normalize_managed_agent_name(value: str) -> str:
+    """Validate and normalize one friendly managed-agent name."""
+
+    return _normalize_managed_agent_component(value, field_name="agent_name")
+
+
+def normalize_managed_agent_id(value: str) -> str:
+    """Validate and normalize one authoritative managed-agent id."""
+
+    return _normalize_managed_agent_component(value, field_name="agent_id")
+
+
 def derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:
     """Derive a short auto-name base from tool and role.
 
@@ -154,10 +174,10 @@ def derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:
 
 
 def derive_agent_id_from_name(value: str) -> str:
-    """Derive the authoritative default agent id from a canonical agent name."""
+    """Derive the authoritative default agent id from a managed-agent name."""
 
-    canonical_name = normalize_agent_identity_name(value).canonical_name
-    return hashlib.md5(canonical_name.encode("utf-8"), usedforsecurity=False).hexdigest()
+    normalized_name = normalize_managed_agent_name(value)
+    return hashlib.md5(normalized_name.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def derive_tmux_session_name(
@@ -167,12 +187,12 @@ def derive_tmux_session_name(
     prefix_length: int = DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH,
     occupied_session_names: Collection[str] | None = None,
 ) -> str:
-    """Derive one tmux session name from canonical identity plus agent-id prefix.
+    """Derive one tmux session name from one managed-agent name plus agent-id prefix.
 
     Parameters
     ----------
     canonical_agent_name:
-        Canonical runtime identity in `AGENTSYS-...` form.
+        Managed-agent name used to derive the tmux session base.
     agent_id:
         Authoritative agent identifier whose prefix will be embedded in the
         tmux session name.
@@ -194,10 +214,8 @@ def derive_tmux_session_name(
         tmux session name can be derived from the full authoritative agent id.
     """
 
-    normalized = normalize_agent_identity_name(canonical_agent_name)
-    stripped_agent_id = agent_id.strip()
-    if not stripped_agent_id:
-        raise SessionManifestError("Authoritative agent_id must not be blank.")
+    normalized_name = normalize_managed_agent_name(canonical_agent_name)
+    stripped_agent_id = normalize_managed_agent_id(agent_id)
     if prefix_length < 1:
         raise SessionManifestError("tmux session-name prefix length must be at least 1.")
 
@@ -209,7 +227,7 @@ def derive_tmux_session_name(
     candidate_length = min(prefix_length, len(stripped_agent_id))
 
     while True:
-        candidate = f"{normalized.canonical_name}-{stripped_agent_id[:candidate_length]}"
+        candidate = f"{normalized_name}-{stripped_agent_id[:candidate_length]}"
         if candidate not in occupied:
             return candidate
         if candidate_length >= len(stripped_agent_id):
@@ -217,8 +235,8 @@ def derive_tmux_session_name(
         candidate_length += 1
 
     raise SessionManifestError(
-        "Failed to derive a unique tmux session name for canonical agent name "
-        f"`{normalized.canonical_name}` using authoritative agent_id "
+        "Failed to derive a unique tmux session name for agent name "
+        f"`{normalized_name}` using authoritative agent_id "
         f"`{stripped_agent_id}`."
     )
 
@@ -226,7 +244,11 @@ def derive_tmux_session_name(
 def is_agent_id(value: str) -> bool:
     """Return whether the provided value looks like an authoritative agent id."""
 
-    return bool(_AGENT_ID_RE.fullmatch(value.strip()))
+    try:
+        normalize_managed_agent_id(value)
+    except SessionManifestError:
+        return False
+    return True
 
 
 def _validate_agent_name_portion(name_portion: str) -> None:
@@ -259,3 +281,21 @@ def _sanitize_component(value: str, *, fallback: str) -> str:
     if not cleaned[0].isalnum():
         return f"a{cleaned}"
     return cleaned
+
+
+def _normalize_managed_agent_component(value: str, *, field_name: str) -> str:
+    """Validate one shared managed-agent identity component."""
+
+    stripped = value.strip()
+    if not stripped:
+        raise SessionManifestError(f"{field_name} must not be blank.")
+    if stripped in {".", ".."}:
+        raise SessionManifestError(f"{field_name} must not be `.` or `..`.")
+    if "/" in stripped or "\\" in stripped:
+        raise SessionManifestError(f"{field_name} must not contain path separators.")
+    if not _SAFE_MANAGED_AGENT_COMPONENT_RE.fullmatch(stripped):
+        raise SessionManifestError(
+            f"{field_name} must use a filesystem-safe and URL-safe form "
+            f"({SAFE_MANAGED_AGENT_COMPONENT_DESCRIPTION})."
+        )
+    return stripped

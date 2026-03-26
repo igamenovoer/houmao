@@ -333,6 +333,47 @@ def capture_tmux_pane(*, target: str) -> str:
     return result.stdout
 
 
+def load_tmux_buffer(*, buffer_name: str, text: str) -> None:
+    """Load literal text into one named tmux buffer."""
+
+    try:
+        result = subprocess.run(
+            ["tmux", "load-buffer", "-b", buffer_name, "-"],
+            check=False,
+            capture_output=True,
+            text=True,
+            input=text,
+        )
+    except OSError as exc:
+        raise TmuxCommandError(
+            f"Failed to run tmux command `load-buffer` for `{buffer_name}`: {exc}"
+        ) from exc
+
+    if result.returncode == 0:
+        return
+    detail = tmux_error_detail(result)
+    raise TmuxCommandError(
+        f"Failed to load tmux buffer `{buffer_name}`: {detail or 'unknown tmux error'}"
+    )
+
+
+def paste_tmux_buffer(*, target: str, buffer_name: str, bracketed_paste: bool = True) -> None:
+    """Paste one named tmux buffer into the target pane."""
+
+    args = ["paste-buffer"]
+    if bracketed_paste:
+        args.append("-p")
+    args.extend(["-b", buffer_name, "-t", target])
+    result = run_tmux(args)
+    if result.returncode == 0:
+        return
+    detail = tmux_error_detail(result)
+    raise TmuxCommandError(
+        f"Failed to paste tmux buffer `{buffer_name}` into `{target}`: "
+        f"{detail or 'unknown tmux error'}"
+    )
+
+
 def select_tmux_pane(*, target: str) -> None:
     """Select one tmux pane."""
 

@@ -17,7 +17,7 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     tmp_path: Path,
 ) -> None:
     record = SimpleNamespace(
-        agent_name="AGENTSYS-gpu",
+        agent_name="gpu",
         agent_id="agent-1234",
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(
@@ -29,15 +29,15 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     )
     controller = SimpleNamespace(
         agent_id="agent-1234",
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="gpu",
         launch_plan=SimpleNamespace(backend="codex_headless", tool="codex", mailbox=None),
         manifest_path=(tmp_path / "manifest.json").resolve(),
         tmux_session_name="gpu-session",
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_record",
-        lambda agent_identity: record,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
+        lambda **kwargs: record,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -48,7 +48,7 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
     )
 
-    target = resolve_managed_agent_target(agent_ref="AGENTSYS-gpu", port=None)
+    target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
 
     assert target.mode == "local"
     assert target.controller is controller
@@ -71,13 +71,13 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
         tmux_window_name="agent",
         manifest_path="/tmp/manifest.json",
         session_root="/tmp/session-root",
-        agent_name="AGENTSYS-gpu",
+        agent_name="gpu",
         agent_id="agent-1234",
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_record",
-        lambda agent_identity: None,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
+        lambda **kwargs: None,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
@@ -88,7 +88,7 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
         lambda resolved_client, *, agent_ref: identity,
     )
 
-    target = resolve_managed_agent_target(agent_ref="AGENTSYS-gpu", port=None)
+    target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
 
     assert target.mode == "server"
     assert target.client is client
@@ -109,7 +109,7 @@ def test_list_managed_agents_merges_registry_and_server_results(
         tmux_window_name=None,
         manifest_path="/tmp/local-manifest.json",
         session_root="/tmp/local-session",
-        agent_name="AGENTSYS-local",
+        agent_name="local",
         agent_id="local-agent-id",
     )
     server_identity = HoumaoManagedAgentIdentity(
@@ -123,7 +123,7 @@ def test_list_managed_agents_merges_registry_and_server_results(
         tmux_window_name="agent",
         manifest_path="/tmp/server-manifest.json",
         session_root="/tmp/server-session",
-        agent_name="AGENTSYS-server",
+        agent_name="server",
         agent_id="server-agent-id",
     )
     duplicate_server_identity = HoumaoManagedAgentIdentity(
@@ -137,7 +137,7 @@ def test_list_managed_agents_merges_registry_and_server_results(
         tmux_window_name=None,
         manifest_path="/tmp/other.json",
         session_root="/tmp/other-session",
-        agent_name="AGENTSYS-local",
+        agent_name="local",
         agent_id="local-agent-id",
     )
     client = SimpleNamespace(

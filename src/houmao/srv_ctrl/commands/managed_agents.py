@@ -43,8 +43,8 @@ from houmao.agents.realm_controller.mail_commands import (
 from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
 from houmao.agents.realm_controller.registry_storage import (
     global_registry_paths,
-    resolve_live_agent_record,
     resolve_live_agent_record_by_agent_id,
+    resolve_live_agent_records_by_name,
 )
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
 from houmao.agents.realm_controller.manifest import (
@@ -87,8 +87,8 @@ from houmao.server.models import (
 
 from .common import (
     pair_request,
-    require_managed_agent_ref,
     require_supported_houmao_pair,
+    resolve_managed_agent_selector,
     resolve_managed_agent_identity,
     resolve_server_base_url,
 )
@@ -153,10 +153,20 @@ def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
     return HoumaoManagedAgentListResponse(agents=identities)
 
 
-def resolve_managed_agent_target(*, agent_ref: str, port: int | None) -> ManagedAgentTarget:
+def resolve_managed_agent_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+) -> ManagedAgentTarget:
     """Resolve one managed-agent target through registry-first discovery."""
 
-    normalized_ref = require_managed_agent_ref(agent_ref)
+    normalized_agent_id, normalized_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    normalized_ref = normalized_agent_id or normalized_agent_name
+    assert normalized_ref is not None
     if port is not None:
         client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
         identity = resolve_managed_agent_identity(client, agent_ref=normalized_ref)
@@ -167,7 +177,10 @@ def resolve_managed_agent_target(*, agent_ref: str, port: int | None) -> Managed
             client=client,
         )
 
-    record = resolve_live_agent_record(normalized_ref)
+    record = _resolve_local_managed_agent_record(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
     if record is not None:
         if record.identity.backend == "houmao_server_rest":
             client = require_supported_houmao_pair(base_url=_api_base_url_from_record(record))
@@ -196,6 +209,83 @@ def resolve_managed_agent_target(*, agent_ref: str, port: int | None) -> Managed
         agent_ref=normalized_ref,
         identity=identity,
         client=client,
+    )
+
+
+def _resolve_local_managed_agent_record(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> LiveAgentRegistryRecordV2 | None:
+    """Resolve one local registry-backed managed-agent record."""
+
+    if agent_id is not None:
+        return resolve_live_agent_record_by_agent_id(agent_id)
+
+    assert agent_name is not None
+    name_matches = resolve_live_agent_records_by_name(agent_name)
+    if len(name_matches) > 1:
+        raise click.ClickException(
+            _format_ambiguous_local_registry_matches(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                resolution_kind="friendly name",
+                matches=name_matches,
+            )
+        )
+    if len(name_matches) == 1:
+        return name_matches[0]
+
+    session_alias_matches = tuple(
+        record for record in _list_registry_records() if record.terminal.session_name == agent_name
+    )
+    if len(session_alias_matches) > 1:
+        raise click.ClickException(
+            _format_ambiguous_local_registry_matches(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                resolution_kind="tmux session alias",
+                matches=session_alias_matches,
+            )
+        )
+    if len(session_alias_matches) == 1:
+        return session_alias_matches[0]
+    return None
+
+
+def resolve_live_agent_record(agent_identity: str) -> LiveAgentRegistryRecordV2 | None:
+    """Backward-compatible local record resolution without explicit ambiguity errors."""
+
+    record = resolve_live_agent_record_by_agent_id(agent_identity)
+    if record is not None:
+        return record
+    name_matches = resolve_live_agent_records_by_name(agent_identity)
+    if len(name_matches) == 1:
+        return name_matches[0]
+    return None
+
+
+def _format_ambiguous_local_registry_matches(
+    *,
+    selector_name: str,
+    selector_value: str,
+    resolution_kind: str,
+    matches: Sequence[LiveAgentRegistryRecordV2],
+) -> str:
+    """Format one explicit local-registry ambiguity error."""
+
+    candidate_lines = "\n".join(
+        (
+            f"- agent_id={record.agent_id} "
+            f"agent_name={record.agent_name} "
+            f"tmux_session_name={record.terminal.session_name}"
+        )
+        for record in matches
+    )
+    return (
+        f"Local managed-agent resolution is ambiguous for {selector_name} `{selector_value}` "
+        f"({resolution_kind}).\nCandidates:\n{candidate_lines}\n"
+        "Retry with `--agent-id <id>`."
     )
 
 
@@ -687,18 +777,23 @@ def headless_turn_artifact_text(
 def _list_registry_identities() -> list[HoumaoManagedAgentIdentity]:
     """Return current fresh registry identities."""
 
+    return [_identity_from_record(record) for record in _list_registry_records()]
+
+
+def _list_registry_records() -> list[LiveAgentRegistryRecordV2]:
+    """Return current fresh shared-registry records."""
+
     paths = global_registry_paths()
     if not paths.live_agents_dir.exists():
         return []
-    identities: list[HoumaoManagedAgentIdentity] = []
+    records: list[LiveAgentRegistryRecordV2] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
         if not candidate.is_dir():
             continue
         record = resolve_live_agent_record_by_agent_id(candidate.name)
-        if record is None:
-            continue
-        identities.append(_identity_from_record(record))
-    return identities
+        if record is not None:
+            records.append(record)
+    return records
 
 
 def _identity_merge_key(identity: HoumaoManagedAgentIdentity) -> str:

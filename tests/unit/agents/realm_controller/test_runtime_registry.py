@@ -147,12 +147,12 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         runtime_root=runtime_root,
         backend="claude_headless",
         working_directory=tmp_path,
-        agent_identity="gpu",
+        agent_name="gpu",
     )
 
     started_record = resolve_live_agent_record("gpu")
     assert started_record is not None
-    assert started_record.agent_name == "AGENTSYS-gpu"
+    assert started_record.agent_name == "gpu"
     assert started_record.generation_id == controller.registry_generation_id
     assert started_record.gateway is not None
 
@@ -161,7 +161,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert persisted["registry_launch_authority"] == "runtime"
 
     controller.send_prompt("hello")
-    refreshed_record = resolve_live_agent_record("AGENTSYS-gpu")
+    refreshed_record = resolve_live_agent_record("gpu")
     assert refreshed_record is not None
     assert refreshed_record.generation_id == controller.registry_generation_id
 
@@ -215,7 +215,7 @@ def test_external_launch_authority_defers_runtime_publish_but_stop_clears_regist
         runtime_root=runtime_root,
         backend="claude_headless",
         working_directory=tmp_path,
-        agent_identity="gpu",
+        agent_name="gpu",
         registry_launch_authority="external",
     )
 
@@ -272,7 +272,7 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
         runtime_root=runtime_root,
         backend="claude_headless",
         working_directory=tmp_path,
-        agent_identity="gpu",
+        agent_name="gpu",
     )
     monkeypatch.setattr(
         controller,
@@ -321,7 +321,7 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
         runtime_root=runtime_root,
         backend="claude_headless",
         working_directory=tmp_path,
-        agent_identity="gpu",
+        agent_name="gpu",
     )
     monkeypatch.setattr(
         controller,
@@ -423,7 +423,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         runtime_root=runtime_root,
         backend="claude_headless",
         working_directory=tmp_path,
-        agent_identity="gpu",
+        agent_name="gpu",
     )
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
     assert paths is not None

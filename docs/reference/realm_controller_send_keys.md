@@ -1,6 +1,6 @@
 # Realm Controller `send-keys`
 
-`send-keys` is the raw control-input command for resumed `backend=cao_rest` runtime sessions. It exists for interactive TUI situations where `send-prompt` is the wrong abstraction, such as slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
+`send-keys` is the raw control-input command for resumed runtime sessions when the backend exposes low-level terminal control, including `backend=local_interactive` and `backend=cao_rest`. It exists for interactive TUI situations where `send-prompt` is the wrong abstraction, such as slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
 
 ## When To Use `send-keys`
 
@@ -21,10 +21,15 @@ Use `send-prompt` instead when you want normal prompt-turn behavior:
 - advance persisted prompt-turn state
 - collect normal `SessionEvent` turn output
 
+For `local_interactive`, the distinction is now explicit:
+
+- `send-prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
+- `send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
+
 ## Scope And Output
 
-- Initial support is intentionally limited to resumed `backend=cao_rest` sessions.
-- Non-CAO backends return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
+- Current support includes resumed `backend=local_interactive` and `backend=cao_rest` sessions.
+- Backends without raw control-input support still return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
 - The runtime routes this path through the advanced backend method `send_input_ex()`.
 - The CLI returns one JSON `SessionControlResult` object and does not stream prompt-turn events.
 
@@ -156,12 +161,14 @@ Delivery rules:
 - exact special-key tokens are sent with normal `tmux send-keys`
 - submit behavior only happens when the caller explicitly includes `<[Enter]>`
 
-That means these two commands are different:
+That means these commands stay meaningfully different:
 
 - `--sequence '/model'`
   This types `/model` and stops.
 - `--sequence '/model<[Enter]>'`
   This types `/model` and then presses `Enter`.
+- `send-prompt --prompt '/model<[Enter]>'`
+  This submits the literal text `/model<[Enter]>` as one semantic prompt turn.
 
 ## Tmux Target Resolution
 
