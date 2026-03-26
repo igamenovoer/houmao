@@ -54,7 +54,7 @@ For pair-managed terminal sessions, the supported public CLI is `houmao-mgr agen
 Explicit target mode:
 
 ```bash
-houmao-mgr agents gateway attach cao-gpu --port 9889
+houmao-mgr agents gateway attach --agent-name cao-gpu --port 9889
 ```
 
 Current-session mode:
@@ -73,7 +73,7 @@ Current-session mode must run inside the target tmux session and validates all o
 
 Important boundary:
 
-- `--port` is only valid with explicit `<agent-ref>` attach
+- `--port` is only valid with explicit `--agent-name` or `--agent-id` attach
 - current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 

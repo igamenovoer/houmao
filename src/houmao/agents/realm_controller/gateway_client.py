@@ -12,6 +12,8 @@ from pydantic import BaseModel, ValidationError
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
     GatewayHealthResponseV1,
     GatewayHost,
@@ -159,6 +161,19 @@ class GatewayClient:
             "/v1/control/tui/note-prompt",
             HoumaoTerminalStateResponse,
             body={"prompt": prompt},
+        )
+
+    def send_control_input(
+        self,
+        payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Call `POST /v1/control/send-keys`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/send-keys",
+            GatewayControlInputResultV1,
+            body=payload.model_dump(mode="json"),
         )
 
     def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:

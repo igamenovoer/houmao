@@ -33,13 +33,13 @@ Representative usage:
 ```bash
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
-AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
+AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
-houmao-mgr agents launch --agents gpu-kernel-coder --provider codex --headless
-houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code
-houmao-mgr agents prompt AGENTSYS-gpu --prompt "Summarize the current state."
-houmao-mgr agents gateway attach AGENTSYS-gpu
+houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex --headless
+houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
+houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state."
+houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
 houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
 houmao-mgr admin cleanup-registry --grace-seconds 0
@@ -103,7 +103,7 @@ Authority is split intentionally:
 - `brains build` is a local brain-construction wrapper
 - `admin cleanup-registry` is local shared-registry maintenance
 
-For ordinary prompt submission, `houmao-mgr agents prompt <agent-ref> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt <agent-ref> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter.
+For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
 
 ## Pair-Managed Gateway Attach
 
@@ -111,7 +111,8 @@ For pair-managed terminal sessions, the supported public attach command is `houm
 
 Supported modes:
 
-- explicit target mode: `houmao-mgr agents gateway attach <agent-ref> --port <public-port>`
+- explicit target mode: `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>`
+- exact-target mode: `houmao-mgr agents gateway attach --agent-id <authoritative-id> --port <public-port>`
 - current-session mode: run `houmao-mgr agents gateway attach` from inside the tmux session that owns the managed agent
 
 Current-session mode is intentionally strict:

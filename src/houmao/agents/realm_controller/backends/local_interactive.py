@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 import time
 from pathlib import Path
@@ -18,8 +19,10 @@ from .tmux_runtime import (
     capture_tmux_pane as capture_tmux_pane_shared,
     headless_agent_pane_target as headless_agent_pane_target_shared,
     kill_tmux_session as kill_tmux_session_shared,
+    load_tmux_buffer as load_tmux_buffer_shared,
     list_tmux_panes as list_tmux_panes_shared,
     parse_tmux_control_input as parse_tmux_control_input_shared,
+    paste_tmux_buffer as paste_tmux_buffer_shared,
     prepare_headless_agent_window as prepare_headless_agent_window_shared,
     run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
@@ -31,6 +34,7 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "codex": ("codex",),
     "gemini": ("gemini",),
 }
+_POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 
 
 class LocalInteractiveSession(HeadlessInteractiveSession):
@@ -82,9 +86,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             and self._plan.role_injection.method == "bootstrap_message"
             and self._plan.role_injection.bootstrap_message
         ):
-            self._send_literal_with_enter(self._plan.role_injection.bootstrap_message)
+            self._submit_semantic_prompt(self._plan.role_injection.bootstrap_message)
             self._state.role_bootstrap_applied = True
-        self._send_literal_with_enter(prompt)
+        self._submit_semantic_prompt(prompt)
         self._state.turn_index += 1
         return [
             SessionEvent(
@@ -230,27 +234,40 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         if self._plan.role_injection.method != "bootstrap_message" or not bootstrap:
             return
         time.sleep(0.2)
-        self._send_literal_with_enter(bootstrap)
+        self._submit_semantic_prompt(bootstrap)
         self._state.role_bootstrap_applied = True
 
-    def _send_literal_with_enter(self, text: str) -> None:
+    def _submit_semantic_prompt(self, text: str) -> None:
+        """Paste literal prompt text and submit it as a separate tmux phase."""
+
+        session_name = self._require_tmux_session_name()
+        pane_target = headless_agent_pane_target_shared(session_name=session_name)
+        buffer_name = self._prompt_buffer_name(session_name)
         try:
+            load_tmux_buffer_shared(buffer_name=buffer_name, text=text)
+            paste_tmux_buffer_shared(
+                target=pane_target,
+                buffer_name=buffer_name,
+                bracketed_paste=True,
+            )
+            time.sleep(_POST_PASTE_SUBMIT_DELAY_SECONDS)
             send_tmux_control_input_shared(
-                target=headless_agent_pane_target_shared(
-                    session_name=self._require_tmux_session_name()
-                ),
-                segments=(
-                    *parse_tmux_control_input_shared(
-                        sequence=text,
-                        escape_special_keys=True,
-                    ),
-                    *parse_tmux_control_input_shared(sequence="<[Enter]>"),
-                ),
+                target=pane_target,
+                segments=parse_tmux_control_input_shared(sequence="<[Enter]>"),
             )
         except (TmuxCommandError, TmuxControlInputError) as exc:
             raise BackendExecutionError(
-                f"Failed to send input to local interactive session: {exc}"
+                f"Failed to submit prompt to local interactive session: {exc}"
             ) from exc
+
+    def _prompt_buffer_name(self, session_name: str) -> str:
+        """Return the stable tmux buffer name used for semantic prompt submission."""
+
+        digest = hashlib.md5(
+            session_name.encode("utf-8"),
+            usedforsecurity=False,
+        ).hexdigest()[:16]
+        return f"houmao-submit-prompt-{digest}"
 
     def _wait_for_provider_tui(
         self,

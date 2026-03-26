@@ -12,8 +12,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
     prepare_headless_agent_window,
     has_tmux_session,
+    load_tmux_buffer,
     list_tmux_panes,
     list_tmux_sessions,
+    paste_tmux_buffer,
     read_tmux_session_environment_value,
     set_tmux_session_environment,
     show_tmux_environment,
@@ -261,3 +263,68 @@ def test_capture_tmux_pane_surfaces_tmux_error(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(TmuxCommandError, match="can't find pane"):
         capture_tmux_pane(target="%9")
+
+
+def test_load_tmux_buffer_builds_expected_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        input: str,
+    ) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        captured["check"] = check
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        captured["input"] = input
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    load_tmux_buffer(buffer_name="houmao-buffer", text="hello\nworld")
+
+    assert captured == {
+        "cmd": ["tmux", "load-buffer", "-b", "houmao-buffer", "-"],
+        "check": False,
+        "capture_output": True,
+        "text": True,
+        "input": "hello\nworld",
+    }
+
+
+def test_paste_tmux_buffer_requests_bracketed_paste(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[str] = []
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        captured[:] = cmd
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    paste_tmux_buffer(
+        target="AGENTSYS-gpu:0.0",
+        buffer_name="houmao-buffer",
+        bracketed_paste=True,
+    )
+
+    assert captured == [
+        "tmux",
+        "paste-buffer",
+        "-p",
+        "-b",
+        "houmao-buffer",
+        "-t",
+        "AGENTSYS-gpu:0.0",
+    ]

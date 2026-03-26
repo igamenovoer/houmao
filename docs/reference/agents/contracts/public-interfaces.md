@@ -79,7 +79,7 @@ Publicly relevant details:
 Pair-managed note:
 
 - `attach-gateway` remains the repo runtime command surface, but the supported public pair command for `houmao_server_rest` is `houmao-mgr agents gateway attach`
-- explicit pair attach resolves `<agent-ref>` through the managed-agent alias space on `houmao-server`
+- explicit pair attach resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract on `houmao-server`
 - current-session pair attach validates the tmux-published attach contract and uses its persisted `api_base_url` plus `session_name` as the only route target
 - for pair-managed sessions, tmux window `0` remains the contractual agent surface while live gateway auxiliary windows are implementation detail except for the exact handle recorded in `gateway/run/current-instance.json`
 

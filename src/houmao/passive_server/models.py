@@ -38,3 +38,33 @@ class PassiveShutdownResponse(_PassiveModel):
     """Shutdown acknowledgement response."""
 
     status: Literal["ok"] = "ok"
+
+
+class DiscoveredAgentSummary(_PassiveModel):
+    """Projection of one discovered agent from the registry."""
+
+    agent_id: str
+    agent_name: str
+    generation_id: str
+    tool: str
+    backend: str
+    tmux_session_name: str
+    manifest_path: str
+    session_root: str
+    has_gateway: bool
+    has_mailbox: bool
+    published_at: str
+    lease_expires_at: str
+
+
+class DiscoveredAgentListResponse(_PassiveModel):
+    """Response for ``GET /houmao/agents``."""
+
+    agents: list[DiscoveredAgentSummary] = Field(default_factory=list)
+
+
+class DiscoveredAgentConflictResponse(_PassiveModel):
+    """Response for 409 ambiguous agent name resolution."""
+
+    detail: str
+    agent_ids: list[str]

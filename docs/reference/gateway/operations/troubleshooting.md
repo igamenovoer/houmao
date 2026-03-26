@@ -15,7 +15,7 @@ Check:
 If you need to attach before current-session metadata is available, use explicit pair attach instead:
 
 ```bash
-houmao-mgr agents gateway attach <agent-ref> --port <public-port>
+houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>
 ```
 
 ## Current-Session Attach Reports Stale Metadata
@@ -31,7 +31,7 @@ Typical causes:
 Operator guidance:
 
 - treat the session as stale rather than trying to patch the env by hand
-- relaunch the pair-managed session or use explicit `<agent-ref>` attach against the server if the managed-agent registration is still valid
+- relaunch the pair-managed session or use explicit `--agent-name` or exact `--agent-id` attach against the server if the managed-agent registration is still valid
 
 ## Current-Session Attach Returns Unknown Managed Agent
 

@@ -33,7 +33,8 @@ from houmao.agents.mailbox_runtime_support import (
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
-    normalize_agent_identity_name,
+    normalize_managed_agent_id,
+    normalize_managed_agent_name,
 )
 
 _AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
@@ -716,17 +717,22 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     if request.mailbox is not None:
         manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
     if request.agent_name is not None or request.agent_id is not None:
-        canonical_agent_name = (
-            normalize_agent_identity_name(request.agent_name).canonical_name
+        managed_agent_name = (
+            normalize_managed_agent_name(request.agent_name)
             if request.agent_name is not None
             else None
         )
+        managed_agent_id = (
+            normalize_managed_agent_id(request.agent_id)
+            if request.agent_id is not None
+            else None
+        )
         manifest["identity"] = {
-            "canonical_agent_name": canonical_agent_name,
-            "agent_id": request.agent_id
+            "canonical_agent_name": managed_agent_name,
+            "agent_id": managed_agent_id
             or (
-                derive_agent_id_from_name(canonical_agent_name)
-                if canonical_agent_name is not None
+                derive_agent_id_from_name(managed_agent_name)
+                if managed_agent_name is not None
                 else None
             ),
         }

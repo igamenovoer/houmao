@@ -36,6 +36,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachContractV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayConnectivityState,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
     GatewayHeadlessControlStateV1,
@@ -196,6 +198,9 @@ class GatewayExecutionAdapter(Protocol):
     def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt to the addressed managed target."""
 
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Deliver one raw control-input sequence to the addressed managed target."""
+
     def interrupt(self) -> None:
         """Interrupt the addressed managed target."""
 
@@ -256,6 +261,15 @@ class _RestBackedGatewayAdapter:
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
             raise GatewayError("CAO prompt submission returned success=false.")
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Reject raw send-keys because REST-backed gateways lack tmux key semantics."""
+
+        del sequence, escape_special_keys
+        raise GatewayError(
+            "Raw control input is unsupported for REST-backed gateway targets because the "
+            "gateway cannot preserve exact tmux `<[key-name]>` semantics on that path."
+        )
 
     def interrupt(self) -> None:
         """Interrupt the current runtime-owned terminal."""
@@ -388,6 +402,18 @@ class _LocalHeadlessGatewayAdapter:
         if result.status != "ok":
             raise GatewayError(result.detail)
 
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Deliver raw control input through resumed local runtime control."""
+
+        self._require_live_tmux_session()
+        result = self._resume_controller().send_input_ex(
+            sequence,
+            escape_special_keys=escape_special_keys,
+        )
+        if result.status != "ok":
+            raise GatewayError(result.detail)
+        return result.detail
+
     def _resume_controller(self) -> RuntimeSessionController:
         """Return the resumed local runtime controller, materializing it lazily."""
 
@@ -492,6 +518,14 @@ class _ServerManagedHeadlessGatewayAdapter:
         self.m_client.submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentInterruptRequest(),
+        )
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Reject raw send-keys for server-managed headless routes."""
+
+        del sequence, escape_special_keys
+        raise GatewayError(
+            "Raw control input is unsupported for server-managed headless gateway targets."
         )
 
 
@@ -786,6 +820,44 @@ class GatewayServiceRuntime:
                 queue_depth=status.queue_depth,
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
+
+    def send_control_input(
+        self,
+        request_payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Deliver one raw control-input sequence without queueing prompt work."""
+
+        with self.m_lock:
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            if status.request_admission == "blocked_reconciliation":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway admission is blocked pending managed-agent reconciliation.",
+                )
+            if status.request_admission != "open":
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gateway admission is blocked because the managed agent is unavailable.",
+                )
+
+        try:
+            detail = self.m_adapter.send_control_input(
+                sequence=request_payload.sequence,
+                escape_special_keys=request_payload.escape_special_keys,
+            )
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_input",
+                "escape_special_keys": request_payload.escape_special_keys,
+                "sequence_preview": request_payload.sequence[:120],
+                "submitted_at_utc": now_utc_iso(),
+            },
+        )
+        return GatewayControlInputResultV1(detail=detail)
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -1865,6 +1937,14 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Record explicit-input evidence in the gateway-owned tracker."""
 
         return runtime.note_tui_prompt_submission(prompt=request_payload.prompt)
+
+    @app.post("/v1/control/send-keys", response_model=GatewayControlInputResultV1)
+    def _send_control_input(
+        request_payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Deliver raw control input through the dedicated non-queued surface."""
+
+        return runtime.send_control_input(request_payload)
 
     @app.get("/v1/control/headless/state", response_model=GatewayHeadlessControlStateV1)
     def _headless_state() -> GatewayHeadlessControlStateV1:

@@ -28,6 +28,10 @@ class TestDefaults:
         config = PassiveServerConfig()
         assert config.public_host == "127.0.0.1"
 
+    def test_default_discovery_poll_interval(self) -> None:
+        config = PassiveServerConfig()
+        assert config.discovery_poll_interval_seconds == 5.0
+
 
 class TestNormalization:
     """URL normalization and path resolution."""
@@ -39,6 +43,18 @@ class TestNormalization:
     def test_invalid_scheme_rejected(self) -> None:
         with pytest.raises(ValueError, match="scheme"):
             PassiveServerConfig(api_base_url="ftp://localhost:9891")
+
+    def test_custom_discovery_poll_interval(self) -> None:
+        config = PassiveServerConfig(discovery_poll_interval_seconds=2.0)
+        assert config.discovery_poll_interval_seconds == 2.0
+
+    def test_non_positive_discovery_poll_interval_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            PassiveServerConfig(discovery_poll_interval_seconds=0.0)
+
+    def test_negative_discovery_poll_interval_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            PassiveServerConfig(discovery_poll_interval_seconds=-1.0)
 
     def test_runtime_root_resolved_to_absolute(self, tmp_path: Path) -> None:
         config = PassiveServerConfig(runtime_root=tmp_path / "relative" / "..")

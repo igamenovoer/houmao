@@ -24,8 +24,10 @@ from houmao.agents.realm_controller.gateway_storage import (
 
 from ..common import (
     emit_json,
+    managed_agent_selector_options,
     pair_port_option,
     require_supported_houmao_pair,
+    resolve_managed_agent_selector,
     resolve_managed_agent_identity,
     resolve_prompt_text,
 )
@@ -45,40 +47,53 @@ def gateway_group() -> None:
 
 
 @gateway_group.command(name="attach")
-@click.argument("agent_ref", required=False)
 @pair_port_option(help_text="Houmao server port override for explicit attach")
-def attach_gateway_command(agent_ref: str | None, port: int | None) -> None:
+@managed_agent_selector_options
+def attach_gateway_command(
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
     """Attach or reuse a live gateway for one managed agent, including serverless local TUIs."""
 
-    if agent_ref is None:
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        allow_missing=True,
+    )
+    if selected_agent_id is None and selected_agent_name is None:
         if port is not None:
             raise click.ClickException(
-                "`--port` is only supported with an explicit `<agent-ref>` attach target."
+                "`--port` is only supported with an explicit `--agent-id` or `--agent-name` attach target."
             )
         emit_json(_attach_current_session())
         return
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=selected_agent_id,
+        agent_name=selected_agent_name,
+        port=port,
+    )
     emit_json(attach_gateway(target))
 
 
 @gateway_group.command(name="detach")
 @pair_port_option()
-@click.argument("agent_ref")
-def detach_gateway_command(port: int | None, agent_ref: str) -> None:
+@managed_agent_selector_options
+def detach_gateway_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Detach the live gateway for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(detach_gateway(target))
 
 
 @gateway_group.command(name="status")
 @pair_port_option()
-@click.argument("agent_ref")
-def status_gateway_command(port: int | None, agent_ref: str) -> None:
+@managed_agent_selector_options
+def status_gateway_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Show live gateway status for one managed agent, including serverless local TUIs."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(gateway_status(target))
 
 
@@ -89,21 +104,30 @@ def status_gateway_command(port: int | None, agent_ref: str) -> None:
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
 @pair_port_option(help_text="Houmao server port override for explicit gateway prompt")
-@click.argument("agent_ref")
-def prompt_gateway_command(port: int | None, prompt: str | None, agent_ref: str) -> None:
+@managed_agent_selector_options
+def prompt_gateway_command(
+    port: int | None,
+    prompt: str | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
     """Submit the explicit gateway-mediated prompt path for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @gateway_group.command(name="interrupt")
 @pair_port_option()
-@click.argument("agent_ref")
-def interrupt_gateway_command(port: int | None, agent_ref: str) -> None:
+@managed_agent_selector_options
+def interrupt_gateway_command(
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
     """Submit the explicit gateway-mediated interrupt path for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_ref=agent_ref, port=port)
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(gateway_interrupt(target))
 
 

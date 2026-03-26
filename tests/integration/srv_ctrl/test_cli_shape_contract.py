@@ -393,7 +393,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-gpu",
+        lambda *, session_name: session_name.startswith("gpu-"),
     )
 
     runner = CliRunner()
@@ -405,6 +405,8 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
             "launch",
             "--agents",
             "gpu",
+            "--agent-name",
+            "gpu",
             "--provider",
             "claude_code",
             "--headless",
@@ -414,25 +416,25 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
 
     assert launch_result.exit_code == 0, launch_result.output
     assert "Managed agent launch complete:" in launch_result.output
-    assert resolve_live_agent_record("AGENTSYS-gpu") is not None
+    assert resolve_live_agent_record("gpu") is not None
 
     list_result = runner.invoke(cli, ["agents", "list"])
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
-    assert [item["agent_name"] for item in list_payload["agents"]] == ["AGENTSYS-gpu"]
+    assert [item["agent_name"] for item in list_payload["agents"]] == ["gpu"]
 
-    state_result = runner.invoke(cli, ["agents", "state", "AGENTSYS-gpu"])
+    state_result = runner.invoke(cli, ["agents", "state", "--agent-name", "gpu"])
     assert state_result.exit_code == 0, state_result.output
     state_payload = json.loads(state_result.output)
     assert state_payload["identity"]["transport"] == "headless"
-    assert state_payload["identity"]["agent_name"] == "AGENTSYS-gpu"
+    assert state_payload["identity"]["agent_name"] == "gpu"
     assert state_payload["availability"] == "available"
 
-    stop_result = runner.invoke(cli, ["agents", "stop", "AGENTSYS-gpu"])
+    stop_result = runner.invoke(cli, ["agents", "stop", "--agent-name", "gpu"])
     assert stop_result.exit_code == 0, stop_result.output
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True
-    assert resolve_live_agent_record("AGENTSYS-gpu") is None
+    assert resolve_live_agent_record("gpu") is None
 
 
 def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_control(
@@ -482,6 +484,8 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
             "launch",
             "--agents",
             "gpu",
+            "--agent-name",
+            "gpu",
             "--provider",
             "claude_code",
             "--yolo",
@@ -490,22 +494,22 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
 
     assert launch_result.exit_code == 0, launch_result.output
     assert "Managed agent launch complete:" in launch_result.output
-    record = resolve_live_agent_record("AGENTSYS-gpu")
+    record = resolve_live_agent_record("gpu")
     assert record is not None
     assert record.identity.backend == "local_interactive"
 
-    state_result = runner.invoke(cli, ["agents", "state", "AGENTSYS-gpu"])
+    state_result = runner.invoke(cli, ["agents", "state", "--agent-name", "gpu"])
     assert state_result.exit_code == 0, state_result.output
     state_payload = json.loads(state_result.output)
     assert state_payload["identity"]["transport"] == "tui"
     assert state_payload["identity"]["terminal_id"] == "abcd1234"
     assert state_payload["availability"] == "available"
 
-    stop_result = runner.invoke(cli, ["agents", "stop", "AGENTSYS-gpu"])
+    stop_result = runner.invoke(cli, ["agents", "stop", "--agent-name", "gpu"])
     assert stop_result.exit_code == 0, stop_result.output
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True
-    assert resolve_live_agent_record("AGENTSYS-gpu") is None
+    assert resolve_live_agent_record("gpu") is None
 
 
 def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(

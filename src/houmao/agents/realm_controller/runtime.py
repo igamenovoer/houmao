@@ -27,6 +27,8 @@ from .agent_identity import (
     derive_agent_id_from_name,
     derive_tmux_session_name,
     is_path_like_agent_identity,
+    normalize_managed_agent_id,
+    normalize_managed_agent_name,
     normalize_agent_identity_name,
 )
 from .backends.cao_rest import (
@@ -645,6 +647,7 @@ def start_runtime_session(
     api_base_url: str = "http://localhost:9889",
     cao_profile_store_dir: Path | None = None,
     agent_identity: str | None = None,
+    agent_name: str | None = None,
     agent_id: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
     mailbox_transport: str | None = None,
@@ -701,6 +704,7 @@ def start_runtime_session(
             manifest=manifest,
             tool=tool,
             role_name=role_package.role_name,
+            requested_agent_name=agent_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
         )
@@ -716,10 +720,10 @@ def start_runtime_session(
                 f"`{existing_record.agent_name}` and is now starting as "
                 f"`{resolved_runtime_identity.canonical_agent_name}`",
             )
-    elif agent_identity is not None or agent_id is not None:
+    elif agent_identity is not None or agent_name is not None or agent_id is not None:
         raise SessionManifestError(
-            "start-session --agent-identity/--agent-id are only supported for tmux-backed "
-            f"backends: {sorted(_TMUX_BACKED_BACKENDS)}."
+            "start-session --agent-identity/--agent-name/--agent-id are only supported for "
+            f"tmux-backed backends: {sorted(_TMUX_BACKED_BACKENDS)}."
         )
 
     try:
@@ -1514,6 +1518,7 @@ def _resolve_start_session_identity(
     manifest: dict[str, object],
     tool: str,
     role_name: str,
+    requested_agent_name: str | None = None,
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
 ) -> ResolvedRuntimeIdentity:
@@ -1522,6 +1527,10 @@ def _resolve_start_session_identity(
     built_identity = _built_manifest_identity(manifest)
     warnings: list[str] = []
 
+    if requested_agent_name is not None and requested_agent_identity is not None:
+        raise SessionManifestError(
+            "start-session does not allow both --agent-name and --agent-identity."
+        )
     if requested_agent_identity is not None and is_path_like_agent_identity(
         requested_agent_identity
     ):
@@ -1529,7 +1538,9 @@ def _resolve_start_session_identity(
             "start-session --agent-identity must be a canonical agent name, not a manifest path."
         )
 
-    if requested_agent_identity is not None:
+    if requested_agent_name is not None:
+        canonical_agent_name = normalize_managed_agent_name(requested_agent_name)
+    elif requested_agent_identity is not None:
         normalized = normalize_agent_identity_name(requested_agent_identity)
         canonical_agent_name = normalized.canonical_name
         warnings.extend(normalized.warnings)
@@ -1540,9 +1551,7 @@ def _resolve_start_session_identity(
 
     stripped_requested_agent_id = None
     if requested_agent_id is not None:
-        stripped_requested_agent_id = requested_agent_id.strip()
-        if not stripped_requested_agent_id:
-            raise SessionManifestError("start-session --agent-id must not be blank.")
+        stripped_requested_agent_id = normalize_managed_agent_id(requested_agent_id)
 
     persisted_agent_id = built_identity[1]
     agent_id = (
@@ -1593,12 +1602,12 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
     raw_agent_name = raw_identity.get("canonical_agent_name")
     agent_name = None
     if isinstance(raw_agent_name, str) and raw_agent_name.strip():
-        agent_name = normalize_agent_identity_name(raw_agent_name).canonical_name
+        agent_name = normalize_managed_agent_name(raw_agent_name)
 
     raw_agent_id = raw_identity.get("agent_id")
-    agent_id = (
-        raw_agent_id.strip() if isinstance(raw_agent_id, str) and raw_agent_id.strip() else None
-    )
+    agent_id = None
+    if isinstance(raw_agent_id, str) and raw_agent_id.strip():
+        agent_id = normalize_managed_agent_id(raw_agent_id)
     return agent_name, agent_id
 
 

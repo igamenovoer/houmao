@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
@@ -14,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from .agent_identity import normalize_agent_identity_name
+from .agent_identity import normalize_managed_agent_id, normalize_managed_agent_name
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
@@ -25,7 +24,6 @@ RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
 JsonObject: TypeAlias = dict[str, JsonValue]
-_SAFE_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {
         "local_interactive",
@@ -444,16 +442,19 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
 
         if self.agent_name is not None:
             try:
-                canonical_agent_name = normalize_agent_identity_name(self.agent_name).canonical_name
+                normalized_agent_name = normalize_managed_agent_name(self.agent_name)
             except SessionManifestError as exc:
                 raise ValueError(str(exc)) from exc
-            if canonical_agent_name != self.agent_name:
-                raise ValueError("agent_name must use canonical `AGENTSYS-...` form")
+            if normalized_agent_name != self.agent_name:
+                raise ValueError("agent_name must not include leading or trailing whitespace")
 
-        if self.agent_id is not None and not _SAFE_AGENT_ID_RE.fullmatch(self.agent_id):
-            raise ValueError(
-                "agent_id must use a safe filesystem component form ([A-Za-z0-9][A-Za-z0-9._-]*)"
-            )
+        if self.agent_id is not None:
+            try:
+                normalized_agent_id = normalize_managed_agent_id(self.agent_id)
+            except SessionManifestError as exc:
+                raise ValueError(str(exc)) from exc
+            if normalized_agent_id != self.agent_id:
+                raise ValueError("agent_id must not include leading or trailing whitespace")
 
         expects_tmux_identity = self.backend in _TMUX_BACKED_BACKENDS
         identity_fields = (
