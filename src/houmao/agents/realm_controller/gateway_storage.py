@@ -223,17 +223,6 @@ def ensure_gateway_capability(
     if not paths.events_path.exists():
         _write_text(paths.events_path, "")
 
-    attach_contract = build_attach_contract(request=request)
-    attach_contract = _preserve_existing_headless_managed_metadata(
-        paths=paths,
-        attach_contract=attach_contract,
-    )
-    write_attach_contract(paths.attach_path, attach_contract)
-    write_gateway_manifest(
-        paths.gateway_manifest_path,
-        build_gateway_manifest(attach_contract=attach_contract),
-    )
-
     desired_defaults = GatewayDesiredConfigV1(
         desired_host=request.blueprint_gateway_defaults.host
         if request.blueprint_gateway_defaults is not None
@@ -256,10 +245,232 @@ def ensure_gateway_capability(
         )
     write_gateway_desired_config(paths.desired_config_path, desired_defaults)
 
+    attach_contract = refresh_internal_gateway_publication(
+        paths,
+        publication_request=request,
+    )
+
     status = _status_to_seed(paths=paths, attach_contract=attach_contract)
     if status is not None:
         write_gateway_status(paths.state_path, status)
     return paths
+
+
+def resolve_internal_gateway_attach_contract(
+    paths: GatewayPaths,
+    *,
+    publication_request: GatewayCapabilityPublication | None = None,
+) -> GatewayAttachContractV1:
+    """Resolve the internal attach contract from manifest-backed authority.
+
+    The supported runtime contract is manifest-first. `attach.json` remains an
+    internal derived artifact, so this helper rebuilds attach metadata from
+    `manifest.json` and only falls back to the capability-publication request
+    during bootstrap or fixture seeding when no valid manifest exists yet.
+    """
+
+    desired_config = (
+        load_gateway_desired_config(paths.desired_config_path)
+        if paths.desired_config_path.is_file()
+        else None
+    )
+    existing_contract = _load_optional_attach_contract(paths.attach_path)
+
+    try:
+        return _build_manifest_backed_attach_contract(
+            paths=paths,
+            desired_config=desired_config,
+            existing_contract=existing_contract,
+        )
+    except SessionManifestError:
+        if publication_request is None:
+            raise
+        attach_contract = build_attach_contract(request=publication_request)
+        return _preserve_existing_headless_managed_metadata(
+            paths=paths,
+            attach_contract=attach_contract,
+        )
+
+
+def refresh_internal_gateway_publication(
+    paths: GatewayPaths,
+    *,
+    publication_request: GatewayCapabilityPublication | None = None,
+) -> GatewayAttachContractV1:
+    """Refresh internal attach and public gateway bookkeeping from manifest authority."""
+
+    attach_contract = resolve_internal_gateway_attach_contract(
+        paths,
+        publication_request=publication_request,
+    )
+    write_attach_contract(paths.attach_path, attach_contract)
+    try:
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        current_instance = None
+    write_gateway_manifest(
+        paths.gateway_manifest_path,
+        build_gateway_manifest(
+            attach_contract=attach_contract,
+            current_instance=current_instance,
+        ),
+    )
+    return attach_contract
+
+
+def _build_manifest_backed_attach_contract(
+    *,
+    paths: GatewayPaths,
+    desired_config: GatewayDesiredConfigV1 | None,
+    existing_contract: GatewayAttachContractV1 | None,
+) -> GatewayAttachContractV1:
+    """Build the internal attach contract directly from manifest authority."""
+
+    handle = load_session_manifest(paths.session_root / "manifest.json")
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    authority = resolve_manifest_session_authority(
+        manifest_path=handle.path,
+        payload=payload,
+    )
+
+    tmux_session_name = authority.tmux_session_name
+    if tmux_session_name is None:
+        raise SessionManifestError(
+            f"Manifest `{handle.path}` is missing tmux-backed session authority."
+        )
+
+    desired_host = (
+        desired_config.desired_host
+        if desired_config is not None and desired_config.desired_host is not None
+        else (existing_contract.desired_host if existing_contract is not None else None)
+    )
+    desired_port = (
+        desired_config.desired_port
+        if desired_config is not None and desired_config.desired_port is not None
+        else (existing_contract.desired_port if existing_contract is not None else None)
+    )
+
+    return GatewayAttachContractV1(
+        attach_identity=_manifest_attach_identity(payload=payload, manifest_path=handle.path),
+        backend=payload.backend,
+        tmux_session_name=tmux_session_name,
+        working_directory=(
+            payload.interactive.working_directory
+            if payload.interactive is not None and payload.interactive.working_directory is not None
+            else payload.working_directory
+        ),
+        backend_metadata=_manifest_backed_attach_backend_metadata(
+            backend=payload.backend,
+            tool=payload.tool,
+            runtime_session_id=payload.runtime.session_id,
+            authority=authority,
+        ),
+        manifest_path=str(handle.path.resolve()),
+        agent_def_dir=payload.runtime.agent_def_dir,
+        runtime_session_id=payload.runtime.session_id,
+        desired_host=desired_host,
+        desired_port=desired_port,
+    )
+
+
+def _manifest_attach_identity(*, payload: object, manifest_path: Path) -> str:
+    """Return the stable internal attach identity for one parsed manifest."""
+
+    runtime = getattr(payload, "runtime", None)
+    runtime_session_id = getattr(runtime, "session_id", None)
+    for value in (
+        runtime_session_id,
+        getattr(payload, "agent_id", None),
+        getattr(payload, "agent_name", None),
+        getattr(payload, "tmux_session_name", None),
+    ):
+        if isinstance(value, str) and value.strip():
+            return value
+    return manifest_path.parent.name
+
+
+def _manifest_backed_attach_backend_metadata(
+    *,
+    backend: BackendKind,
+    tool: str,
+    runtime_session_id: str | None,
+    authority: ManifestSessionAuthority,
+) -> (
+    GatewayAttachBackendMetadataHeadlessV1
+    | GatewayAttachBackendMetadataCaoV1
+    | GatewayAttachBackendMetadataHoumaoServerV1
+):
+    """Build strict attach backend metadata from normalized manifest authority."""
+
+    if backend == "cao_rest":
+        return GatewayAttachBackendMetadataCaoV1(
+            api_base_url=_require_gateway_manifest_value(
+                authority.attach.api_base_url,
+                field_name="gateway_authority.attach.api_base_url",
+            ),
+            terminal_id=_require_gateway_manifest_value(
+                authority.control.terminal_id,
+                field_name="gateway_authority.control.terminal_id",
+            ),
+            profile_name=_require_gateway_manifest_value(
+                authority.control.profile_name,
+                field_name="gateway_authority.control.profile_name",
+            ),
+            profile_path=_require_gateway_manifest_value(
+                authority.control.profile_path,
+                field_name="gateway_authority.control.profile_path",
+            ),
+            parsing_mode=cast(
+                CaoParsingMode,
+                _require_gateway_manifest_value(
+                    authority.control.parsing_mode,
+                    field_name="gateway_authority.control.parsing_mode",
+                ),
+            ),
+            tmux_window_name=authority.control.tmux_window_name,
+        )
+
+    if backend == "houmao_server_rest":
+        return GatewayAttachBackendMetadataHoumaoServerV1(
+            api_base_url=_require_gateway_manifest_value(
+                authority.attach.api_base_url,
+                field_name="gateway_authority.attach.api_base_url",
+            ),
+            session_name=_require_gateway_manifest_value(
+                authority.attach.managed_agent_ref,
+                field_name="gateway_authority.attach.managed_agent_ref",
+            ),
+            terminal_id=_require_gateway_manifest_value(
+                authority.control.terminal_id,
+                field_name="gateway_authority.control.terminal_id",
+            ),
+            parsing_mode=cast(
+                CaoParsingMode,
+                _require_gateway_manifest_value(
+                    authority.control.parsing_mode,
+                    field_name="gateway_authority.control.parsing_mode",
+                ),
+            ),
+            tmux_window_name=authority.control.tmux_window_name,
+        )
+
+    return GatewayAttachBackendMetadataHeadlessV1(
+        session_id=runtime_session_id,
+        tool=tool,
+        managed_api_base_url=authority.attach.api_base_url,
+        managed_agent_ref=authority.attach.managed_agent_ref,
+    )
+
+
+def _load_optional_attach_contract(path: Path) -> GatewayAttachContractV1 | None:
+    """Load one attach contract when present and valid."""
+
+    if not path.is_file():
+        return None
+    try:
+        return load_attach_contract(path)
+    except SessionManifestError:
+        return None
 
 
 def _preserve_existing_headless_managed_metadata(
@@ -634,19 +845,10 @@ def build_gateway_manifest(
 
 
 def refresh_gateway_manifest_publication(paths: GatewayPaths) -> GatewayManifestV1:
-    """Regenerate `gateway_manifest.json` from current attach and live runtime state."""
+    """Regenerate `gateway_manifest.json` from manifest-backed internal authority."""
 
-    attach_contract = load_attach_contract(paths.attach_path)
-    try:
-        current_instance = load_gateway_current_instance(paths.current_instance_path)
-    except SessionManifestError:
-        current_instance = None
-    manifest = build_gateway_manifest(
-        attach_contract=attach_contract,
-        current_instance=current_instance,
-    )
-    write_gateway_manifest(paths.gateway_manifest_path, manifest)
-    return manifest
+    refresh_internal_gateway_publication(paths)
+    return load_gateway_manifest(paths.gateway_manifest_path)
 
 
 def delete_gateway_current_instance(paths: GatewayPaths) -> None:

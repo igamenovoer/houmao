@@ -35,9 +35,11 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_status,
     read_gateway_notifier_audit_records,
     read_pid_file,
+    write_gateway_desired_config,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayDesiredConfigV1,
     GatewayMailNotifierPutV1,
     GatewayMailStateRequestV1,
 )
@@ -645,6 +647,8 @@ class _FakeCaoRequestHandler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         path_parts = parsed.path.strip("/").split("/")
+        if path_parts[:1] == ["cao"]:
+            path_parts = path_parts[1:]
         state = cast(_FakeCaoApiState, cast(_FakeCaoHttpServer, self.server).m_state)
         if len(path_parts) == 2 and path_parts[0] == "terminals":
             terminal_id = path_parts[1]
@@ -673,6 +677,8 @@ class _FakeCaoRequestHandler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         path_parts = parsed.path.strip("/").split("/")
+        if path_parts[:1] == ["cao"]:
+            path_parts = path_parts[1:]
         query = parse_qs(parsed.query)
         state = cast(_FakeCaoApiState, cast(_FakeCaoHttpServer, self.server).m_state)
         if len(path_parts) == 3 and path_parts[0] == "terminals" and path_parts[2] == "input":
@@ -776,6 +782,10 @@ def _install_gateway_runtime_fakes(
             "houmao.agents.realm_controller.runtime.CaoRestSession",
             _FakeCaoRestSession,
         )
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime.HoumaoServerRestSession",
+            _FakeCaoRestSession,
+        )
     if headless_registry is not None:
         _FakeCodexHeadlessSession.m_registry = headless_registry
         monkeypatch.setattr(
@@ -816,6 +826,18 @@ def _best_effort_cleanup_gateway(manifest_path: Path) -> None:
     except OSError:
         return
     time.sleep(0.1)
+
+
+def _force_detached_gateway_execution(manifest_path: Path) -> None:
+    """Force detached-process execution for REST-backed gateway integration tests."""
+
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    if paths is None:
+        raise AssertionError("Gateway paths could not be resolved for detached execution setup.")
+    write_gateway_desired_config(
+        paths.desired_config_path,
+        GatewayDesiredConfigV1(desired_execution_mode="detached_process"),
+    )
 
 
 def _assert_raw_cao_start_session_is_retired(
@@ -961,12 +983,12 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     assert captured_attach["execution_mode"] == "detached_process"
 
 
-def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
+def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_contract(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """Resume-time gateway status should re-publish stable attach metadata."""
+    """Between-turn headless attach should rebuild internal attach metadata from the manifest."""
 
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
@@ -979,6 +1001,22 @@ def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
         tmux_env=tmux_env,
         registry_root=tmp_path / "registry",
         headless_registry=headless_registry,
+    )
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port, execution_mode: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                    "execution_mode": execution_mode,
+                }
+            )
+            or 43123
+        ),
     )
 
     start_exit, start_payload, start_err = _run_cli_json(
@@ -1007,13 +1045,30 @@ def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
     manifest_path = Path(str(start_payload["session_manifest"]))
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
+
+    prompt_exit, prompt_events, prompt_err = _run_cli_events(
+        capsys,
+        [
+            "send-prompt",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+            "--prompt",
+            "between-turn",
+        ],
+    )
+    assert prompt_exit == 0
+    assert prompt_err == ""
+    assert prompt_events[-1]["message"] == "headless:between-turn"
+
     paths.attach_path.unlink()
     assert not paths.attach_path.exists()
 
-    status_exit, status_payload, status_err = _run_cli_json(
+    attach_exit, attach_payload, attach_err = _run_cli_json(
         capsys,
         [
-            "gateway-status",
+            "attach-gateway",
             "--agent-def-dir",
             str(agent_def_dir),
             "--agent-identity",
@@ -1021,10 +1076,14 @@ def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
         ],
     )
 
-    assert status_exit == 0
-    assert status_err == ""
-    assert status_payload["gateway_health"] == "not_attached"
+    assert attach_exit == 0
+    assert attach_err == ""
+    assert attach_payload["status"] == "ok"
+    assert attach_payload["gateway_host"] == "127.0.0.1"
+    assert attach_payload["gateway_port"] == 43123
     assert paths.attach_path.is_file()
+    assert captured_attach["host"] == "127.0.0.1"
+    assert captured_attach["port"] == 0
 
 
 def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
@@ -1170,10 +1229,10 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
                 "--role",
                 "r",
                 "--backend",
-                "cao_rest",
+                "houmao_server_rest",
                 "--workdir",
                 str(tmp_path),
-                "--cao-base-url",
+                "--houmao-base-url",
                 fake_cao.base_url,
                 "--mailbox-transport",
                 "filesystem",
@@ -1189,6 +1248,7 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
         manifest_path = Path(str(start_payload["session_manifest"]))
         paths = gateway_paths_from_manifest_path(manifest_path)
         assert paths is not None
+        _force_detached_gateway_execution(manifest_path)
 
         try:
             attach_exit, attach_payload, attach_err = _run_cli_json(
@@ -1269,10 +1329,10 @@ def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
                 "--role",
                 "r",
                 "--backend",
-                "cao_rest",
+                "houmao_server_rest",
                 "--workdir",
                 str(tmp_path),
-                "--cao-base-url",
+                "--houmao-base-url",
                 fake_cao.base_url,
                 "--mailbox-transport",
                 "filesystem",
@@ -1286,6 +1346,7 @@ def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
         assert start_err == ""
 
         manifest_path = Path(str(start_payload["session_manifest"]))
+        _force_detached_gateway_execution(manifest_path)
         try:
             attach_exit, attach_payload, attach_err = _run_cli_json(
                 capsys,
@@ -1375,10 +1436,10 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
                 "--role",
                 "r",
                 "--backend",
-                "cao_rest",
+                "houmao_server_rest",
                 "--workdir",
                 str(tmp_path),
-                "--cao-base-url",
+                "--houmao-base-url",
                 fake_cao.base_url,
                 "--mailbox-transport",
                 "filesystem",
@@ -1394,6 +1455,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
         manifest_path = Path(str(start_payload["session_manifest"]))
         paths = gateway_paths_from_manifest_path(manifest_path)
         assert paths is not None
+        _force_detached_gateway_execution(manifest_path)
 
         try:
             attach_exit, attach_payload, attach_err = _run_cli_json(
@@ -1482,10 +1544,10 @@ def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
                 "--role",
                 "r",
                 "--backend",
-                "cao_rest",
+                "houmao_server_rest",
                 "--workdir",
                 str(tmp_path),
-                "--cao-base-url",
+                "--houmao-base-url",
                 fake_cao.base_url,
             ],
         )
@@ -1496,6 +1558,7 @@ def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
         session_name = registry.m_session_name
         paths = gateway_paths_from_manifest_path(manifest_path)
         assert paths is not None
+        _force_detached_gateway_execution(manifest_path)
 
         try:
             attach_exit, attach_payload, attach_err = _run_cli_json(

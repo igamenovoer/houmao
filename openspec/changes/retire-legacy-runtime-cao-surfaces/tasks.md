@@ -6,9 +6,9 @@
 
 ## 2. Gateway Artifact And Recovery Cleanup
 
-- [ ] 2.1 Rework gateway attach and startup to derive supported authority from `manifest.json` and to treat `gateway_manifest.json` as derived outward-facing bookkeeping only.
-- [ ] 2.2 Re-scope `attach.json` and related gateway bootstrap files as internal runtime artifacts only, and remove supported external readers that still treat them as public attach authority.
-- [ ] 2.3 Wire gateway-managed recovery to the shared tmux-backed relaunch primitive so recovery reuses the existing built home and window `0` instead of build-time launch behavior.
+- [x] 2.1 Rework gateway attach and startup to derive supported authority from `manifest.json` and to treat `gateway_manifest.json` as derived outward-facing bookkeeping only.
+- [x] 2.2 Re-scope `attach.json` and related gateway bootstrap files as internal runtime artifacts only, and remove supported external readers that still treat them as public attach authority.
+- [x] 2.3 Wire gateway-managed recovery to the shared tmux-backed relaunch primitive so recovery reuses the existing built home and window `0` instead of build-time launch behavior.
 
 ## 3. Native CLI And Relaunch Surface
 
@@ -25,5 +25,5 @@
 ## 5. Verification
 
 - [x] 5.1 Add or update unit coverage for manifest-first resolver behavior, registry fallback by `agent_id`, and legacy pointer retirement.
-- [ ] 5.2 Add integration coverage for pair-managed current-session gateway attach, native headless between-turn attach, and tmux-backed relaunch through `houmao-mgr agents relaunch`.
+- [x] 5.2 Add integration coverage for pair-managed current-session gateway attach, native headless between-turn attach, and tmux-backed relaunch through `houmao-mgr agents relaunch`.
 - [x] 5.3 Add regression coverage for deprecated standalone CLI failure behavior and for active help or docs surfaces that should no longer present `houmao-cli` or `houmao-cao-server` as current defaults.

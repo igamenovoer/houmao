@@ -1,4 +1,9 @@
-## ADDED Requirements
+# passive-server-parallel-validation Specification
+
+## Purpose
+Define the canonical Step 7 demo-pack validation contract for running the old `houmao-server` and `houmao-passive-server` in parallel against one shared runtime.
+
+## Requirements
 
 ### Requirement: Repository SHALL provide the canonical Step 7 parallel validation demo pack
 The repository SHALL provide a self-contained Step 7 validation demo pack at `scripts/demo/passive-server-parallel-validation-demo-pack/`.

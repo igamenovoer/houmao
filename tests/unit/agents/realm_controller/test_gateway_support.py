@@ -22,7 +22,11 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from houmao.agents.realm_controller.errors import GatewayHttpError, LaunchPlanError
+from houmao.agents.realm_controller.errors import (
+    GatewayHttpError,
+    LaunchPlanError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
@@ -72,6 +76,7 @@ from houmao.agents.realm_controller.runtime import (
     _same_session_gateway_shell_command,
 )
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
+from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
@@ -712,7 +717,27 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
 
 def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_path: Path) -> None:
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    _write(manifest_path, "{}\n")
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_cao_plan(tmp_path),
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="AGENTSYS-gpu",
+            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
+            tmux_session_name="AGENTSYS-gpu",
+            session_id="cao-rest-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "session_name": "AGENTSYS-gpu",
+                "terminal_id": "term-123",
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+            },
+        )
+    )
+    write_session_manifest(manifest_path, payload)
     paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
@@ -897,12 +922,11 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
     assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
 
 
-def test_gateway_service_builds_local_interactive_tui_tracking_identity_without_manifest_enrichment(
+def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_manifest_authority(
     tmp_path: Path,
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
-    manifest_path.unlink()
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -919,8 +943,8 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_without_
     assert identity.tmux_session_name == "AGENTSYS-local"
     assert identity.tmux_window_name is None
     assert identity.terminal_aliases == []
-    assert identity.agent_name is None
-    assert identity.agent_id is None
+    assert identity.agent_name == "AGENTSYS-local"
+    assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
     assert identity.manifest_path == str(manifest_path)
 
 
@@ -1007,6 +1031,7 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         tmp_path,
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
+        include_local_authority=False,
     )
     fake_client = _FakeManagedPairClient()
     monkeypatch.setattr(
@@ -1055,6 +1080,7 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
         tmp_path,
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
+        include_local_authority=False,
     )
     fake_client = _FakeManagedPairClient(block_prompt=True)
     monkeypatch.setattr(
@@ -1943,6 +1969,8 @@ def _seed_cao_gateway_root(
             agent_name="AGENTSYS-gpu",
             agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
             tmux_session_name="AGENTSYS-gpu",
+            session_id="cao-rest-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state={
                 "api_base_url": "http://localhost:9889",
                 "session_name": "AGENTSYS-gpu",
@@ -1981,9 +2009,28 @@ def _seed_headless_gateway_root(
     *,
     managed_api_base_url: str | None = None,
     managed_agent_ref: str | None = None,
+    include_local_authority: bool = True,
 ) -> Path:
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
-    _write(manifest_path, "{}\n")
+    agent_def_dir = (tmp_path / "agents").resolve() if include_local_authority else None
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_headless_plan(tmp_path),
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="AGENTSYS-headless",
+            agent_id=derive_agent_id_from_name("AGENTSYS-headless"),
+            tmux_session_name="AGENTSYS-headless",
+            session_id="claude-headless-1",
+            agent_def_dir=agent_def_dir,
+            backend_state={
+                "session_id": "claude-session-1",
+                "api_base_url": managed_api_base_url,
+                "managed_agent_ref": managed_agent_ref,
+            },
+        )
+    )
+    write_session_manifest(manifest_path, payload)
     paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
@@ -1996,14 +2043,6 @@ def _seed_headless_gateway_root(
             agent_def_dir=tmp_path / "agents",
         )
     )
-    if managed_api_base_url is not None and managed_agent_ref is not None:
-        attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
-        attach_payload["backend_metadata"]["managed_api_base_url"] = managed_api_base_url
-        attach_payload["backend_metadata"]["managed_agent_ref"] = managed_agent_ref
-        paths.attach_path.write_text(
-            json.dumps(attach_payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
     return paths.gateway_root
 
 
@@ -2023,6 +2062,8 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
             agent_name="AGENTSYS-local",
             agent_id=derive_agent_id_from_name("AGENTSYS-local"),
             tmux_session_name="AGENTSYS-local",
+            session_id="local-interactive-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state=backend_state,
         )
     )
@@ -2455,6 +2496,100 @@ def test_gateway_service_accepts_requests_and_separates_health(
         runtime.shutdown()
 
 
+def test_gateway_service_starts_from_manifest_when_internal_attach_contract_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    paths.attach_path.unlink()
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+    finally:
+        runtime.shutdown()
+
+    assert status.managed_agent_connectivity == "connected"
+    assert paths.attach_path.is_file()
+
+
+def test_gateway_service_rest_backed_recovery_relaunches_from_manifest_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, terminal_id="term-stale")
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    relaunch_calls: list[str] = []
+
+    class _RecoveringFakeCaoRestClient(_FakeCaoRestClient):
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            super().__init__(base_url, timeout_seconds=timeout_seconds)
+            self.m_live_terminal_id = "term-fresh"
+
+        def get_terminal(self, terminal_id: str) -> CaoTerminal:
+            if terminal_id != self.m_live_terminal_id:
+                raise CaoApiError(
+                    method="GET",
+                    url=f"{self.base_url}/terminals/{terminal_id}",
+                    detail="terminal missing",
+                    status_code=404,
+                )
+            return super().get_terminal(terminal_id)
+
+    def _relaunch() -> SimpleNamespace:
+        relaunch_calls.append("relaunch")
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["backend_state"]["terminal_id"] = "term-fresh"
+        payload["cao"]["terminal_id"] = "term-fresh"
+        payload["interactive"]["terminal_id"] = "term-fresh"
+        payload["gateway_authority"]["attach"]["terminal_id"] = "term-fresh"
+        payload["gateway_authority"]["control"]["terminal_id"] = "term-fresh"
+        manifest_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(status="ok", detail="Runtime relaunched.")
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _RecoveringFakeCaoRestClient(*args, **kwargs),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: SimpleNamespace(relaunch=_relaunch),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-gpu",
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    status = runtime.status()
+
+    assert status.managed_agent_connectivity == "connected"
+    assert status.request_admission == "open"
+    assert relaunch_calls == ["relaunch"]
+
+
 def test_gateway_service_restart_recovers_accepted_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2601,28 +2736,18 @@ def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    paths = gateway_paths_from_manifest_path(manifest_path)
-    assert paths is not None
-
-    attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
-    attach_payload["manifest_path"] = str((tmp_path / "missing-manifest.json").resolve())
-    paths.attach_path.write_text(
-        json.dumps(attach_payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    manifest_path.unlink()
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
     )
-    runtime = GatewayServiceRuntime.from_gateway_root(
-        gateway_root=gateway_root,
-        host="127.0.0.1",
-        port=43123,
-    )
-
-    with pytest.raises(HTTPException, match="unreadable"):
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    with pytest.raises(SessionManifestError, match="not found"):
+        GatewayServiceRuntime.from_gateway_root(
+            gateway_root=gateway_root,
+            host="127.0.0.1",
+            port=43123,
+        )
 
 
 def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtrip(
