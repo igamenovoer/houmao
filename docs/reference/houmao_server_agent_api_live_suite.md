@@ -1,10 +1,10 @@
 # Houmao Server Agent API Live Suite
 
-`scripts/demo/houmao-server-agent-api-demo-pack/` is the canonical operator-run validator for direct `houmao-server` managed-agent API verification.
+> **Legacy / Deprecated:** This document describes a demo-pack-based live validation workflow that predates the current `houmao-server` + `houmao-mgr` pair architecture. The test harness and demo-pack artifacts referenced below may no longer reflect the current API surface. For the current managed-agent API reference, see [Managed-Agent API](managed_agent_api.md). For the current server pair architecture, see [Houmao Server Pair](houmao_server_pair.md).
 
-It starts one demo-owned `houmao-server`, provisions the selected managed-agent lanes without a gateway, exercises the public `/houmao/agents/*` routes directly, preserves launch/request/stop/shutdown evidence under one run root, and compares a sanitized report against a tracked expected snapshot.
+## Overview
 
-The old `tests/manual/manual_houmao_server_agent_api_live_suite.py` entrypoint remains only as a compatibility shim. It is no longer the canonical documented workflow.
+This suite validates the `/houmao/agents/*` managed-agent API routes by starting a dedicated `houmao-server`, provisioning managed-agent lanes without a gateway, exercising the public routes directly, and preserving launch/request/stop/shutdown evidence under one run root.
 
 ## Supported Lanes
 
@@ -83,7 +83,7 @@ Credential expectations:
 The suite makes use of the configurable compatibility timeouts now exposed in the repository:
 
 - `--compat-http-timeout-seconds`: suite client timeout for normal HTTP calls
-- `--compat-create-timeout-seconds`: client-side budget for `POST /cao/sessions`
+- `--compat-create-timeout-seconds`: client-side budget for session creation
 - `--compat-provider-ready-timeout-seconds`: server-side compatibility provider-ready budget passed to `houmao-server serve`
 - `--health-timeout-seconds`: owned-server readiness budget
 - `--prompt-timeout-seconds`: bounded polling budget for post-request state change and headless turn completion

@@ -1,6 +1,6 @@
 # TUI Parsing Architecture
 
-The TUI parsing stack exists because CAO gives the runtime a transport surface, not a structured turn protocol. For `shadow_only`, the runtime reads `mode=full` tmux snapshots and turns them into stable state/projection artifacts that it can reason about over time.
+The TUI parsing stack exists because the transport surface delivers raw terminal text, not a structured turn protocol. For `local_interactive` sessions the runtime reads tmux pane snapshots; for headless sessions it reads process stdout. Both paths produce the same stable state/projection artifacts that higher layers can reason about over time.
 
 ## Core Design Boundary
 
@@ -8,7 +8,7 @@ The stack is intentionally split so each layer owns one kind of responsibility:
 
 | Layer | Owns | Must not own |
 |------|------|--------------|
-| CAO transport | fetching terminal snapshots and sending input | deciding whether visible text is the answer for the prompt |
+| Snapshot transport (tmux pane capture / headless stdout) | fetching terminal snapshots and sending input | deciding whether visible text is the answer for the prompt |
 | Provider parser | classifying one snapshot and selecting the projector that will produce visible-dialog output | submit-aware lifecycle across multiple snapshots |
 | Runtime monitor pipelines | pre-submit readiness, post-submit lifecycle, stability timing, and stalled recovery over ordered observations | provider-specific regexes or prompt chrome rules |
 | Optional associator | caller-owned extraction heuristics over projected dialog | provider-owned state detection |
@@ -21,14 +21,13 @@ The projection stage is also modular. Shared core code owns normalization and fi
 
 ```mermaid
 flowchart TD
-    U[User prompt] --> RT[CAO runtime<br/>send-prompt loop]
-    RT --> CAO[CAO REST API]
-    CAO --> TMUX[tmux snapshot<br/>mode=full]
+    U[User prompt] --> RT[Runtime<br/>send-prompt loop]
+    RT --> TMUX[tmux pane capture<br/>or headless stdout]
     TMUX --> N[Normalize and strip ANSI]
     N --> PP[Provider parser<br/>Claude or Codex]
     PP --> SA[SurfaceAssessment]
     PP --> DP[DialogProjection]
-    SA --> RM[Runtime monitor pipelines<br/>cao_rx_monitor.py]
+    SA --> RM[Runtime monitor pipelines<br/>shared_tui_tracking + StreamStateReducer]
     DP --> RM
     DP --> AA[Optional AnswerAssociator]
     RM --> RES[Structured shadow_only result]
@@ -43,8 +42,12 @@ flowchart TD
 | `backends/shadow_parser_core.py` | shared dataclasses, anomaly types, projector protocol, projection metadata, preset registry helpers, shared projection assembly |
 | `backends/claude_code_shadow.py` | Claude-specific parser, preset families, state detection, projector selection, dialog projection heuristics |
 | `backends/codex_shadow.py` | Codex-specific parser, output-family detection, state detection, projector selection, dialog projection heuristics |
-| `backends/cao_rx_monitor.py` | runtime readiness/completion monitor pipelines, post-submit evidence accumulation, stability timers, stalled recovery, and terminal result types |
-| `backends/cao_rest.py` | current-thread CAO poll loops, parser invocation, pipeline subscription, payload shaping, and error translation |
+| `shared_tui_tracking/session.py` | standalone tracker session with internal Rx timers, detector profile resolution, and thread-safe live API |
+| `shared_tui_tracking/reducer.py` | `StreamStateReducer` compatibility wrapper for replay and batch reduction |
+| `shared_tui_tracking/detectors.py` | shared detector/profile contracts and compatibility exports |
+| `shared_tui_tracking/apps/<app_id>/` | per-tool detector profile implementations (Claude Code, Codex TUI, unsupported-tool fallback) |
+| `backends/cao_rx_monitor.py` | legacy readiness/completion monitor pipelines for shadow-only sessions, post-submit evidence accumulation, stability timers, stalled recovery, and terminal result types |
+| `backends/cao_rest.py` | legacy poll loops, parser invocation, pipeline subscription, payload shaping, and error translation |
 | `backends/shadow_answer_association.py` | optional caller-side association helpers such as `TailRegexExtractAssociator` |
 
 ## Why The Parser Returns Two Artifacts
@@ -83,9 +86,10 @@ The runtime is responsible for ordered-snapshot interpretation:
 
 The runtime monitor is split intentionally:
 
-- `cao_rest.py` owns the synchronous CAO I/O boundary, deadlines, and error mapping
-- `cao_rx_monitor.py` owns the full-stream lifecycle logic and time-based operators
-- `tests/unit/agents/realm_controller/test_cao_rx_monitor.py` is the main executable reference for the timing semantics
+- the `shared_tui_tracking/` package owns the standalone tracker session, detector profiles, and reducer for raw-snapshot reduction and turn/surface/last-turn classification
+- `cao_rx_monitor.py` owns the legacy full-stream lifecycle logic and time-based operators for shadow-only sessions
+- `cao_rest.py` owns the synchronous I/O boundary, deadlines, and error mapping for shadow-only sessions
+- `tests/unit/agents/realm_controller/test_cao_rx_monitor.py` is the main executable reference for the legacy pipeline timing semantics
 
 `ShadowParserStack` sits at the boundary: it resolves the provider parser and can pass through a projector override, but it does not own provider-specific projection logic itself.
 

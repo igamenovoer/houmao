@@ -90,6 +90,6 @@ The recorder keeps `session.cast` for human review, but automated replay and tes
 
 ## Managed `send-keys` Integration
 
-The existing CAO `send-keys` path remains the runtime delivery mechanism for mixed tmux control input. When an `active` recorder is live for the same tmux-backed session, [`CaoRestSession.send_input_ex()`](/data1/huangzhe/code/houmao/src/houmao/agents/realm_controller/backends/cao_rest.py) appends a structured `managed_send_keys` event to `input_events.ndjson` after successful tmux delivery.
+The existing `send-keys` path remains the runtime delivery mechanism for mixed tmux control input. When an `active` recorder is live for the same tmux-backed session, the backend's `send_input_ex()` method appends a structured `managed_send_keys` event to `input_events.ndjson` after successful tmux delivery.
 
 This integration is additive. Recorder logging failures do not block the underlying control-input delivery.

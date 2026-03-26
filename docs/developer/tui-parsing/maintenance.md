@@ -42,15 +42,15 @@ When a provider UI drifts:
 5. add or refresh fixtures and tests before or alongside parser changes
 6. update docs if the contract, supported variants, or troubleshooting guidance changed
 
-The operational steps for capture and troubleshooting remain in [CAO Shadow Parser Troubleshooting](../../reference/cao_shadow_parser_troubleshooting.md).
+The operational steps for capture and troubleshooting are documented in the [TUI Parsing Architecture](architecture.md) and signal-specific pages in this guide.
 
 ## Coordinated Update Checklist
 
 Use this checklist when changing parser behavior:
 
-- update parser or runtime-monitor code in `shadow_parser_core.py`, `claude_code_shadow.py`, `codex_shadow.py`, `cao_rx_monitor.py`, `cao_rest.py`, or `launch_plan.py` as needed
+- update parser or runtime-monitor code in `shadow_parser_core.py`, `claude_code_shadow.py`, `codex_shadow.py`, or `launch_plan.py` as needed; for detector/profile changes update `shared_tui_tracking/detectors.py` and the relevant `shared_tui_tracking/apps/` implementation
 - refresh or add fixtures in `tests/fixtures/shadow_parser/`
-- update unit or integration tests that validate state/projection/result payload behavior, especially `test_cao_rx_monitor.py` for timing semantics
+- update unit or integration tests that validate state/projection/result payload behavior
 - update active OpenSpec specs if the contract changed
 - update this developer doc set, especially:
   - `architecture.md`
@@ -77,6 +77,10 @@ The developer guide is the deep-dive home for architecture and contract explanat
 
 When a change touches runtime lifecycle semantics, verify the docs against these source surfaces together rather than against prose memory:
 
+- `src/houmao/shared_tui_tracking/session.py`
+- `src/houmao/shared_tui_tracking/reducer.py`
+- `src/houmao/shared_tui_tracking/detectors.py`
+- `src/houmao/shared_tui_tracking/apps/` (per-tool detector profiles)
 - `src/houmao/agents/realm_controller/backends/cao_rx_monitor.py`
 - `src/houmao/agents/realm_controller/backends/cao_rest.py`
 - `src/houmao/agents/realm_controller/launch_plan.py`

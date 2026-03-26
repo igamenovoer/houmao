@@ -1,32 +1,21 @@
 # Houmao Server Pair
 
-`houmao-server` and `houmao-mgr` are the supported Houmao-managed replacement pair for `cao-server` and `cao`.
+`houmao-server` and `houmao-mgr` are the supported Houmao server architecture for managing agent lifecycles, gateways, and the TUI watch plane.
 
-The intent of this pair is narrow and explicit:
+- `houmao-server` (`src/houmao/server/cli.py`) is the public HTTP authority — a FastAPI application created via the `create_app()` factory in `src/houmao/server/app.py`
+- `houmao-mgr` (`src/houmao/srv_ctrl/cli.py`) is the manager CLI for lifecycle, agent, and server control
 
-- `houmao-server` is the public HTTP authority
-- `houmao-mgr` is the pair-management CLI
-- mixed pairs such as `houmao-server + cao` or `cao-server + houmao-mgr` are unsupported
+The two components form a single supported pair. `houmao-mgr` sends commands to `houmao-server`, which owns managed agents, gateway proxying, TUI tracking, and registry integration.
 
 For the deeper explanation of live terminal tracking and managed-agent state, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
-
-## Compatibility Source Of Truth
-
-Compatibility for this pair is pinned to one exact upstream CAO source:
-
-- Repository: `https://github.com/imsight-forks/cli-agent-orchestrator.git`
-- Commit: `0fb3e5196570586593736a21262996ca622f53b6`
-- Tracked local checkout: `extern/tracked/cli-agent-orchestrator`
-
-That exact commit is the parity oracle for the CAO-compatible HTTP and CLI behavior implemented here. It is not a runtime dependency for the supported pair.
 
 ## Commands
 
 Primary entrypoints for the pair:
 
-- `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes `server`, `agents`, `brains`, and `admin`
-- `houmao-cli`: legacy runtime-local CLI, not part of the supported pair operator surface
+- `houmao-server`: serves Houmao-owned root routes, managed-agent routes, terminal-tracking routes, and a legacy `/cao/*` compatibility namespace
+- `houmao-mgr`: exposes `server`, `agents`, `brains`, and `admin` command groups
+- `houmao-cli`: legacy runtime-local CLI, not part of the supported pair
 
 Representative usage:
 
@@ -47,22 +36,6 @@ houmao-mgr agents gateway attach
 houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
 houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
-
-## Step 7 Side-By-Side Passive Validation
-
-During the Step 7 migration window, run the old `houmao-server` on `9889` and `houmao-passive-server` on `9891`. `houmao-mgr` accepts either pair authority when `GET /health` reports `houmao_service` as `houmao-server` or `houmao-passive-server`, so operators can compare the two servers without switching command surfaces.
-
-Representative validation flow:
-
-```bash
-houmao-mgr server status --port 9889
-houmao-mgr server status --port 9891
-houmao-mgr agents state --agent-id <agent-id> --port 9891
-houmao-mgr agents show --agent-id <agent-id> --port 9891
-houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
-```
-
-For passive targets, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway detach` remain same-host operations. They succeed only when the selected agent can be resolved to a local registry-backed runtime authority on the current host; remote passive-server HTTP attach and detach are intentionally unsupported and fail explicitly instead of pretending the passive server accepted them.
 
 ## Server Startup Controls
 
@@ -99,11 +72,11 @@ If detached startup fails before health, inspect:
 - `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stdout.log`
 - `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stderr.log`
 
-Retired standalone surfaces:
+Retired standalone surfaces (legacy):
 
 - `houmao-cao-server`
 - `python -m houmao.cao.tools.cao_server_launcher`
-- standalone `houmao-cli` operator flows that would create or control raw `backend="cao_rest"` sessions
+- standalone `houmao-cli` operator flows that created or controlled raw `backend="cao_rest"` sessions
 
 ## Pair-Native CLI Tree
 
@@ -209,38 +182,38 @@ Pair-managed tmux topology is intentionally narrow:
 
 ## Architecture
 
-The pair now uses a Houmao-owned native compatibility control core behind the preserved `/cao/*` surface.
+The pair uses a Houmao-owned control core for session and terminal lifecycle management.
 
-That control core owns:
+The control core owns:
 
-- CAO-compatible session and terminal lifecycle
+- session and terminal lifecycle (creation, bootstrap, teardown)
 - tmux session and window creation
-- provider bootstrap quirks for the supported pair launch surface
-- terminal-scoped compatibility inbox behavior
-- launch-time native selector resolution and compatibility sidecar projection
-- compatibility registry persistence for sessions, terminals, and inbox messages
+- provider bootstrap quirks for the supported launch surface
+- terminal-scoped inbox behavior
+- launch-time native selector resolution
+- registry persistence for sessions, terminals, and inbox messages
 
-The watch and tracking plane remains Houmao-owned and separate from the compatibility control slice:
+The watch and tracking plane is Houmao-owned and separate from the control core:
 
 - direct tmux pane resolution and capture
 - process-tree inspection for supported TUI availability
 - official parser selection through the shared parser stack
 - continuous in-memory terminal state and bounded recent transitions
 
-The public server contract stays Houmao-owned:
+The public server contract is Houmao-owned:
 
 - callers talk to `houmao-server`
-- `/cao/*` is served locally by `houmao-server`, not reverse-proxied to a child `cao-server`
+- legacy `/cao/*` routes are served locally by `houmao-server` for backward compatibility, not reverse-proxied to a child process
 - runtime-owned `houmao_server_rest` sessions persist the public Houmao server base URL and session identity
-- root `GET /health` keeps `service="cli-agent-orchestrator"` and adds `houmao_service="houmao-server"` without `child_cao`
-- terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity instead of through child-process state
+- root `GET /health` reports `houmao_service="houmao-server"`
+- terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity
 
 The pair exposes three public server surfaces:
 
 - Houmao-owned root and terminal-tracking routes:
   - `/health`
   - `/houmao/terminals/{terminal_id}/*`
-- explicit CAO-compatible routes:
+- legacy compatibility routes (preserved for `cao_rest` backend sessions):
   - `/cao/health`
   - `/cao/sessions/*`
   - `/cao/terminals/*`
@@ -300,12 +273,12 @@ Filesystem-authoritative artifacts:
 - server-backed managed-session manifests and session roots under `sessions/houmao_server_rest/...`
 - native headless authority and per-turn records under `state/managed_agents/<tracked_agent_id>/`
 
-Filesystem-backed compatibility and debug views:
+Filesystem-backed debug views:
 
 - `run/current-instance.json` and `run/houmao-server.pid`
 - delegated-launch `sessions/<session-name>/registration.json`
-- compatibility registry snapshot under `state/cao_compat/registry.json`
-- launch-scoped compatibility sidecars under `state/cao_compat/launch_projection/`
+- registry snapshot under `state/registry.json`
+- launch-scoped sidecars under `state/launch_projection/`
 
 Memory-primary live state:
 
@@ -327,7 +300,7 @@ Managed-agent history retention is intentionally split:
 
 Runtime-owned sessions that use the pair-backed mode persist `backend = "houmao_server_rest"`.
 
-That backend uses dedicated persisted sections instead of overloading the older `cao_rest` contract:
+That backend uses dedicated persisted sections instead of overloading the older legacy backend contract:
 
 - session manifests write a `houmao_server` section with `api_base_url`, `session_name`, `terminal_id`, `parsing_mode`, optional `tmux_window_name`, and `turn_index`
 - internal gateway bootstrap artifacts use Houmao-specific backend metadata
@@ -335,19 +308,18 @@ That backend uses dedicated persisted sections instead of overloading the older 
 
 This keeps the pair-owned compatibility transport details out of the persisted public contract while preserving existing discovery and gateway flows.
 
-## Compatibility Storage Model
+## Storage Model
 
-`houmao-server` provisions compatibility control state under a Houmao-owned per-server root:
+`houmao-server` provisions control state under a Houmao-owned per-server root:
 
 ```text
 <runtime-root>/houmao_servers/<host>-<port>/
   state/
-    cao_compat/
-      registry.json
-      launch_projection/
-        <session-name>/
-          <terminal-id>/
-            context.md
+    registry.json
+    launch_projection/
+      <session-name>/
+        <terminal-id>/
+          context.md
 ```
 
 Launch-time native homes and manifests remain runtime-owned under the shared runtime root:
@@ -359,34 +331,30 @@ Launch-time native homes and manifests remain runtime-owned under the shared run
 
 Those paths are internal implementation details. The supported operator workflow launches directly from native selectors (`--agents`) resolved from the effective agent-definition root.
 
-## Migration Direction
-
-This pair is a migration strategy with Houmao as the public authority.
+## Supported Operator Workflow
 
 The supported operator workflow is the pair itself:
 
-- `houmao-server`
-- `houmao-mgr`
+- `houmao-server` as the HTTP authority
+- `houmao-mgr` as the management CLI
 
-The explicit `/cao/*` compatibility routes remain server-owned transport shims, but `houmao-mgr cao ...`, top-level `houmao-mgr launch`, standalone `houmao-cao-server`, and raw standalone `cao_rest` operator entrypoints are retired.
+The legacy `/cao/*` compatibility routes remain as server-owned transport shims for existing `cao_rest` sessions. The following entrypoints are retired: `houmao-mgr cao ...`, top-level `houmao-mgr launch`, standalone `houmao-cao-server`, and raw standalone `cao_rest` operator entrypoints.
 
 ## Source References
 
 - [`src/houmao/server/app.py`](../../src/houmao/server/app.py)
+- [`src/houmao/server/cli.py`](../../src/houmao/server/cli.py)
 - [`src/houmao/server/config.py`](../../src/houmao/server/config.py)
 - [`src/houmao/server/service.py`](../../src/houmao/server/service.py)
 - [`src/houmao/server/control_core/core.py`](../../src/houmao/server/control_core/core.py)
 - [`src/houmao/server/control_core/provider_adapters.py`](../../src/houmao/server/control_core/provider_adapters.py)
 - [`src/houmao/server/managed_agents.py`](../../src/houmao/server/managed_agents.py)
 - [`src/houmao/agents/native_launch_resolver.py`](../../src/houmao/agents/native_launch_resolver.py)
+- [`src/houmao/srv_ctrl/cli.py`](../../src/houmao/srv_ctrl/cli.py)
 - [`src/houmao/srv_ctrl/commands/admin.py`](../../src/houmao/srv_ctrl/commands/admin.py)
 - [`src/houmao/srv_ctrl/commands/brains.py`](../../src/houmao/srv_ctrl/commands/brains.py)
 - [`src/houmao/srv_ctrl/commands/agents/core.py`](../../src/houmao/srv_ctrl/commands/agents/core.py)
 - [`src/houmao/srv_ctrl/commands/agents/gateway.py`](../../src/houmao/srv_ctrl/commands/agents/gateway.py)
 - [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../src/houmao/srv_ctrl/commands/agents/mail.py)
 - [`src/houmao/srv_ctrl/commands/agents/turn.py`](../../src/houmao/srv_ctrl/commands/agents/turn.py)
-- [`src/houmao/srv_ctrl/commands/cao.py`](../../src/houmao/srv_ctrl/commands/cao.py)
-- [`src/houmao/srv_ctrl/commands/local_compat.py`](../../src/houmao/srv_ctrl/commands/local_compat.py)
-- [`src/houmao/srv_ctrl/commands/launch.py`](../../src/houmao/srv_ctrl/commands/launch.py)
 - [`src/houmao/agents/realm_controller/runtime.py`](../../src/houmao/agents/realm_controller/runtime.py)
-- [`src/houmao/cao/pinned.py`](../../src/houmao/cao/pinned.py)

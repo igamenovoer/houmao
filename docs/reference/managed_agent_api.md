@@ -15,7 +15,7 @@ For the pair boundary that exposes these routes, use [Houmao Server Pair](houmao
 | Transport-neutral request submission | `POST /houmao/agents/{agent_ref}/requests` | TUI and headless | Official prompt and interrupt surface across both transports |
 | Gateway lifecycle, gateway-mediated requests, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/requests` proxies live gateway `submit_prompt` and `interrupt` kinds without exposing the listener endpoint |
 | Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
-| Stop, native headless lifecycle, and durable turn detail | `POST /houmao/agents/{agent_ref}/stop`, `POST /houmao/agents/headless/launches`, `POST /houmao/agents/{agent_ref}/turns`, `POST /houmao/agents/{agent_ref}/interrupt`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr` | Stop applies to TUI and headless; turn detail is headless only | TUI stop reuses the pair-managed session-delete lifecycle; durable headless turn evidence stays on `/turns/*` |
+| Stop, native headless lifecycle, and durable turn detail | `POST /houmao/agents/{agent_ref}/stop`, `POST /houmao/agents/headless/launches`, `POST /houmao/agents/{agent_ref}/turns`, `POST /houmao/agents/{agent_ref}/interrupt`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr` | Stop applies to TUI and headless; turn detail is headless only | TUI stop reuses the managed session-delete lifecycle; durable headless turn evidence stays on `/turns/*` |
 
 ## Identity And Alias Resolution
 
@@ -152,7 +152,7 @@ Important rules:
 
 - `disposition` is `accepted` when the request caused or targeted real work, and `no_op` when an interrupt request found no active interruptible work.
 - `headless_turn_id` and `headless_turn_index` are present only when the accepted request created or targeted a managed headless turn.
-- TUI prompt submission prefers a healthy attached gateway and falls back to the compatibility transport only when no live gateway currently owns safe prompt admission for that session.
+- TUI prompt submission prefers a healthy attached gateway and falls back to the direct transport only when no live gateway currently owns safe prompt admission for that session.
 - Headless prompt submission keeps server-owned durable turn creation and turn-record authority, then prefers attached gateway admission when a healthy gateway owns live headless control.
 - Discovery of a gateway does not change the public request contract; callers still use `/houmao/agents/{agent_ref}/requests`.
 
@@ -212,7 +212,7 @@ Observable availability semantics:
 
 ## Native Headless Lifecycle And Durable Turn Inspection
 
-`POST /houmao/agents/headless/launches` launches a server-managed native headless agent without creating a CAO session or terminal first.
+`POST /houmao/agents/headless/launches` launches a server-managed native headless agent.
 
 The resolved launch request requires:
 

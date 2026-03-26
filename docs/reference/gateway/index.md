@@ -1,12 +1,12 @@
 # Agent Gateway Reference
 
-This section explains the optional per-agent gateway sidecar: what it adds to a runtime-managed session, how it is discovered, and how its queue, status, recovery model, and shared mailbox facade work.
+This section explains the session-owned FastAPI gateway sidecar: what it adds to a runtime-managed session, how it is discovered, and how its queue, status, recovery model, and shared mailbox facade work.
 
 If you are new to the subsystem, start with lifecycle. If you need exact payloads and file contracts, go to contracts. If you are debugging queue or recovery behavior, use the internals page.
 
 ## Mental Model
 
-The gateway is an optional per-agent live control plane attached to one runtime-managed session.
+The gateway is a session-owned FastAPI companion process attached to one runtime-managed session.
 
 - A session can be gateway-capable without having a live gateway process attached.
 - Stable attachability is published through manifest-backed authority, tmux discovery env, and derived gateway bookkeeping even before the first live attach.

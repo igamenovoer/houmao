@@ -1,9 +1,9 @@
 # Runtime Lifecycle And State Transitions
 
-The runtime-owned lifecycle monitor for CAO `shadow_only` turns is split across two modules:
+The runtime-owned lifecycle monitor for tracked TUI turns is split across two layers:
 
-- `backends/cao_rest.py` owns current-thread polling, parser invocation, deadline handling, and error translation.
-- `backends/cao_rx_monitor.py` owns readiness/completion classification, post-submit evidence accumulation, stability timing, and stalled recovery.
+- The `shared_tui_tracking/` package provides `StreamStateReducer` and `TuiTrackerSession` for raw-snapshot reduction, detector profile resolution, and turn lifecycle tracking.
+- For legacy shadow-only sessions, `backends/cao_rx_monitor.py` owns readiness/completion classification, post-submit evidence accumulation, stability timing, and stalled recovery.
 
 This page documents the readiness and completion semantics that sit above provider parsing.
 
@@ -11,9 +11,9 @@ This page documents the readiness and completion semantics that sit above provid
 
 ```mermaid
 sequenceDiagram
-    participant Poll as cao_rest.py<br/>poll loop
+    participant Poll as Poll loop<br/>(transport layer)
     participant Parser as Provider parser
-    participant RM as Runtime monitor<br/>cao_rx_monitor.py
+    participant RM as Runtime monitor<br/>shared_tui_tracking
 
     Poll->>Parser: parse_snapshot(output, baseline_pos)
     Parser-->>Poll: SurfaceAssessment + DialogProjection
@@ -30,7 +30,7 @@ The runtime monitor operates in two phases:
 - `readiness`: pre-submit polling, where runtime waits until the surface looks safe for prompt submission
 - `completion`: post-submit polling, where runtime decides whether the turn is still waiting, in progress, blocked, stalled, failed, or complete
 
-The monitor is no longer one mutable class. Each phase is a ReactiveX pipeline that classifies the full observation stream and lets timed operators emit `stalled` or `completed` results while `cao_rest.py` keeps ownership of the synchronous CAO I/O boundary.
+The monitor is no longer one mutable class. Each phase is a ReactiveX pipeline that classifies the full observation stream and lets timed operators emit `stalled` or `completed` results while the transport layer keeps ownership of the synchronous I/O boundary.
 
 ## Readiness Classification Order
 
@@ -71,7 +71,7 @@ stateDiagram-v2
     Stalled --> Failed: stalled_is_terminal
 ```
 
-The readiness pipeline emits terminal `ReadyResult`, `BlockedResult`, `FailedResult`, or `StalledResult` values. When `stalled_is_terminal = false`, `cao_rest.py` keeps polling after a stalled emission and lets the next known observation recover the state.
+The readiness pipeline emits terminal `ReadyResult`, `BlockedResult`, `FailedResult`, or `StalledResult` values. When `stalled_is_terminal = false`, the transport layer keeps polling after a stalled emission and lets the next known observation recover the state.
 
 ## Completion Classification Order
 
@@ -188,8 +188,8 @@ When a known state returns after stalled tracking:
 
 Whether stalled is terminal still depends on runtime policy outside the pipeline:
 
-- `stalled_is_terminal = true`: `cao_rest.py` turns the stalled result into a failure immediately
-- `stalled_is_terminal = false`: `cao_rest.py` keeps polling for recovery until an outer timeout or known state arrives
+- `stalled_is_terminal = true`: the transport layer turns the stalled result into a failure immediately
+- `stalled_is_terminal = false`: the transport layer keeps polling for recovery until an outer timeout or known state arrives
 
 ## Outcome Meanings
 

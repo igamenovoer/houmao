@@ -1,34 +1,59 @@
 # Houmao Docs
 
-This repository is the canonical documentation home for the extracted runtime subsystem.
+Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agents as real tmux-backed processes.
 
-## Developer
+## Getting Started
 
-For the maintained CAO `shadow_only` parser/runtime contract and lifecycle semantics, start here.
-
-- [TUI Parsing Developer Guide](developer/tui-parsing/index.md)
-- [Terminal Recorder Developer Guide](developer/terminal-record/index.md)
-- [Houmao Server Developer Guide](developer/houmao-server/index.md)
+- [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
+- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — brains, roles, and blueprints.
+- [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
 
 ## Reference
 
-- [Houmao server pair and managed-agent workflows](reference/houmao_server_pair.md)
-- [Runtime CLI and session workflows](reference/realm_controller.md)
-- [Runtime-managed agents reference](reference/agents/index.md)
-- [Terminal recorder](reference/terminal_record.md)
-- [Mailbox reference](reference/mailbox/index.md)
-- [Mailbox roundtrip tutorial pack](../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md)
-- [Houmao-server interactive full-pipeline demo pack](../scripts/demo/houmao-server-interactive-full-pipeline-demo/README.md)
-- [Interactive CAO demo retirement note](reference/cao_interactive_demo.md)
-- [Brain builder and component library layout](reference/agents_brains.md)
-- [CAO server launcher](reference/cao_server_launcher.md)
-- [CAO shadow parsing](reference/cao_claude_shadow_parsing.md)
-- [CAO shadow troubleshooting](reference/cao_shadow_parser_troubleshooting.md)
-- [CLI reference](reference/cli.md)
+### CLI Surfaces
 
-If you already have a Claude Code, Codex, or Gemini tmux session running and want Houmao to manage it without relaunching it, start with `houmao-mgr agents join` in [Houmao Server Pair](reference/houmao_server_pair.md).
+- [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
+- [houmao-server](reference/cli/houmao-server.md): HTTP server for session management and TUI tracking.
+- [houmao-passive-server](reference/cli/houmao-passive-server.md): Registry-driven stateless server — no legacy dependencies.
+- [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
-## Migration
+### Build Phase
 
-- [Runtime migration parity checklist](migration/runtime_migration_parity_checklist.md)
-- [Runtime migration report](migration/runtime_migration_report.md)
+- [Brain Builder](reference/build-phase/brain-builder.md): `BuildRequest` → runtime home → `BuildResult` workflow.
+- [Recipes and Adapters](reference/build-phase/recipes-and-adapters.md): `BrainRecipe` presets and `ToolAdapter` contracts.
+- [Launch Overrides](reference/build-phase/launch-overrides.md): Override system for launch parameters.
+
+### Run Phase
+
+- [Launch Plan](reference/run-phase/launch-plan.md): Composing manifest + role into a backend-specific launch plan.
+- [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
+- [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
+- [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
+
+### Subsystems
+
+- [Gateway](reference/gateway/index.md): Per-agent FastAPI sidecar for session control and mail.
+- [Mailbox](reference/mailbox/index.md): Unified mailbox protocol — filesystem and Stalwart JMAP.
+- [TUI Tracking](reference/tui-tracking/state-model.md): State machine, detectors, and replay engine.
+- [Lifecycle](reference/lifecycle/completion-detection.md): Turn-anchored readiness and completion detection.
+- [Agent Registry](reference/registry/index.md): Session discovery and managed agent records.
+- [Terminal Record](reference/terminal-record/index.md): tmux session recording and replay.
+- [System Files](reference/system-files/index.md): Filesystem layout and owned paths.
+
+### Other Reference
+
+- [Brain Builder and Component Library](reference/agents_brains.md): Legacy reference for the component library layout.
+- [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
+- [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.
+- [Managed Agent API](reference/managed_agent_api.md): Direct agent control API surface.
+
+## Developer Guides
+
+- [TUI Parsing](developer/tui-parsing/index.md): Shadow parser architecture, signal contracts, and maintenance.
+- [Terminal Recorder](developer/terminal-record/index.md): Recording internals and capture format.
+- [Houmao Server Internals](developer/houmao-server/index.md): Server-owned TUI tracking and service orchestration.
+
+## Resources
+
+- [TUI State Tracking Resources](resources/tui-state-tracking/README.md)
+
