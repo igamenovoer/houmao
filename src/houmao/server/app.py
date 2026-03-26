@@ -13,6 +13,8 @@ from urllib import parse
 from fastapi import APIRouter, FastAPI, Query, Response
 
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayStatusV1,
@@ -399,6 +401,13 @@ def create_app(
         request_model: HoumaoManagedAgentGatewayRequestCreate,
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         return resolved_service.submit_managed_agent_gateway_request(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/send-keys")
+    def send_managed_agent_gateway_control_input(
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        return resolved_service.send_managed_agent_gateway_control_input(agent_ref, request_model)
 
     @app.get("/houmao/agents/{agent_ref}/gateway/mail-notifier")
     def get_managed_agent_gateway_mail_notifier(agent_ref: str) -> GatewayMailNotifierStatusV1:

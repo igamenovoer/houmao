@@ -18,9 +18,13 @@ from houmao.agents.realm_controller.gateway_client import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
@@ -224,6 +228,76 @@ class PassiveServerService:
             return (502, {"detail": "No gateway attached to agent"})
         try:
             return client.create_request(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_send_control_input(
+        self,
+        agent_ref: str,
+        payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/control/send-keys` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.send_control_input(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_notifier_status(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/mail-notifier` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.get_mail_notifier()
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_notifier_enable(
+        self,
+        agent_ref: str,
+        payload: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
+        """Proxy `PUT /v1/mail-notifier` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.put_mail_notifier(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_notifier_disable(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
+        """Proxy `DELETE /v1/mail-notifier` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.delete_mail_notifier()
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 

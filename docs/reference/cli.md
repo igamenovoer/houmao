@@ -84,12 +84,21 @@ Joined-session notes:
 - Joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live but fail explicitly on later `agents relaunch` because restart posture is unavailable by design.
 - `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means the relaunch resolves that variable from the tmux session environment at relaunch time.
 
-For managed agents, the public gateway attach surface lives on `houmao-mgr agents gateway attach`:
+For managed agents, the public gateway control surface lives on `houmao-mgr agents gateway ...`:
 
 - `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>` for explicit managed-agent targeting
 - `houmao-mgr agents gateway attach --agent-id <authoritative-id> --port <public-port>` when exact disambiguation matters
 - `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
+- `houmao-mgr agents gateway status|prompt|interrupt|send-keys ...` follow the same target-resolution rules as `attach`
+- `houmao-mgr agents gateway mail-notifier status|enable|disable ...` expose the live gateway notifier control surface with the same target-resolution rules
+
+Targeting rules for `houmao-mgr agents gateway ...`:
+
+- inside tmux, omitting `--agent-id` and `--agent-name` implies current-session resolution
+- `--current-session` makes that same-session intent explicit
+- current-session resolution prefers `AGENTSYS_MANIFEST_PATH` and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record
+- `--port` is only valid with an explicit `--agent-id` or `--agent-name`; current-session mode always follows manifest-declared pair authority
 
 Current-session attach requires the target tmux session to publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
 
@@ -97,7 +106,7 @@ When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-m
 
 For pair-managed `houmao_server_rest` sessions, `--foreground` is redundant but valid because those same-session gateways already use the auxiliary-window execution model.
 
-For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
+For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, and use `houmao-mgr agents gateway mail-notifier ...` only when you want to inspect or change live unread-mail reminder behavior. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr brains build ...` and `houmao-mgr admin cleanup-registry ...`.
 

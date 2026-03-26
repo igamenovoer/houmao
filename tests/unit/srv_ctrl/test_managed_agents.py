@@ -15,6 +15,10 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputResultV1,
+    GatewayMailNotifierStatusV1,
+)
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
@@ -41,6 +45,10 @@ from houmao.srv_ctrl.commands.managed_agents import (
     ManagedAgentTarget,
     attach_gateway,
     detach_gateway,
+    gateway_mail_notifier_disable,
+    gateway_mail_notifier_enable,
+    gateway_mail_notifier_status,
+    gateway_send_keys,
     interrupt_managed_agent,
     list_managed_agents,
     mailbox_status,
@@ -433,6 +441,10 @@ class _FakePassivePairClient:
         self.state_calls: list[str] = []
         self.detail_calls: list[str] = []
         self.turn_calls: list[tuple[str, str]] = []
+        self.gateway_control_calls: list[tuple[str, str, bool]] = []
+        self.gateway_notifier_get_calls: list[str] = []
+        self.gateway_notifier_put_calls: list[tuple[str, int]] = []
+        self.gateway_notifier_delete_calls: list[str] = []
         self.m_state = _managed_state(_managed_identity())
         self.m_detail = _managed_detail(self.m_state)
         self.m_turn = HoumaoHeadlessTurnAcceptedResponse(
@@ -465,6 +477,63 @@ class _FakePassivePairClient:
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         raise AssertionError(f"remote passive gateway detach should stay local for {agent_ref}")
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> GatewayControlInputResultV1:
+        self.gateway_control_calls.append(
+            (
+                agent_ref,
+                getattr(request_model, "sequence"),
+                getattr(request_model, "escape_special_keys"),
+            )
+        )
+        return GatewayControlInputResultV1(detail="delivered")
+
+    def get_managed_agent_gateway_mail_notifier(self, agent_ref: str) -> GatewayMailNotifierStatusV1:
+        self.gateway_notifier_get_calls.append(agent_ref)
+        return GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        )
+
+    def put_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> GatewayMailNotifierStatusV1:
+        self.gateway_notifier_put_calls.append((agent_ref, getattr(request_model, "interval_seconds")))
+        return GatewayMailNotifierStatusV1(
+            enabled=True,
+            interval_seconds=getattr(request_model, "interval_seconds"),
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        )
+
+    def delete_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        self.gateway_notifier_delete_calls.append(agent_ref)
+        return GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        )
 
 
 class _FakeGatewayController:
@@ -519,6 +588,42 @@ def test_submit_headless_turn_uses_passive_pair_client() -> None:
 
     assert response.turn_id == "turn-0001"
     assert client.turn_calls == [("published-alpha", "hello")]
+
+
+def test_gateway_send_keys_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    response = gateway_send_keys(target, sequence="<[Escape]>", escape_special_keys=True)
+
+    assert response.action == "control_input"
+    assert client.gateway_control_calls == [("published-alpha", "<[Escape]>", True)]
+
+
+def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    status = gateway_mail_notifier_status(target)
+    enabled = gateway_mail_notifier_enable(target, interval_seconds=60)
+    disabled = gateway_mail_notifier_disable(target)
+
+    assert status.enabled is False
+    assert enabled.interval_seconds == 60
+    assert disabled.enabled is False
+    assert client.gateway_notifier_get_calls == ["published-alpha"]
+    assert client.gateway_notifier_put_calls == [("published-alpha", 60)]
+    assert client.gateway_notifier_delete_calls == ["published-alpha"]
 
 
 def test_attach_gateway_prefers_local_authority_for_passive_pair(

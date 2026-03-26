@@ -12,8 +12,10 @@ from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailActionResponseV1,
     GatewayMailCheckResponseV1,
+    GatewayMailNotifierStatusV1,
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
@@ -339,6 +341,12 @@ def _stub_accepted_request() -> GatewayAcceptedRequestV1:
     )
 
 
+def _stub_control_input_result() -> GatewayControlInputResultV1:
+    """Create a minimal valid GatewayControlInputResultV1 for mocking."""
+
+    return GatewayControlInputResultV1(detail="delivered")
+
+
 def _stub_mail_status() -> GatewayMailStatusV1:
     """Create a minimal valid GatewayMailStatusV1 for mocking."""
 
@@ -379,6 +387,24 @@ def _stub_mail_action_response(operation: str = "send") -> GatewayMailActionResp
             sender=GatewayMailboxParticipantV1(address="sender@local"),
             to=[GatewayMailboxParticipantV1(address="recipient@local")],
         ),
+    )
+
+
+def _stub_mail_notifier_status(
+    *,
+    enabled: bool,
+    interval_seconds: int | None,
+) -> GatewayMailNotifierStatusV1:
+    """Create a minimal valid GatewayMailNotifierStatusV1 for mocking."""
+
+    return GatewayMailNotifierStatusV1(
+        enabled=enabled,
+        interval_seconds=interval_seconds,
+        supported=True,
+        support_error=None,
+        last_poll_at_utc=None,
+        last_notification_at_utc=None,
+        last_error=None,
     )
 
 
@@ -483,6 +509,149 @@ class TestGatewayCreateRequestEndpoint:
                     "payload": {"prompt": "hello"},
                 },
             )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway control-input endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayControlInputEndpoint:
+    """POST /houmao/agents/{agent_ref}/gateway/control/send-keys."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "send_control_input",
+                return_value=_stub_control_input_result(),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/send-keys",
+                json={
+                    "sequence": "<[Escape]>",
+                    "escape_special_keys": False,
+                },
+            )
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/gateway/control/send-keys",
+                json={
+                    "sequence": "<[Escape]>",
+                    "escape_special_keys": False,
+                },
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/send-keys",
+                json={
+                    "sequence": "<[Escape]>",
+                    "escape_special_keys": False,
+                },
+            )
+        assert resp.status_code == 502
+
+    def test_gateway_error_returns_502(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "send_control_input",
+                side_effect=GatewayHttpError(
+                    method="POST",
+                    url="http://127.0.0.1:9901/v1/control/send-keys",
+                    detail="refused",
+                ),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/send-keys",
+                json={
+                    "sequence": "<[Escape]>",
+                    "escape_special_keys": False,
+                },
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway mail-notifier endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailNotifierEndpoint:
+    """GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier."""
+
+    def test_status_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "get_mail_notifier",
+                return_value=_stub_mail_notifier_status(enabled=False, interval_seconds=None),
+            ),
+        ):
+            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier")
+        assert resp.status_code == 200
+
+    def test_enable_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "put_mail_notifier",
+                return_value=_stub_mail_notifier_status(enabled=True, interval_seconds=60),
+            ),
+        ):
+            resp = client.put(
+                "/houmao/agents/abc123/gateway/mail-notifier",
+                json={"schema_version": 1, "interval_seconds": 60},
+            )
+        assert resp.status_code == 200
+
+    def test_disable_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "delete_mail_notifier",
+                return_value=_stub_mail_notifier_status(enabled=False, interval_seconds=None),
+            ),
+        ):
+            resp = client.delete("/houmao/agents/abc123/gateway/mail-notifier")
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/unknown/gateway/mail-notifier")
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier")
         assert resp.status_code == 502
 
 
