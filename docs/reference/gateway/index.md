@@ -9,7 +9,7 @@ If you are new to the subsystem, start with lifecycle. If you need exact payload
 The gateway is an optional per-agent live control plane attached to one runtime-managed session.
 
 - A session can be gateway-capable without having a live gateway process attached.
-- Stable attachability is published into the session root and tmux env even before the first live attach.
+- Stable attachability is published through manifest-backed authority, tmux discovery env, and derived gateway bookkeeping even before the first live attach.
 - When a live gateway exists, it exposes a small HTTP surface, a durable queue, and optionally a shared mailbox facade for that same logical session.
 - `houmao-server` remains the shared coordination plane and public `/houmao/agents/*` surface.
 - When a gateway is attached and healthy, `houmao-server` projects live per-agent state, history, and request admission through the gateway HTTP surface instead of reading local runtime artifacts directly.
@@ -18,9 +18,10 @@ The gateway is an optional per-agent live control plane attached to one runtime-
 
 ## Key Terms
 
-- `gateway-capable session`: A runtime-managed tmux-backed session that has stable attach metadata and seeded gateway state.
+- `gateway-capable session`: A runtime-managed tmux-backed session that has persisted manifest-backed attach authority and seeded gateway state.
 - `live gateway`: A currently running gateway sidecar with live host and port bindings.
-- `attach contract`: The strict `attach.json` payload that tells the system how to attach to one session.
+- `manifest-first attach authority`: The supported attach contract made from `manifest.json` together with tmux-local discovery and shared-registry fallback.
+- `gateway bootstrap artifact`: Internal runtime state such as `attach.json` that may still seed gateway startup or offline status without being the supported external authority.
 - `desired listener`: The host or port the gateway should try to reuse on later starts.
 - `managed-agent epoch`: The gateway's generation counter for the current upstream instance behind the same logical session.
 - `reconciliation`: The state where the logical session still exists, but the upstream instance changed and queued work must not be replayed blindly.

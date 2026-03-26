@@ -159,7 +159,7 @@ That means:
 - the manifest points at `houmao-server`
 - runtime follow-up control should use the persisted Houmao server identity
 - the session should not be modeled as a supported standalone `cao_rest` session anymore
-- same-session gateway lifecycle still resolves from the persisted attach contract and tmux-published pointers
+- same-session gateway lifecycle still resolves from persisted manifest authority plus tmux-published discovery pointers
 
 ## 8. Deprecated Standalone CAO Surfaces Are Retired
 

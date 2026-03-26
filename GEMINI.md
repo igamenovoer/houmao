@@ -49,10 +49,10 @@ Always prefer `pixi run ...` over direct command execution.
 - **Build Package:** `pixi run build-dist`.
 
 ### Python Entry Points
-- `houmao-cli`: Main lifecycle management (build/start/prompt/stop).
-- `houmao-cao-server`: Local CAO server launcher.
-- `houmao-server`: Custom Houmao-owned CAO-compatible server.
-- `houmao-mgr`: Pair-management CLI for `houmao-server`.
+- `houmao-mgr`: Primary management CLI for local lifecycle, managed agents, and `houmao-server` control.
+- `houmao-server`: Supported Houmao-owned server entrypoint.
+- `houmao-cli`: Deprecated compatibility CLI. Do not use for new workflows or docs; use `houmao-mgr` instead.
+- `houmao-cao-server`: Deprecated compatibility launcher. Do not use for new workflows or docs; use `houmao-server` with `houmao-mgr` instead.
 
 ## 4. Development Conventions
 

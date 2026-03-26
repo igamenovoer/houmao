@@ -13,22 +13,25 @@ Active repository guidance includes README and docs content, contributor guidanc
 - **THEN** the project and distribution name presented to readers is `Houmao`
 - **AND THEN** active guidance does not present `gig-agents` as the canonical project name
 
-### Requirement: Primary operator CLI is `houmao-cli`
-The repository SHALL expose its primary runtime-management CLI as `houmao-cli`.
-
-The existing runtime subcommands and their meanings SHALL remain unchanged during this rebrand.
-
-#### Scenario: CLI examples use the renamed top-level command
-- **WHEN** an operator follows README, docs, or help examples for runtime management
-- **THEN** those examples invoke `houmao-cli`
-- **AND THEN** the supported command vocabulary still includes `build-brain`, `start-session`, `send-prompt`, `send-keys`, `mail`, and `stop-session`
-
 ### Requirement: Rebrand scope preserves non-targeted public surfaces
-This rebrand SHALL NOT rename the Python import root `gig_agents`, the secondary CAO launcher `gig-cao-server`, or the existing `AGENTSYS_*` runtime identity and environment namespaces.
+The repository SHALL preserve the `Houmao` project and distribution identity and SHALL keep the `AGENTSYS_*` runtime identity and environment namespaces stable across CLI-surface retirement.
 
-#### Scenario: Non-targeted surfaces remain stable
-- **WHEN** a developer inspects source imports, CAO launcher guidance, or runtime identity contracts after the rebrand
-- **THEN** Python imports continue to use `gig_agents`
-- **AND THEN** the CAO launcher surface remains `gig-cao-server`
+This change SHALL NOT require another package-namespace rename or another runtime env-namespace rename just because legacy standalone CLI surfaces are being retired.
+
+The repository MAY retire standalone runtime or launcher CLIs from the active supported surface without redefining the `houmao` package identity or the `AGENTSYS_*` runtime namespace.
+
+#### Scenario: Legacy CLI retirement does not rename runtime namespaces
+- **WHEN** a maintainer inspects runtime env contracts and package identity after the CLI-surface retirement
+- **THEN** the project remains `Houmao`
 - **AND THEN** runtime identity and environment contracts remain in the `AGENTSYS_*` namespace
+- **AND THEN** the retirement of `houmao-cli` or `houmao-cao-server` does not imply another rename of those namespaces
 
+### Requirement: Primary supported operator workflow uses `houmao-mgr` and `houmao-server`
+The repository SHALL expose its primary supported operator workflow through `houmao-mgr` together with `houmao-server`.
+
+Repo-owned README, docs, and help examples for current workflows SHALL use `houmao-mgr` and `houmao-server` rather than `houmao-cli`.
+
+#### Scenario: Current operator examples use the supported pair-native commands
+- **WHEN** an operator follows active README, docs, or help examples for current runtime management
+- **THEN** those examples invoke `houmao-mgr` or `houmao-server`
+- **AND THEN** they do not present `houmao-cli` as the primary active operator command

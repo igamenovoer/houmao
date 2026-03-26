@@ -132,7 +132,7 @@ sequenceDiagram
 
 ## Current Execution-Adapter Boundary
 
-The live gateway process now selects an execution adapter from strict `attach.json` metadata instead of assuming one CAO-only callback path.
+The live gateway process now selects an execution adapter from manifest-backed authority plus internal bootstrap metadata instead of assuming one CAO-only callback path.
 
 - REST-backed adapters cover runtime-owned `cao_rest` and `houmao_server_rest` sessions and use the existing REST callback path for inspection, prompt submission, and interrupt delivery.
 - A local tmux-backed adapter covers runtime-owned native headless sessions and runtime-owned `local_interactive` sessions, and resumes that runtime through runtime-owned control.
