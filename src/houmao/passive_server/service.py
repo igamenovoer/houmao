@@ -5,9 +5,26 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime
+from typing import Any
 
+from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_client import (
+    GatewayClient,
+    GatewayEndpoint,
+)
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
+    GatewayRequestCreateV1,
+    GatewayStatusV1,
+)
 from houmao.passive_server.config import PassiveServerConfig
-from houmao.passive_server.discovery import RegistryDiscoveryService
+from houmao.passive_server.discovery import DiscoveredAgent, RegistryDiscoveryService
 from houmao.passive_server.models import (
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
@@ -97,6 +114,136 @@ class PassiveServerService:
                 agent_ids=ids,
             )
         return None
+
+    # -- gateway proxy --------------------------------------------------------
+
+    def _resolve_agent_or_error(
+        self, agent_ref: str
+    ) -> DiscoveredAgent | tuple[int, dict[str, Any]]:
+        """Resolve an agent by id or name, returning an error tuple on failure."""
+
+        by_id = self.m_discovery.index.get_by_id(agent_ref)
+        if by_id is not None:
+            return by_id
+
+        by_name = self.m_discovery.index.get_by_name(agent_ref)
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            ids = [a.record.agent_id for a in by_name]
+            return (
+                409,
+                DiscoveredAgentConflictResponse(
+                    detail=f"Ambiguous agent name: {len(by_name)} agents share this name. "
+                    f"Disambiguate by agent_id.",
+                    agent_ids=ids,
+                ).model_dump(mode="json"),
+            )
+        return (404, {"detail": f"Agent not found: {agent_ref}"})
+
+    def _gateway_client_for_agent(self, agent: DiscoveredAgent) -> GatewayClient | None:
+        """Build a ``GatewayClient`` from the agent's registry record, or ``None``."""
+
+        gw = agent.record.gateway
+        if gw is None or gw.host is None or gw.port is None:
+            return None
+        return GatewayClient(endpoint=GatewayEndpoint(host=gw.host, port=gw.port))
+
+    def gateway_status(
+        self, agent_ref: str
+    ) -> GatewayStatusV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``GET /v1/status`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.status()
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_create_request(
+        self, agent_ref: str, payload: GatewayRequestCreateV1
+    ) -> GatewayAcceptedRequestV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/requests`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.create_request(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_status(
+        self, agent_ref: str
+    ) -> GatewayMailStatusV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``GET /v1/mail/status`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.mail_status()
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_check(
+        self, agent_ref: str, payload: GatewayMailCheckRequestV1
+    ) -> GatewayMailCheckResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/check`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.check_mail(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_send(
+        self, agent_ref: str, payload: GatewayMailSendRequestV1
+    ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/send`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.send_mail(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_mail_reply(
+        self, agent_ref: str, payload: GatewayMailReplyRequestV1
+    ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/reply`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.reply_mail(payload)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
 
     def request_shutdown(self) -> None:
         """Schedule a deferred SIGTERM to allow the response to flush."""

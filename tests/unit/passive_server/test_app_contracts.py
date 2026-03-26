@@ -8,6 +8,18 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_client import GatewayClient
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailStatusV1,
+    GatewayMailboxMessageV1,
+    GatewayMailboxParticipantV1,
+    GatewayStatusV1,
+)
+from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
@@ -231,3 +243,387 @@ class TestResolveAgentEndpoint:
         body = resp.json()
         assert "agent_ids" in body
         assert set(body["agent_ids"]) == {"abc123", "def456"}
+
+
+# ---------------------------------------------------------------------------
+# Gateway proxy endpoint helpers
+# ---------------------------------------------------------------------------
+
+
+def _agent_with_gateway(
+    agent_id: str = "abc123",
+    agent_name: str = "AGENTSYS-alpha",
+    session_name: str = "AGENTSYS-alpha-abc123",
+    gateway_host: str = "127.0.0.1",
+    gateway_port: int = 9901,
+) -> DiscoveredAgent:
+    """Create a DiscoveredAgent with live gateway coordinates."""
+
+    record = _make_record(
+        agent_id=agent_id, agent_name=agent_name, session_name=session_name
+    )
+    record.gateway = RegistryGatewayV1(
+        gateway_root="/tmp/gw",
+        attach_path="/tmp/gw/attach.json",
+        host=gateway_host,  # type: ignore[arg-type]
+        port=gateway_port,
+        state_path="/tmp/gw/state.json",
+        protocol_version="v1",
+    )
+    return DiscoveredAgent(record=record, summary=_summary_from_record(record))
+
+
+def _stub_gateway_status() -> GatewayStatusV1:
+    """Create a minimal valid GatewayStatusV1 for mocking."""
+
+    return GatewayStatusV1(
+        attach_identity="test",
+        backend="claude_headless",
+        tmux_session_name="sess",
+        gateway_health="healthy",
+        managed_agent_connectivity="connected",
+        managed_agent_recovery="idle",
+        request_admission="open",
+        terminal_surface_eligibility="ready",
+        active_execution="idle",
+        queue_depth=0,
+        gateway_host="127.0.0.1",
+        gateway_port=9901,
+        managed_agent_instance_epoch=1,
+    )
+
+
+def _stub_accepted_request() -> GatewayAcceptedRequestV1:
+    """Create a minimal valid GatewayAcceptedRequestV1 for mocking."""
+
+    return GatewayAcceptedRequestV1(
+        request_id="r1",
+        request_kind="submit_prompt",
+        state="accepted",
+        accepted_at_utc="2026-01-01T00:00:00Z",
+        queue_depth=1,
+        managed_agent_instance_epoch=1,
+    )
+
+
+def _stub_mail_status() -> GatewayMailStatusV1:
+    """Create a minimal valid GatewayMailStatusV1 for mocking."""
+
+    return GatewayMailStatusV1(
+        transport="filesystem",
+        principal_id="p1",
+        address="agent@local",
+        bindings_version="v1",
+    )
+
+
+def _stub_mail_check_response() -> GatewayMailCheckResponseV1:
+    """Create a minimal valid GatewayMailCheckResponseV1 for mocking."""
+
+    return GatewayMailCheckResponseV1(
+        transport="filesystem",
+        principal_id="p1",
+        address="agent@local",
+        unread_only=False,
+        message_count=0,
+        unread_count=0,
+        messages=[],
+    )
+
+
+def _stub_mail_action_response(operation: str = "send") -> GatewayMailActionResponseV1:
+    """Create a minimal valid GatewayMailActionResponseV1 for mocking."""
+
+    return GatewayMailActionResponseV1(
+        operation=operation,  # type: ignore[arg-type]
+        transport="filesystem",
+        principal_id="p1",
+        address="agent@local",
+        message=GatewayMailboxMessageV1(
+            message_ref="msg-1",
+            created_at_utc="2026-01-01T00:00:00Z",
+            subject="Test",
+            sender=GatewayMailboxParticipantV1(address="sender@local"),
+            to=[GatewayMailboxParticipantV1(address="recipient@local")],
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gateway status endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayStatusEndpoint:
+    """GET /houmao/agents/{agent_ref}/gateway."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "status", return_value=_stub_gateway_status()
+        ):
+            resp = client.get("/houmao/agents/abc123/gateway")
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/nonexistent/gateway")
+        assert resp.status_code == 404
+
+    def test_ambiguous_returns_409(self, tmp_path: object) -> None:
+        a1 = _agent_with_gateway(
+            agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"
+        )
+        a2 = _agent_with_gateway(
+            agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"
+        )
+        client = _make_agent_client(tmp_path, [a1, a2])
+        with client:
+            resp = client.get("/houmao/agents/alpha/gateway")
+        assert resp.status_code == 409
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/gateway")
+        assert resp.status_code == 502
+
+    def test_gateway_error_returns_502(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient,
+            "status",
+            side_effect=GatewayHttpError(
+                method="GET", url="http://127.0.0.1:9901/v1/status", detail="refused"
+            ),
+        ):
+            resp = client.get("/houmao/agents/abc123/gateway")
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway request submission endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayCreateRequestEndpoint:
+    """POST /houmao/agents/{agent_ref}/gateway/requests."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "create_request", return_value=_stub_accepted_request()
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/requests",
+                json={
+                    "schema_version": 1,
+                    "kind": "submit_prompt",
+                    "payload": {"prompt": "hello"},
+                },
+            )
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/gateway/requests",
+                json={
+                    "schema_version": 1,
+                    "kind": "submit_prompt",
+                    "payload": {"prompt": "hello"},
+                },
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/requests",
+                json={
+                    "schema_version": 1,
+                    "kind": "submit_prompt",
+                    "payload": {"prompt": "hello"},
+                },
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Mail status endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailStatusEndpoint:
+    """GET /houmao/agents/{agent_ref}/mail/status."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "mail_status", return_value=_stub_mail_status()
+        ):
+            resp = client.get("/houmao/agents/abc123/mail/status")
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/unknown/mail/status")
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/mail/status")
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Mail check endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailCheckEndpoint:
+    """POST /houmao/agents/{agent_ref}/mail/check."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "check_mail", return_value=_stub_mail_check_response()
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/mail/check",
+                json={"schema_version": 1},
+            )
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/mail/check",
+                json={"schema_version": 1},
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/mail/check",
+                json={"schema_version": 1},
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Mail send endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailSendEndpoint:
+    """POST /houmao/agents/{agent_ref}/mail/send."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "send_mail", return_value=_stub_mail_action_response("send")
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/mail/send",
+                json={
+                    "schema_version": 1,
+                    "to": ["user@example.com"],
+                    "subject": "Test",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/mail/send",
+                json={
+                    "schema_version": 1,
+                    "to": ["user@example.com"],
+                    "subject": "Test",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/mail/send",
+                json={
+                    "schema_version": 1,
+                    "to": ["user@example.com"],
+                    "subject": "Test",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Mail reply endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailReplyEndpoint:
+    """POST /houmao/agents/{agent_ref}/mail/reply."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(
+            GatewayClient, "reply_mail", return_value=_stub_mail_action_response("reply")
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/mail/reply",
+                json={
+                    "schema_version": 1,
+                    "message_ref": "msg-1",
+                    "body_content": "Reply text",
+                },
+            )
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/mail/reply",
+                json={
+                    "schema_version": 1,
+                    "message_ref": "msg-1",
+                    "body_content": "Reply text",
+                },
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/mail/reply",
+                json={
+                    "schema_version": 1,
+                    "message_ref": "msg-1",
+                    "body_content": "Reply text",
+                },
+            )
+        assert resp.status_code == 502

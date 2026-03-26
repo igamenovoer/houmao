@@ -8,6 +8,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
+    GatewayRequestCreateV1,
+    GatewayStatusV1,
+)
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
     DiscoveredAgentConflictResponse,
@@ -76,6 +87,58 @@ def create_app(
                 status_code=409,
                 content=result.model_dump(mode="json"),
             )
+        return result
+
+    # -- gateway proxy routes -------------------------------------------------
+
+    @app.get("/houmao/agents/{agent_ref}/gateway")
+    def gateway_status(agent_ref: str) -> GatewayStatusV1:
+        result = resolved_service.gateway_status(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/requests")
+    def gateway_create_request(
+        agent_ref: str, payload: GatewayRequestCreateV1
+    ) -> GatewayAcceptedRequestV1:
+        result = resolved_service.gateway_create_request(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/mail/status")
+    def gateway_mail_status(agent_ref: str) -> GatewayMailStatusV1:
+        result = resolved_service.gateway_mail_status(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/check")
+    def gateway_mail_check(
+        agent_ref: str, payload: GatewayMailCheckRequestV1
+    ) -> GatewayMailCheckResponseV1:
+        result = resolved_service.gateway_mail_check(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/send")
+    def gateway_mail_send(
+        agent_ref: str, payload: GatewayMailSendRequestV1
+    ) -> GatewayMailActionResponseV1:
+        result = resolved_service.gateway_mail_send(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/reply")
+    def gateway_mail_reply(
+        agent_ref: str, payload: GatewayMailReplyRequestV1
+    ) -> GatewayMailActionResponseV1:
+        result = resolved_service.gateway_mail_reply(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
     return app

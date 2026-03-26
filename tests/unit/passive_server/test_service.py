@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_client import GatewayClient
+from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
     DiscoveredAgent,
@@ -196,3 +200,121 @@ class TestResolveAgent:
         result = svc.resolve_agent("alpha")
         assert isinstance(result, DiscoveredAgentConflictResponse)
         assert set(result.agent_ids) == {"abc123", "def456"}
+
+
+# ---------------------------------------------------------------------------
+# Gateway proxy helpers
+# ---------------------------------------------------------------------------
+
+
+def _agent_with_gateway(
+    agent_id: str = "abc123",
+    agent_name: str = "AGENTSYS-alpha",
+    session_name: str = "AGENTSYS-alpha-abc123",
+    gateway_host: str = "127.0.0.1",
+    gateway_port: int = 9901,
+) -> DiscoveredAgent:
+    """Create a DiscoveredAgent with live gateway coordinates."""
+
+    record = _make_record(
+        agent_id=agent_id, agent_name=agent_name, session_name=session_name
+    )
+    record.gateway = RegistryGatewayV1(
+        gateway_root="/tmp/gw",
+        attach_path="/tmp/gw/attach.json",
+        host=gateway_host,  # type: ignore[arg-type]
+        port=gateway_port,
+        state_path="/tmp/gw/state.json",
+        protocol_version="v1",
+    )
+    return DiscoveredAgent(record=record, summary=_summary_from_record(record))
+
+
+# ---------------------------------------------------------------------------
+# _gateway_client_for_agent tests
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayClientForAgent:
+    """_gateway_client_for_agent() helper."""
+
+    def test_returns_client_for_live_gateway(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        agent = _agent_with_gateway()
+        client = svc._gateway_client_for_agent(agent)
+        assert isinstance(client, GatewayClient)
+
+    def test_returns_none_when_no_gateway(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        agent = _agent()  # no gateway
+        client = svc._gateway_client_for_agent(agent)
+        assert client is None
+
+    def test_returns_none_when_gateway_has_no_live_fields(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        record = _make_record()
+        record.gateway = RegistryGatewayV1(
+            gateway_root="/tmp/gw",
+            attach_path="/tmp/gw/attach.json",
+        )
+        agent = DiscoveredAgent(record=record, summary=_summary_from_record(record))
+        client = svc._gateway_client_for_agent(agent)
+        assert client is None
+
+
+# ---------------------------------------------------------------------------
+# gateway_status() tests
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayStatus:
+    """gateway_status() service method."""
+
+    def test_success_returns_status(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        agent = _agent_with_gateway()
+        _populate_index(svc, [agent])
+
+        mock_status = MagicMock(spec=GatewayStatusV1)
+        with patch.object(GatewayClient, "status", return_value=mock_status):
+            result = svc.gateway_status("abc123")
+        assert result is mock_status
+
+    def test_agent_not_found_returns_404(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        result = svc.gateway_status("nonexistent")
+        assert isinstance(result, tuple)
+        assert result[0] == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent()])  # no gateway
+        result = svc.gateway_status("abc123")
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "No gateway" in result[1]["detail"]
+
+    def test_gateway_error_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        with patch.object(
+            GatewayClient,
+            "status",
+            side_effect=GatewayHttpError(
+                method="GET", url="http://127.0.0.1:9901/v1/status", detail="Connection refused"
+            ),
+        ):
+            result = svc.gateway_status("abc123")
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "Connection refused" in result[1]["detail"]
+
+    def test_ambiguous_returns_409(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [
+            _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
+            _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+        ])
+        result = svc.gateway_status("alpha")
+        assert isinstance(result, tuple)
+        assert result[0] == 409
