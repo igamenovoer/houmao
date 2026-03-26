@@ -580,7 +580,7 @@ def _build_manifest_gateway_authority(
         "managed_agent_ref": (
             _optional_non_empty_str(request.backend_state.get("session_name"))
             if request.launch_plan.backend == "houmao_server_rest"
-            else None
+            else _optional_non_empty_str(request.backend_state.get("managed_agent_ref"))
         ),
         "terminal_id": terminal_id,
         "profile_name": profile_name,

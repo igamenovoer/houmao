@@ -112,14 +112,14 @@ from .gateway_storage import (
     gateway_paths_from_manifest_path,
     is_pid_running,
     live_gateway_env_var_names,
-    load_attach_contract,
     load_gateway_current_instance,
     load_gateway_desired_config,
     load_gateway_status,
     publish_live_gateway_env,
     read_pid_file,
     refresh_gateway_manifest_publication,
-    write_attach_contract,
+    refresh_internal_gateway_publication,
+    resolve_internal_gateway_attach_contract,
     write_gateway_desired_config,
     write_gateway_status,
 )
@@ -518,6 +518,11 @@ class RuntimeSessionController:
                 registry_launch_authority=self.registry_launch_authority,
             )
         )
+        payload = _preserve_server_managed_headless_gateway_authority(
+            manifest_path=self.manifest_path,
+            backend=self.launch_plan.backend,
+            payload=payload,
+        )
         write_session_manifest(self.manifest_path, payload)
         if refresh_registry:
             try:
@@ -544,6 +549,7 @@ class RuntimeSessionController:
 
         if not self._is_tmux_backed():
             return
+        self.persist_manifest(refresh_registry=False)
         session_name = _tmux_session_name_for_controller(self)
         if session_name is None:
             return
@@ -1965,6 +1971,49 @@ def _refresh_backend_launch_plan(
     )
 
 
+def _preserve_server_managed_headless_gateway_authority(
+    *,
+    manifest_path: Path,
+    backend: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Preserve server-managed headless pair routing when runtime state omits it."""
+
+    if backend not in {"codex_headless", "claude_headless", "gemini_headless"}:
+        return payload
+
+    raw_gateway_authority = payload.get("gateway_authority")
+    if not isinstance(raw_gateway_authority, dict):
+        return payload
+
+    try:
+        existing_handle = load_session_manifest(manifest_path)
+        existing_payload = parse_session_manifest_payload(
+            existing_handle.payload,
+            source=str(existing_handle.path),
+        )
+    except SessionManifestError:
+        return payload
+
+    existing_gateway_authority = existing_payload.gateway_authority
+    if existing_gateway_authority is None:
+        return payload
+
+    merged_gateway_authority = dict(raw_gateway_authority)
+    for endpoint_name in ("attach", "control"):
+        raw_endpoint = merged_gateway_authority.get(endpoint_name)
+        merged_endpoint = dict(raw_endpoint) if isinstance(raw_endpoint, dict) else {}
+        existing_endpoint = getattr(existing_gateway_authority, endpoint_name).model_dump(mode="json")
+        for field_name in ("api_base_url", "managed_agent_ref"):
+            if merged_endpoint.get(field_name) is None and existing_endpoint.get(field_name) is not None:
+                merged_endpoint[field_name] = existing_endpoint[field_name]
+        merged_gateway_authority[endpoint_name] = merged_endpoint
+
+    updated_payload = dict(payload)
+    updated_payload["gateway_authority"] = merged_gateway_authority
+    return updated_payload
+
+
 def _resolve_manifest_path(value: str, *, base: Path) -> Path:
     """Resolve a manifest path relative to the provided base directory."""
 
@@ -2576,7 +2625,7 @@ def _attach_gateway_for_controller(
         )
 
     paths = _require_gateway_paths_for_controller(controller)
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         host, requested_port = _resolve_gateway_listener(
             paths=paths,
@@ -2647,7 +2696,7 @@ def _detach_gateway_for_controller(controller: RuntimeSessionController) -> Gate
     """
 
     paths = _require_gateway_paths_for_controller(controller)
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         current_instance = load_gateway_current_instance(paths.current_instance_path)
     except SessionManifestError:
@@ -2826,7 +2875,7 @@ def _validated_gateway_client_for_controller(
     """
 
     session_name = controller._require_tmux_session_name()
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         current_instance = load_gateway_current_instance(paths.current_instance_path)
     except SessionManifestError:
@@ -3339,13 +3388,7 @@ def _start_gateway_process(
                         desired_execution_mode=execution_mode,
                     ),
                 )
-                write_attach_contract(
-                    paths.attach_path,
-                    load_attach_contract(paths.attach_path).model_copy(
-                        update={"desired_host": host, "desired_port": endpoint.port}
-                    ),
-                )
-                refresh_gateway_manifest_publication(paths)
+                refresh_internal_gateway_publication(paths)
                 publish_live_gateway_env(
                     session_name=session_name,
                     live_bindings=build_live_gateway_bindings(
@@ -3427,13 +3470,7 @@ def _start_gateway_process(
                     desired_execution_mode=execution_mode,
                 ),
             )
-            write_attach_contract(
-                paths.attach_path,
-                load_attach_contract(paths.attach_path).model_copy(
-                    update={"desired_host": host, "desired_port": endpoint.port}
-                ),
-            )
-            refresh_gateway_manifest_publication(paths)
+            refresh_internal_gateway_publication(paths)
             publish_live_gateway_env(
                 session_name=session_name,
                 live_bindings=build_live_gateway_bindings(

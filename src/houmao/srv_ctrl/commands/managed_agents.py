@@ -31,8 +31,8 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
     gateway_paths_from_manifest_path,
-    load_attach_contract,
     load_gateway_status,
+    resolve_internal_gateway_attach_contract,
 )
 from houmao.agents.realm_controller.mail_commands import (
     MailPromptRequest,
@@ -965,10 +965,9 @@ def _gateway_status_for_controller(controller: RuntimeSessionController) -> Gate
     """Return gateway status for one local runtime controller."""
 
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
-    if paths is None or not paths.attach_path.is_file():
+    if paths is None:
         raise click.ClickException(
-            "Managed agent does not publish gateway capability; no stable gateway attach "
-            "contract is available."
+            "Managed agent does not publish manifest-backed gateway capability."
         )
     if paths.state_path.is_file():
         try:
@@ -976,7 +975,7 @@ def _gateway_status_for_controller(controller: RuntimeSessionController) -> Gate
         except SessionManifestError as exc:
             raise click.ClickException(str(exc)) from exc
     try:
-        attach_contract = load_attach_contract(paths.attach_path)
+        attach_contract = resolve_internal_gateway_attach_contract(paths)
     except SessionManifestError as exc:
         raise click.ClickException(str(exc)) from exc
     return build_offline_gateway_status(

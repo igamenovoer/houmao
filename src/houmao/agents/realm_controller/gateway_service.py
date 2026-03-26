@@ -71,12 +71,12 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_health_response,
     gateway_paths_from_session_root,
     generate_gateway_request_id,
-    load_attach_contract,
     load_gateway_current_instance,
     read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
     refresh_gateway_manifest_publication,
+    resolve_internal_gateway_attach_contract,
     write_gateway_mail_notifier_record,
     write_gateway_current_instance,
     write_gateway_status,
@@ -241,6 +241,20 @@ class _RestBackedGatewayAdapter:
                 houmao_metadata.api_base_url,
                 path_prefix="/cao",
             )
+        manifest_path_value = attach_contract.manifest_path
+        agent_def_dir_value = attach_contract.agent_def_dir
+        self.m_manifest_path = (
+            Path(manifest_path_value).expanduser().resolve()
+            if manifest_path_value is not None
+            else None
+        )
+        self.m_agent_def_dir = (
+            Path(agent_def_dir_value).expanduser().resolve()
+            if agent_def_dir_value is not None
+            else None
+        )
+        self.m_controller: RuntimeSessionController | None = None
+        self.m_failed_recovery_terminal_id: str | None = None
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -253,6 +267,14 @@ class _RestBackedGatewayAdapter:
 
         terminal_id = self._read_current_terminal_id()
         connectivity = self._inspect_connectivity(terminal_id)
+        if connectivity != "connected" and self._should_attempt_recovery(terminal_id):
+            if self._attempt_relaunch_recovery():
+                terminal_id = self._read_current_terminal_id()
+                connectivity = self._inspect_connectivity(terminal_id)
+                if connectivity == "connected":
+                    self.m_failed_recovery_terminal_id = None
+            else:
+                self.m_failed_recovery_terminal_id = terminal_id
         return _GatewayTargetState(
             instance_id=terminal_id,
             connectivity=connectivity,
@@ -323,6 +345,47 @@ class _RestBackedGatewayAdapter:
         except CaoApiError:
             return "unavailable"
         return "connected"
+
+    def _should_attempt_recovery(self, terminal_id: str) -> bool:
+        """Return whether one manifest-backed relaunch recovery should run."""
+
+        if terminal_id == self.m_failed_recovery_terminal_id:
+            return False
+        if self.m_manifest_path is None or self.m_agent_def_dir is None:
+            return False
+        session_name = self.m_attach_contract.tmux_session_name
+        if not session_name.strip():
+            return False
+        return tmux_session_exists(session_name=session_name)
+
+    def _attempt_relaunch_recovery(self) -> bool:
+        """Try one shared relaunch recovery for the runtime-owned tmux surface."""
+
+        try:
+            result = self._resume_controller().relaunch()
+        except (GatewayError, LaunchPlanError, RuntimeError, SessionManifestError):
+            return False
+        return result.status == "ok"
+
+    def _resume_controller(self) -> RuntimeSessionController:
+        """Return the resumed runtime controller for relaunch recovery."""
+
+        if self.m_controller is not None:
+            return self.m_controller
+        if self.m_manifest_path is None or self.m_agent_def_dir is None:
+            raise GatewayError(
+                "REST-backed gateway recovery requires manifest_path and agent_def_dir."
+            )
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=self.m_agent_def_dir,
+                session_manifest_path=self.m_manifest_path,
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(
+                f"Failed to resume runtime-owned REST-backed session for recovery: {exc}"
+            ) from exc
+        return self.m_controller
 
 
 class _LocalHeadlessGatewayAdapter:
@@ -568,6 +631,7 @@ def _build_gateway_execution_adapter(
             isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1)
             and metadata.managed_api_base_url is not None
             and metadata.managed_agent_ref is not None
+            and attach_contract.agent_def_dir is None
         ):
             return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
         return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
@@ -599,7 +663,7 @@ class GatewayServiceRuntime:
         )
         self.m_host: GatewayHost = host
         self.m_port: int = port
-        self.m_attach_contract = load_attach_contract(self.m_paths.attach_path)
+        self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
             attach_contract=self.m_attach_contract
         )

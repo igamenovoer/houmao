@@ -24,7 +24,6 @@ from pydantic import BaseModel
 
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
-    GatewayAttachBackendMetadataHeadlessV1,
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -35,11 +34,11 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
+    refresh_internal_gateway_publication,
     gateway_paths_from_session_root,
     gateway_paths_from_manifest_path,
-    load_attach_contract,
     load_gateway_status,
-    write_attach_contract,
+    resolve_internal_gateway_attach_contract,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import (
@@ -59,6 +58,7 @@ from houmao.agents.realm_controller.loaders import load_brain_manifest, load_rol
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
+    update_session_manifest,
 )
 from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
@@ -3153,21 +3153,13 @@ class HoumaoServerService:
         """Return gateway status from one runtime-owned session root."""
 
         paths = gateway_paths_from_session_root(session_root=session_root.resolve())
-        if not paths.attach_path.is_file():
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Managed agent does not publish gateway capability; no stable gateway "
-                    "attach contract is available."
-                ),
-            )
         if paths.state_path.is_file():
             try:
                 return load_gateway_status(paths.state_path)
             except SessionManifestError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
         try:
-            attach_contract = load_attach_contract(paths.attach_path)
+            attach_contract = resolve_internal_gateway_attach_contract(paths)
         except SessionManifestError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return build_offline_gateway_status(
@@ -3281,32 +3273,39 @@ class HoumaoServerService:
         self,
         authority: ManagedHeadlessAuthorityRecord,
     ) -> None:
-        """Publish server-managed control-plane metadata into headless attach contract."""
+        """Publish server-managed control-plane metadata into the manifest-backed authority."""
 
+        manifest_path = Path(authority.manifest_path).expanduser().resolve()
         paths = gateway_paths_from_manifest_path(
-            Path(authority.manifest_path).expanduser().resolve()
+            manifest_path
         )
-        if paths is None or not paths.attach_path.is_file():
-            return
         try:
-            attach_contract = load_attach_contract(paths.attach_path)
+            handle = load_session_manifest(manifest_path)
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         except SessionManifestError:
             return
-        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if payload.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
             return
-        backend_metadata = attach_contract.backend_metadata
-        if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
+        gateway_authority = (
+            payload.gateway_authority.model_dump(mode="json")
+            if payload.gateway_authority is not None
+            else {"attach": {}, "control": {}}
+        )
+        for endpoint_name in ("attach", "control"):
+            endpoint = gateway_authority.get(endpoint_name)
+            updated_endpoint = dict(endpoint) if isinstance(endpoint, dict) else {}
+            updated_endpoint["api_base_url"] = self.m_config.api_base_url
+            updated_endpoint["managed_agent_ref"] = authority.tracked_agent_id
+            gateway_authority[endpoint_name] = updated_endpoint
+        try:
+            update_session_manifest(
+                manifest_path,
+                {"gateway_authority": gateway_authority},
+            )
+        except SessionManifestError:
             return
-        updated_metadata = backend_metadata.model_copy(
-            update={
-                "managed_api_base_url": self.m_config.api_base_url,
-                "managed_agent_ref": authority.tracked_agent_id,
-            }
-        )
-        write_attach_contract(
-            paths.attach_path,
-            attach_contract.model_copy(update={"backend_metadata": updated_metadata}),
-        )
+        if paths is not None and paths.gateway_root.exists():
+            refresh_internal_gateway_publication(paths)
 
     def _controller_for_tui_tracker(
         self,
