@@ -882,17 +882,13 @@ class TestSubmitRequestEndpoint:
     def test_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
-            resp = client.post(
-                "/houmao/agents/nonexistent/requests", json={"prompt": "hello"}
-            )
+            resp = client.post("/houmao/agents/nonexistent/requests", json={"prompt": "hello"})
         assert resp.status_code == 404
 
     def test_no_gateway_returns_502(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
-            resp = client.post(
-                "/houmao/agents/abc123/requests", json={"prompt": "hello"}
-            )
+            resp = client.post("/houmao/agents/abc123/requests", json={"prompt": "hello"})
         assert resp.status_code == 502
         assert "gateway" in resp.json()["detail"].lower()
 
@@ -909,9 +905,7 @@ class TestSubmitRequestEndpoint:
         )
         with client:
             with patch.object(GatewayClient, "create_request", return_value=mock_result):
-                resp = client.post(
-                    "/houmao/agents/abc123/requests", json={"prompt": "hello"}
-                )
+                resp = client.post("/houmao/agents/abc123/requests", json={"prompt": "hello"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
@@ -925,21 +919,19 @@ class TestSubmitRequestEndpoint:
                 GatewayClient,
                 "create_request",
                 side_effect=GatewayHttpError(
-                    method="POST", url="/v1/requests",
-                    status_code=500, detail="internal",
+                    method="POST",
+                    url="/v1/requests",
+                    status_code=500,
+                    detail="internal",
                 ),
             ):
-                resp = client.post(
-                    "/houmao/agents/abc123/requests", json={"prompt": "hello"}
-                )
+                resp = client.post("/houmao/agents/abc123/requests", json={"prompt": "hello"})
         assert resp.status_code == 502
 
     def test_empty_prompt_rejected(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
-            resp = client.post(
-                "/houmao/agents/abc123/requests", json={"prompt": "   "}
-            )
+            resp = client.post("/houmao/agents/abc123/requests", json={"prompt": "   "})
         assert resp.status_code == 422
 
     def test_ambiguous_agent_returns_409(self, tmp_path: object) -> None:
@@ -947,9 +939,7 @@ class TestSubmitRequestEndpoint:
         a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
         client = _make_agent_client(tmp_path, [a1, a2])
         with client:
-            resp = client.post(
-                "/houmao/agents/alpha/requests", json={"prompt": "hello"}
-            )
+            resp = client.post("/houmao/agents/alpha/requests", json={"prompt": "hello"})
         assert resp.status_code == 409
 
 
@@ -1011,12 +1001,8 @@ class TestStopEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             with (
-                patch(
-                    "houmao.passive_server.service.kill_tmux_session"
-                ) as mock_kill,
-                patch(
-                    "houmao.passive_server.service.remove_live_agent_record"
-                ) as mock_remove,
+                patch("houmao.passive_server.service.kill_tmux_session") as mock_kill,
+                patch("houmao.passive_server.service.remove_live_agent_record") as mock_remove,
             ):
                 resp = client.post("/houmao/agents/abc123/stop")
         assert resp.status_code == 200
@@ -1035,7 +1021,7 @@ class TestStopEndpoint:
 class TestHeadlessLaunchEndpoint:
     """POST /houmao/agents/headless/launches."""
 
-    def test_missing_working_directory_returns_400(self, tmp_path: object) -> None:
+    def test_missing_working_directory_returns_422(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
@@ -1047,10 +1033,10 @@ class TestHeadlessLaunchEndpoint:
                     "brain_manifest_path": "/nonexistent/manifest.json",
                 },
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert "working_directory" in resp.json()["detail"]
 
-    def test_missing_manifest_returns_400(self, tmp_path: object) -> None:
+    def test_missing_manifest_returns_422(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
@@ -1062,7 +1048,7 @@ class TestHeadlessLaunchEndpoint:
                     "brain_manifest_path": "/nonexistent/manifest.json",
                 },
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert "brain_manifest_path" in resp.json()["detail"]
 
 
@@ -1077,9 +1063,7 @@ class TestHeadlessTurnEndpoints:
     def test_turn_submit_non_managed_returns_400(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
-            resp = client.post(
-                "/houmao/agents/abc123/turns", json={"prompt": "hello"}
-            )
+            resp = client.post("/houmao/agents/abc123/turns", json={"prompt": "hello"})
         assert resp.status_code == 400
         assert "not a managed headless" in resp.json()["detail"]
 
@@ -1104,7 +1088,5 @@ class TestHeadlessTurnEndpoints:
     def test_turn_submit_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
-            resp = client.post(
-                "/houmao/agents/nonexistent/turns", json={"prompt": "hello"}
-            )
+            resp = client.post("/houmao/agents/nonexistent/turns", json={"prompt": "hello"})
         assert resp.status_code == 404
