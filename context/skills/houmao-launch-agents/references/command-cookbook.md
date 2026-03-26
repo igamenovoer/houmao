@@ -265,7 +265,7 @@ pixi run python -m houmao.agents.realm_controller start-session \
 ### Existing Managed Demo Packs
 
 - `scripts/demo/skill-invocation-demo-pack/run_demo.sh --tool codex|claude`
-- `scripts/demo/cao-interactive-full-pipeline-demo/run_demo.sh`
+- `scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start`
 
 ## Maintained References
 

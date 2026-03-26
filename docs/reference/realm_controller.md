@@ -101,7 +101,7 @@ pixi run python -m houmao.agents.realm_controller detach-gateway \
 
 The same runtime gateway commands also apply to runtime-owned `local_interactive` sessions used by serverless local agents. When a live gateway is attached, prompt and interrupt requests resume that local tmux-backed runtime authority through the gateway instead of falling back to direct CLI control.
 
-Attached `local_interactive` gateways also expose the gateway-owned TUI tracking routes for that same session: `GET /v1/control/tui/state`, `GET /v1/control/tui/history`, and `POST /v1/control/tui/note-prompt`. On that path the public `terminal_id` falls back to the runtime session id because there is no CAO-style terminal alias.
+Attached `local_interactive` gateways expose the gateway-owned current-state and explicit prompt-note tracking routes for that same session: `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt`. On that path the public `terminal_id` falls back to the runtime session id because there is no CAO-style terminal alias. `GET /v1/control/tui/history` may still exist for compatibility callers, but repo-owned local/serverless workflow guidance no longer treats it as a supported inspection surface.
 
 `gateway-send-prompt` and `gateway-interrupt` require a live attached gateway and fail explicitly when the session is only gateway-capable. Legacy direct-control commands such as `send-prompt` still work for sessions that have no live gateway attached.
 
@@ -379,45 +379,11 @@ pixi run python -m houmao.agents.realm_controller stop-session \
 
 ## CAO-Backed Session
 
-For the docs-side overview of the interactive CAO wrapper flow, see [Interactive CAO Demo](./cao_interactive_demo.md). For the full step-by-step operator tutorial, see [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md).
+The old interactive CAO demo pack is retired. For a maintained interactive walkthrough, use [Houmao-server interactive full-pipeline demo pack](../../scripts/demo/houmao-server-interactive-full-pipeline-demo/README.md).
 
-Start CAO explicitly before `start-session`:
+The standalone launcher surface is also retired. Use [CAO Server Launcher](./cao_server_launcher.md) for migration guidance and [Houmao Server Pair](./houmao_server_pair.md) for supported server-backed workflows.
 
-```bash
-pixi run python -m houmao.cao.tools.cao_server_launcher start \
-  --config config/cao-server-launcher/local.toml
-```
-
-```bash
-pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
-  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
-  --role gpu-kernel-coder \
-  --backend cao_rest \
-  --agent-identity gpu \
-  --cao-base-url http://localhost:<port>
-
-pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity AGENTSYS-gpu \
-  --prompt "Continue from the prior answer"
-
-pixi run python -m houmao.agents.realm_controller send-keys \
-  --agent-identity AGENTSYS-gpu \
-  --sequence '/model<[Enter]><[Down]><[Enter]>'
-
-pixi run python -m houmao.agents.realm_controller stop-session \
-  --agent-identity AGENTSYS-gpu
-```
-
-Then stop CAO explicitly:
-
-```bash
-pixi run python -m houmao.cao.tools.cao_server_launcher stop \
-  --config config/cao-server-launcher/local.toml
-```
-
-Use `--cao-base-url http://127.0.0.1:9991` to target another supported
-launcher-managed loopback port when needed.
+The low-level `cao_rest` runtime backend still exists as a compatibility-oriented runtime path, but the retired CAO demo wrappers are no longer documented here as a supported operator workflow.
 
 Behavior:
 

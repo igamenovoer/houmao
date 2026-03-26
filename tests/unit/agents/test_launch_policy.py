@@ -173,11 +173,11 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
 
 
 def test_supported_version_spec_uses_dependency_style_matching() -> None:
-    spec = SupportedVersionSpec.parse(">=2.1.81,<2.1.84")
+    spec = SupportedVersionSpec.parse(">=2.1.81")
 
     assert spec.contains(ToolVersion.parse("2.1.81"))
     assert spec.contains(ToolVersion.parse("2.1.83"))
-    assert not spec.contains(ToolVersion.parse("2.1.84"))
+    assert spec.contains(ToolVersion.parse("2.1.84"))
 
 
 def test_supported_version_spec_rejects_invalid_specifier() -> None:
@@ -214,11 +214,11 @@ def test_unattended_strategy_override_is_transient(
     assert result.provenance.override_env_var_name == "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 
 
-def test_unattended_launch_fails_closed_for_unknown_version(
+def test_unattended_launch_fails_closed_for_older_than_supported_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 9.9.9")
+    _stub_version(monkeypatch, output="codex-cli 0.115.9")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")

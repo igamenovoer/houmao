@@ -109,7 +109,7 @@ pip install -e .
 
 ### CAO (optional)
 
-CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend, `houmao-cao-server`, or the `houmao-server + houmao-mgr` replacement pair.
+CAO is an internal dependency for Houmao's CAO-backed paths. Install it if you want to use the `cao_rest` backend or the `houmao-server + houmao-mgr` pair. The standalone `houmao-cao-server` launcher is retired and now exits with migration guidance.
 
 In normal operator workflows, prefer the Houmao utilities over invoking raw `cao` or `cao-server` directly. Houmao still depends on CAO internally for the `cao_rest` backend and CAO-compatible control surfaces.
 
@@ -131,7 +131,7 @@ command -v tmux
 ### CLI Entry Points
 
 - `houmao-cli`: build/start/prompt/stop lifecycle
-- `houmao-cao-server`: local `cao-server` start/status/stop (optional)
+- `houmao-cao-server`: retired standalone launcher shim that exits with migration guidance
 - `houmao-server`: Houmao-owned CAO-compatible server with Houmao extension routes
 - `houmao-mgr`: Pair-management CLI paired with `houmao-server`
 
@@ -347,28 +347,24 @@ houmao-cli start-session \
 
 ### 5. CAO-Backed Sessions (Optional)
 
-Prefer the Houmao launcher wrapper when you need a local CAO-compatible control plane:
+The standalone `houmao-cao-server` workflow is retired.
+
+For a maintained interactive walkthrough, use:
 
 ```bash
-houmao-cao-server start  --config config/cao-server-launcher/local.toml
-houmao-cao-server status --config config/cao-server-launcher/local.toml
-houmao-cao-server stop   --config config/cao-server-launcher/local.toml
+scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start
+scripts/demo/houmao-server-interactive-full-pipeline-demo/send_prompt.sh --prompt "Summarize the current open tasks."
+scripts/demo/houmao-server-interactive-full-pipeline-demo/inspect_demo.sh
+scripts/demo/houmao-server-interactive-full-pipeline-demo/verify_demo.sh
+scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 ```
 
-For a one-off local port override, add `--base-url http://127.0.0.1:9991`.
-
-Start a session through CAO:
+For lower-level supported pair control, use:
 
 ```bash
-houmao-cli start-session \
-  --brain-manifest <manifest-path-from-build-output> \
-  --role gpu-kernel-coder \
-  --backend cao_rest \
-  --cao-base-url http://localhost:9889
+pixi run houmao-mgr server start --api-base-url http://127.0.0.1:9889
+pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
 ```
-
-Supported local CAO URLs use `http://localhost:<port>` or
-`http://127.0.0.1:<port>`.
 
 ## Developer Guide
 
@@ -475,7 +471,7 @@ pixi run test-runtime
 CAO (CLI Agent Orchestrator) provides the REST session/terminal control plane used internally by the `cao_rest` backend and by Houmao's CAO-compatible launcher or server flows.
 It also exposes an inbox messaging API that can be used as a communication channel between agents/terminals.
 
-For normal Houmao usage, prefer `houmao-cao-server`, `houmao-server`, and `houmao-mgr` instead of invoking raw `cao` or `cao-server` directly. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's wrappers.
+For normal Houmao usage, prefer `houmao-server` and `houmao-mgr` instead of invoking raw `cao` or `cao-server` directly. The standalone `houmao-cao-server` launcher is retired. Direct CAO invocation is mainly useful when debugging the underlying dependency or validating behavior below Houmao's compatibility layers.
 
 Install CAO from the supported fork / pinned compatibility commit and verify required executables are on `PATH`. We recommend the fork because `Houmao` may depend on CAO features that are not yet present on upstream `main`:
 

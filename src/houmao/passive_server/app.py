@@ -21,6 +21,9 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
+    AgentTuiDetailResponse,
+    AgentTuiHistoryResponse,
+    AgentTuiStateResponse,
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
@@ -137,6 +140,29 @@ def create_app(
         agent_ref: str, payload: GatewayMailReplyRequestV1
     ) -> GatewayMailActionResponseV1:
         result = resolved_service.gateway_mail_reply(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    # -- TUI observation routes -----------------------------------------------
+
+    @app.get("/houmao/agents/{agent_ref}/state")
+    def agent_state(agent_ref: str) -> AgentTuiStateResponse:
+        result = resolved_service.agent_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/state/detail")
+    def agent_state_detail(agent_ref: str) -> AgentTuiDetailResponse:
+        result = resolved_service.agent_state_detail(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/history")
+    def agent_history(agent_ref: str, limit: int = 50) -> AgentTuiHistoryResponse:
+        result = resolved_service.agent_history(agent_ref, limit=limit)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

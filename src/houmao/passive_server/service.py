@@ -26,12 +26,16 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, RegistryDiscoveryService
 from houmao.passive_server.models import (
+    AgentTuiDetailResponse,
+    AgentTuiHistoryResponse,
+    AgentTuiStateResponse,
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
     PassiveCurrentInstance,
     PassiveHealthResponse,
 )
+from houmao.passive_server.observation import TuiObservationService
 
 
 class PassiveServerService:
@@ -45,6 +49,7 @@ class PassiveServerService:
         self.m_config = config
         self.m_started_at_utc: str = ""
         self.m_discovery = RegistryDiscoveryService(config)
+        self.m_observation = TuiObservationService(discovery=self.m_discovery, config=config)
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -55,10 +60,12 @@ class PassiveServerService:
         self.m_config.run_dir.mkdir(parents=True, exist_ok=True)
         self._write_current_instance()
         self.m_discovery.start()
+        self.m_observation.start()
 
     def shutdown(self) -> None:
-        """Stop discovery and remove the on-disk current-instance marker."""
+        """Stop observation, discovery, and remove the on-disk current-instance marker."""
 
+        self.m_observation.stop()
         self.m_discovery.stop()
         try:
             self.m_config.current_instance_path.unlink(missing_ok=True)
@@ -149,9 +156,7 @@ class PassiveServerService:
             return None
         return GatewayClient(endpoint=GatewayEndpoint(host=gw.host, port=gw.port))
 
-    def gateway_status(
-        self, agent_ref: str
-    ) -> GatewayStatusV1 | tuple[int, dict[str, Any]]:
+    def gateway_status(self, agent_ref: str) -> GatewayStatusV1 | tuple[int, dict[str, Any]]:
         """Proxy ``GET /v1/status`` to the agent's gateway."""
 
         resolved = self._resolve_agent_or_error(agent_ref)
@@ -244,6 +249,45 @@ class PassiveServerService:
             return client.reply_mail(payload)
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    # -- agent TUI observation --------------------------------------------------
+
+    def agent_state(self, agent_ref: str) -> AgentTuiStateResponse | tuple[int, dict[str, Any]]:
+        """Return compact observation state for an agent."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        return observer.current_state()
+
+    def agent_state_detail(
+        self, agent_ref: str
+    ) -> AgentTuiDetailResponse | tuple[int, dict[str, Any]]:
+        """Return detailed observation state for an agent."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        return observer.current_detail()
+
+    def agent_history(
+        self, agent_ref: str, limit: int = 50
+    ) -> AgentTuiHistoryResponse | tuple[int, dict[str, Any]]:
+        """Return recent state transitions for an agent."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        return observer.history(limit=limit)
 
     def request_shutdown(self) -> None:
         """Schedule a deferred SIGTERM to allow the response to flush."""

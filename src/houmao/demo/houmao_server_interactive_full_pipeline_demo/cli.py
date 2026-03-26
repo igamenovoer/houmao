@@ -96,9 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the interactive demo."""
 
-    parser = argparse.ArgumentParser(
-        description="Local interactive full-pipeline demo commands."
-    )
+    parser = argparse.ArgumentParser(description="Local interactive full-pipeline demo commands.")
     parser.add_argument(
         "--repo-root",
         type=Path,

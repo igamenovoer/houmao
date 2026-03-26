@@ -1,13 +1,13 @@
 # Serverless Agent Gateway TUI State Tracking Workflow
 
-This workflow documents how to run a no-`houmao-server` experiment for a local interactive TUI agent, attach a live gateway to that agent, and inspect the gateway-owned TUI state tracking behavior.
+This workflow documents how to run a no-`houmao-server` experiment for one local interactive TUI agent, attach a live gateway to that agent, and inspect the supported gateway-owned tracking surface for that session.
 
-The goal is not only to verify that gateway attach works for a serverless local TUI session, but also to compare two different observation paths:
+The goal is to compare two observation paths without relying on retired local history surfaces:
 
-1. the gateway-owned persistent tracker exposed by the live gateway HTTP routes
-2. the serverless `houmao-mgr agents state/show/history` CLI path
+1. the gateway-owned tracked current state, plus explicit prompt-note provenance, for the attached session
+2. the serverless `houmao-mgr agents state/show` CLI path
 
-In the current implementation, those two paths do not retain the same turn-tracking information for local interactive sessions. This workflow is useful both as an operator recipe and as a debugging checklist.
+For runtime-owned `local_interactive` sessions, repo-owned local/serverless guidance now treats `GET /v1/control/tui/state` plus explicit prompt-note evidence as the supported gateway tracking surface. `GET /v1/control/tui/history` may still exist for compatibility callers, but this workflow does not rely on it.
 
 ## Scope
 
@@ -17,7 +17,8 @@ This workflow is specifically for:
 - backend `local_interactive`
 - one tmux-backed Codex TUI session
 - explicit gateway attach through `houmao-mgr agents gateway attach`
-- gateway-owned TUI tracking via `GET /v1/control/tui/state` and `GET /v1/control/tui/history`
+- gateway-owned current state via `GET /v1/control/tui/state`
+- explicit prompt-note evidence via `POST /v1/control/tui/note-prompt` or automatic prompt-note capture during `submit_prompt`
 
 This is not the pair-managed `houmao-server + houmao-mgr` workflow.
 
@@ -40,20 +41,20 @@ pixi run houmao-mgr agents launch --help
 
 ## Important Identity Note
 
-For serverless local sessions, `houmao-mgr agents state/show/history/gateway ...` currently resolves local records by:
+For serverless local sessions, `houmao-mgr agents state/show/gateway ...` resolves local records by:
 
 - shared-registry `agent_id`, or
 - canonical `agent_name`
 
 It does not reliably resolve by tmux session name alone in this workflow.
 
-After launch, prefer the canonical agent name from the registry, for example:
+After launch, prefer the canonical agent name from `agents list`. Example:
 
 ```bash
 pixi run houmao-mgr agents list
 ```
 
-In the example run below, the canonical agent ref was `AGENTSYS-projection-demo-codex`, while the tmux session name was `hm-gw-track-codex`.
+In the example run below, the canonical agent name was `AGENTSYS-projection-demo-codex`, while the tmux session name was `hm-gw-track-codex`.
 
 ## Launch The Local TUI Agent
 
@@ -69,6 +70,7 @@ Launch one serverless local interactive Codex session:
 pixi run houmao-mgr agents launch \
   --agents projection-demo \
   --provider codex \
+  --agent-name AGENTSYS-projection-demo-codex \
   --session-name hm-gw-track-codex \
   --yolo
 ```
@@ -89,13 +91,12 @@ pixi run houmao-mgr agents list
 
 ## Observe Baseline State Before Gateway Attach
 
-Use the canonical agent ref from `agents list`. Example:
+Use the canonical agent name from `agents list`. Example:
 
 ```bash
-pixi run houmao-mgr agents state AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents show AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents history --limit 8 AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents gateway status AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents state --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents show --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents gateway status --agent-name AGENTSYS-projection-demo-codex
 ```
 
 Expected baseline observations:
@@ -109,7 +110,7 @@ Expected baseline observations:
   - `input_mode: "freeform"`
   - `ui_context: "normal_prompt"`
 
-In the example run, the serverless CLI path showed:
+In the documented run, the serverless CLI path showed:
 
 - `transport_state: "tmux_up"`
 - `process_state: "tui_up"`
@@ -122,7 +123,7 @@ In the example run, the serverless CLI path showed:
 Attach a live gateway to the local interactive session:
 
 ```bash
-pixi run houmao-mgr agents gateway attach AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents gateway attach --agent-name AGENTSYS-projection-demo-codex
 ```
 
 Expected result:
@@ -138,7 +139,7 @@ Expected result:
 Confirm status again:
 
 ```bash
-pixi run houmao-mgr agents gateway status AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents gateway status --agent-name AGENTSYS-projection-demo-codex
 ```
 
 The runtime-owned gateway artifacts should now exist under the session root:
@@ -161,7 +162,7 @@ Send a simple prompt through the explicit gateway path:
 
 ```bash
 pixi run houmao-mgr agents gateway prompt \
-  AGENTSYS-projection-demo-codex \
+  --agent-name AGENTSYS-projection-demo-codex \
   --prompt 'Reply with exactly TRACKING_OK and nothing else.'
 ```
 
@@ -184,6 +185,8 @@ Expected gateway log sequence:
 - `executing gateway request`
 - `completed gateway request`
 
+Successful `submit_prompt` execution already records explicit prompt-note evidence on the same gateway-owned tracker. Use `POST /v1/control/tui/note-prompt` only when you need that provenance without routing a prompt through the gateway queue.
+
 ## Inspect The Live Pane
 
 Capture the tmux pane directly:
@@ -199,17 +202,14 @@ Observe whether:
 - Codex emits an answer
 - the pane returns to a ready prompt
 
-In the documented run, the prompt text was visible in the input surface, but no assistant answer was visible in the captured pane.
+## Query The Gateway-Owned Tracked State
 
-## Query The Gateway-Owned Persistent TUI Tracker
-
-The live gateway exposes its own persistent tracker for attached TUI sessions:
+The live gateway exposes its own tracked current state for attached TUI sessions:
 
 ```bash
 curl -s http://127.0.0.1:<gateway-port>/health
 curl -s http://127.0.0.1:<gateway-port>/v1/status
 curl -s http://127.0.0.1:<gateway-port>/v1/control/tui/state
-curl -s 'http://127.0.0.1:<gateway-port>/v1/control/tui/history?limit=12'
 ```
 
 Replace `<gateway-port>` with the port returned by `gateway attach` or `gateway status`.
@@ -227,80 +227,69 @@ What to observe in `/v1/control/tui/state`:
 - `surface.editing_input`
 - `turn.phase`
 - `last_turn.result`
+- `last_turn.source`
 - `recent_transitions`
 
-What to observe in `/v1/control/tui/history`:
+If you need to record explicit input provenance without actually executing a prompt, you can also call:
 
-- whether prompt submission caused a transition from `ready` to `active`
-- whether the tracker later returned to `ready`
-- whether the transition timestamps line up with the gateway request execution
+```bash
+curl -s \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"TRACKING_NOTE_ONLY"}' \
+  http://127.0.0.1:<gateway-port>/v1/control/tui/note-prompt
+```
+
+That route returns the updated tracked state and uses the same gateway-owned authority as `submit_prompt`.
 
 ## Expected Gateway-Owned Tracking Behavior
 
-In the documented run, the gateway-owned persistent tracker showed:
+In the documented run, the gateway-owned tracked state showed:
 
-- initial `ready` state
+- initial `ready` posture
 - transition to `active` at prompt-submission time
 - transition back to `ready` immediately afterward
 
-The recorded transitions looked like:
+That evidence appeared in the state payload through `recent_transitions`, together with the updated `last_turn` fields.
 
-- `2026-03-25T18:18:29+00:00`: initial ready posture
-- `2026-03-25T18:18:42+00:00`: `turn_phase: 'ready' -> 'active'`
-- `2026-03-25T18:18:43+00:00`: `turn_phase: 'active' -> 'ready'`
+This is the supported repo-owned local/serverless inspection path for attached `local_interactive` sessions.
 
-This indicates that the live gateway tracker did retain prompt-submission evidence and gateway-driven turn-phase transitions for a `local_interactive` session.
-
-## Compare Against The Serverless CLI Tracking Path
+## Compare Against The Serverless CLI State Path
 
 After the same prompt submission, query the serverless CLI path again:
 
 ```bash
-pixi run houmao-mgr agents state AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents show AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents history --limit 12 AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents state --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents show --agent-name AGENTSYS-projection-demo-codex
 ```
 
-In the documented run, this path did not retain the same turn history. It showed only a fresh baseline sample such as:
-
-- `turn.phase: "ready"`
-- `last_turn.result: "none"`
-- one short history beginning from the newest poll
+In the documented run, those calls showed the current posture correctly but did not preserve the same gateway-owned prompt-transition evidence across independent invocations.
 
 That difference matters:
 
-- the gateway-owned HTTP tracker is persistent for the lifetime of the attached gateway
-- the current serverless `houmao-mgr agents state/show/history` path rebuilds a fresh local tracker per invocation
+- the attached gateway owns the continuous tracked state for the lifetime of the live gateway
+- the current serverless `houmao-mgr agents state/show` path refreshes local tracking per invocation
 
-So this workflow should explicitly compare both paths rather than assuming they are equivalent.
+So this workflow should treat gateway-owned tracked state as the authoritative local/serverless observer for attached-session prompt lifecycle evidence.
+
+`/v1/control/tui/history` may still be callable directly, but this workflow treats it as compatibility-only and does not rely on it.
 
 ## Current Findings To Record
 
 When this workflow succeeds, record the following separately:
 
-1. Gateway attach status:
-   `healthy`, `connected`, `request_admission=open`, `terminal_surface_eligibility=ready`
-2. Gateway request lifecycle:
-   accepted, executed, completed
-3. Gateway-owned TUI tracker behavior:
-   whether it records `ready -> active -> ready`
-4. Live pane behavior:
-   whether the prompt is only staged in the input surface or whether a real assistant turn visibly runs
-5. Serverless CLI tracker behavior:
-   whether `agents state/show/history` retains the same turn history or loses it across calls
-
-In the documented run:
-
-- items 1 through 3 succeeded
-- item 4 was suspicious because the pane showed staged prompt text but no visible answer
-- item 5 exposed a mismatch because the CLI path did not retain the gateway-owned turn transitions
+1. Gateway attach status: `healthy`, `connected`, `request_admission=open`, `terminal_surface_eligibility=ready`
+2. Gateway request lifecycle: accepted, executed, completed
+3. Gateway-owned tracked-state evidence: whether `recent_transitions` records `ready -> active -> ready`
+4. Explicit prompt provenance: whether tracked state reflects the prompt submission through `last_turn` fields or note-prompt evidence
+5. Live pane behavior: whether the prompt is only staged in the input surface or whether a real assistant turn visibly runs
+6. Serverless CLI behavior: whether `agents state/show` reflects the current posture without preserving the same gateway-owned transition record
 
 ## Cleanup
 
 Stop the session when done:
 
 ```bash
-pixi run houmao-mgr agents stop AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents stop --agent-name AGENTSYS-projection-demo-codex
 ```
 
 Expected cleanup result:
@@ -318,9 +307,9 @@ pixi run houmao-mgr agents list | rg 'AGENTSYS-projection-demo-codex|hm-gw-track
 
 ## Interpretation
 
-This workflow currently demonstrates two distinct facts:
+This workflow demonstrates two distinct facts:
 
-1. serverless gateway attach and gateway-owned TUI tracking do work for `local_interactive` sessions
-2. the serverless `houmao-mgr agents state/show/history` path is not yet an equivalent observer for that same live tracking state
+1. serverless gateway attach and gateway-owned tracked current state do work for `local_interactive` sessions
+2. the serverless `houmao-mgr agents state/show` path is not an equivalent observer for the same attached-session transition evidence
 
-If this workflow is used during debugging, treat the gateway HTTP routes as the authoritative source for persistent gateway-owned TUI tracking behavior in this scenario.
+If this workflow is used during debugging, treat gateway-owned tracked state plus explicit prompt-note evidence as the authoritative local/serverless surface for attached-session prompt lifecycle inspection.

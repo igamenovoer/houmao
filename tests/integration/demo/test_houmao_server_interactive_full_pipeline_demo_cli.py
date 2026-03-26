@@ -151,7 +151,9 @@ def test_cli_end_to_end_workflow_uses_local_managed_agent_state_and_artifacts(
             launch_plan=SimpleNamespace(tool="claude"),
         ),
     )
-    monkeypatch.setattr(demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None)
+    monkeypatch.setattr(
+        demo_commands, "_wait_for_controller_launch_readiness", lambda **kwargs: None
+    )
     monkeypatch.setattr(
         demo_commands,
         "_resolve_local_target",
@@ -167,11 +169,15 @@ def test_cli_end_to_end_workflow_uses_local_managed_agent_state_and_artifacts(
         "_fetch_live_bundle_from_target",
         lambda **kwargs: bundle_plan.pop(0),
     )
-    monkeypatch.setattr(demo_commands, "_managed_agent_snapshot", lambda **kwargs: (
-        _managed_snapshot(result="none", turn_index=None)
-        if kwargs["state_response"] == "before"
-        else _managed_snapshot(result="success", turn_index=1)
-    ))
+    monkeypatch.setattr(
+        demo_commands,
+        "_managed_agent_snapshot",
+        lambda **kwargs: (
+            _managed_snapshot(result="none", turn_index=None)
+            if kwargs["state_response"] == "before"
+            else _managed_snapshot(result="success", turn_index=1)
+        ),
+    )
     monkeypatch.setattr(
         demo_commands,
         "_history_snapshot",
@@ -208,7 +214,9 @@ def test_cli_end_to_end_workflow_uses_local_managed_agent_state_and_artifacts(
         ),
     )
     monkeypatch.setattr(demo_commands, "_best_effort_kill_tmux_session", lambda session_name: None)
-    monkeypatch.setattr(demo_commands, "_best_effort_cleanup_session_root", lambda session_root: None)
+    monkeypatch.setattr(
+        demo_commands, "_best_effort_cleanup_session_root", lambda session_root: None
+    )
 
     assert (
         demo_cli.main(["--repo-root", str(repo_root), "start", "--session-name", "alice", "--json"])
@@ -217,22 +225,18 @@ def test_cli_end_to_end_workflow_uses_local_managed_agent_state_and_artifacts(
     start_payload = json.loads(capsys.readouterr().out)
     workspace_root = Path(start_payload["state"]["workspace_dir"])
 
-    bundle_plan[:] = [
-        {"state": "after", "detail": "after", "history": "after", "terminal": "after"}
-    ]
+    bundle_plan[:] = [{"state": "after", "detail": "after", "terminal": "after"}]
     assert demo_cli.main(["--repo-root", str(repo_root), "inspect", "--json"]) == 0
     inspect_payload = json.loads(capsys.readouterr().out)
 
     bundle_plan[:] = [
-        {"state": "before", "detail": "before", "history": "before", "terminal": "before"},
-        {"state": "after", "detail": "after", "history": "after", "terminal": "after"},
+        {"state": "before", "detail": "before", "terminal": "before"},
+        {"state": "after", "detail": "after", "terminal": "after"},
     ]
     assert demo_cli.main(["--repo-root", str(repo_root), "send-turn", "--prompt", "hello"]) == 0
     turn_payload = json.loads(capsys.readouterr().out)
 
-    bundle_plan[:] = [
-        {"state": "after", "detail": "after", "history": "after", "terminal": "after"}
-    ]
+    bundle_plan[:] = [{"state": "after", "detail": "after", "terminal": "after"}]
     assert demo_cli.main(["--repo-root", str(repo_root), "verify"]) == 0
     verify_payload = json.loads(capsys.readouterr().out)
 

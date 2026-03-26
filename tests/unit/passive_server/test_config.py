@@ -32,6 +32,10 @@ class TestDefaults:
         config = PassiveServerConfig()
         assert config.discovery_poll_interval_seconds == 5.0
 
+    def test_default_observation_poll_interval(self) -> None:
+        config = PassiveServerConfig()
+        assert config.observation_poll_interval_seconds == 2.0
+
 
 class TestNormalization:
     """URL normalization and path resolution."""
@@ -55,6 +59,18 @@ class TestNormalization:
     def test_negative_discovery_poll_interval_rejected(self) -> None:
         with pytest.raises(ValueError):
             PassiveServerConfig(discovery_poll_interval_seconds=-1.0)
+
+    def test_custom_observation_poll_interval(self) -> None:
+        config = PassiveServerConfig(observation_poll_interval_seconds=3.0)
+        assert config.observation_poll_interval_seconds == 3.0
+
+    def test_observation_poll_interval_below_minimum_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            PassiveServerConfig(observation_poll_interval_seconds=0.1)
+
+    def test_observation_poll_interval_at_minimum(self) -> None:
+        config = PassiveServerConfig(observation_poll_interval_seconds=0.5)
+        assert config.observation_poll_interval_seconds == 0.5
 
     def test_runtime_root_resolved_to_absolute(self, tmp_path: Path) -> None:
         config = PassiveServerConfig(runtime_root=tmp_path / "relative" / "..")
