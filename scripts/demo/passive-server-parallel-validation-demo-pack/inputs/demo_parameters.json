@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "demo_id": "passive-server-parallel-validation-demo-pack",
+  "default_provider": "claude_code",
+  "shared_prompt_file": "shared_prompt.txt",
+  "gateway_prompt_file": "gateway_prompt.txt",
+  "headless_prompt_file": "headless_prompt.txt",
+  "old_server_port": 9889,
+  "passive_server_port": 9891
+}
+

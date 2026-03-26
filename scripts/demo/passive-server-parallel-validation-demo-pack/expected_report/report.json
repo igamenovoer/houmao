@@ -1,0 +1,101 @@
+{
+  "active": false,
+  "agent_profile": "server-api-smoke",
+  "authorities": {
+    "old_server": {
+      "api_base_url": "<API_BASE_URL>",
+      "health_status": "ok",
+      "houmao_service": "houmao-server",
+      "pid": "<PID>"
+    },
+    "passive_server": {
+      "api_base_url": "<API_BASE_URL>",
+      "health_status": "ok",
+      "houmao_service": "houmao-passive-server",
+      "pid": "<PID>"
+    }
+  },
+  "generated_at_utc": "<TIMESTAMP>",
+  "headless_agent": {
+    "agent_id": "<AGENT_ID>",
+    "agent_name": "<AGENT_NAME>",
+    "manifest_path": "<ABSOLUTE_PATH>"
+  },
+  "pack": "passive-server-parallel-validation-demo-pack",
+  "pack_dir": "<ABSOLUTE_PATH>",
+  "phases": {
+    "gateway": {
+      "gateway_attached": true,
+      "old_progress_ok": true,
+      "passive_progress_ok": true,
+      "request_id": "<REQUEST_ID>",
+      "status": "passed"
+    },
+    "headless": {
+      "launch_ok": true,
+      "old_visibility_ok": true,
+      "status": "passed"
+    },
+    "inspect": {
+      "comparisons": {
+        "detail": true,
+        "history": true,
+        "identity": true,
+        "state": true
+      },
+      "list_visibility_ok": true,
+      "old_history": {
+        "entry_count": 1,
+        "latest_last_turn_result": "success",
+        "latest_summary": "shared prompt handled",
+        "latest_turn_phase": "ready"
+      },
+      "passive_history": {
+        "entry_count": 1,
+        "latest_last_turn_result": "success",
+        "latest_summary": "shared prompt handled",
+        "latest_turn_phase": "ready"
+      },
+      "resolve_visibility_ok": true,
+      "status": "passed"
+    },
+    "stop": {
+      "old_absent": true,
+      "passive_absent": true,
+      "registry_absent": true,
+      "status": "passed",
+      "tmux_absent": true
+    }
+  },
+  "preflight": {
+    "checked_executables": [
+      "claude",
+      "git",
+      "pixi",
+      "tmux"
+    ],
+    "missing": [],
+    "ports": {
+      "old_server": 9889,
+      "passive_server": 9891
+    }
+  },
+  "provider": "claude_code",
+  "repo_root": "<ABSOLUTE_PATH>",
+  "run_root": "<ABSOLUTE_PATH>",
+  "shared_agent": {
+    "agent_id": "<AGENT_ID>",
+    "agent_name": "<AGENT_NAME>",
+    "manifest_path": "<ABSOLUTE_PATH>",
+    "tmux_session_name": "<TMUX_SESSION_NAME>"
+  },
+  "steps": {
+    "gateway": true,
+    "headless": true,
+    "inspect": true,
+    "start": true,
+    "stop": true,
+    "verify": true
+  },
+  "tool": "claude"
+}

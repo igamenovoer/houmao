@@ -1,0 +1,31 @@
+schema_version: 1
+tool: codex
+home_selector:
+  env_var: CODEX_HOME
+launch:
+  executable: codex
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: home_dotenv
+    env_file_in_home: .env
+config_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+credential_projection:
+  files_dir: files
+  file_mappings:
+    - source: auth.json
+      destination: auth.json
+      mode: symlink
+      required: false
+  env:
+    source: env/vars.env
+    allowlist:
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - OPENAI_ORG_ID
