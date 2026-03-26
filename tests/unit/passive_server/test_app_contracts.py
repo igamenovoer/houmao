@@ -50,6 +50,8 @@ def _make_client(tmp_path: object) -> TestClient:
             patch.object(svc.m_discovery, "stop"),
             patch.object(svc.m_observation, "start"),
             patch.object(svc.m_observation, "stop"),
+            patch.object(svc.m_headless, "start"),
+            patch.object(svc.m_headless, "stop"),
         ):
             async with _orig_enter(a) as val:
                 yield val
@@ -155,6 +157,8 @@ def _make_agent_client(tmp_path: object, agents: list[DiscoveredAgent]) -> TestC
             patch.object(svc.m_discovery, "stop"),
             patch.object(svc.m_observation, "start"),
             patch.object(svc.m_observation, "stop"),
+            patch.object(svc.m_headless, "start"),
+            patch.object(svc.m_headless, "stop"),
         ):
             async with _orig_enter(a) as val:
                 yield val
@@ -682,6 +686,8 @@ def _make_agent_client_with_observer(
             patch.object(svc.m_discovery, "stop"),
             patch.object(svc.m_observation, "start"),
             patch.object(svc.m_observation, "stop"),
+            patch.object(svc.m_headless, "start"),
+            patch.object(svc.m_headless, "stop"),
         ):
             async with _orig_enter(a) as val:
                 yield val
@@ -820,3 +826,285 @@ class TestAgentHistoryEndpoint:
         with client:
             resp = client.get("/houmao/agents/abc123/history?limit=10")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Gateway attach/detach stub endpoints (Tier 5)
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayAttachStub:
+    """POST /houmao/agents/{agent_ref}/gateway/attach → 501."""
+
+    def test_returns_501(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post("/houmao/agents/abc123/gateway/attach")
+        assert resp.status_code == 501
+
+    def test_detail_mentions_houmao_mgr(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            body = client.post("/houmao/agents/abc123/gateway/attach").json()
+        assert "houmao-mgr" in body["detail"]
+
+    def test_detail_includes_agent_ref(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            body = client.post("/houmao/agents/abc123/gateway/attach").json()
+        assert "abc123" in body["detail"]
+
+
+class TestGatewayDetachStub:
+    """POST /houmao/agents/{agent_ref}/gateway/detach → 501."""
+
+    def test_returns_501(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post("/houmao/agents/abc123/gateway/detach")
+        assert resp.status_code == 501
+
+    def test_detail_mentions_houmao_mgr(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            body = client.post("/houmao/agents/abc123/gateway/detach").json()
+        assert "houmao-mgr" in body["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Request submission endpoint (Tier 6)
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitRequestEndpoint:
+    """POST /houmao/agents/{agent_ref}/requests."""
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/nonexistent/requests", json={"prompt": "hello"}
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/requests", json={"prompt": "hello"}
+            )
+        assert resp.status_code == 502
+        assert "gateway" in resp.json()["detail"].lower()
+
+    def test_gateway_mediated_success(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        mock_result = GatewayAcceptedRequestV1(
+            request_id="req-42",
+            request_kind="submit_prompt",
+            state="accepted",
+            accepted_at_utc="2026-01-01T00:00:00Z",
+            queue_depth=1,
+            managed_agent_instance_epoch=1,
+        )
+        with client:
+            with patch.object(GatewayClient, "create_request", return_value=mock_result):
+                resp = client.post(
+                    "/houmao/agents/abc123/requests", json={"prompt": "hello"}
+                )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["request_id"] == "req-42"
+
+    def test_gateway_error_returns_502(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client:
+            with patch.object(
+                GatewayClient,
+                "create_request",
+                side_effect=GatewayHttpError(
+                    method="POST", url="/v1/requests",
+                    status_code=500, detail="internal",
+                ),
+            ):
+                resp = client.post(
+                    "/houmao/agents/abc123/requests", json={"prompt": "hello"}
+                )
+        assert resp.status_code == 502
+
+    def test_empty_prompt_rejected(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/requests", json={"prompt": "   "}
+            )
+        assert resp.status_code == 422
+
+    def test_ambiguous_agent_returns_409(self, tmp_path: object) -> None:
+        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        client = _make_agent_client(tmp_path, [a1, a2])
+        with client:
+            resp = client.post(
+                "/houmao/agents/alpha/requests", json={"prompt": "hello"}
+            )
+        assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Interrupt endpoint (Tier 6)
+# ---------------------------------------------------------------------------
+
+
+class TestInterruptEndpoint:
+    """POST /houmao/agents/{agent_ref}/interrupt."""
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post("/houmao/agents/nonexistent/interrupt")
+        assert resp.status_code == 404
+
+    def test_no_gateway_not_managed_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post("/houmao/agents/abc123/interrupt")
+        assert resp.status_code == 502
+
+    def test_gateway_mediated_success(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        mock_result = GatewayAcceptedRequestV1(
+            request_id="req-int-1",
+            request_kind="submit_prompt",
+            state="accepted",
+            accepted_at_utc="2026-01-01T00:00:00Z",
+            queue_depth=0,
+            managed_agent_instance_epoch=1,
+        )
+        with client:
+            with patch.object(GatewayClient, "create_request", return_value=mock_result):
+                resp = client.post("/houmao/agents/abc123/interrupt")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["agent_id"] == "abc123"
+
+
+# ---------------------------------------------------------------------------
+# Stop endpoint (Tier 6)
+# ---------------------------------------------------------------------------
+
+
+class TestStopEndpoint:
+    """POST /houmao/agents/{agent_ref}/stop."""
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post("/houmao/agents/nonexistent/stop")
+        assert resp.status_code == 404
+
+    def test_discovered_agent_stop(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            with (
+                patch(
+                    "houmao.passive_server.service.kill_tmux_session"
+                ) as mock_kill,
+                patch(
+                    "houmao.passive_server.service.remove_live_agent_record"
+                ) as mock_remove,
+            ):
+                resp = client.post("/houmao/agents/abc123/stop")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["agent_id"] == "abc123"
+        mock_kill.assert_called_once_with(session_name="AGENTSYS-alpha-abc123")
+        mock_remove.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Headless launch endpoint (Tier 7)
+# ---------------------------------------------------------------------------
+
+
+class TestHeadlessLaunchEndpoint:
+    """POST /houmao/agents/headless/launches."""
+
+    def test_missing_working_directory_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/headless/launches",
+                json={
+                    "tool": "claude",
+                    "working_directory": "/nonexistent/dir",
+                    "agent_def_dir": str(tmp_path),
+                    "brain_manifest_path": "/nonexistent/manifest.json",
+                },
+            )
+        assert resp.status_code == 400
+        assert "working_directory" in resp.json()["detail"]
+
+    def test_missing_manifest_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/headless/launches",
+                json={
+                    "tool": "claude",
+                    "working_directory": str(tmp_path),
+                    "agent_def_dir": str(tmp_path),
+                    "brain_manifest_path": "/nonexistent/manifest.json",
+                },
+            )
+        assert resp.status_code == 400
+        assert "brain_manifest_path" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Headless turn endpoints (Tier 7)
+# ---------------------------------------------------------------------------
+
+
+class TestHeadlessTurnEndpoints:
+    """Turn submission, status, events, and artifacts for headless agents."""
+
+    def test_turn_submit_non_managed_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/turns", json={"prompt": "hello"}
+            )
+        assert resp.status_code == 400
+        assert "not a managed headless" in resp.json()["detail"]
+
+    def test_turn_status_non_managed_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/turns/turn-1")
+        assert resp.status_code == 400
+
+    def test_turn_events_non_managed_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/turns/turn-1/events")
+        assert resp.status_code == 400
+
+    def test_turn_artifact_non_managed_returns_400(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/turns/turn-1/artifacts/stdout")
+        assert resp.status_code == 400
+
+    def test_turn_submit_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/nonexistent/turns", json={"prompt": "hello"}
+            )
+        assert resp.status_code == 404

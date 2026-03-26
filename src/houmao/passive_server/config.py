@@ -78,3 +78,9 @@ class PassiveServerConfig(BaseModel):
         """Return the on-disk current-instance metadata path."""
 
         return (self.run_dir / "current-instance.json").resolve()
+
+    @property
+    def managed_agents_root(self) -> Path:
+        """Return the root directory for managed headless agent persistence."""
+
+        return (self.server_root / "managed_agents").resolve()
