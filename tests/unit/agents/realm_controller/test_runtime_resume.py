@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_agent_identity_name,
@@ -203,6 +204,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
             "tmux_session_name": "AGENTSYS-r",
+            "tmux_window_name": "manual",
         },
     )
     session_path = tmp_path / "session-local-interactive.json"
@@ -231,7 +233,71 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
 
     assert captured["state"].turn_index == 2
     assert captured["state"].tmux_session_name == "AGENTSYS-r"
+    assert captured["state"].tmux_window_name == "manual"
     assert controller.launch_plan.backend == "local_interactive"
+
+
+def test_resume_local_interactive_restores_join_launch_window_name_when_manifest_fields_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="claude",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 2,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "AGENTSYS-r",
+        },
+    )
+    session_payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
+    session_payload["launch_plan"]["metadata"]["tmux_window_name"] = "manual"
+    session_payload["agent_launch_authority"] = {
+        "backend": "local_interactive",
+        "tool": "claude",
+        "tmux_session_name": "AGENTSYS-r",
+        "primary_window_index": "0",
+        "working_directory": str(tmp_path),
+        "posture_kind": "unavailable",
+        "session_origin": "joined_tmux",
+    }
+    if session_payload.get("tmux") is not None:
+        session_payload["tmux"]["primary_window_name"] = None
+    if session_payload.get("interactive") is not None:
+        session_payload["interactive"]["tmux_window_name"] = None
+    session_payload["backend_state"].pop("tmux_window_name", None)
+    session_path = tmp_path / "session-local-interactive-joined.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.backend = "local_interactive"
+            self._state = kwargs["state"]
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert captured["state"].tmux_window_name == "manual"
+    assert controller.launch_plan.metadata["tmux_window_name"] == "manual"
 
 
 def test_resume_unattended_local_interactive_uses_resume_control_intent_without_mutating_owned_files(

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import click
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -18,6 +20,7 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionControlResult,
 )
+from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
@@ -47,6 +50,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     resolve_managed_agent_target,
     submit_headless_turn,
 )
+from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
 
 
 def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
@@ -646,6 +650,41 @@ def test_identity_from_record_uses_persisted_tmux_window_name(
     assert identity.tmux_session_name == "join-sess"
 
 
+def test_identity_from_record_falls_back_to_join_launch_metadata_tmux_window_name(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=_sample_launch_plan(tmp_path=tmp_path, backend="local_interactive"),
+        tmux_window_name="manual",
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["tmux"] is not None
+    payload["tmux"]["primary_window_name"] = None
+    assert payload["interactive"] is not None
+    payload["interactive"]["tmux_window_name"] = None
+    payload["backend_state"].pop("tmux_window_name", None)
+    payload["launch_plan"]["metadata"]["tmux_window_name"] = "manual"
+    payload["agent_launch_authority"]["session_origin"] = "joined_tmux"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    record = SimpleNamespace(
+        agent_name="joined-agent",
+        agent_id="agent-joined",
+        identity=SimpleNamespace(backend="local_interactive", tool="codex"),
+        runtime=SimpleNamespace(
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            manifest_path=str(manifest_path),
+            session_root=str(manifest_path.parent),
+        ),
+        terminal=SimpleNamespace(session_name="join-sess"),
+    )
+
+    identity = managed_agents_module._identity_from_record(record)
+
+    assert identity.tmux_window_name == "manual"
+
+
 def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -682,6 +721,91 @@ def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
     state = managed_agent_state_payload(target)
     detail = managed_agent_detail_payload(target)
 
+    assert state.identity.tmux_window_name == "manual"
+    assert detail.identity.tmux_window_name == "manual"
+    assert detail.detail.transport == "tui"
+
+
+def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "ensure_gateway_capability",
+        lambda publication: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "set_tmux_session_environment",
+        lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "publish_live_agent_record",
+        lambda record: record,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: None,
+    )
+    joined = runtime_artifacts_module.materialize_joined_launch(
+        runtime_root=tmp_path,
+        agent_name="tester",
+        agent_id=None,
+        provider="claude_code",
+        headless=False,
+        tmux_session_name="join-sess",
+        tmux_window_name="manual",
+        working_directory=tmp_path,
+        launch_args=(),
+        launch_env=(),
+        resume_selection=None,
+    )
+
+    class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
+        def __init__(self, **kwargs: object) -> None:
+            self.backend = "local_interactive"
+            self._state = kwargs["state"]
+
+    monkeypatch.setattr(runtime_module, "LocalInteractiveSession", _FakeLocalInteractiveSession)
+    monkeypatch.setattr(
+        runtime_module.RuntimeSessionController,
+        "ensure_gateway_capability",
+        lambda self: self.persist_manifest(refresh_registry=False),
+    )
+
+    controller = runtime_module.resume_runtime_session(
+        agent_def_dir=(joined.session_root / "agent_def").resolve(),
+        session_manifest_path=joined.manifest_path,
+    )
+    persisted_payload = json.loads(joined.manifest_path.read_text(encoding="utf-8"))
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref=joined.agent_id,
+        identity=managed_agents_module._identity_from_controller(controller),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_refresh_local_tui_state",
+        lambda *, controller: _sample_local_tui_state(
+            manifest_path=joined.manifest_path,
+            tmux_window_name="manual",
+        ),
+    )
+
+    state = managed_agent_state_payload(target)
+    detail = managed_agent_detail_payload(target)
+
+    assert persisted_payload["tmux"]["primary_window_name"] == "manual"
+    assert persisted_payload["interactive"]["tmux_window_name"] == "manual"
+    assert persisted_payload["backend_state"]["tmux_window_name"] == "manual"
+    assert managed_agents_module._tracked_tui_identity_for_controller(controller).tmux_window_name == (
+        "manual"
+    )
     assert state.identity.tmux_window_name == "manual"
     assert detail.identity.tmux_window_name == "manual"
     assert detail.detail.transport == "tui"
