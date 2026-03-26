@@ -21,6 +21,7 @@ from houmao.owned_paths import (
     resolve_session_job_dir,
 )
 from .agent_identity import (
+    AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -31,6 +32,7 @@ from .agent_identity import (
     normalize_managed_agent_id,
     normalize_managed_agent_name,
     normalize_agent_identity_name,
+    normalize_user_managed_agent_name,
 )
 from .backends.cao_rest import (
     CaoRestSession,
@@ -89,7 +91,6 @@ from .gateway_models import (
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
-    GatewayProtocolVersion,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -255,6 +256,7 @@ class _TmuxAuxiliaryWindowHandle:
 class ResolvedRuntimeIdentity:
     """Resolved runtime-owned identity metadata for a started tmux-backed session."""
 
+    agent_name: str
     canonical_agent_name: str
     agent_id: str
     tmux_session_name: str
@@ -787,18 +789,19 @@ def start_runtime_session(
             requested_agent_name=agent_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
+            requested_tmux_session_name=tmux_session_name,
         )
         agent_identity_warnings = resolved_runtime_identity.warnings
         existing_record = resolve_live_agent_record_by_agent_id(resolved_runtime_identity.agent_id)
         if (
             existing_record is not None
-            and existing_record.agent_name != resolved_runtime_identity.canonical_agent_name
+            and existing_record.agent_name != resolved_runtime_identity.agent_name
         ):
             startup_warnings = (
                 "authoritative agent_id "
                 f"`{resolved_runtime_identity.agent_id}` was previously published as "
                 f"`{existing_record.agent_name}` and is now starting as "
-                f"`{resolved_runtime_identity.canonical_agent_name}`",
+                f"`{resolved_runtime_identity.agent_name}`",
             )
     elif agent_identity is not None or agent_name is not None or agent_id is not None:
         raise SessionManifestError(
@@ -898,7 +901,7 @@ def start_runtime_session(
         agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
         agent_identity=(
-            resolved_runtime_identity.canonical_agent_name
+            resolved_runtime_identity.agent_name
             if resolved_runtime_identity is not None
             else None
         ),
@@ -1858,6 +1861,7 @@ def _resolve_start_session_identity(
     requested_agent_name: str | None = None,
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
+    requested_tmux_session_name: str | None = None,
 ) -> ResolvedRuntimeIdentity:
     """Resolve canonical name, authoritative id, and tmux handle for session start."""
 
@@ -1876,15 +1880,19 @@ def _resolve_start_session_identity(
         )
 
     if requested_agent_name is not None:
-        canonical_agent_name = normalize_managed_agent_name(requested_agent_name)
+        agent_name = normalize_user_managed_agent_name(requested_agent_name)
+        canonical_agent_name = f"{AGENT_NAMESPACE_PREFIX}{agent_name}"
     elif requested_agent_identity is not None:
         normalized = normalize_agent_identity_name(requested_agent_identity)
+        agent_name = normalized.canonical_name
         canonical_agent_name = normalized.canonical_name
         warnings.extend(normalized.warnings)
     elif built_identity[0] is not None:
-        canonical_agent_name = built_identity[0]
+        agent_name = built_identity[0]
+        canonical_agent_name = _canonical_runtime_agent_name(agent_name)
     else:
         canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
+        agent_name = canonical_agent_name
 
     stripped_requested_agent_id = None
     if requested_agent_id is not None:
@@ -1894,37 +1902,48 @@ def _resolve_start_session_identity(
     agent_id = (
         stripped_requested_agent_id
         or persisted_agent_id
-        or derive_agent_id_from_name(canonical_agent_name)
+        or derive_agent_id_from_name(agent_name)
     )
 
     persisted_agent_name = built_identity[0]
     if (
         persisted_agent_id is not None
         and persisted_agent_name is not None
-        and persisted_agent_name != canonical_agent_name
+        and persisted_agent_name != agent_name
     ):
         warnings.append(
             "reusing persisted authoritative agent_id "
-            f"`{persisted_agent_id}` for canonical agent name "
-            f"`{canonical_agent_name}` after build metadata previously named "
+            f"`{persisted_agent_id}` for agent name "
+            f"`{agent_name}` after build metadata previously named "
             f"`{persisted_agent_name}`"
         )
 
-    try:
-        occupied_session_names = list_tmux_sessions_shared()
-    except TmuxCommandError as exc:
-        raise SessionManifestError(
-            "start-session requires `tmux` on PATH for tmux-backed backends."
-        ) from exc
+    stripped_requested_tmux_session_name = (
+        requested_tmux_session_name.strip()
+        if requested_tmux_session_name is not None and requested_tmux_session_name.strip()
+        else None
+    )
+    if stripped_requested_tmux_session_name is not None:
+        resolved_tmux_session_name = stripped_requested_tmux_session_name
+    else:
+        try:
+            occupied_session_names = list_tmux_sessions_shared()
+        except TmuxCommandError as exc:
+            raise SessionManifestError(
+                "start-session requires `tmux` on PATH for tmux-backed backends."
+            ) from exc
+
+        resolved_tmux_session_name = derive_tmux_session_name(
+            canonical_agent_name=canonical_agent_name,
+            launch_epoch_ms=time.time_ns() // 1_000_000,
+            occupied_session_names=occupied_session_names,
+        )
 
     return ResolvedRuntimeIdentity(
+        agent_name=agent_name,
         canonical_agent_name=canonical_agent_name,
         agent_id=agent_id,
-        tmux_session_name=derive_tmux_session_name(
-            canonical_agent_name=canonical_agent_name,
-            agent_id=agent_id,
-            occupied_session_names=occupied_session_names,
-        ),
+        tmux_session_name=resolved_tmux_session_name,
         warnings=tuple(warnings),
     )
 
@@ -1955,6 +1974,15 @@ def _default_canonical_agent_name(*, tool: str, role_name: str) -> str:
         derive_auto_agent_name_base(tool=tool, role_name=role_name)
     )
     return normalized.canonical_name
+
+
+def _canonical_runtime_agent_name(agent_name: str) -> str:
+    """Return the runtime-owned canonical tmux name for one persisted agent name."""
+
+    normalized_name = normalize_managed_agent_name(agent_name)
+    if normalized_name.startswith(AGENT_NAMESPACE_PREFIX):
+        return normalized_name
+    return f"{AGENT_NAMESPACE_PREFIX}{normalized_name}"
 
 
 def _refresh_backend_launch_plan(

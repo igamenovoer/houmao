@@ -1947,9 +1947,8 @@ def _select_cao_session_name(
         session_name = requested_identity.strip()
     if session_name in occupied:
         raise BackendExecutionError(
-            f"Explicit agent identity `{session_name}` is already in use by an "
-            "existing tmux session. Choose a different name or stop the existing "
-            "session first."
+            f"Tmux session `{session_name}` is already in use by an existing tmux session. "
+            "Choose a different `--session-name` or stop the existing tmux session first."
         )
     return session_name
 

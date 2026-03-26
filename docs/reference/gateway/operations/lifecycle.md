@@ -87,13 +87,14 @@ For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attac
 Example:
 
 ```bash
-houmao-mgr agents gateway attach --foreground --agent-name AGENTSYS-local
-houmao-mgr agents gateway status --agent-name AGENTSYS-local
+houmao-mgr agents gateway attach --foreground --agent-name local
+houmao-mgr agents gateway status --agent-name local
 ```
 
 Foreground attach rules:
 
 - tmux window `0` remains the contractual agent surface
+- when launch omitted `--session-name`, the runtime-owned tmux handle uses `AGENTSYS-<agent_name>-<epoch-ms>`
 - the gateway runs in an auxiliary tmux window whose recorded index is `>=1`
 - `gateway status` reports `execution_mode` plus the authoritative `gateway_tmux_window_index` and `gateway_tmux_window_id` for the live gateway surface
 - later attach or restart flows reuse the persisted desired execution mode instead of silently falling back to detached execution

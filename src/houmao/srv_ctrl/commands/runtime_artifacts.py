@@ -221,7 +221,7 @@ def materialize_delegated_launch(
             AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
         },
     )
-    gateway_paths = ensure_gateway_capability(
+    ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
             backend="houmao_server_rest",

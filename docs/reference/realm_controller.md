@@ -437,6 +437,7 @@ Behavior:
     under the other parsing mode after mode-specific failure.
 - Canonical agent names still use the `AGENTSYS-<name>` namespace, but persisted `tmux_session_name` is now the actual tmux handle and must be learned from manifest or shared-registry metadata rather than inferred from canonical name alone.
 - `AGENTSYS` is reserved and cannot be used as the name portion.
+- User-provided managed-agent names on raw `--agent-name` surfaces must stay unprefixed; values such as `AGENTSYS-gpu` are rejected so runtime can reserve the `AGENTSYS-...` namespace for canonical tmux-facing identities.
 - `start-session --agent-identity <name>` accepts name inputs for tmux-backed
   backends (`cao_rest`, `codex_headless`, `claude_headless`, `gemini_headless`)
   and returns the selected canonical identity in CLI JSON output.
@@ -453,10 +454,10 @@ when they are missing from `PATH`.
   verify `command -v cao-server`.
 - Missing tool executable (`codex`, `claude`, `gemini`): install the tool CLI and
   verify with `command -v <tool>`.
-- If no tmux-backed name is provided, runtime auto-generates a canonical
+- If no tmux-backed session name is provided, runtime auto-generates a canonical
   `AGENTSYS-<tool-role>` identity and derives the live tmux handle as
-  `<canonical-agent-name>-<agent-id-prefix>`, extending the prefix one
-  character at a time on collisions.
+  `<canonical-agent-name>-<epoch-ms>`. If that generated handle is already in
+  use, startup fails explicitly instead of mutating the suffix.
 - For tmux-backed sessions runtime sets
   `AGENTSYS_MANIFEST_PATH=<absolute-session-manifest-path>` and
   `AGENTSYS_AGENT_DEF_DIR=<absolute-agent-def-dir>` in tmux session env.
@@ -559,7 +560,7 @@ headless-only. Follow-up design work is tracked in
 
 1. Start a CAO-backed session (`backend=cao_rest`) and capture returned
    `agent_identity` plus `tmux_session_name` (for example `AGENTSYS-gpu` and
-   `AGENTSYS-gpu-270b87`).
+   `AGENTSYS-gpu-1760000123456`).
 2. Verify tmux windows:
    `tmux list-windows -t <tmux_session_name> -F '#{window_id} #{window_index} #{window_name}'`.
 3. Expected success path:

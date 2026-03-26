@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
@@ -110,6 +111,35 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     assert target.mode == "server"
     assert target.client is client
     assert target.identity == identity
+
+
+def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
+    with pytest.raises(click.ClickException, match="raw creation-time name"):
+        resolve_managed_agent_target(agent_id=None, agent_name="AGENTSYS-gpu", port=None)
+
+
+def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = SimpleNamespace(
+        terminal=SimpleNamespace(session_name="gpu-session"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [record],
+    )
+
+    assert (
+        managed_agents_module._resolve_local_managed_agent_record(
+            agent_id=None,
+            agent_name="gpu-session",
+        )
+        is None
+    )
 
 
 def test_list_managed_agents_merges_registry_and_server_results(
