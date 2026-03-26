@@ -49,6 +49,7 @@ At minimum, this SHALL apply to status-style inspection and shutdown-style contr
 At minimum, the `agents` family SHALL include commands for:
 
 - `launch`
+- `join`
 - `list`
 - `show`
 - `state`
@@ -58,6 +59,7 @@ At minimum, the `agents` family SHALL include commands for:
 - `stop`
 
 Those commands SHALL target managed-agent identities rather than raw `terminal_id` or raw CAO session names as their normative addressing model.
+Within that family, `join` SHALL adopt an existing tmux-backed agent session into managed-agent control without requiring `houmao-server` or raw tmux attach scripts.
 Within that family, `show` SHALL present the detail-oriented managed-agent view, while `state` SHALL present the operational summary view.
 The native `agents` family SHALL NOT advertise or require a generic `history` command as part of its supported managed-agent inspection contract.
 
@@ -65,6 +67,11 @@ The native `agents` family SHALL NOT advertise or require a generic `history` co
 - **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123`
 - **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or the supported pair authority
 - **AND THEN** the command returns the managed-agent state without requiring the operator to switch to raw CAO session or terminal identities
+
+#### Scenario: Operator joins an existing tmux-backed session through the native `agents` tree
+- **WHEN** an operator runs `houmao-mgr agents join --agent-name coder` from a compatible tmux session
+- **THEN** `houmao-mgr` adopts the existing tmux-backed session into managed-agent control through the native pair CLI
+- **AND THEN** later `houmao-mgr agents state --agent-name coder` can resolve that managed agent without requiring raw tmux session names or manual manifest-path discovery
 
 #### Scenario: Operator inspects managed-agent detail through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents show --agent-id abc123`
