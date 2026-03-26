@@ -135,6 +135,63 @@ flowchart TD
     I -->|resume_runtime_session| E
 ```
 
+## Start session sequence
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant CLI as CLI
+    participant RT as Runtime
+    participant LP as LaunchPlan
+    participant BE as Backend
+    participant TM as tmux
+    participant CTL as Controller
+    participant MF as Manifest
+    participant GW as Gateway
+
+    Op->>CLI: start-session<br/>(manifest, role, backend)
+    CLI->>RT: start_runtime_session()
+    RT->>LP: build_launch_plan(request)
+    LP-->>RT: LaunchPlan
+    RT->>BE: create session
+    BE->>TM: create/join tmux<br/>session + window
+    TM-->>BE: pane handle
+    BE-->>RT: InteractiveSession
+    RT->>CTL: RuntimeSessionController<br/>(session, plan)
+    CTL->>MF: persist_manifest()
+    CTL->>GW: ensure_gateway_capability()
+    CTL-->>Op: ready
+```
+
+## Resume session sequence
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant CLI as CLI
+    participant RT as Runtime
+    participant MF as Manifest
+    participant LP as LaunchPlan
+    participant BE as Backend
+    participant TM as tmux
+    participant CTL as Controller
+    participant GW as Gateway
+
+    Op->>CLI: resume(manifest_path)
+    CLI->>RT: resume_runtime_session()
+    RT->>MF: load_session_manifest()
+    MF-->>RT: payload (V3/V4)
+    RT->>LP: build_launch_plan<br/>(intent=resume_control)
+    LP-->>RT: LaunchPlan
+    RT->>BE: create session<br/>with resume_state
+    BE->>TM: reattach existing session
+    TM-->>BE: restored pane
+    BE-->>RT: InteractiveSession<br/>(restored state)
+    RT->>CTL: RuntimeSessionController
+    CTL->>GW: ensure_gateway_capability()
+    CTL-->>Op: ready
+```
+
 ## See also
 
 - [Launch Plan](launch-plan.md) — how launch plans are composed from brain manifests and roles

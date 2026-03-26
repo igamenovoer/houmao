@@ -2,6 +2,30 @@
 
 Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time.
 
+## Injection decision tree
+
+```mermaid
+flowchart TD
+    BE{backend?}
+
+    CX["codex_headless /<br/>codex_app_server"]
+    CL["claude_headless"]
+    GM["gemini_headless"]
+    LI["local_interactive"]
+    LEG["cao_rest /<br/>houmao_server_rest"]
+
+    NDI["native_developer_instructions<br/>-c developer_instructions flag"]
+    NAS["native_append_system_prompt<br/>+ bootstrap_message"]
+    BM["bootstrap_message<br/>(first-turn prompt)"]
+    PB["profile_based<br/>(legacy server-side)"]
+
+    BE -->|codex| CX --> NDI
+    BE -->|claude| CL --> NAS
+    BE -->|gemini| GM --> BM
+    BE -->|local interactive| LI --> BM
+    BE -->|legacy REST| LEG --> PB
+```
+
 ## plan_role_injection
 
 ```python

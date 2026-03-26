@@ -2,6 +2,33 @@
 
 This guide walks you through building an agent brain and running an interactive session using `houmao-mgr`. By the end, you will have a working agent you can send prompts to and terminate cleanly.
 
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Mgr as houmao-mgr
+    participant BB as BrainBuilder
+    participant RT as RuntimeSession<br/>Controller
+    participant BE as Backend<br/>(tmux)
+
+    Op->>Mgr: brains build<br/>(recipe, agent-def-dir)
+    Mgr->>BB: build_brain_home()
+    BB-->>Mgr: BuildResult<br/>(manifest path)
+    Op->>Mgr: agents launch<br/>(manifest, role)
+    Mgr->>RT: start_runtime_session()
+    RT->>BE: create session
+    BE-->>RT: InteractiveSession
+    RT-->>Mgr: controller ready
+    Op->>Mgr: agents prompt<br/>("write tests")
+    Mgr->>RT: send_prompt()
+    RT->>BE: paste into tmux
+    BE-->>RT: session events
+    RT-->>Mgr: prompt accepted
+    Op->>Mgr: agents stop
+    Mgr->>RT: terminate()
+    RT->>BE: kill tmux session
+    RT-->>Mgr: stopped
+```
+
 ## Prerequisites
 
 - Python 3.11+

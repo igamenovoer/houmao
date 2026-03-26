@@ -2,6 +2,27 @@
 
 Module: `src/houmao/shared_tui_tracking/detectors.py` — Shared detector/profile contracts plus compatibility exports.
 
+## Detector Selection
+
+```mermaid
+flowchart TD
+    TOOL["tool name"]
+    AID["app_id_from_tool(tool)"]
+    CC["claude_code"]
+    CX["codex_tui"]
+    OT["other app_id"]
+    DPR["DetectorProfileRegistry"]
+    VM["Version matching"]
+    CCD["ClaudeCodeSignalDetectorV2_1_X"]
+    CXD["CodexTuiSignalDetector"]
+    BEST["Best detector for<br/>observed CLI version"]
+
+    TOOL --> AID
+    AID -->|"claude → claude_code"| CC --> CCD
+    AID -->|"codex → codex_tui"| CX --> CXD
+    AID -->|"unrecognized"| OT --> DPR --> VM --> BEST
+```
+
 ## BaseTrackedTurnSignalDetector
 
 Abstract base class defining the contract for all TUI signal detectors. Each detector is responsible for analyzing a single observation frame (a raw pane snapshot and parsed surface context) and producing structured turn signals.

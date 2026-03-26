@@ -2,6 +2,52 @@
 
 Module: `src/houmao/lifecycle/` — Shared lifecycle timing contracts and ReactiveX helpers.
 
+## Readiness Pipeline
+
+```mermaid
+flowchart LR
+    OBS["Observations"]
+    CLS["Classify<br/>readiness"]
+    STL["Stall<br/>timer"]
+    MRG["Merge<br/>events"]
+    RED["Reduce<br/>state"]
+    RS["ReadinessSnapshot"]
+    ST["ready | waiting | blocked<br/>| failed | unknown | stalled"]
+
+    OBS --> CLS --> STL --> MRG --> RED --> RS --> ST
+```
+
+## Anchored Completion Pipeline
+
+```mermaid
+flowchart LR
+    OBS["Observations"]
+    ACC["Accumulate<br/>evidence"]
+    CMP["Classify<br/>completion"]
+    DST["Distinct<br/>changes"]
+    TMR["Stall +<br/>Stability<br/>timers"]
+    MRG["Merge<br/>events"]
+    RED["Reduce<br/>state"]
+    ACS["AnchoredCompletion<br/>Snapshot"]
+
+    OBS --> ACC --> CMP --> DST --> TMR --> MRG --> RED --> ACS
+```
+
+## Completion State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> waiting
+    waiting --> in_progress : turn anchor armed
+    in_progress --> candidate_complete : output stable +<br/>surface ready
+    candidate_complete --> completed : stability timer elapsed
+    candidate_complete --> in_progress : output changed (retraction)
+    in_progress --> stalled : stall timer elapsed
+    stalled --> in_progress : activity detected
+    in_progress --> failed : error detected
+    in_progress --> blocked : surface blocked
+```
+
 ## Overview
 
 The completion detection subsystem builds on the TUI tracking state machine to provide turn-level lifecycle awareness. It observes the stream of `TrackedStateSnapshot` values and derives higher-level assessments: whether the agent surface is **ready** for new input, and whether a logical **turn** has **completed**.

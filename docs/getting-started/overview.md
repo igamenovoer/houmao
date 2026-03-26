@@ -4,32 +4,62 @@ Houmao orchestrates teams of CLI-based AI agents (Codex, Claude, Gemini) as real
 
 ## Two-Phase Lifecycle
 
+### System Architecture
+
 ```mermaid
-flowchart LR
-    subgraph Build["Build Phase (build-brain)"]
-        BR[BuildRequest] --> BB[BrainBuilder]
-        BB --> |resolves| TA[ToolAdapter]
-        BB --> |resolves| REC[BrainRecipe]
-        BB --> |projects| RH[Runtime Home]
-        BB --> BRES[BuildResult]
-        BRES --> MAN[BrainManifest]
-        BRES --> LH[Launch Helper]
+flowchart TD
+    Op["Operator"] --> BR["BuildRequest<br/>(tool, skills, config_profile,<br/>credential_profile)"]
+
+    subgraph Build["Build Phase"]
+        BR --> BB["BrainBuilder"]
+        BB --> TA["ToolAdapter"]
+        TA --> PC["Project Config"]
+        TA --> PS["Project Skills"]
+        TA --> CRED["Project Credentials"]
+        PC --> BRES["BuildResult<br/>(runtime home +<br/>BrainManifest)"]
+        PS --> BRES
+        CRED --> BRES
     end
 
-    subgraph Run["Run Phase (start-session)"]
-        MAN --> LPR[LaunchPlanRequest]
-        RP[RolePackage] --> LPR
-        LPR --> RSC[RuntimeSessionController]
-        RSC --> LP[LaunchPlan]
-        LP --> BE{Backend}
-        BE --> LI[local_interactive]
-        BE --> CH[claude_headless]
-        BE --> CXH[codex_headless]
-        BE --> GH[gemini_headless]
+    BRES --> LPR["LaunchPlanRequest<br/>(manifest + role)"]
+
+    subgraph Run["Run Phase"]
+        LPR --> BLP["build_launch_plan()"]
+        BLP --> ENV["Env Resolution"]
+        BLP --> RI["Role Injection"]
+        BLP --> POL["Launch Policy"]
+        ENV --> LP["LaunchPlan"]
+        RI --> LP
+        POL --> LP
+        LP --> BD{"Backend Dispatch"}
+        BD --> LI["local_interactive"]
+        BD --> CH["claude_headless"]
+        BD --> CXH["codex_headless"]
+        BD --> GH["gemini_headless"]
     end
+
+    LI --> LS["Live Session<br/>(tmux-backed)"]
+    CH --> LS
+    CXH --> LS
+    GH --> LS
 
     style Build fill:#1a1a2e,stroke:#e94560,color:#eee
     style Run fill:#1a1a2e,stroke:#0f3460,color:#eee
+```
+
+### Runtime Control Loop
+
+```mermaid
+flowchart LR
+    SP["send_prompt"] --> BS["Backend<br/>Session"]
+    INT["interrupt"] --> BS
+    TERM["terminate"] --> CL["cleanup"]
+
+    BS --> PM["persist_manifest"]
+    PM --> GW["Gateway<br/>sidecar"]
+    PM --> TUI["TUI<br/>Tracking"]
+
+    CL --> DONE["done"]
 ```
 
 ## Build Phase

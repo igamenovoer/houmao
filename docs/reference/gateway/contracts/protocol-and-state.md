@@ -213,6 +213,29 @@ Current status axes:
 
 ### `POST /v1/requests`
 
+#### Request Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant GW as Gateway<br/>Service
+    participant Q as SQLite<br/>Queue
+    participant W as Worker<br/>Loop
+    participant BE as Backend<br/>Session
+
+    C->>GW: POST /v1/requests
+    GW->>GW: admission check
+    GW->>Q: INSERT state=accepted
+    GW-->>C: 202 Accepted<br/>(request_id, queue_depth)
+
+    W->>Q: take next accepted
+    Q-->>W: request record
+    W->>Q: UPDATE state=running
+    W->>BE: submit_prompt() or interrupt()
+    BE-->>W: result
+    W->>Q: UPDATE state=completed
+```
+
 Current public request kinds:
 
 - `submit_prompt`

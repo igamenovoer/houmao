@@ -4,6 +4,22 @@ Module: `src/houmao/agents/realm_controller/launch_plan.py` — Launch-plan comp
 
 The launch plan is the bridge between Houmao's build phase and run phase. It takes a built brain manifest and a role package, resolves environment variables, merges launch overrides, binds mailbox configuration, and produces a fully resolved, backend-specific plan that a session backend can execute directly.
 
+## Resolution pipeline
+
+```mermaid
+flowchart TD
+    REQ["LaunchPlanRequest<br/>(manifest + role +<br/>backend + working_dir)"]
+    EXT["Extract manifest fields<br/>(tool, executable, home_path)"]
+    ENV["Resolve env vars<br/>(parse credential env,<br/>filter by allowlist)"]
+    MBX["Add mailbox bindings<br/>(if configured)"]
+    ROLE["Plan role injection<br/>(backend-specific method)"]
+    MERGE["Resolve launch behavior<br/>(merge adapter + recipe +<br/>direct overrides)"]
+    POL["Apply launch policy<br/>(operator_prompt_mode<br/>→ final args)"]
+    OUT["LaunchPlan output"]
+
+    REQ --> EXT --> ENV --> MBX --> ROLE --> MERGE --> POL --> OUT
+```
+
 ## LaunchPlanRequest
 
 `LaunchPlanRequest` is a frozen dataclass that captures everything needed to compose a launch plan.

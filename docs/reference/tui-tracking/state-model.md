@@ -2,6 +2,43 @@
 
 Module: `src/houmao/shared_tui_tracking/` — Neutral tracked-TUI models shared by official/runtime adapters.
 
+## State Dimensions Overview
+
+```mermaid
+flowchart TD
+    PC["Pane Capture<br/>(raw TUI snapshot)"]
+    DET["Detector<br/>(tool-specific)"]
+    DTS["DetectedTurnSignals"]
+    SAI["surface_accepting_input<br/>yes / no / unknown"]
+    SRP["surface_ready_posture<br/>yes / no / unknown"]
+    TP["turn_phase<br/>ready / active / unknown"]
+    LTR["last_turn_result<br/>success / interrupted /<br/>known_failure / none"]
+    TSS["TrackedStateSnapshot"]
+    STB["Stability tracking<br/>stable, stable_for_seconds"]
+    META["Detector metadata<br/>name, version"]
+
+    PC --> DET --> DTS
+    DTS --> SAI
+    DTS --> SRP
+    DTS --> TP
+    DTS --> LTR
+    DTS --> TSS
+    TSS --> STB
+    TSS --> META
+```
+
+## TurnPhase State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> unknown
+    unknown --> ready : surface accepting input
+    unknown --> active : turn started
+    ready --> active : prompt sent
+    active --> ready : turn completed
+    active --> unknown : probe error
+```
+
 ## Core Type Aliases
 
 All type aliases are `Literal` unions used throughout the tracking subsystem.

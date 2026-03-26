@@ -18,6 +18,25 @@ BackendKind = Literal[
 ]
 ```
 
+## Backend dispatch
+
+```mermaid
+flowchart LR
+    LP["LaunchPlan<br/>.backend"]
+
+    LI["LocalInteractiveSession<br/>persistent TUI in tmux pane<br/>send_prompt via tmux paste<br/>captures pane output"]
+    CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
+    CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
+    GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume latest"]
+    LEG["Legacy backends<br/>cao_rest / houmao_server_rest<br/>delegate to external server"]
+
+    LP -->|local_interactive| LI
+    LP -->|claude_headless| CH
+    LP -->|codex_headless<br/>codex_app_server| CX
+    LP -->|gemini_headless| GH
+    LP -->|legacy| LEG
+```
+
 ## Backend reference
 
 ### local_interactive (primary)
