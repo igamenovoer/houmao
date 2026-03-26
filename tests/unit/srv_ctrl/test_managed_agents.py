@@ -40,12 +40,15 @@ from houmao.srv_ctrl.commands.managed_agents import (
     detach_gateway,
     interrupt_managed_agent,
     list_managed_agents,
+    mailbox_status,
     managed_agent_detail_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
+    register_mailbox_binding,
     relaunch_managed_agent,
     resolve_managed_agent_target,
     submit_headless_turn,
+    unregister_mailbox_binding,
 )
 
 
@@ -224,6 +227,28 @@ def test_list_managed_agents_merges_registry_and_server_results(
     response = list_managed_agents(port=None)
 
     assert [agent.agent_id for agent in response.agents] == ["local-agent-id", "server-agent-id"]
+
+
+def test_late_mailbox_commands_reject_server_backed_targets() -> None:
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="gpu",
+        identity=_managed_identity(),
+        client=SimpleNamespace(),
+    )
+
+    with pytest.raises(click.ClickException, match="server-backed"):
+        mailbox_status(target)
+    with pytest.raises(click.ClickException, match="server-backed"):
+        register_mailbox_binding(
+            target,
+            mailbox_root=None,
+            principal_id=None,
+            address=None,
+            mode="safe",
+        )
+    with pytest.raises(click.ClickException, match="server-backed"):
+        unregister_mailbox_binding(target, mode="deactivate")
 
 
 def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdentity:

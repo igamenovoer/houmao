@@ -7,6 +7,7 @@ import click
 from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
+from .mailbox import mailbox_group
 from .server import server_group
 
 
@@ -22,6 +23,7 @@ def cli(ctx: click.Context) -> None:
 cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
+cli.add_command(mailbox_group)
 cli.add_command(server_group)
 
 

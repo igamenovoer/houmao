@@ -11,6 +11,7 @@ import uuid
 
 import click
 
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessProcessMetadata,
@@ -512,6 +513,117 @@ def gateway_interrupt(target: ManagedAgentTarget) -> GatewayAcceptedRequestV1:
     return target.controller.interrupt_via_gateway()
 
 
+def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
+    """Return late filesystem-mailbox posture for one local managed agent."""
+
+    controller = _require_local_filesystem_mailbox_target(target, operation="status")
+    mailbox = controller.launch_plan.mailbox
+    if mailbox is not None and not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        raise click.ClickException(
+            "`houmao-mgr agents mailbox ...` only supports filesystem mailbox bindings in v1."
+        )
+
+    activation_state = controller.mailbox_activation_state()
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "tracked_agent_id": target.identity.tracked_agent_id,
+        "agent_name": controller.agent_identity,
+        "agent_id": controller.agent_id,
+        "backend": controller.launch_plan.backend,
+        "joined_session": bool(
+            controller.agent_launch_authority is not None
+            and controller.agent_launch_authority.session_origin == "joined_tmux"
+        ),
+        "posture_kind": (
+            controller.agent_launch_authority.posture_kind
+            if controller.agent_launch_authority is not None
+            else None
+        ),
+        "registered": mailbox is not None,
+        "activation_state": activation_state,
+        "runtime_mailbox_enabled": mailbox is not None and activation_state == "active",
+        "relaunch_required": activation_state == "pending_relaunch",
+    }
+    if mailbox is not None:
+        payload.update(
+            {
+                "transport": mailbox.transport,
+                "principal_id": mailbox.principal_id,
+                "address": mailbox.address,
+                "mailbox_root": str(mailbox.filesystem_root),
+                "bindings_version": mailbox.bindings_version,
+            }
+        )
+    return payload
+
+
+def register_mailbox_binding(
+    target: ManagedAgentTarget,
+    *,
+    mailbox_root: Path | None,
+    principal_id: str | None,
+    address: str | None,
+    mode: str,
+) -> dict[str, object]:
+    """Register one late filesystem mailbox binding for a local managed agent."""
+
+    controller = _require_local_filesystem_mailbox_target(target, operation="register")
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=mailbox_root,
+        principal_id=principal_id,
+        address=address,
+        mode=cast(Any, mode),
+    )
+    mailbox = result.mailbox
+    assert mailbox is not None
+    return {
+        "schema_version": 1,
+        "tracked_agent_id": target.identity.tracked_agent_id,
+        "agent_name": controller.agent_identity,
+        "agent_id": controller.agent_id,
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "mailbox_root": str(mailbox.filesystem_root),
+        "bindings_version": mailbox.bindings_version,
+        "activation_state": result.activation_state,
+        "relaunch_required": result.activation_state == "pending_relaunch",
+        "shared_registration": result.shared_lifecycle_result,
+    }
+
+
+def unregister_mailbox_binding(
+    target: ManagedAgentTarget,
+    *,
+    mode: str,
+) -> dict[str, object]:
+    """Unregister one late filesystem mailbox binding for a local managed agent."""
+
+    controller = _require_local_filesystem_mailbox_target(target, operation="unregister")
+    previous_mailbox = controller.launch_plan.mailbox
+    if previous_mailbox is None:
+        raise click.ClickException("Target session is not mailbox-enabled.")
+    if not isinstance(previous_mailbox, FilesystemMailboxResolvedConfig):
+        raise click.ClickException(
+            "`houmao-mgr agents mailbox ...` only supports filesystem mailbox bindings in v1."
+        )
+
+    result = controller.unregister_filesystem_mailbox(mode=cast(Any, mode))
+    return {
+        "schema_version": 1,
+        "tracked_agent_id": target.identity.tracked_agent_id,
+        "agent_name": controller.agent_identity,
+        "agent_id": controller.agent_id,
+        "transport": previous_mailbox.transport,
+        "principal_id": previous_mailbox.principal_id,
+        "address": previous_mailbox.address,
+        "mailbox_root": str(previous_mailbox.filesystem_root),
+        "activation_state": result.activation_state,
+        "relaunch_required": result.activation_state == "pending_relaunch",
+        "shared_unregistration": result.shared_lifecycle_result,
+    }
+
+
 def mail_status(target: ManagedAgentTarget) -> object:
     """Return mailbox status for one managed agent."""
 
@@ -520,9 +632,20 @@ def mail_status(target: ManagedAgentTarget) -> object:
         return pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
 
     assert target.controller is not None
+    activation_state = target.controller.mailbox_activation_state()
     mailbox_summary = _local_mailbox_summary(target.controller)
     if mailbox_summary is None:
         raise click.ClickException("Target session is not mailbox-enabled.")
+    if activation_state == "pending_relaunch":
+        raise click.ClickException(
+            "Target session has a persisted mailbox binding, but runtime-owned mail commands "
+            "remain pending relaunch."
+        )
+    if activation_state == "unsupported_joined_session":
+        raise click.ClickException(
+            "Target session cannot activate late mailbox support because joined-session relaunch "
+            "authority is unavailable."
+        )
     return {
         "schema_version": 1,
         "transport": mailbox_summary.transport,
@@ -1505,7 +1628,18 @@ def _run_local_mail_prompt(
 ) -> dict[str, Any]:
     """Run one local mailbox operation through the runtime-owned mail prompt path."""
 
+    activation_state = controller.mailbox_activation_state()
     mailbox = ensure_mailbox_command_ready(controller.launch_plan)
+    if activation_state == "pending_relaunch":
+        raise click.ClickException(
+            "Target session has a persisted mailbox binding, but runtime-owned mail commands "
+            "remain pending relaunch."
+        )
+    if activation_state == "unsupported_joined_session":
+        raise click.ClickException(
+            "Target session cannot activate late mailbox support because joined-session relaunch "
+            "authority is unavailable."
+        )
     prefer_live_gateway = _live_gateway_client_for_controller(controller) is not None
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
@@ -1542,3 +1676,18 @@ def _new_request_id(*, prefix: str) -> str:
 
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return f"{prefix}-{timestamp}-{uuid.uuid4().hex[:10]}"
+
+
+def _require_local_filesystem_mailbox_target(
+    target: ManagedAgentTarget,
+    *,
+    operation: str,
+) -> RuntimeSessionController:
+    """Return the local controller for one late mailbox workflow target."""
+
+    if target.mode == "server":
+        raise click.ClickException(
+            f"Late local mailbox {operation} is unavailable for server-backed managed agents."
+        )
+    assert target.controller is not None
+    return target.controller
