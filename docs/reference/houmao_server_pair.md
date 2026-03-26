@@ -38,6 +38,8 @@ houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
 houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex --headless
 houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
+houmao-mgr agents join --agent-name gpu
+houmao-mgr agents join --headless --agent-name reviewer --provider codex --launch-args exec --launch-args=--json --resume-id last
 houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state."
 houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
@@ -116,11 +118,65 @@ Authority is split intentionally:
 
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
+- `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
 - `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
 - `admin cleanup-registry` is local shared-registry maintenance
 
 For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
+
+## Adopting Existing Sessions With `agents join`
+
+`houmao-mgr agents join` is the operator path for taking a user-started tmux session and making Houmao treat it like a normal managed agent from that point onward.
+
+Use it when:
+
+- the provider TUI is already running and you do not want Houmao to restart it
+- you already have a native headless tmux session and want later `turn submit`, `state`, `show`, or `interrupt` commands to target it through the normal managed-agent flow
+
+V1 assumptions are intentionally narrow:
+
+- run the command from inside the target tmux session
+- tmux window `0`, pane `0` is the adopted agent surface
+- TUI join auto-detects one supported provider from that pane: `claude_code`, `codex`, or `gemini_cli`
+- headless join requires explicit `--provider` plus recorded `--launch-args`
+
+Examples:
+
+```bash
+# Adopt a live TUI already running in window 0, pane 0.
+houmao-mgr agents join --agent-name gpu
+
+# Record relaunch options for a joined TUI.
+houmao-mgr agents join \
+  --agent-name gpu \
+  --provider codex \
+  --launch-args=--model \
+  --launch-args gpt-5 \
+  --launch-env CODEX_HOME \
+  --launch-env OPENAI_API_KEY
+
+# Adopt a native headless logical session between turns.
+houmao-mgr agents join --headless \
+  --agent-name reviewer \
+  --provider codex \
+  --launch-args exec \
+  --launch-args=--json \
+  --launch-env CODEX_HOME \
+  --resume-id last
+```
+
+Operational behavior after a successful join:
+
+- Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and workspace-local `job_dir`
+- the tmux session publishes the same discovery pointers as a native launch: `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR`
+- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents show`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
+
+Relaunch posture is explicit:
+
+- joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live, but `agents relaunch` fails explicitly because Houmao does not know how to restart that provider honestly
+- `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means relaunch resolves that variable from the tmux session environment later
+- headless `--resume-id` is optional: omitted means fresh chat, `last` means resume the latest known chat, and any other non-empty value means one exact provider session id
 
 ## Pair-Managed Gateway Attach
 

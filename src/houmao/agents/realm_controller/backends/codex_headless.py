@@ -34,11 +34,26 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
         )
 
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
+        if self._uses_joined_operator_launch_args():
+            command = [self._plan.executable, *self._plan.args]
+            if self._state.session_id:
+                command.extend(self._resume_args(self._state.session_id))
+            else:
+                command.extend(self._initial_resume_selector_args())
+            command.append(prompt)
+            return command, prompt
+
         command = [self._plan.executable, *self._plan.args]
         if self._plan.role_injection.method == "native_developer_instructions":
             command.extend(["-c", f"developer_instructions={self._plan.role_injection.prompt}"])
         command.extend(["exec", "--json"])
         if self._state.session_id:
-            command.extend(["resume", self._state.session_id])
+            command.extend(self._resume_args(self._state.session_id))
         command.append(prompt)
         return command, prompt
+
+    def _resume_args(self, session_id: str) -> list[str]:
+        return ["resume", session_id]
+
+    def _latest_resume_args(self) -> list[str]:
+        return ["resume", "--last"]

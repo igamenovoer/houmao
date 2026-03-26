@@ -12,7 +12,9 @@ For the maintained CAO `shadow_only` parser/runtime contract and lifecycle seman
 
 ## Reference
 
+- [Houmao server pair and managed-agent workflows](reference/houmao_server_pair.md)
 - [Runtime CLI and session workflows](reference/realm_controller.md)
+- [Runtime-managed agents reference](reference/agents/index.md)
 - [Terminal recorder](reference/terminal_record.md)
 - [Mailbox reference](reference/mailbox/index.md)
 - [Mailbox roundtrip tutorial pack](../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md)
@@ -23,6 +25,8 @@ For the maintained CAO `shadow_only` parser/runtime contract and lifecycle seman
 - [CAO shadow parsing](reference/cao_claude_shadow_parsing.md)
 - [CAO shadow troubleshooting](reference/cao_shadow_parser_troubleshooting.md)
 - [CLI reference](reference/cli.md)
+
+If you already have a Claude Code, Codex, or Gemini tmux session running and want Houmao to manage it without relaunching it, start with `houmao-mgr agents join` in [Houmao Server Pair](reference/houmao_server_pair.md).
 
 ## Migration
 

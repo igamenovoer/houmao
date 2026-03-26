@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.agent_identity import (
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
+    SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
     SessionManifestPayloadV4,
@@ -49,6 +50,7 @@ class SessionManifestRequest:
     created_at_utc: str | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
+    agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | dict[str, Any] | None = None
 
 
 def generate_session_id(prefix: str = "session") -> str:
@@ -167,6 +169,12 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
                 request.backend_state.get(
                     "working_directory", request.launch_plan.working_directory
                 )
+            ),
+            "resume_selection_kind": str(
+                request.backend_state.get("resume_selection_kind", "none")
+            ),
+            "resume_selection_value": _optional_non_empty_str(
+                request.backend_state.get("resume_selection_value")
             ),
         }
     elif request.launch_plan.backend == "local_interactive":
@@ -539,6 +547,12 @@ def _build_manifest_agent_launch_authority(
 ) -> dict[str, Any] | None:
     """Build the normalized v4 relaunch posture section."""
 
+    if request.agent_launch_authority is not None:
+        authority = request.agent_launch_authority
+        if isinstance(authority, SessionManifestAgentLaunchAuthorityV1):
+            return authority.model_dump(mode="json")
+        validated = SessionManifestAgentLaunchAuthorityV1.model_validate(authority)
+        return validated.model_dump(mode="json")
     if tmux_session_name is None:
         return None
     return {
@@ -550,6 +564,7 @@ def _build_manifest_agent_launch_authority(
         "session_id": session_id,
         "profile_name": _optional_non_empty_str(request.backend_state.get("profile_name")),
         "profile_path": _optional_non_empty_str(request.backend_state.get("profile_path")),
+        "posture_kind": "runtime_launch_plan",
     }
 
 

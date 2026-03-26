@@ -65,6 +65,7 @@ from .backends.tmux_runtime import (
     has_tmux_session as has_tmux_session_shared,
     list_tmux_panes as list_tmux_panes_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    read_tmux_session_environment_value as read_tmux_session_environment_value_shared,
     run_tmux as run_tmux_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
@@ -165,6 +166,7 @@ from .models import (
     GatewayControlResult,
     InteractiveSession,
     LaunchPlan,
+    RoleInjectionPlan,
     SessionControlResult,
     SessionEvent,
 )
@@ -181,6 +183,7 @@ from .registry_models import (
 )
 from .registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
+    JOINED_REGISTRY_SENTINEL_LEASE_TTL,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
@@ -216,6 +219,7 @@ _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
 _GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
+_JOINED_SESSION_ORIGIN = "joined_tmux"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -289,6 +293,7 @@ class RuntimeSessionController:
     gateway_port: int | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
+    agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
@@ -543,6 +548,7 @@ class RuntimeSessionController:
                 agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
                 registry_launch_authority=self.registry_launch_authority,
+                agent_launch_authority=self.agent_launch_authority,
             )
         )
         payload = _preserve_server_managed_headless_gateway_authority(
@@ -940,6 +946,7 @@ def start_runtime_session(
             new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
         ),
         registry_launch_authority=registry_launch_authority,
+        agent_launch_authority=None,
     )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
@@ -1044,7 +1051,6 @@ def resume_runtime_session(
     backend = manifest_payload.backend
     role_name = manifest_payload.role_name
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
-    manifest = load_brain_manifest(brain_manifest_path)
     role_package = load_role_package(agent_def_dir, role_name)
     job_dir = _job_dir_from_manifest_payload(
         payload=manifest_payload,
@@ -1052,19 +1058,28 @@ def resume_runtime_session(
     )
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    launch_plan = build_launch_plan(
-        LaunchPlanRequest(
-            brain_manifest=manifest,
-            role_package=role_package,
-            backend=backend,
-            working_directory=Path(manifest_payload.working_directory),
-            mailbox=_resolved_mailbox_from_manifest_payload(
-                manifest_payload,
-                session_manifest_path=session_manifest_path,
-            ),
-            intent="resume_control",
-        )
+    resolved_mailbox = _resolved_mailbox_from_manifest_payload(
+        manifest_payload,
+        session_manifest_path=session_manifest_path,
     )
+    if _is_joined_tmux_manifest(manifest_payload):
+        launch_plan = _build_joined_launch_plan_from_manifest_payload(
+            payload=manifest_payload,
+            role_package=role_package,
+            mailbox=resolved_mailbox,
+        )
+    else:
+        manifest = load_brain_manifest(brain_manifest_path)
+        launch_plan = build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role_package,
+                backend=backend,
+                working_directory=Path(manifest_payload.working_directory),
+                mailbox=resolved_mailbox,
+                intent="resume_control",
+            )
+        )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
     backend_session = _create_backend_session(
@@ -1107,6 +1122,7 @@ def resume_runtime_session(
         ),
         registry_generation_id=registry_generation_id,
         registry_launch_authority=manifest_payload.registry_launch_authority,
+        agent_launch_authority=manifest_payload.agent_launch_authority,
     )
     controller.ensure_gateway_capability()
     return controller
@@ -1322,6 +1338,9 @@ def _resume_headless_state(
             fallback=headless.working_directory or str(launch_plan.working_directory),
         ),
         tmux_session_name=tmux_session_name.strip(),
+        resume_selection_kind=headless.resume_selection_kind,
+        resume_selection_value=headless.resume_selection_value,
+        joined_session=_is_joined_tmux_manifest(payload),
     )
 
 
@@ -1357,6 +1376,7 @@ def _resume_local_interactive_state(
             fallback=local_interactive.working_directory or str(launch_plan.working_directory),
         ),
         tmux_session_name=tmux_session_name.strip(),
+        joined_session=_is_joined_tmux_manifest(payload),
     )
 
 
@@ -1460,6 +1480,95 @@ def _manifest_pair_managed_agent_ref(
     return None
 
 
+def _is_joined_tmux_manifest(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> bool:
+    """Return whether one manifest payload describes a joined tmux session."""
+
+    return (
+        isinstance(payload, SessionManifestPayloadV4)
+        and payload.agent_launch_authority is not None
+        and payload.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
+    )
+
+
+def _build_joined_launch_plan_from_manifest_payload(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    role_package: RolePackage,
+    mailbox: MailboxResolvedConfig | None,
+) -> LaunchPlan:
+    """Rebuild a join-derived launch plan from the persisted session manifest."""
+
+    if not isinstance(payload, SessionManifestPayloadV4) or payload.agent_launch_authority is None:
+        raise SessionManifestError("Joined-session resume requires v4 agent_launch_authority data.")
+    authority = payload.agent_launch_authority
+    if authority.session_origin != _JOINED_SESSION_ORIGIN:
+        raise SessionManifestError("Joined-session resume requires session_origin=joined_tmux.")
+
+    launch_payload = payload.launch_plan
+    tmux_session_name = authority.tmux_session_name or _manifest_tmux_session_name(payload)
+    env = _resolve_joined_launch_env_values(
+        authority=authority,
+        tmux_session_name=tmux_session_name,
+    )
+    metadata = dict(launch_payload.metadata)
+    metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
+    return LaunchPlan(
+        backend=launch_payload.backend,
+        tool=launch_payload.tool,
+        executable=launch_payload.executable,
+        args=list(launch_payload.args),
+        working_directory=Path(launch_payload.working_directory).resolve(),
+        home_env_var=launch_payload.home_selector.env_var,
+        home_path=Path(launch_payload.home_selector.home_path).resolve(),
+        env=env,
+        env_var_names=list(launch_payload.env_var_names),
+        role_injection=RoleInjectionPlan(
+            method=launch_payload.role_injection.method,
+            role_name=launch_payload.role_injection.role_name,
+            prompt=role_package.system_prompt,
+            bootstrap_message=(
+                role_package.system_prompt
+                if launch_payload.role_injection.method == "bootstrap_message"
+                else None
+            ),
+        ),
+        metadata=metadata,
+        mailbox=mailbox,
+        launch_policy_provenance=None,
+    )
+
+
+def _resolve_joined_launch_env_values(
+    *,
+    authority: SessionManifestAgentLaunchAuthorityV1,
+    tmux_session_name: str | None,
+) -> dict[str, str]:
+    """Resolve persisted joined-session launch env bindings into concrete values."""
+
+    resolved: dict[str, str] = {}
+    for binding in authority.launch_env or ():
+        if binding.mode == "literal":
+            resolved[binding.name] = binding.value
+            continue
+        if tmux_session_name is None or not tmux_session_name.strip():
+            raise SessionManifestError(
+                f"Joined relaunch requires tmux session authority to resolve `{binding.name}`."
+            )
+        value = read_tmux_session_environment_value_shared(
+            session_name=tmux_session_name,
+            variable_name=binding.name,
+        )
+        if value is None or not value.strip():
+            raise SessionManifestError(
+                "Joined relaunch could not resolve inherited launch env "
+                f"`{binding.name}` from tmux session `{tmux_session_name}`."
+            )
+        resolved[binding.name] = value
+    return resolved
+
+
 def _optional_backend_state_str(
     payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     key: str,
@@ -1494,6 +1603,7 @@ def _resolve_manifest_relaunch_authority(
         tmux_session_name=tmux_session_name,
         primary_window_index=_PRIMARY_AGENT_WINDOW_INDEX,
         working_directory=payload.working_directory,
+        posture_kind="runtime_launch_plan",
         session_id=(
             payload.runtime.session_id
             if isinstance(payload, SessionManifestPayloadV4)
@@ -1865,6 +1975,35 @@ def _build_provider_start_launch_plan_for_relaunch(
     controller: RuntimeSessionController,
 ) -> LaunchPlan:
     """Rebuild a provider-start launch plan for one local tmux-backed relaunch."""
+
+    if controller.agent_launch_authority is not None:
+        authority = controller.agent_launch_authority
+        if authority.session_origin == _JOINED_SESSION_ORIGIN:
+            if authority.posture_kind == "unavailable":
+                raise SessionManifestError(
+                    "Joined-session relaunch is unavailable because no launch options were recorded."
+                )
+            if controller.agent_def_dir is None:
+                raise SessionManifestError(
+                    "Joined-session relaunch requires a persisted agent-definition directory."
+                )
+            handle = load_session_manifest(controller.manifest_path)
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+            role_package = load_role_package(controller.agent_def_dir, controller.role_name)
+            updated_launch_plan = _build_joined_launch_plan_from_manifest_payload(
+                payload=payload,
+                role_package=role_package,
+                mailbox=_resolved_mailbox_from_manifest_payload(
+                    payload,
+                    session_manifest_path=controller.manifest_path,
+                ),
+            )
+            if controller.job_dir is not None:
+                updated_launch_plan = _launch_plan_with_job_dir(
+                    updated_launch_plan,
+                    job_dir=controller.job_dir,
+                )
+            return updated_launch_plan
 
     if controller.agent_def_dir is None:
         raise SessionManifestError(
@@ -2559,6 +2698,14 @@ def _build_shared_registry_record_for_controller(
     published_at = datetime.now(UTC)
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
     mailbox = controller.launch_plan.mailbox
+    lease_ttl = (
+        JOINED_REGISTRY_SENTINEL_LEASE_TTL
+        if (
+            controller.agent_launch_authority is not None
+            and controller.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
+        )
+        else DEFAULT_REGISTRY_LEASE_TTL
+    )
 
     gateway_payload = _shared_registry_gateway_payload(controller)
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
@@ -2588,7 +2735,7 @@ def _build_shared_registry_record_for_controller(
         agent_id=agent_id,
         generation_id=generation_id,
         published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
         identity=RegistryIdentityV1(
             backend=controller.launch_plan.backend,
             tool=controller.launch_plan.tool,

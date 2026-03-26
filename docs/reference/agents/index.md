@@ -9,6 +9,7 @@ If you are new to the subsystem, start with the operations page. If you need exa
 A runtime-managed agent session is the runtime's durable handle around one live backend session.
 
 - The runtime starts or resumes a backend session and persists a session manifest.
+- The same manifest-first envelope can also be created around an already-running tmux session through `houmao-mgr agents join`.
 - The manifest and tmux-published pointers let later commands find the same logical session again.
 - Operators can interact through more than one path: direct prompt turns, raw control input, mailbox-driven prompt turns, and optional gateway-routed queued requests.
 - The optional gateway is a companion control plane for the same session, not a replacement for the runtime's core session model.
@@ -28,6 +29,7 @@ For the canonical filesystem map behind these terms, use [System Files Reference
 
 ### Start here
 
+- [Houmao Server Pair](../houmao_server_pair.md): supported operator workflow for `houmao-server + houmao-mgr`, including launch, join, gateway attach, and relaunch.
 - [Session And Message Flows](operations/session-and-message-flows.md): Start, resume, stop, and choose between prompt turns, control input, mailbox, and gateway paths.
 - [Troubleshooting Codex CAO Approval Prompts](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a CAO-backed Codex prompt turn stops on an approval menu and verify the selected unattended launch-policy strategy.
 

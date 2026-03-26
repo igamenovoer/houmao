@@ -54,6 +54,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
@@ -798,10 +799,13 @@ def _identity_from_record(record: LiveAgentRegistryRecordV2) -> HoumaoManagedAge
         "headless" if record.identity.backend in _HEADLESS_BACKENDS else "tui"
     )
     tracked_agent_id = record.agent_id or record.agent_name or record.terminal.session_name
-    tmux_window_name = (
-        HEADLESS_AGENT_WINDOW_NAME
-        if transport == "headless" or record.identity.backend == "local_interactive"
-        else None
+    tmux_window_name = _managed_tmux_window_name_from_manifest_path(
+        manifest_path=Path(record.runtime.manifest_path),
+        default=(
+            HEADLESS_AGENT_WINDOW_NAME
+            if transport == "headless" or record.identity.backend == "local_interactive"
+            else None
+        ),
     )
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
@@ -844,10 +848,13 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     transport: ManagedAgentTransportKind = (
         "headless" if controller.launch_plan.backend in _HEADLESS_BACKENDS else "tui"
     )
-    tmux_window_name = (
-        HEADLESS_AGENT_WINDOW_NAME
-        if transport == "headless" or controller.launch_plan.backend == "local_interactive"
-        else None
+    tmux_window_name = _managed_tmux_window_name_from_manifest_path(
+        manifest_path=controller.manifest_path,
+        default=(
+            HEADLESS_AGENT_WINDOW_NAME
+            if transport == "headless" or controller.launch_plan.backend == "local_interactive"
+            else None
+        ),
     )
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
@@ -1069,12 +1076,39 @@ def _tracked_tui_identity_for_controller(
         session_name=tmux_session_name,
         tool=controller.launch_plan.tool,
         tmux_session_name=tmux_session_name,
-        tmux_window_name="agent",
+        tmux_window_name=_managed_tmux_window_name_from_manifest_path(
+            manifest_path=controller.manifest_path,
+            default=HEADLESS_AGENT_WINDOW_NAME,
+        ),
         agent_name=controller.agent_identity,
         agent_id=controller.agent_id,
         manifest_path=str(controller.manifest_path),
         session_root=str(controller.manifest_path.parent),
     )
+
+
+def _managed_tmux_window_name_from_manifest_path(
+    *,
+    manifest_path: Path,
+    default: str | None,
+) -> str | None:
+    """Return the best persisted tmux window name for one managed session."""
+
+    try:
+        handle = load_session_manifest(manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except SessionManifestError:
+        return default
+
+    if isinstance(payload, SessionManifestPayloadV4):
+        if payload.tmux is not None and payload.tmux.primary_window_name is not None:
+            return payload.tmux.primary_window_name
+        if payload.interactive is not None and payload.interactive.tmux_window_name is not None:
+            return payload.interactive.tmux_window_name
+    backend_window_name = payload.backend_state.get("tmux_window_name")
+    if isinstance(backend_window_name, str) and backend_window_name.strip():
+        return backend_window_name.strip()
+    return default
 
 
 def _refresh_local_tui_state(

@@ -20,6 +20,14 @@ from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 OperatorPromptModeV1: TypeAlias = Literal["interactive", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
+SessionOriginV1: TypeAlias = Literal["joined_tmux"]
+AgentLaunchPostureKindV1: TypeAlias = Literal[
+    "runtime_launch_plan",
+    "tui_launch_options",
+    "headless_launch_options",
+    "unavailable",
+]
+HeadlessResumeSelectionKindV1: TypeAlias = Literal["none", "last", "exact"]
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list[object] | dict[str, object]
@@ -188,13 +196,31 @@ class HeadlessSectionV1(_StrictBoundaryModel):
     turn_index: int
     role_bootstrap_applied: bool
     working_directory: str
+    resume_selection_kind: HeadlessResumeSelectionKindV1 = "none"
+    resume_selection_value: str | None = None
 
-    @field_validator("working_directory")
+    @field_validator("working_directory", "resume_selection_value")
     @classmethod
-    def _workdir_not_blank(cls, value: str) -> str:
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+    @model_validator(mode="after")
+    def _validate_resume_selection(self) -> HeadlessSectionV1:
+        if self.resume_selection_kind == "exact":
+            if self.resume_selection_value is None:
+                raise ValueError(
+                    "resume_selection_value is required for resume_selection_kind=exact"
+                )
+            return self
+        if self.resume_selection_value is not None:
+            raise ValueError(
+                "resume_selection_value must be omitted unless resume_selection_kind=exact"
+            )
+        return self
 
 
 class LocalInteractiveSectionV1(_StrictBoundaryModel):
@@ -338,6 +364,41 @@ class SessionManifestInteractiveSectionV1(_StrictBoundaryModel):
         return value
 
 
+class JoinedLaunchEnvBindingLiteralV1(_StrictBoundaryModel):
+    """Literal joined-session launch env binding."""
+
+    mode: Literal["literal"]
+    name: str
+    value: str
+
+    @field_validator("name", "value")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class JoinedLaunchEnvBindingInheritedV1(_StrictBoundaryModel):
+    """Inherited joined-session launch env binding."""
+
+    mode: Literal["inherit"]
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+JoinedLaunchEnvBindingV1: TypeAlias = Annotated[
+    JoinedLaunchEnvBindingLiteralV1 | JoinedLaunchEnvBindingInheritedV1,
+    Field(discriminator="mode"),
+]
+
+
 class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
     """Secret-free relaunch posture persisted in v4 manifests."""
 
@@ -349,6 +410,10 @@ class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
     session_id: str | None = None
     profile_name: str | None = None
     profile_path: str | None = None
+    session_origin: SessionOriginV1 | None = None
+    posture_kind: AgentLaunchPostureKindV1 | None = None
+    launch_args: list[str] | None = None
+    launch_env: list[JoinedLaunchEnvBindingV1] | None = None
 
     @field_validator(
         "tool",
@@ -366,6 +431,34 @@ class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+    @field_validator("launch_args")
+    @classmethod
+    def _launch_args_not_blank(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for entry in value:
+            if not entry.strip():
+                raise ValueError("launch_args entries must not be empty")
+            normalized.append(entry)
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_posture(self) -> SessionManifestAgentLaunchAuthorityV1:
+        if self.posture_kind is None:
+            return self
+        if self.posture_kind in {"runtime_launch_plan", "unavailable"}:
+            if self.launch_args is not None or self.launch_env is not None:
+                raise ValueError(
+                    "launch_args/launch_env must be omitted for runtime_launch_plan/unavailable"
+                )
+            return self
+        if not self.launch_args and not self.launch_env:
+            raise ValueError(
+                "tui/headless launch-option postures require launch_args or launch_env"
+            )
+        return self
 
 
 class SessionManifestGatewayEndpointAuthorityV1(_StrictBoundaryModel):
