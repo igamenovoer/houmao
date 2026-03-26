@@ -5,12 +5,12 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, Mapping
 
 from ..agent_identity import (
-    derive_agent_id_from_name,
     derive_auto_agent_name_base,
     derive_tmux_session_name,
     normalize_agent_identity_name,
@@ -491,11 +491,10 @@ def generate_tmux_session_name(
     canonical_agent_name = normalize_agent_identity_name(
         derive_auto_agent_name_base(tool=tool, role_name=role_name)
     ).canonical_name
-    agent_id = derive_agent_id_from_name(canonical_agent_name)
     try:
         return derive_tmux_session_name(
             canonical_agent_name=canonical_agent_name,
-            agent_id=agent_id,
+            launch_epoch_ms=time.time_ns() // 1_000_000,
             occupied_session_names=occupied,
         )
     except SessionManifestError as exc:

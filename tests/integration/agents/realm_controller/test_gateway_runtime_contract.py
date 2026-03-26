@@ -32,7 +32,6 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     gateway_paths_from_manifest_path,
-    load_gateway_status,
     read_gateway_notifier_audit_records,
     read_pid_file,
     write_gateway_desired_config,

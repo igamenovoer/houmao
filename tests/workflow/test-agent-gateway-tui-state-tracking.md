@@ -44,17 +44,17 @@ pixi run houmao-mgr agents launch --help
 For serverless local sessions, `houmao-mgr agents state/show/gateway ...` resolves local records by:
 
 - shared-registry `agent_id`, or
-- canonical `agent_name`
+- raw creation-time `agent_name`
 
 It does not reliably resolve by tmux session name alone in this workflow.
 
-After launch, prefer the canonical agent name from `agents list`. Example:
+After launch, prefer the raw creation-time agent name from `agents list`. Example:
 
 ```bash
 pixi run houmao-mgr agents list
 ```
 
-In the example run below, the canonical agent name was `AGENTSYS-projection-demo-codex`, while the tmux session name was `hm-gw-track-codex`.
+In the example run below, the agent name was `projection-demo-codex`, while the tmux session name was `hm-gw-track-codex`. If `--session-name` were omitted, the default tmux handle would be `AGENTSYS-projection-demo-codex-<epoch-ms>`.
 
 ## Launch The Local TUI Agent
 
@@ -70,7 +70,7 @@ Launch one serverless local interactive Codex session:
 pixi run houmao-mgr agents launch \
   --agents projection-demo \
   --provider codex \
-  --agent-name AGENTSYS-projection-demo-codex \
+  --agent-name projection-demo-codex \
   --session-name hm-gw-track-codex \
   --yolo
 ```
@@ -91,12 +91,12 @@ pixi run houmao-mgr agents list
 
 ## Observe Baseline State Before Gateway Attach
 
-Use the canonical agent name from `agents list`. Example:
+Use the raw agent name from `agents list`. Example:
 
 ```bash
-pixi run houmao-mgr agents state --agent-name AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents show --agent-name AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents gateway status --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents state --agent-name projection-demo-codex
+pixi run houmao-mgr agents show --agent-name projection-demo-codex
+pixi run houmao-mgr agents gateway status --agent-name projection-demo-codex
 ```
 
 Expected baseline observations:
@@ -123,7 +123,7 @@ In the documented run, the serverless CLI path showed:
 Attach a live gateway to the local interactive session:
 
 ```bash
-pixi run houmao-mgr agents gateway attach --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents gateway attach --agent-name projection-demo-codex
 ```
 
 Expected result:
@@ -139,7 +139,7 @@ Expected result:
 Confirm status again:
 
 ```bash
-pixi run houmao-mgr agents gateway status --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents gateway status --agent-name projection-demo-codex
 ```
 
 The runtime-owned gateway artifacts should now exist under the session root:
@@ -162,7 +162,7 @@ Send a simple prompt through the explicit gateway path:
 
 ```bash
 pixi run houmao-mgr agents gateway prompt \
-  --agent-name AGENTSYS-projection-demo-codex \
+  --agent-name projection-demo-codex \
   --prompt 'Reply with exactly TRACKING_OK and nothing else.'
 ```
 
@@ -258,8 +258,8 @@ This is the supported repo-owned local/serverless inspection path for attached `
 After the same prompt submission, query the serverless CLI path again:
 
 ```bash
-pixi run houmao-mgr agents state --agent-name AGENTSYS-projection-demo-codex
-pixi run houmao-mgr agents show --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents state --agent-name projection-demo-codex
+pixi run houmao-mgr agents show --agent-name projection-demo-codex
 ```
 
 In the documented run, those calls showed the current posture correctly but did not preserve the same gateway-owned prompt-transition evidence across independent invocations.
@@ -289,7 +289,7 @@ When this workflow succeeds, record the following separately:
 Stop the session when done:
 
 ```bash
-pixi run houmao-mgr agents stop --agent-name AGENTSYS-projection-demo-codex
+pixi run houmao-mgr agents stop --agent-name projection-demo-codex
 ```
 
 Expected cleanup result:
@@ -302,7 +302,7 @@ Useful checks:
 
 ```bash
 tmux has-session -t hm-gw-track-codex; echo rc:$?
-pixi run houmao-mgr agents list | rg 'AGENTSYS-projection-demo-codex|hm-gw-track-codex' || true
+pixi run houmao-mgr agents list | rg 'projection-demo-codex|hm-gw-track-codex' || true
 ```
 
 ## Interpretation

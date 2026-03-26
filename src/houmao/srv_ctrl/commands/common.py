@@ -12,6 +12,8 @@ from typing import Any, ParamSpec, Sequence, TypeVar, cast
 import click
 from pydantic import BaseModel
 
+from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import HoumaoManagedAgentIdentity
@@ -189,8 +191,8 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         "--agent-name",
         default=None,
         help=(
-            "Friendly managed-agent name. For local serverless control, an exact unique tmux "
-            "session name may also resolve through the shared registry."
+            "Raw creation-time friendly managed-agent name. Do not include the "
+            "`AGENTSYS-` prefix."
         ),
     )(function)
     function = click.option(
@@ -225,6 +227,7 @@ def resolve_managed_agent_selector(
     normalized_agent_name = _normalize_optional_selector_value(
         option_name="--agent-name",
         value=agent_name,
+        raw_managed_agent_name=True,
     )
     if normalized_agent_id is not None and normalized_agent_name is not None:
         raise click.ClickException("Use exactly one of `--agent-id` or `--agent-name`.")
@@ -310,7 +313,12 @@ def resolve_managed_agent_identity(
     return pair_request(client.get_managed_agent, require_managed_agent_ref(agent_ref))
 
 
-def _normalize_optional_selector_value(*, option_name: str, value: str | None) -> str | None:
+def _normalize_optional_selector_value(
+    *,
+    option_name: str,
+    value: str | None,
+    raw_managed_agent_name: bool = False,
+) -> str | None:
     """Normalize one optional selector value or fail clearly."""
 
     if value is None:
@@ -318,6 +326,11 @@ def _normalize_optional_selector_value(*, option_name: str, value: str | None) -
     stripped = value.strip()
     if not stripped:
         raise click.ClickException(f"`{option_name}` must not be empty.")
+    if raw_managed_agent_name:
+        try:
+            return normalize_user_managed_agent_name(stripped)
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from exc
     return stripped
 
 

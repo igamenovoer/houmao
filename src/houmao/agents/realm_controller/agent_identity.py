@@ -16,6 +16,8 @@ normalize_agent_identity_name
     Normalize and validate legacy tmux/runtime identities into `AGENTSYS-...`.
 normalize_managed_agent_name
     Validate a managed-agent friendly name without adding a prefix.
+normalize_user_managed_agent_name
+    Validate one user-provided managed-agent name that must stay unprefixed.
 normalize_managed_agent_id
     Validate a managed-agent authoritative id without adding a prefix.
 derive_auto_agent_name_base
@@ -37,13 +39,13 @@ AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
 AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
 AGENT_ID_ENV_VAR = "AGENTSYS_AGENT_ID"
 AGENT_ID_HEXDIGEST_LENGTH = 32
-DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH = 6
 SAFE_MANAGED_AGENT_COMPONENT_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
 SAFE_MANAGED_AGENT_COMPONENT_DESCRIPTION = (
     "ASCII letters/digits plus `_` and `-`, starting with a letter or digit"
 )
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+_LEADING_RESERVED_MANAGED_AGENT_PREFIX_RE = re.compile(r"^agentsys(?=[^0-9A-Za-z])", re.IGNORECASE)
 _STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
 _INEXACT_AGENTSYS_RE = re.compile(r"agentsys", re.IGNORECASE)
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -139,6 +141,22 @@ def normalize_managed_agent_name(value: str) -> str:
     return _normalize_managed_agent_component(value, field_name="agent_name")
 
 
+def normalize_user_managed_agent_name(value: str) -> str:
+    """Validate one raw user-provided managed-agent name.
+
+    This stricter variant reserves the leading `AGENTSYS<separator>` namespace
+    for runtime canonicalization and operator-facing tmux session handles.
+    """
+
+    normalized = normalize_managed_agent_name(value)
+    if _LEADING_RESERVED_MANAGED_AGENT_PREFIX_RE.search(normalized):
+        raise SessionManifestError(
+            "Managed-agent names must not begin with reserved `AGENTSYS` plus a separator. "
+            "Use the raw creation-time name without the `AGENTSYS-` prefix."
+        )
+    return normalized
+
+
 def normalize_managed_agent_id(value: str) -> str:
     """Validate and normalize one authoritative managed-agent id."""
 
@@ -184,62 +202,49 @@ def derive_agent_id_from_name(value: str) -> str:
 def derive_tmux_session_name(
     *,
     canonical_agent_name: str,
-    agent_id: str,
-    prefix_length: int = DEFAULT_TMUX_AGENT_ID_PREFIX_LENGTH,
+    launch_epoch_ms: int,
     occupied_session_names: Collection[str] | None = None,
 ) -> str:
-    """Derive one tmux session name from one managed-agent name plus agent-id prefix.
+    """Derive one default tmux session name from canonical name and launch time.
 
     Parameters
     ----------
     canonical_agent_name:
         Managed-agent name used to derive the tmux session base.
-    agent_id:
-        Authoritative agent identifier whose prefix will be embedded in the
-        tmux session name.
-    prefix_length:
-        Initial prefix length to try before collision-driven extension.
+    launch_epoch_ms:
+        Launch timestamp expressed as Unix epoch milliseconds.
     occupied_session_names:
-        Optional currently occupied tmux session names used to extend the
-        prefix until the candidate becomes unique.
+        Optional currently occupied tmux session names used to fail explicitly
+        when the generated default candidate is already live.
 
     Returns
     -------
     str
-        Tmux session name in `<canonical-agent-name>-<agent-id-prefix>` form.
+        Tmux session name in `<canonical-agent-name>-<epoch-ms>` form.
 
     Raises
     ------
     SessionManifestError
-        If the agent id is blank, the prefix length is invalid, or no unique
-        tmux session name can be derived from the full authoritative agent id.
+        If the launch timestamp is invalid or the generated default name is
+        already occupied.
     """
 
     normalized_name = normalize_managed_agent_name(canonical_agent_name)
-    stripped_agent_id = normalize_managed_agent_id(agent_id)
-    if prefix_length < 1:
-        raise SessionManifestError("tmux session-name prefix length must be at least 1.")
+    if launch_epoch_ms < 0:
+        raise SessionManifestError("tmux session launch_epoch_ms must be non-negative.")
 
     occupied = {
         session_name.strip()
         for session_name in occupied_session_names or ()
         if isinstance(session_name, str) and session_name.strip()
     }
-    candidate_length = min(prefix_length, len(stripped_agent_id))
-
-    while True:
-        candidate = f"{normalized_name}-{stripped_agent_id[:candidate_length]}"
-        if candidate not in occupied:
-            return candidate
-        if candidate_length >= len(stripped_agent_id):
-            break
-        candidate_length += 1
-
-    raise SessionManifestError(
-        "Failed to derive a unique tmux session name for agent name "
-        f"`{normalized_name}` using authoritative agent_id "
-        f"`{stripped_agent_id}`."
-    )
+    candidate = f"{normalized_name}-{launch_epoch_ms}"
+    if candidate in occupied:
+        raise SessionManifestError(
+            f"Generated default tmux session name `{candidate}` is already in use. "
+            "Retry the launch or pass an explicit `--session-name`."
+        )
+    return candidate
 
 
 def is_agent_id(value: str) -> bool:

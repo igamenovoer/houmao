@@ -335,7 +335,7 @@ class HeadlessInteractiveSession:
         if has.returncode == 0:
             raise BackendExecutionError(
                 f"Tmux session `{session_name}` already exists. "
-                "Choose a different agent identity or stop the existing session first."
+                "Choose a different `--session-name` or stop the existing tmux session first."
             )
         if has.returncode not in {1, 2}:
             detail = tmux_error_detail_shared(has) or "unknown tmux error"

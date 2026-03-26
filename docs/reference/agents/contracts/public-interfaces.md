@@ -90,10 +90,10 @@ Representative `start-session` output for a gateway-capable session:
   "session_manifest": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
   "backend": "cao_rest",
   "tool": "codex",
-  "agent_identity": "AGENTSYS-gpu",
-  "agent_name": "AGENTSYS-gpu",
+  "agent_identity": "gpu",
+  "agent_name": "gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
-  "tmux_session_name": "AGENTSYS-gpu-270b87",
+  "tmux_session_name": "AGENTSYS-gpu-1760000123456",
   "job_dir": "/abs/path/workspace/.houmao/jobs/cao-rest-1",
   "parsing_mode": "shadow_only"
 }

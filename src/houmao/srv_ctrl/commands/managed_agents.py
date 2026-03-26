@@ -233,21 +233,6 @@ def _resolve_local_managed_agent_record(
         )
     if len(name_matches) == 1:
         return name_matches[0]
-
-    session_alias_matches = tuple(
-        record for record in _list_registry_records() if record.terminal.session_name == agent_name
-    )
-    if len(session_alias_matches) > 1:
-        raise click.ClickException(
-            _format_ambiguous_local_registry_matches(
-                selector_name="--agent-name",
-                selector_value=agent_name,
-                resolution_kind="tmux session alias",
-                matches=session_alias_matches,
-            )
-        )
-    if len(session_alias_matches) == 1:
-        return session_alias_matches[0]
     return None
 
 
