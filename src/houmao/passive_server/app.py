@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -27,8 +28,18 @@ from houmao.passive_server.models import (
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
+    PassiveAgentActionResponse,
     PassiveCurrentInstance,
+    PassiveHeadlessLaunchRequest,
+    PassiveHeadlessLaunchResponse,
+    PassiveHeadlessTurnAcceptedResponse,
+    PassiveHeadlessTurnEventsResponse,
+    PassiveHeadlessTurnRequest,
+    PassiveHeadlessTurnStatusResponse,
     PassiveHealthResponse,
+    PassiveNotImplementedResponse,
+    PassivePromptRequest,
+    PassiveRequestAcceptedResponse,
     PassiveShutdownResponse,
 )
 from houmao.passive_server.service import PassiveServerService
@@ -110,6 +121,30 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
+    @app.post("/houmao/agents/{agent_ref}/gateway/attach")
+    def gateway_attach(agent_ref: str) -> PassiveNotImplementedResponse:
+        return JSONResponse(  # type: ignore[return-value]
+            status_code=501,
+            content=PassiveNotImplementedResponse(
+                detail=(
+                    "Gateway attach is not supported by houmao-passive-server. "
+                    f"Use: houmao-mgr agents gateway attach {agent_ref}"
+                ),
+            ).model_dump(mode="json"),
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/detach")
+    def gateway_detach(agent_ref: str) -> PassiveNotImplementedResponse:
+        return JSONResponse(  # type: ignore[return-value]
+            status_code=501,
+            content=PassiveNotImplementedResponse(
+                detail=(
+                    "Gateway detach is not supported by houmao-passive-server. "
+                    f"Use: houmao-mgr agents gateway detach {agent_ref}"
+                ),
+            ).model_dump(mode="json"),
+        )
+
     @app.get("/houmao/agents/{agent_ref}/mail/status")
     def gateway_mail_status(agent_ref: str) -> GatewayMailStatusV1:
         result = resolved_service.gateway_mail_status(agent_ref)
@@ -166,5 +201,71 @@ def create_app(
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
+
+    # -- request submission routes (Tier 6) -----------------------------------
+
+    @app.post("/houmao/agents/{agent_ref}/requests")
+    def submit_request(
+        agent_ref: str, payload: PassivePromptRequest
+    ) -> PassiveRequestAcceptedResponse:
+        result = resolved_service.submit_request(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/interrupt")
+    def interrupt_agent(agent_ref: str) -> PassiveAgentActionResponse:
+        result = resolved_service.interrupt_agent(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/stop")
+    def stop_agent(agent_ref: str) -> PassiveAgentActionResponse:
+        result = resolved_service.stop_agent(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    # -- headless management routes (Tier 7) ----------------------------------
+
+    @app.post("/houmao/agents/headless/launches")
+    def launch_headless(
+        payload: PassiveHeadlessLaunchRequest,
+    ) -> PassiveHeadlessLaunchResponse:
+        result = resolved_service.launch_headless(payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/turns")
+    def submit_turn(
+        agent_ref: str, payload: PassiveHeadlessTurnRequest
+    ) -> PassiveHeadlessTurnAcceptedResponse:
+        result = resolved_service.submit_turn(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}")
+    def turn_status(agent_ref: str, turn_id: str) -> PassiveHeadlessTurnStatusResponse:
+        result = resolved_service.turn_status(agent_ref, turn_id)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}/events")
+    def turn_events(agent_ref: str, turn_id: str) -> PassiveHeadlessTurnEventsResponse:
+        result = resolved_service.turn_events(agent_ref, turn_id)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/{name}")
+    def turn_artifact(agent_ref: str, turn_id: str, name: str) -> Response:
+        result = resolved_service.turn_artifact_text(agent_ref, turn_id, name)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return Response(content=result, media_type="text/plain")
 
     return app
