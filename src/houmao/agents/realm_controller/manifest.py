@@ -20,14 +20,15 @@ from .boundary_models import (
     RegistryLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
+    SessionManifestPayloadV4,
     format_pydantic_error,
 )
 from .errors import SessionManifestError
 from .models import LaunchPlan, SessionManifestHandle
 
 LAUNCH_PLAN_SCHEMA = "launch_plan.v1.schema.json"
-SESSION_MANIFEST_SCHEMA = "session_manifest.v3.schema.json"
-SESSION_MANIFEST_SCHEMA_VERSION = 3
+SESSION_MANIFEST_SCHEMA = "session_manifest.v4.schema.json"
+SESSION_MANIFEST_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,10 @@ class SessionManifestRequest:
     agent_name: str | None = None
     agent_id: str | None = None
     tmux_session_name: str | None = None
+    session_id: str | None = None
     job_dir: Path | None = None
+    agent_def_dir: Path | None = None
+    agent_pid: int | None = None
     created_at_utc: str | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
@@ -105,6 +109,12 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         context="launch_plan.v1 validation failed",
     ).model_dump(mode="json")
     agent_name, agent_id, tmux_session_name = _resolve_manifest_identity(request)
+    session_id = _resolve_manifest_session_id(
+        request=request,
+        agent_name=agent_name,
+        agent_id=agent_id,
+        tmux_session_name=tmux_session_name,
+    )
     job_dir = _resolve_manifest_job_dir(
         request=request,
         agent_name=agent_name,
@@ -192,9 +202,26 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             "turn_index": int(request.backend_state.get("turn_index", 0)),
         }
 
+    payload["runtime"] = _build_manifest_runtime_section(
+        request=request,
+        session_id=session_id,
+        job_dir=job_dir,
+    )
+    payload["tmux"] = _build_manifest_tmux_section(
+        request=request,
+        tmux_session_name=tmux_session_name,
+    )
+    payload["interactive"] = _build_manifest_interactive_section(request=request)
+    payload["agent_launch_authority"] = _build_manifest_agent_launch_authority(
+        request=request,
+        session_id=session_id,
+        tmux_session_name=tmux_session_name,
+    )
+    payload["gateway_authority"] = _build_manifest_gateway_authority(request=request)
+
     return _validate_session_manifest_payload(
         payload,
-        context="session_manifest.v3 validation failed",
+        context="session_manifest.v4 validation failed",
     ).model_dump(mode="json")
 
 
@@ -216,7 +243,7 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
 
     validated = _validate_session_manifest_payload(
         payload,
-        context=f"session_manifest.v3 validation failed for {path}",
+        context=f"session_manifest.v4 validation failed for {path}",
     ).model_dump(mode="json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(validated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -250,14 +277,24 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
     return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
 
 
-def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV3:
+def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV4:
     """Parse a manifest payload into a typed normalized Pydantic model."""
 
     schema_version = _schema_version_from_payload(payload)
     if schema_version == SESSION_MANIFEST_SCHEMA_VERSION:
         return _validate_session_manifest_payload(
             payload,
+            context=f"session_manifest.v4 validation failed for {source}",
+        )
+    if schema_version == 3:
+        legacy_v3_payload = _validate_session_manifest_payload_v3(
+            payload,
             context=f"session_manifest.v3 validation failed for {source}",
+        )
+        upgraded_payload = _upgrade_v3_manifest_payload(payload=legacy_v3_payload)
+        return _validate_session_manifest_payload(
+            upgraded_payload,
+            context=f"session_manifest.v4 validation failed for upgraded {source}",
         )
     if schema_version == 2:
         legacy_payload = _validate_session_manifest_payload_v2(
@@ -270,12 +307,12 @@ def parse_session_manifest_payload(payload: object, *, source: str) -> SessionMa
         )
         return _validate_session_manifest_payload(
             upgraded_payload,
-            context=f"session_manifest.v3 validation failed for upgraded {source}",
+            context=f"session_manifest.v4 validation failed for upgraded {source}",
         )
 
     raise SessionManifestError(
         "Session manifest schema-version mismatch: "
-        f"expected schema_version in {{2, {SESSION_MANIFEST_SCHEMA_VERSION}}}, "
+        f"expected schema_version in {{2, 3, {SESSION_MANIFEST_SCHEMA_VERSION}}}, "
         f"got {schema_version!r} in `{source}`. "
         "Legacy CAO manifests are not supported; start a new session."
     )
@@ -312,7 +349,18 @@ def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPla
 
 def _validate_session_manifest_payload(
     payload: object, *, context: str
+) -> SessionManifestPayloadV4:
+    try:
+        return SessionManifestPayloadV4.model_validate(payload)
+    except ValidationError as exc:
+        raise SessionManifestError(format_pydantic_error(context, exc)) from exc
+
+
+def _validate_session_manifest_payload_v3(
+    payload: object, *, context: str
 ) -> SessionManifestPayloadV3:
+    """Validate one legacy ``session_manifest.v3`` payload."""
+
     try:
         return SessionManifestPayloadV3.model_validate(payload)
     except ValidationError as exc:
@@ -391,6 +439,161 @@ def _resolve_manifest_job_dir(
     return (request.launch_plan.working_directory / ".houmao" / "jobs" / job_key).resolve()
 
 
+def _resolve_manifest_session_id(
+    *,
+    request: SessionManifestRequest,
+    agent_name: str | None,
+    agent_id: str | None,
+    tmux_session_name: str | None,
+) -> str | None:
+    """Resolve the persisted session identifier for one manifest request."""
+
+    return (
+        request.session_id
+        or _optional_non_empty_str(request.backend_state.get("session_id"))
+        or _optional_non_empty_str(request.backend_state.get("session_name"))
+        or tmux_session_name
+        or agent_id
+        or agent_name
+    )
+
+
+def _build_manifest_runtime_section(
+    *,
+    request: SessionManifestRequest,
+    session_id: str | None,
+    job_dir: Path | None,
+) -> dict[str, Any]:
+    """Build the normalized v4 runtime section."""
+
+    agent_pid = request.agent_pid
+    if agent_pid is None:
+        raw_agent_pid = request.backend_state.get("pid")
+        agent_pid = raw_agent_pid if isinstance(raw_agent_pid, int) and raw_agent_pid > 0 else None
+    return {
+        "session_id": session_id,
+        "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
+        "agent_def_dir": (
+            str(request.agent_def_dir.resolve()) if request.agent_def_dir is not None else None
+        ),
+        "agent_pid": agent_pid,
+        "registry_generation_id": request.registry_generation_id,
+        "registry_launch_authority": request.registry_launch_authority,
+    }
+
+
+def _build_manifest_tmux_section(
+    *,
+    request: SessionManifestRequest,
+    tmux_session_name: str | None,
+) -> dict[str, Any] | None:
+    """Build the normalized v4 tmux section for tmux-backed sessions."""
+
+    if tmux_session_name is None:
+        return None
+    return {
+        "session_name": tmux_session_name,
+        "primary_window_index": "0",
+        "primary_window_role": "managed_agent_surface",
+        "primary_window_name": request.backend_state.get("tmux_window_name"),
+    }
+
+
+def _build_manifest_interactive_section(
+    *,
+    request: SessionManifestRequest,
+) -> dict[str, Any] | None:
+    """Build the normalized v4 interactive/control section."""
+
+    if request.launch_plan.backend not in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest",
+        "houmao_server_rest",
+    }:
+        return None
+    return {
+        "turn_index": int(request.backend_state.get("turn_index", 0)),
+        "working_directory": str(
+            request.backend_state.get("working_directory", request.launch_plan.working_directory)
+        ),
+        "role_bootstrap_applied": (
+            bool(request.backend_state.get("role_bootstrap_applied", False))
+            if request.launch_plan.backend
+            in {"local_interactive", "codex_headless", "claude_headless", "gemini_headless"}
+            else None
+        ),
+        "terminal_id": _optional_non_empty_str(request.backend_state.get("terminal_id")),
+        "parsing_mode": _optional_non_empty_str(request.backend_state.get("parsing_mode")),
+        "tmux_window_name": _optional_non_empty_str(request.backend_state.get("tmux_window_name")),
+    }
+
+
+def _build_manifest_agent_launch_authority(
+    *,
+    request: SessionManifestRequest,
+    session_id: str | None,
+    tmux_session_name: str | None,
+) -> dict[str, Any] | None:
+    """Build the normalized v4 relaunch posture section."""
+
+    if tmux_session_name is None:
+        return None
+    return {
+        "backend": request.launch_plan.backend,
+        "tool": request.launch_plan.tool,
+        "tmux_session_name": tmux_session_name,
+        "primary_window_index": "0",
+        "working_directory": str(request.launch_plan.working_directory),
+        "session_id": session_id,
+        "profile_name": _optional_non_empty_str(request.backend_state.get("profile_name")),
+        "profile_path": _optional_non_empty_str(request.backend_state.get("profile_path")),
+    }
+
+
+def _build_manifest_gateway_authority(
+    *,
+    request: SessionManifestRequest,
+) -> dict[str, Any] | None:
+    """Build the normalized v4 gateway attach/control authority section."""
+
+    if request.launch_plan.backend not in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest",
+        "houmao_server_rest",
+    }:
+        return None
+
+    api_base_url = _optional_non_empty_str(request.backend_state.get("api_base_url"))
+    terminal_id = _optional_non_empty_str(request.backend_state.get("terminal_id"))
+    profile_name = _optional_non_empty_str(request.backend_state.get("profile_name"))
+    profile_path = _optional_non_empty_str(request.backend_state.get("profile_path"))
+    parsing_mode = _optional_non_empty_str(request.backend_state.get("parsing_mode"))
+    tmux_window_name = _optional_non_empty_str(request.backend_state.get("tmux_window_name"))
+    attach = {
+        "api_base_url": api_base_url,
+        "managed_agent_ref": (
+            _optional_non_empty_str(request.backend_state.get("session_name"))
+            if request.launch_plan.backend == "houmao_server_rest"
+            else None
+        ),
+        "terminal_id": terminal_id,
+        "profile_name": profile_name,
+        "profile_path": profile_path,
+        "parsing_mode": parsing_mode,
+        "tmux_window_name": tmux_window_name,
+    }
+    return {
+        "attach": dict(attach),
+        "control": dict(attach),
+    }
+
+
 def _schema_version_from_payload(payload: object) -> int | None:
     """Read the manifest schema version when the payload is a mapping."""
 
@@ -403,10 +606,10 @@ def _schema_version_from_payload(payload: object) -> int | None:
 def _upgrade_legacy_manifest_payload(
     *, payload: SessionManifestPayloadV2, source: str
 ) -> dict[str, Any]:
-    """Upgrade one in-memory v2 manifest payload to the v3 shape."""
+    """Upgrade one in-memory v2 manifest payload to the v4 shape."""
 
     upgraded = payload.model_dump(mode="json")
-    upgraded["schema_version"] = SESSION_MANIFEST_SCHEMA_VERSION
+    upgraded["schema_version"] = 3
     upgraded["agent_name"] = None
     upgraded["agent_id"] = None
     upgraded["tmux_session_name"] = None
@@ -426,7 +629,11 @@ def _upgrade_legacy_manifest_payload(
         upgraded["agent_name"] = tmux_session_name
         upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
         upgraded["tmux_session_name"] = tmux_session_name
-        return upgraded
+        validated = _validate_session_manifest_payload_v3(
+            upgraded,
+            context=f"session_manifest.v3 validation failed for upgraded {source}",
+        )
+        return _upgrade_v3_manifest_payload(payload=validated)
 
     if payload.backend == "cao_rest":
         if payload.cao is None:
@@ -435,8 +642,98 @@ def _upgrade_legacy_manifest_payload(
         upgraded["agent_name"] = tmux_session_name
         upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
         upgraded["tmux_session_name"] = tmux_session_name
-        return upgraded
+        validated = _validate_session_manifest_payload_v3(
+            upgraded,
+            context=f"session_manifest.v3 validation failed for upgraded {source}",
+        )
+        return _upgrade_v3_manifest_payload(payload=validated)
 
+    validated = _validate_session_manifest_payload_v3(
+        upgraded,
+        context=f"session_manifest.v3 validation failed for upgraded {source}",
+    )
+    return _upgrade_v3_manifest_payload(payload=validated)
+
+
+def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[str, Any]:
+    """Upgrade one in-memory v3 manifest payload to the v4 shape."""
+
+    upgraded = payload.model_dump(mode="json")
+    upgraded["schema_version"] = SESSION_MANIFEST_SCHEMA_VERSION
+    session_id = (
+        _optional_non_empty_str(payload.backend_state.get("session_id"))
+        or _optional_non_empty_str(payload.backend_state.get("session_name"))
+        or payload.tmux_session_name
+        or payload.agent_id
+        or payload.agent_name
+    )
+    upgraded["runtime"] = {
+        "session_id": session_id,
+        "job_dir": payload.job_dir,
+        "agent_def_dir": None,
+        "agent_pid": payload.codex.pid if payload.codex is not None else None,
+        "registry_generation_id": payload.registry_generation_id,
+        "registry_launch_authority": payload.registry_launch_authority,
+    }
+    upgraded["tmux"] = (
+        {
+            "session_name": payload.tmux_session_name,
+            "primary_window_index": "0",
+            "primary_window_role": "managed_agent_surface",
+            "primary_window_name": _optional_non_empty_str(
+                payload.backend_state.get("tmux_window_name")
+            ),
+        }
+        if payload.tmux_session_name is not None
+        else None
+    )
+    upgraded["interactive"] = {
+        "turn_index": int(payload.backend_state.get("turn_index", 0)),
+        "working_directory": str(
+            payload.backend_state.get("working_directory", payload.working_directory)
+        ),
+        "role_bootstrap_applied": (
+            bool(payload.backend_state.get("role_bootstrap_applied", False))
+            if payload.backend
+            in {"local_interactive", "codex_headless", "claude_headless", "gemini_headless"}
+            else None
+        ),
+        "terminal_id": _optional_non_empty_str(payload.backend_state.get("terminal_id")),
+        "parsing_mode": _optional_non_empty_str(payload.backend_state.get("parsing_mode")),
+        "tmux_window_name": _optional_non_empty_str(payload.backend_state.get("tmux_window_name")),
+    }
+    upgraded["agent_launch_authority"] = (
+        {
+            "backend": payload.backend,
+            "tool": payload.tool,
+            "tmux_session_name": payload.tmux_session_name,
+            "primary_window_index": "0",
+            "working_directory": payload.working_directory,
+            "session_id": session_id,
+            "profile_name": _optional_non_empty_str(payload.backend_state.get("profile_name")),
+            "profile_path": _optional_non_empty_str(payload.backend_state.get("profile_path")),
+        }
+        if payload.tmux_session_name is not None
+        else None
+    )
+    attach = {
+        "api_base_url": _optional_non_empty_str(payload.backend_state.get("api_base_url")),
+        "managed_agent_ref": (
+            _optional_non_empty_str(payload.backend_state.get("session_name"))
+            if payload.backend == "houmao_server_rest"
+            else None
+        ),
+        "terminal_id": _optional_non_empty_str(payload.backend_state.get("terminal_id")),
+        "profile_name": _optional_non_empty_str(payload.backend_state.get("profile_name")),
+        "profile_path": _optional_non_empty_str(payload.backend_state.get("profile_path")),
+        "parsing_mode": _optional_non_empty_str(payload.backend_state.get("parsing_mode")),
+        "tmux_window_name": _optional_non_empty_str(payload.backend_state.get("tmux_window_name")),
+    }
+    upgraded["gateway_authority"] = (
+        {"attach": dict(attach), "control": dict(attach)}
+        if payload.tmux_session_name is not None
+        else None
+    )
     return upgraded
 
 

@@ -51,9 +51,9 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
-from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoErrorDetail,
     HoumaoHeadlessTurnAcceptedResponse,
@@ -81,6 +81,7 @@ from houmao.server.models import (
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
+from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from .common import (
     pair_request,
@@ -105,7 +106,7 @@ class ManagedAgentTarget:
     mode: str
     agent_ref: str
     identity: HoumaoManagedAgentIdentity
-    client: HoumaoServerClient | None = None
+    client: PairAuthorityClientProtocol | None = None
     controller: RuntimeSessionController | None = None
     record: LiveAgentRegistryRecordV2 | None = None
 
@@ -139,7 +140,7 @@ def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
     for identity in _list_registry_identities():
         merged[_identity_merge_key(identity)] = identity
 
-    pair_client: HoumaoServerClient | None = _optional_pair_client(
+    pair_client: PairAuthorityClientProtocol | None = _optional_pair_client(
         base_url=resolve_server_base_url()
     )
     if pair_client is not None:
@@ -430,15 +431,18 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(target.controller)
 
 
-def attach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
+def attach_gateway(target: ManagedAgentTarget, *, foreground: bool = False) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
+    target = _local_gateway_target_for_passive_pair(target, operation="attach")
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.attach_managed_agent_gateway, target.agent_ref)
 
     assert target.controller is not None
-    result = target.controller.attach_gateway()
+    result = target.controller.attach_gateway(
+        execution_mode_override="tmux_auxiliary_window" if foreground else None
+    )
     if result.status != "ok":
         raise click.ClickException(result.detail)
     return _gateway_status_for_controller(target.controller)
@@ -447,6 +451,7 @@ def attach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
 def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Detach one live gateway for the resolved managed agent."""
 
+    target = _local_gateway_target_for_passive_pair(target, operation="detach")
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.detach_managed_agent_gateway, target.agent_ref)
@@ -838,7 +843,7 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     )
 
 
-def _optional_pair_client(*, base_url: str) -> HoumaoServerClient | None:
+def _optional_pair_client(*, base_url: str) -> PairAuthorityClientProtocol | None:
     """Return one reachable pair client or `None` when unavailable."""
 
     try:
@@ -849,7 +854,7 @@ def _optional_pair_client(*, base_url: str) -> HoumaoServerClient | None:
 
 def _resolve_server_identity_from_record(
     *,
-    client: HoumaoServerClient,
+    client: PairAuthorityClientProtocol,
     record: LiveAgentRegistryRecordV2,
 ) -> HoumaoManagedAgentIdentity:
     """Resolve the server-side identity described by one registry record."""
@@ -874,13 +879,58 @@ def _resolve_server_identity_from_record(
     )
 
 
+def _local_gateway_target_for_passive_pair(
+    target: ManagedAgentTarget,
+    *,
+    operation: str,
+) -> ManagedAgentTarget:
+    """Convert passive-server gateway attach and detach onto the local authority path."""
+
+    if target.mode != "server":
+        return target
+    assert target.client is not None
+    if target.client.pair_authority_kind != "houmao-passive-server":
+        return target
+    record = _resolve_local_gateway_record_for_passive_pair(target)
+    if record is None or record.identity.backend == "houmao_server_rest":
+        raise click.ClickException(
+            f"Passive-server gateway {operation} requires local authority on the owning host; "
+            "remote pair HTTP control is unsupported."
+        )
+    controller = _resume_controller_from_record(record)
+    return ManagedAgentTarget(
+        mode="local",
+        agent_ref=target.agent_ref,
+        identity=_identity_from_controller(controller),
+        controller=controller,
+        record=record,
+    )
+
+
+def _resolve_local_gateway_record_for_passive_pair(
+    target: ManagedAgentTarget,
+) -> LiveAgentRegistryRecordV2 | None:
+    """Resolve one local registry record for passive-server gateway attach and detach."""
+
+    if target.identity.agent_id is not None:
+        return resolve_live_agent_record_by_agent_id(target.identity.agent_id)
+    return _resolve_local_managed_agent_record(
+        agent_id=None,
+        agent_name=target.identity.agent_name or target.agent_ref,
+    )
+
+
 def _api_base_url_from_record(record: LiveAgentRegistryRecordV2) -> str:
     """Extract one `houmao-server` base URL from a registry-backed manifest."""
 
     handle = load_session_manifest(Path(record.runtime.manifest_path))
     payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    api_base_url = payload.backend_state.get("api_base_url")
-    if not isinstance(api_base_url, str) or not api_base_url.strip():
+    authority = resolve_manifest_session_authority(
+        manifest_path=handle.path,
+        payload=payload,
+    )
+    api_base_url = authority.attach.api_base_url
+    if api_base_url is None or not api_base_url.strip():
         raise click.ClickException(
             f"Managed agent `{record.agent_name}` is missing a usable houmao-server api_base_url."
         )

@@ -22,6 +22,7 @@ from houmao.owned_paths import (
 )
 from .agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
+    AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_auto_agent_name_base,
     derive_agent_id_from_name,
@@ -37,8 +38,11 @@ from .backends.cao_rest import (
     cao_backend_state_payload,
 )
 from .backends.houmao_server_rest import HoumaoServerRestSession
-from .boundary_models import SessionManifestPayloadV3
-from .boundary_models import RegistryLaunchAuthorityV1
+from .boundary_models import (
+    RegistryLaunchAuthorityV1,
+    SessionManifestPayloadV3,
+    SessionManifestPayloadV4,
+)
 from .backends.claude_headless import ClaudeHeadlessSession
 from .backends.codex_headless import CodexHeadlessSession
 from .backends.codex_app_server import (
@@ -79,6 +83,7 @@ from .gateway_models import (
     BlueprintGatewayDefaults,
     GatewayAcceptedRequestV1,
     GatewayAttachContractV1,
+    GatewayCurrentExecutionMode,
     GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
     GatewayHost,
@@ -88,6 +93,7 @@ from .gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    default_gateway_execution_mode_for_backend,
 )
 from .gateway_storage import (
     AGENT_GATEWAY_HOST_ENV_VAR,
@@ -110,6 +116,7 @@ from .gateway_storage import (
     publish_live_gateway_env,
     publish_stable_gateway_env,
     read_pid_file,
+    refresh_gateway_manifest_publication,
     write_attach_contract,
     write_gateway_desired_config,
     write_gateway_status,
@@ -455,7 +462,9 @@ class RuntimeSessionController:
                 agent_name=self.agent_identity,
                 agent_id=self.agent_id,
                 tmux_session_name=self.tmux_session_name,
+                session_id=_runtime_session_id_from_manifest_path(self.manifest_path),
                 job_dir=self.job_dir,
+                agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
                 registry_launch_authority=self.registry_launch_authority,
             )
@@ -511,6 +520,15 @@ class RuntimeSessionController:
             gateway_root=paths.gateway_root,
             set_env=set_tmux_session_environment_shared,
         )
+        stable_discovery_env = {
+            AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
+        }
+        if self.agent_id is not None:
+            stable_discovery_env[AGENT_ID_ENV_VAR] = self.agent_id
+        set_tmux_session_environment_shared(
+            session_name=session_name,
+            env_vars=stable_discovery_env,
+        )
         self.gateway_root = paths.gateway_root
         self.gateway_attach_path = paths.attach_path
         self.refresh_shared_registry_record()
@@ -520,6 +538,7 @@ class RuntimeSessionController:
         *,
         host_override: str | None = None,
         port_override: int | None = None,
+        execution_mode_override: GatewayCurrentExecutionMode | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
@@ -527,6 +546,7 @@ class RuntimeSessionController:
             self,
             host_override=host_override,
             port_override=port_override,
+            execution_mode_override=execution_mode_override,
         )
         if result.status == "ok":
             self.refresh_shared_registry_record()
@@ -1013,7 +1033,7 @@ def _create_backend_session(
     agent_def_dir: Path,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
-    resume_state: SessionManifestPayloadV3 | None = None,
+    resume_state: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None = None,
     session_manifest_path: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
@@ -1182,7 +1202,7 @@ def _create_backend_session(
 
 
 def _resume_headless_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -1215,7 +1235,7 @@ def _resume_headless_state(
 
 
 def _resume_local_interactive_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -1254,7 +1274,7 @@ def _require_session_manifest_path(
 
 
 def _resume_cao_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -1339,7 +1359,7 @@ def _resume_cao_state(
 
 
 def _resume_houmao_server_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -1448,7 +1468,7 @@ def _declared_mailbox_from_manifest(
 
 
 def _resolved_mailbox_from_manifest_payload(
-    payload: SessionManifestPayloadV3,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     *,
     session_manifest_path: Path,
 ) -> MailboxResolvedConfig | None:
@@ -1490,7 +1510,7 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
 
 def _job_dir_from_manifest_payload(
     *,
-    payload: SessionManifestPayloadV3,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     session_manifest_path: Path,
 ) -> Path:
     """Resolve the persisted or fallback job dir for one manifest payload."""
@@ -2033,7 +2053,11 @@ def _validate_resolved_manifest_matches_tmux_session(
         )
 
 
-def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV3, manifest_path: Path) -> str:
+def _persisted_tmux_session_name(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    manifest_path: Path,
+) -> str:
     persisted = payload.tmux_session_name
     if persisted is None or not persisted.strip():
         raise SessionManifestError(
@@ -2209,6 +2233,7 @@ def _attach_gateway_for_controller(
     *,
     host_override: str | None,
     port_override: int | None,
+    execution_mode_override: GatewayCurrentExecutionMode | None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
 
@@ -2220,6 +2245,8 @@ def _attach_gateway_for_controller(
         Optional CLI host override for the attach action.
     port_override:
         Optional CLI port override for the attach action.
+    execution_mode_override:
+        Optional CLI execution-mode override for the attach action.
 
     Returns
     -------
@@ -2253,11 +2280,17 @@ def _attach_gateway_for_controller(
             host_override=host_override,
             port_override=port_override,
         )
+        execution_mode = _resolve_gateway_execution_mode(
+            controller=controller,
+            paths=paths,
+            execution_mode_override=execution_mode_override,
+        )
         resolved_port = _start_gateway_process(
             controller=controller,
             paths=paths,
             host=host,
             port=requested_port,
+            execution_mode=execution_mode,
         )
     except (
         GatewayAttachError,
@@ -2648,10 +2681,20 @@ def _resolve_gateway_listener(
     return cast(GatewayHost, host_candidate), port_candidate
 
 
-def _controller_uses_same_session_gateway(controller: RuntimeSessionController) -> bool:
-    """Return whether the controller should host the gateway in the agent tmux session."""
+def _resolve_gateway_execution_mode(
+    *,
+    controller: RuntimeSessionController,
+    paths: GatewayPaths,
+    execution_mode_override: GatewayCurrentExecutionMode | None,
+) -> GatewayCurrentExecutionMode:
+    """Resolve the requested gateway execution mode for one attach action."""
 
-    return controller.launch_plan.backend == "houmao_server_rest"
+    if execution_mode_override is not None:
+        return execution_mode_override
+    desired_config = _load_optional_desired_config(paths)
+    if desired_config is not None:
+        return desired_config.desired_execution_mode
+    return default_gateway_execution_mode_for_backend(controller.launch_plan.backend)
 
 
 def _find_tmux_pane(
@@ -2753,9 +2796,9 @@ def _same_session_gateway_shell_command(
         f"export {_GATEWAY_EXECUTION_MODE_ENV_VAR}=tmux_auxiliary_window; "
         f'export {_GATEWAY_TMUX_PANE_ID_ENV_VAR}="$TMUX_PANE"; '
         f'export {_GATEWAY_TMUX_WINDOW_ID_ENV_VAR}="$(tmux display-message -p -t '
-        f"'$TMUX_PANE' '#{{window_id}}')\"; "
+        f'"$TMUX_PANE" \'#{{window_id}}\')"; '
         f'export {_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR}="$(tmux display-message -p -t '
-        f"'$TMUX_PANE' '#{{window_index}}')\"; "
+        f'"$TMUX_PANE" \'#{{window_index}}\')"; '
         "export PYTHONUNBUFFERED=1; "
         "set -o pipefail; "
     )
@@ -2840,9 +2883,19 @@ def _wait_for_same_session_gateway_endpoint(
 ) -> GatewayEndpoint:
     """Wait until the tmux-hosted gateway publishes its live execution state."""
 
+    observed_pane = False
     while time.monotonic() < deadline:
         pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
-        if pane is None or pane.pane_dead:
+        if pane is None:
+            if observed_pane:
+                raise GatewayAttachError(
+                    _gateway_process_start_failure_detail(
+                        log_path=paths.log_path,
+                        host=host,
+                        port=requested_port,
+                    )
+                )
+        elif pane.pane_dead:
             raise GatewayAttachError(
                 _gateway_process_start_failure_detail(
                     log_path=paths.log_path,
@@ -2850,6 +2903,8 @@ def _wait_for_same_session_gateway_endpoint(
                     port=requested_port,
                 )
             )
+        else:
+            observed_pane = True
         try:
             current_instance = load_gateway_current_instance(paths.current_instance_path)
         except SessionManifestError:
@@ -2859,6 +2914,9 @@ def _wait_for_same_session_gateway_endpoint(
             time.sleep(0.1)
             continue
         if current_instance.tmux_window_id != handle.window_id:
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_window_index != handle.window_index:
             time.sleep(0.1)
             continue
         if current_instance.tmux_pane_id != handle.pane_id:
@@ -2883,6 +2941,7 @@ def _start_gateway_process(
     paths: GatewayPaths,
     host: GatewayHost,
     port: int,
+    execution_mode: GatewayCurrentExecutionMode,
 ) -> int:
     """Launch the gateway subprocess and wait for health readiness.
 
@@ -2897,6 +2956,8 @@ def _start_gateway_process(
     port:
         Requested listener port. A value of `0` delegates port assignment to
         the gateway bind step.
+    execution_mode:
+        Execution mode requested for the live gateway instance.
 
     Returns
     -------
@@ -2905,7 +2966,7 @@ def _start_gateway_process(
     """
 
     session_name = controller._require_tmux_session_name()
-    if _controller_uses_same_session_gateway(controller):
+    if execution_mode == "tmux_auxiliary_window":
         try:
             current_instance = load_gateway_current_instance(paths.current_instance_path)
         except SessionManifestError:
@@ -2924,6 +2985,7 @@ def _start_gateway_process(
             port=port,
         )
         deadline = time.monotonic() + 10.0
+        observed_pane = False
         try:
             endpoint = _wait_for_same_session_gateway_endpoint(
                 session_name=session_name,
@@ -2936,7 +2998,16 @@ def _start_gateway_process(
             client = GatewayClient(endpoint=endpoint)
             while time.monotonic() < deadline:
                 pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
-                if pane is None or pane.pane_dead:
+                if pane is None:
+                    if observed_pane:
+                        raise GatewayAttachError(
+                            _gateway_process_start_failure_detail(
+                                log_path=paths.log_path,
+                                host=host,
+                                port=port,
+                            )
+                        )
+                elif pane.pane_dead:
                     raise GatewayAttachError(
                         _gateway_process_start_failure_detail(
                             log_path=paths.log_path,
@@ -2944,6 +3015,8 @@ def _start_gateway_process(
                             port=port,
                         )
                     )
+                else:
+                    observed_pane = True
                 try:
                     health = client.health()
                 except GatewayHttpError:
@@ -2959,6 +3032,7 @@ def _start_gateway_process(
                     GatewayDesiredConfigV1(
                         desired_host=host,
                         desired_port=endpoint.port,
+                        desired_execution_mode=execution_mode,
                     ),
                 )
                 write_attach_contract(
@@ -2967,6 +3041,7 @@ def _start_gateway_process(
                         update={"desired_host": host, "desired_port": endpoint.port}
                     ),
                 )
+                refresh_gateway_manifest_publication(paths)
                 publish_live_gateway_env(
                     session_name=session_name,
                     live_bindings=build_live_gateway_bindings(
@@ -3045,6 +3120,7 @@ def _start_gateway_process(
                 GatewayDesiredConfigV1(
                     desired_host=host,
                     desired_port=endpoint.port,
+                    desired_execution_mode=execution_mode,
                 ),
             )
             write_attach_contract(
@@ -3053,6 +3129,7 @@ def _start_gateway_process(
                     update={"desired_host": host, "desired_port": endpoint.port}
                 ),
             )
+            refresh_gateway_manifest_publication(paths)
             publish_live_gateway_env(
                 session_name=session_name,
                 live_bindings=build_live_gateway_bindings(
@@ -3178,6 +3255,7 @@ def _clear_stale_gateway_runtime_state(
         existing_status = load_gateway_status(paths.state_path)
     except SessionManifestError:
         existing_status = None
+    desired_config = _load_optional_desired_config(paths)
     if existing_status is not None:
         existing_epoch = existing_status.managed_agent_instance_epoch
     write_gateway_status(
@@ -3185,8 +3263,10 @@ def _clear_stale_gateway_runtime_state(
         build_offline_gateway_status(
             attach_contract=attach_contract,
             managed_agent_instance_epoch=existing_epoch,
+            desired_config=desired_config,
         ),
     )
+    refresh_gateway_manifest_publication(paths)
 
 
 def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1 | None:

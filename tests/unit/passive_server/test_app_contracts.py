@@ -19,12 +19,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailboxParticipantV1,
     GatewayStatusV1,
 )
+from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
 from tests.unit.passive_server.test_discovery import _make_record
+from tests.unit.passive_server.test_headless_service import (
+    _FakeHeadlessBackendSession,
+    _FakeRuntimeController,
+    _join_turn_worker,
+    _seed_managed_handle,
+)
 
 
 def _make_client(tmp_path: object) -> TestClient:
@@ -171,8 +178,17 @@ def _agent(
     agent_id: str = "abc123",
     agent_name: str = "AGENTSYS-alpha",
     session_name: str = "AGENTSYS-alpha-abc123",
+    *,
+    tool: str = "claude",
+    backend: str = "claude_headless",
 ) -> DiscoveredAgent:
-    record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
+    record = _make_record(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        session_name=session_name,
+        tool=tool,
+        backend=backend,
+    )
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
 
@@ -696,6 +712,80 @@ def _make_agent_client_with_observer(
     return TestClient(app)
 
 
+def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
+    """Build a test client with one live passive-managed headless agent."""
+
+    config = PassiveServerConfig(
+        api_base_url="http://127.0.0.1:19891",
+        runtime_root=Path(str(tmp_path)),
+    )
+    svc = PassiveServerService(config=config)
+
+    def _send_prompt(prompt: str, *, turn_artifact_dir_name: str | None) -> list[SessionEvent]:
+        del prompt
+        assert turn_artifact_dir_name is not None
+        turn_dir = (
+            svc.m_headless.m_store.agent_root(tracked_agent_id="tracked-alpha")
+            / "artifacts"
+            / turn_artifact_dir_name
+        )
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        (turn_dir / "stdout.jsonl").write_text(
+            '{"type":"assistant","message":"hello from worker"}\n',
+            encoding="utf-8",
+        )
+        (turn_dir / "stderr.log").write_text("warning line\n", encoding="utf-8")
+        (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
+        return [
+            SessionEvent(
+                kind="done",
+                message="turn completed",
+                turn_index=1,
+                payload={"completion_source": "tmux_wait_for"},
+            )
+        ]
+
+    controller = _FakeRuntimeController(
+        manifest_path=Path(str(tmp_path)) / "runtime" / "tracked-alpha" / "manifest.json",
+        backend_session=_FakeHeadlessBackendSession(send_prompt_callback=_send_prompt),
+    )
+    controller.launch_plan.mailbox = None
+    _seed_managed_handle(
+        svc,
+        tracked_agent_id="tracked-alpha",
+        agent_name="AGENTSYS-alpha",
+        agent_id="published-alpha",
+        controller=controller,
+    )
+    accepted = svc.m_headless.submit_turn("tracked-alpha", "hello")
+    assert not isinstance(accepted, tuple)
+    _join_turn_worker(svc.m_headless, "tracked-alpha")
+
+    app = create_app(config=config, service=svc)
+
+    from collections.abc import AsyncIterator
+    from contextlib import asynccontextmanager
+
+    _orig_enter = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _patched_lifespan(a: object) -> AsyncIterator[None]:
+        with (
+            patch.object(svc.m_discovery, "start"),
+            patch.object(svc.m_discovery, "stop"),
+            patch.object(svc.m_observation, "start"),
+            patch.object(svc.m_observation, "stop"),
+            patch.object(svc.m_headless, "start"),
+            patch.object(svc.m_headless, "stop"),
+            patch("houmao.passive_server.headless.tmux_session_exists", return_value=True),
+        ):
+            async with _orig_enter(a) as val:
+                yield val
+
+    app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
+    return TestClient(app), accepted.turn_id
+
+
 # ---------------------------------------------------------------------------
 # Agent state endpoint
 # ---------------------------------------------------------------------------
@@ -826,6 +916,100 @@ class TestAgentHistoryEndpoint:
         with client:
             resp = client.get("/houmao/agents/abc123/history?limit=10")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Managed compatibility routes
+# ---------------------------------------------------------------------------
+
+
+class TestManagedCompatibilityRoutes:
+    """Pair-facing managed-agent compatibility routes."""
+
+    def test_managed_state_returns_tui_summary(self, tmp_path: object) -> None:
+        client = _make_agent_client_with_observer(
+            tmp_path,
+            [_agent(tool="codex", backend="codex_app_server")],
+        )
+
+        with client:
+            resp = client.get("/houmao/agents/abc123/managed-state")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tracked_agent_id"] == "abc123"
+        assert body["identity"]["transport"] == "tui"
+        assert "turn" in body
+
+    def test_managed_state_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client_with_observer(tmp_path, [])
+
+        with client:
+            resp = client.get("/houmao/agents/nonexistent/managed-state")
+
+        assert resp.status_code == 404
+
+    def test_managed_state_ambiguous_returns_409(self, tmp_path: object) -> None:
+        a1 = _agent(
+            agent_id="a1",
+            agent_name="AGENTSYS-alpha",
+            session_name="s1",
+            tool="codex",
+            backend="codex_app_server",
+        )
+        a2 = _agent(
+            agent_id="a2",
+            agent_name="AGENTSYS-alpha",
+            session_name="s2",
+            tool="codex",
+            backend="codex_app_server",
+        )
+        client = _make_agent_client_with_observer(tmp_path, [a1, a2])
+
+        with client:
+            resp = client.get("/houmao/agents/alpha/managed-state")
+
+        assert resp.status_code == 409
+
+    def test_managed_state_detail_returns_headless_view(self, tmp_path: object) -> None:
+        client, turn_id = _make_managed_headless_client(tmp_path)
+
+        with client:
+            resp = client.get("/houmao/agents/published-alpha/managed-state/detail")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["identity"]["transport"] == "headless"
+        assert body["detail"]["transport"] == "headless"
+        assert body["detail"]["runtime_resumable"] is True
+        assert body["detail"]["tmux_session_live"] is True
+        assert body["detail"]["can_accept_prompt_now"] is True
+        assert body["detail"]["interruptible"] is False
+        assert body["detail"]["last_turn"]["turn_id"] == turn_id
+
+    def test_managed_history_returns_headless_history(self, tmp_path: object) -> None:
+        client, turn_id = _make_managed_headless_client(tmp_path)
+
+        with client:
+            resp = client.get("/houmao/agents/published-alpha/managed-history")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tracked_agent_id"] == "tracked-alpha"
+        assert len(body["entries"]) == 1
+        assert body["entries"][0]["turn_id"] == turn_id
+
+    def test_managed_headless_detail_returns_503_for_non_owned_headless(
+        self,
+        tmp_path: object,
+    ) -> None:
+        client = _make_agent_client(tmp_path, [_agent(agent_id="abc123", backend="claude_headless")])
+
+        with client:
+            resp = client.get("/houmao/agents/abc123/managed-state/detail")
+
+        assert resp.status_code == 503
+        assert "not owned by the current passive server" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

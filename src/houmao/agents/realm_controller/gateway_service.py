@@ -76,6 +76,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
+    refresh_gateway_manifest_publication,
     write_gateway_mail_notifier_record,
     write_gateway_current_instance,
     write_gateway_status,
@@ -84,17 +85,23 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
-from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
+)
+from houmao.server.pair_client import (
+    PairAuthorityClientProtocol,
+    PairAuthorityConnectionError,
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
 )
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
@@ -299,19 +306,14 @@ class _RestBackedGatewayAdapter:
 
         handle = load_session_manifest(Path(manifest_path))
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        if self.m_attach_contract.backend == "cao_rest":
-            if payload.cao is None:
-                raise GatewayError(
-                    "Runtime-owned CAO manifest is missing the `cao` payload required for "
-                    "gateway attach."
-                )
-            return payload.cao.terminal_id
-        if payload.houmao_server is None:
-            raise GatewayError(
-                "Runtime-owned houmao-server manifest is missing the `houmao_server` payload "
-                "required for gateway attach."
-            )
-        return payload.houmao_server.terminal_id
+        authority = resolve_manifest_session_authority(
+            manifest_path=handle.path,
+            payload=payload,
+        )
+        try:
+            return authority.control.require_terminal_id()
+        except SessionManifestError as exc:
+            raise GatewayError(str(exc)) from exc
 
     def _inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
         """Return whether the addressed CAO terminal is reachable."""
@@ -461,7 +463,8 @@ class _ServerManagedHeadlessGatewayAdapter:
                 "managed_agent_ref metadata."
             )
         self.m_managed_agent_ref = metadata.managed_agent_ref
-        self.m_client = HoumaoServerClient(metadata.managed_api_base_url)
+        self.m_managed_api_base_url = metadata.managed_api_base_url
+        self.m_client: PairAuthorityClientProtocol | None = None
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -473,8 +476,10 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Return current execution posture for the server-managed target."""
 
         try:
-            response = self.m_client.get_managed_agent_state_detail(self.m_managed_agent_ref)
-        except CaoApiError:
+            response = self._resolve_client().get_managed_agent_state_detail(
+                self.m_managed_agent_ref
+            )
+        except (CaoApiError, GatewayError):
             return _GatewayTargetState(
                 instance_id=self.m_managed_agent_ref,
                 connectivity="unavailable",
@@ -505,7 +510,7 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Submit one prompt through the managed-agent server API."""
 
         del turn_id
-        response = self.m_client.submit_managed_agent_request(
+        response = self._resolve_client().submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
         )
@@ -515,7 +520,7 @@ class _ServerManagedHeadlessGatewayAdapter:
     def interrupt(self) -> None:
         """Interrupt the managed-agent target through the server API."""
 
-        self.m_client.submit_managed_agent_request(
+        self._resolve_client().submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentInterruptRequest(),
         )
@@ -527,6 +532,21 @@ class _ServerManagedHeadlessGatewayAdapter:
         raise GatewayError(
             "Raw control input is unsupported for server-managed headless gateway targets."
         )
+
+    def _resolve_client(self) -> PairAuthorityClientProtocol:
+        """Return the resolved pair-authority client for the managed target."""
+
+        if self.m_client is not None:
+            return self.m_client
+        try:
+            self.m_client = resolve_pair_authority_client(
+                base_url=self.m_managed_api_base_url
+            ).client
+        except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+            raise GatewayError(
+                f"Failed to resolve managed pair authority `{self.m_managed_api_base_url}`: {exc}"
+            ) from exc
+        return self.m_client
 
 
 def _build_gateway_execution_adapter(
@@ -543,6 +563,13 @@ def _build_gateway_execution_adapter(
         "codex_headless",
         "gemini_headless",
     }:
+        metadata = attach_contract.backend_metadata
+        if (
+            isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1)
+            and metadata.managed_api_base_url is not None
+            and metadata.managed_agent_ref is not None
+        ):
+            return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
         return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
     raise GatewayError(
         f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."
@@ -636,6 +663,7 @@ class GatewayServiceRuntime:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
             self._refresh_status_snapshot(active_execution="idle")
+            refresh_gateway_manifest_publication(self.m_paths)
             self._start_tui_tracking_locked()
             self._log(
                 f"gateway started host={self.m_host} port={self.m_port} attach_identity={self.m_attach_contract.attach_identity}"
@@ -1701,9 +1729,13 @@ class GatewayServiceRuntime:
             request_admission=admission,
             terminal_surface_eligibility=target_state.terminal_surface_eligibility,
             active_execution=active_execution,
+            execution_mode=self.m_execution_mode,
             queue_depth=queue_depth_from_sqlite(self.m_paths.queue_path),
             gateway_host=self.m_host,
             gateway_port=self.m_port,
+            gateway_tmux_window_id=self.m_tmux_window_id,
+            gateway_tmux_window_index=self.m_tmux_window_index,
+            gateway_tmux_pane_id=self.m_tmux_pane_id,
             managed_agent_instance_epoch=self.m_current_epoch,
             managed_agent_instance_id=self.m_current_instance_id,
         )

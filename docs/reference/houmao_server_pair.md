@@ -45,6 +45,22 @@ houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev
 houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
+## Step 7 Side-By-Side Passive Validation
+
+During the Step 7 migration window, run the old `houmao-server` on `9889` and `houmao-passive-server` on `9891`. `houmao-mgr` accepts either pair authority when `GET /health` reports `houmao_service` as `houmao-server` or `houmao-passive-server`, so operators can compare the two servers without switching command surfaces.
+
+Representative validation flow:
+
+```bash
+houmao-mgr server status --port 9889
+houmao-mgr server status --port 9891
+houmao-mgr agents state --agent-id <agent-id> --port 9891
+houmao-mgr agents show --agent-id <agent-id> --port 9891
+houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
+```
+
+For passive targets, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway detach` remain same-host operations. They succeed only when the selected agent can be resolved to a local registry-backed runtime authority on the current host; remote passive-server HTTP attach and detach are intentionally unsupported and fail explicitly instead of pretending the passive server accepted them.
+
 ## Server Startup Controls
 
 `houmao-mgr server start` is detached by default. It starts or reuses `houmao-server`, waits for health, emits one JSON startup result, and returns the terminal to the operator. Use `--foreground` when you intentionally want the old attached `houmao-server serve` behavior in the current process.
@@ -117,17 +133,17 @@ Supported modes:
 
 Current-session mode is intentionally strict:
 
-- the tmux session must publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
-- those pointers must resolve to one readable runtime-owned `attach.json` and gateway root for the same tmux session
-- the attach contract must use `backend = "houmao_server_rest"`
-- persisted `backend_metadata.api_base_url` and `backend_metadata.session_name` are authoritative
+- the tmux session must publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
+- the resolved manifest must belong to the current tmux session
+- the resolved manifest must use `backend = "houmao_server_rest"`
+- manifest-declared attach authority is authoritative
 - current-session attach becomes valid only after launch has both published gateway capability and completed managed-agent registration on that persisted `api_base_url`
 
 Pair-managed tmux topology is intentionally narrow:
 
 - tmux window `0` is the only contractual agent surface for `houmao_server_rest`
 - same-session live gateway attach may create auxiliary non-zero windows inside that tmux session
-- those auxiliary windows are not public contract by name, count, or order; the only authoritative non-zero window handle is the one recorded in `gateway/run/current-instance.json`
+- those auxiliary windows are not public contract by name, count, or order; use `houmao-mgr agents gateway status` for the authoritative live `gateway_tmux_window_index`, or inspect `gateway/run/current-instance.json` directly when you need the full tmux execution handle
 
 ## Architecture
 

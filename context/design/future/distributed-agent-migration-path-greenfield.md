@@ -156,7 +156,9 @@ Endpoints:
 
 ## Migration Path
 
-### Step 1 — Scaffold `houmao-passive-server`
+Current repo status: Steps 1–6 are done. Step 7 (parallel validation) is the next migration step. Step 8 remains pending.
+
+### Step 1 — Scaffold `houmao-passive-server` (Done)
 
 Create a new package `src/houmao/passive_server/` with:
 
@@ -191,7 +193,7 @@ Add a CLI entrypoint `houmao-passive-server` (or reuse `houmao-server` with a `-
 - Route handlers — thin wiring between HTTP endpoints and service methods.
 - `PassiveServerConfig` — minimal config (listen address, runtime root, poll intervals).
 
-### Step 2 — Implement Tiers 1–2 (Discovery + Listing)
+### Step 2 — Implement Tiers 1–2 (Discovery + Listing) (Done)
 
 Build `RegistryDiscoveryService`:
 - Periodic scan of shared registry (configurable interval, default 5s).
@@ -203,13 +205,13 @@ Implement `GET /houmao/agents` and `GET /houmao/agents/{agent_ref}`.
 
 **Validation:** Launch an agent via `houmao-mgr agents launch`, then query the passive server's `/houmao/agents` endpoint. The agent should appear.
 
-### Step 3 — Implement Tier 4 (Gateway Proxy)
+### Step 3 — Implement Tier 4 (Gateway Proxy) (Done)
 
 Wire gateway proxy endpoints. This is straightforward: resolve agent from index, read gateway bindings from registry record, create `GatewayClient`, forward.
 
 **Validation:** Launch an agent with `--gateway-auto-attach`, submit a prompt via the passive server's gateway proxy endpoint. Verify the prompt reaches the agent.
 
-### Step 4 — Implement Tier 3 (TUI Observation)
+### Step 4 — Implement Tier 3 (TUI Observation) (Done)
 
 Build `TuiObservationService`:
 - For each discovered agent with `terminal.kind == "tmux"`, spawn a polling loop.
@@ -223,7 +225,7 @@ Implement state/detail/history endpoints.
 
 This is the most labor-intensive step because TUI observation is the server's most complex feature. However, the parser infrastructure exists in `shared_tui_tracking`. The work is integration, not algorithm design.
 
-### Step 5 — Implement Tiers 6–7 (Request Submission + Headless)
+### Step 5 — Implement Tiers 6–7 (Request Submission + Headless) (Done)
 
 Implement prompt delivery (gateway-mediated), interrupt, and stop.
 
@@ -231,7 +233,7 @@ Implement headless agent launch and turn management. Reuse `ManagedHeadlessStore
 
 **Validation:** Launch a headless agent through the passive server. Submit a turn. Verify completion, artifacts, and events.
 
-### Step 6 — Implement Tier 8 (Server Lifecycle) + Client Compatibility
+### Step 6 — Implement Tier 8 (Server Lifecycle) + Client Compatibility (Done)
 
 Add health, current-instance, and shutdown endpoints.
 

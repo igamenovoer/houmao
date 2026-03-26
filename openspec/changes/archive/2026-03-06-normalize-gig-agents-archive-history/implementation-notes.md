@@ -27,7 +27,7 @@ Reference scan (before edits) identified:
 | `context/issues/known/issue-cao-claude-code-output-mode-last-marker-mismatch.md` | `localize-by-copy` | Copied from main workspace context into `gig-agents` context tree | `context/issues/known/issue-cao-claude-code-output-mode-last-marker-mismatch.md` |
 | `context/issues/features/feat-gemini-headless-parser-architecture.md` (and old `context/issues/feat-...`) | `rewrite` + `localize-by-copy` | Rewrote old path form to `features/` and copied issue snapshot | `context/issues/features/feat-gemini-headless-parser-architecture.md` |
 | `context/issues/known/issue-cao-server-fixed-port-9889.md` | `localize-by-copy` | Copied issue snapshot | `context/issues/known/issue-cao-server-fixed-port-9889.md` |
-| `context/logs/code-reivew/20260227-140000-cao-claude-fresh-config-dir-bugfix.md` | `localize-by-copy` | Copied log snapshot | `context/logs/code-reivew/20260227-140000-cao-claude-fresh-config-dir-bugfix.md` |
+| `context/logs/code-review/20260227-140000-cao-claude-fresh-config-dir-bugfix.md` | `localize-by-copy` | Copied log snapshot | `context/logs/code-review/20260227-140000-cao-claude-fresh-config-dir-bugfix.md` |
 | `context/hints/agent-identity-resolution.md` (missing upstream artifact) | `localize-by-copy` (authored local snapshot) | Added minimal local hint doc to satisfy archived reference | `context/hints/agent-identity-resolution.md` |
 
 No `remove-as-unneeded` cases were required for this migration batch.

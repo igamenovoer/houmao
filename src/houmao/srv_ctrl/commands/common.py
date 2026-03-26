@@ -7,14 +7,20 @@ import json
 import os
 import shutil
 import subprocess
-from typing import Any, ParamSpec, Sequence, TypeVar
+from typing import Any, ParamSpec, Sequence, TypeVar, cast
 
 import click
 from pydantic import BaseModel
 
 from houmao.cao.rest_client import CaoApiError
-from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.server.client import HoumaoServerClient
+from houmao.server.models import HoumaoManagedAgentIdentity
+from houmao.server.pair_client import (
+    PairAuthorityClientProtocol,
+    PairAuthorityConnectionError,
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
 
 _CAO_DEFAULT_PORT = int(os.environ.get("CAO_PORT", "9889"))
 _COMPAT_HTTP_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS"
@@ -34,12 +40,12 @@ def require_cao_executable() -> str:
 
 
 def resolve_server_base_url(*, port: int | None = None) -> str:
-    """Return the Houmao server base URL for CAO-compatible delegation."""
+    """Return the Houmao pair-authority base URL for pair-compatible delegation."""
 
     return f"http://127.0.0.1:{port or _CAO_DEFAULT_PORT}"
 
 
-def resolve_pair_client(*, port: int | None = None) -> HoumaoServerClient:
+def resolve_pair_client(*, port: int | None = None) -> PairAuthorityClientProtocol:
     """Return one verified pair client for the requested server port."""
 
     return require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
@@ -50,25 +56,41 @@ def require_supported_houmao_pair(
     base_url: str,
     timeout_seconds: float | None = None,
     create_timeout_seconds: float | None = None,
-) -> HoumaoServerClient:
-    """Ensure the target server is a real `houmao-server`."""
+) -> PairAuthorityClientProtocol:
+    """Ensure the target server is one supported Houmao pair authority."""
 
-    client_kwargs: dict[str, float] = {}
-    if timeout_seconds is not None:
-        client_kwargs["timeout_seconds"] = timeout_seconds
-    if create_timeout_seconds is not None:
-        client_kwargs["create_timeout_seconds"] = create_timeout_seconds
-    client = HoumaoServerClient(base_url, **client_kwargs)
     try:
-        health = client.health_extended()
-    except Exception as exc:
-        raise click.ClickException(f"Failed to reach `houmao-server` at {base_url}: {exc}") from exc
-    if health.houmao_service != "houmao-server":
-        raise click.ClickException(
-            "The supported replacement is `houmao-server + houmao-mgr`; "
-            "mixed usage with raw `cao-server` is unsupported."
+        return resolve_pair_authority_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            create_timeout_seconds=create_timeout_seconds,
+        ).client
+    except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def require_houmao_server_pair(
+    *,
+    base_url: str,
+    timeout_seconds: float | None = None,
+    create_timeout_seconds: float | None = None,
+) -> HoumaoServerClient:
+    """Ensure the target pair authority is specifically `houmao-server`."""
+
+    try:
+        resolution = resolve_pair_authority_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            create_timeout_seconds=create_timeout_seconds,
         )
-    return client
+    except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if resolution.health.houmao_service != "houmao-server":
+        raise click.ClickException(
+            "This command requires `houmao-server`; `houmao-passive-server` does not expose "
+            "the legacy session-backed pair control surface."
+        )
+    return cast(HoumaoServerClient, resolution.client)
 
 
 def run_passthrough(
@@ -102,7 +124,10 @@ def has_flag(args: Sequence[str], flag_name: str) -> bool:
     return any(value == flag_name for value in args)
 
 
-def pair_port_option(*, help_text: str = "Houmao server port to use") -> Callable[[_FC], _FC]:
+def pair_port_option(
+    *,
+    help_text: str = "Houmao pair authority port to use",
+) -> Callable[[_FC], _FC]:
     """Return the shared `--port` click option decorator."""
 
     return click.option("--port", default=None, type=int, help=help_text)
@@ -276,7 +301,7 @@ def resolve_body_text(*, body_content: str | None, body_file: str | None) -> str
 
 
 def resolve_managed_agent_identity(
-    client: HoumaoServerClient,
+    client: PairAuthorityClientProtocol,
     *,
     agent_ref: str,
 ) -> HoumaoManagedAgentIdentity:

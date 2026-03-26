@@ -16,6 +16,7 @@ from houmao.owned_paths import (
 )
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
+    AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_agent_id_from_name,
     normalize_agent_identity_name,
@@ -203,7 +204,9 @@ def materialize_delegated_launch(
             agent_name=canonical_agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
+            session_id=session_root.name,
             job_dir=job_dir,
+            agent_def_dir=agent_def_dir,
             registry_generation_id=new_registry_generation_id(),
             registry_launch_authority="external",
         )
@@ -214,6 +217,7 @@ def materialize_delegated_launch(
         session_name=session_name,
         env_vars={
             AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
+            AGENT_ID_ENV_VAR: agent_id,
             AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
             AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
         },

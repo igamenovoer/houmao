@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import pytest
+
 from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
+from houmao.passive_server.client import PassiveServerClient
 from houmao.server.client import HoumaoServerClient
+from houmao.server.pair_client import (
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnRequest,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentIdentity,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailActionResponse,
@@ -656,3 +666,228 @@ def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
         "path": "/sessions/cao-gpu",
         "kwargs": {"params": None, "timeout_seconds": None},
     }
+
+
+def test_resolve_pair_authority_client_selects_passive_server(monkeypatch) -> None:
+    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
+        del self, method, kwargs
+        assert path == "/health"
+        return model.model_validate({"status": "ok", "houmao_service": "houmao-passive-server"})
+
+    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+
+    resolution = resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+
+    assert isinstance(resolution.client, PassiveServerClient)
+    assert resolution.health.houmao_service == "houmao-passive-server"
+
+
+def test_resolve_pair_authority_client_rejects_unknown_pair_identity(monkeypatch) -> None:
+    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
+        del self, method, kwargs
+        assert path == "/health"
+        return model.model_validate({"status": "ok", "houmao_service": "raw-cao"})
+
+    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+
+    with pytest.raises(UnsupportedPairAuthorityError, match="unsupported houmao_service"):
+        resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+
+
+def test_passive_server_client_routes_state_detail_and_history_to_compatibility_paths(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: list[dict[str, object]] = []
+    identity_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "transport": "headless",
+        "tool": "claude",
+        "session_name": None,
+        "terminal_id": None,
+        "runtime_session_id": "tracked-alpha",
+        "tmux_session_name": "AGENTSYS-alpha",
+        "tmux_window_name": "agent",
+        "manifest_path": "/tmp/manifest.json",
+        "session_root": "/tmp/session-root",
+        "agent_name": "AGENTSYS-alpha",
+        "agent_id": "published-alpha",
+    }
+    state_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "identity": identity_payload,
+        "availability": "available",
+        "turn": {"phase": "ready", "active_turn_id": None},
+        "last_turn": {
+            "result": "none",
+            "turn_id": None,
+            "turn_index": None,
+            "updated_at_utc": None,
+        },
+        "diagnostics": [],
+        "mailbox": None,
+        "gateway": None,
+    }
+    detail_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "identity": identity_payload,
+        "summary_state": state_payload,
+        "detail": {
+            "transport": "headless",
+            "runtime_resumable": True,
+            "tmux_session_live": True,
+            "can_accept_prompt_now": True,
+            "interruptible": False,
+            "turn": {"phase": "ready", "active_turn_id": None},
+            "last_turn": {
+                "result": "none",
+                "turn_id": None,
+                "turn_index": None,
+                "updated_at_utc": None,
+            },
+            "active_turn_started_at_utc": None,
+            "active_turn_interrupt_requested_at_utc": None,
+            "last_turn_status": None,
+            "last_turn_started_at_utc": None,
+            "last_turn_completed_at_utc": None,
+            "last_turn_completion_source": None,
+            "last_turn_returncode": None,
+            "last_turn_history_summary": None,
+            "last_turn_error": None,
+            "mailbox": None,
+            "gateway": None,
+            "diagnostics": [],
+        },
+    }
+    history_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "entries": [
+            {
+                "recorded_at_utc": "2026-03-26T09:00:00+00:00",
+                "summary": "turn completed",
+                "availability": "available",
+                "turn_phase": "ready",
+                "last_turn_result": "success",
+                "turn_id": "turn-0001",
+            }
+        ],
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if path.endswith("/managed-state"):
+            return model.model_validate(state_payload)
+        if path.endswith("/managed-state/detail"):
+            return model.model_validate(detail_payload)
+        if path.endswith("/managed-history"):
+            return model.model_validate(history_payload)
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    state = client.get_managed_agent_state("AGENTSYS gpu/1")
+    detail = client.get_managed_agent_state_detail("AGENTSYS gpu/1")
+    history = client.get_managed_agent_history("AGENTSYS gpu/1", limit=5)
+
+    assert state.tracked_agent_id == "tracked-alpha"
+    assert detail.detail.transport == "headless"
+    assert history.entries[0].turn_id == "turn-0001"
+    assert recorded == [
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state",
+            "kwargs": {},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state/detail",
+            "kwargs": {},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-history",
+            "kwargs": {"params": {"limit": "5"}},
+        },
+    ]
+
+
+def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypatch) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: dict[str, object] = {}
+    request_model = HoumaoHeadlessTurnRequest(prompt="hello")
+    response_payload = {
+        "status": "ok",
+        "tracked_agent_id": "tracked-alpha",
+        "turn_id": "turn-0001",
+        "turn_index": 1,
+        "turn_status": "completed",
+        "detail": "accepted",
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.submit_headless_turn("AGENTSYS gpu/1", request_model)
+
+    assert response == HoumaoHeadlessTurnAcceptedResponse(
+        success=True,
+        tracked_agent_id="tracked-alpha",
+        turn_id="turn-0001",
+        turn_index=1,
+        status="completed",
+        detail="accepted",
+    )
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/turns",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_passive_server_client_normalizes_headless_managed_prompt_submission(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-alpha",
+        transport="headless",
+        tool="claude",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="tracked-alpha",
+        tmux_session_name="AGENTSYS-alpha",
+        tmux_window_name="agent",
+        manifest_path="/tmp/manifest.json",
+        session_root="/tmp/session-root",
+        agent_name="AGENTSYS-alpha",
+        agent_id="published-alpha",
+    )
+
+    monkeypatch.setattr(client, "get_managed_agent", lambda agent_ref: identity)
+    monkeypatch.setattr(
+        client,
+        "submit_headless_turn",
+        lambda agent_ref, request_model: HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id="tracked-alpha",
+            turn_id="turn-0001",
+            turn_index=1,
+            status="completed",
+            detail=f"accepted:{request_model.prompt}:{agent_ref}",
+        ),
+    )
+
+    response = client.submit_managed_agent_request(
+        "published-alpha",
+        HoumaoManagedAgentSubmitPromptRequest(prompt="hello"),
+    )
+
+    assert response.request_id == "headless-turn:turn-0001"
+    assert response.headless_turn_id == "turn-0001"
+    assert response.headless_turn_index == 1
+    assert response.detail == "accepted:hello:published-alpha"

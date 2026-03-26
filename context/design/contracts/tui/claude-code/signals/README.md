@@ -19,7 +19,7 @@ These notes are deliberately narrower and more evidence-oriented than the mainta
 - Runtime lifecycle semantics:
   [docs/developer/tui-parsing/runtime-lifecycle.md](../../../../../../docs/developer/tui-parsing/runtime-lifecycle.md)
 - Concrete capture log:
-  [20260323-124129.md](../../../../../../context/logs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md)
+  [20260323-124129.md](../../../../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md)
 
 ## Signal Notes
 

@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+import click
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from houmao.server.models import HoumaoManagedAgentIdentity
+from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.server.models import (
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTurnView,
+)
 from houmao.srv_ctrl.commands.managed_agents import (
+    ManagedAgentTarget,
+    attach_gateway,
+    detach_gateway,
     list_managed_agents,
+    managed_agent_detail_payload,
+    managed_agent_state_payload,
     resolve_managed_agent_target,
+    submit_headless_turn,
 )
 
 
@@ -158,3 +174,225 @@ def test_list_managed_agents_merges_registry_and_server_results(
     response = list_managed_agents(port=None)
 
     assert [agent.agent_id for agent in response.agents] == ["local-agent-id", "server-agent-id"]
+
+
+def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdentity:
+    session_name = "sess-a" if transport == "tui" else None
+    terminal_id = "terminal-a" if transport == "tui" else None
+    runtime_session_id = None if transport == "tui" else "tracked-alpha"
+    return HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-alpha",
+        transport=transport,
+        tool="claude",
+        session_name=session_name,
+        terminal_id=terminal_id,
+        runtime_session_id=runtime_session_id,
+        tmux_session_name="AGENTSYS-alpha",
+        tmux_window_name="agent",
+        manifest_path="/tmp/manifest.json",
+        session_root="/tmp/session-root",
+        agent_name="AGENTSYS-alpha",
+        agent_id="published-alpha",
+    )
+
+
+def _managed_state(identity: HoumaoManagedAgentIdentity) -> HoumaoManagedAgentStateResponse:
+    return HoumaoManagedAgentStateResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        availability="available",
+        turn=HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None),
+        last_turn=HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None),
+        diagnostics=[],
+        mailbox=None,
+        gateway=None,
+    )
+
+
+def _managed_detail(state: HoumaoManagedAgentStateResponse) -> HoumaoManagedAgentDetailResponse:
+    return HoumaoManagedAgentDetailResponse(
+        tracked_agent_id=state.tracked_agent_id,
+        identity=state.identity,
+        summary_state=state,
+        detail=HoumaoManagedAgentHeadlessDetailView(
+            runtime_resumable=True,
+            tmux_session_live=True,
+            can_accept_prompt_now=True,
+            interruptible=False,
+            turn=state.turn,
+            last_turn=state.last_turn,
+            mailbox=None,
+            gateway=None,
+            diagnostics=[],
+        ),
+    )
+
+
+def _gateway_status() -> GatewayStatusV1:
+    return GatewayStatusV1(
+        attach_identity="published-alpha",
+        backend="claude_headless",
+        tmux_session_name="AGENTSYS-alpha",
+        gateway_health="healthy",
+        managed_agent_connectivity="connected",
+        managed_agent_recovery="idle",
+        request_admission="open",
+        terminal_surface_eligibility="ready",
+        active_execution="idle",
+        queue_depth=0,
+        gateway_host="127.0.0.1",
+        gateway_port=9901,
+        managed_agent_instance_epoch=1,
+    )
+
+
+class _FakePassivePairClient:
+    def __init__(self) -> None:
+        self.pair_authority_kind = "houmao-passive-server"
+        self.state_calls: list[str] = []
+        self.detail_calls: list[str] = []
+        self.turn_calls: list[tuple[str, str]] = []
+        self.m_state = _managed_state(_managed_identity())
+        self.m_detail = _managed_detail(self.m_state)
+        self.m_turn = HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id="tracked-alpha",
+            turn_id="turn-0001",
+            turn_index=1,
+            status="completed",
+            detail="accepted",
+        )
+
+    def get_managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        self.state_calls.append(agent_ref)
+        return self.m_state
+
+    def get_managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        self.detail_calls.append(agent_ref)
+        return self.m_detail
+
+    def submit_headless_turn(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoHeadlessTurnAcceptedResponse:
+        self.turn_calls.append((agent_ref, getattr(request_model, "prompt")))
+        return self.m_turn
+
+    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        raise AssertionError(f"remote passive gateway attach should stay local for {agent_ref}")
+
+    def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+        raise AssertionError(f"remote passive gateway detach should stay local for {agent_ref}")
+
+
+class _FakeGatewayController:
+    def __init__(self) -> None:
+        self.attach_calls: list[str | None] = []
+
+    def attach_gateway(self, *, execution_mode_override: str | None = None) -> SimpleNamespace:
+        self.attach_calls.append(execution_mode_override)
+        return SimpleNamespace(status="ok", detail="attached")
+
+
+def test_managed_agent_state_payload_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    response = managed_agent_state_payload(target)
+
+    assert response.tracked_agent_id == "tracked-alpha"
+    assert client.state_calls == ["published-alpha"]
+
+
+def test_managed_agent_detail_payload_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_detail.identity,
+        client=client,
+    )
+
+    response = managed_agent_detail_payload(target)
+
+    assert response.detail.transport == "headless"
+    assert client.detail_calls == ["published-alpha"]
+
+
+def test_submit_headless_turn_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    response = submit_headless_turn(target, prompt="hello")
+
+    assert response.turn_id == "turn-0001"
+    assert client.turn_calls == [("published-alpha", "hello")]
+
+
+def test_attach_gateway_prefers_local_authority_for_passive_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakePassivePairClient()
+    identity = client.m_state.identity
+    controller = _FakeGatewayController()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=identity,
+        client=client,
+    )
+    gateway_status = _gateway_status()
+    record = SimpleNamespace(identity=SimpleNamespace(backend="claude_headless"))
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_gateway_record_for_passive_pair",
+        lambda resolved_target: record,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_controller_from_record",
+        lambda resolved_record: controller,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._identity_from_controller",
+        lambda resolved_controller: identity,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._gateway_status_for_controller",
+        lambda resolved_controller: gateway_status,
+    )
+
+    response = attach_gateway(target, foreground=True)
+
+    assert response.gateway_port == 9901
+    assert controller.attach_calls == ["tmux_auxiliary_window"]
+
+
+def test_detach_gateway_requires_local_authority_for_passive_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_gateway_record_for_passive_pair",
+        lambda resolved_target: None,
+    )
+
+    with pytest.raises(click.ClickException, match="requires local authority on the owning host"):
+        detach_gateway(target)

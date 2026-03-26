@@ -7,6 +7,7 @@ startup rebuild.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import threading
 import uuid
@@ -79,6 +80,20 @@ class _ManagedHeadlessHandle:
         self.authority = authority
         self.controller = controller
         self.turn_worker: threading.Thread | None = None
+
+
+@dataclass(frozen=True)
+class PassiveManagedHeadlessControlState:
+    """Live compatibility posture for one passive-server-managed headless agent."""
+
+    authority: ManagedHeadlessAuthorityRecord
+    controller: RuntimeSessionController | None
+    runtime_resumable: bool
+    tmux_session_live: bool
+    can_accept_prompt_now: bool
+    interruptible: bool
+    active_turn: ManagedHeadlessActiveTurnRecord | None
+    latest_turn: ManagedHeadlessTurnRecord | None
 
 
 class HeadlessAgentService:
@@ -582,6 +597,33 @@ class HeadlessAgentService:
             return None
         return matches[0]
 
+    def get_managed_control_state(
+        self,
+        tracked_agent_id: str,
+    ) -> PassiveManagedHeadlessControlState | None:
+        """Return live control posture for one passive-server-managed headless agent."""
+
+        handle = self._require_handle(tracked_agent_id)
+        authority = handle.authority if handle is not None else self.m_store.read_authority(
+            tracked_agent_id=tracked_agent_id
+        )
+        if authority is None:
+            return None
+        active_turn = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+        latest_turn = self._latest_turn_record(tracked_agent_id=tracked_agent_id)
+        runtime_resumable = handle is not None and handle.controller is not None
+        tmux_session_live = tmux_session_exists(session_name=authority.tmux_session_name)
+        return PassiveManagedHeadlessControlState(
+            authority=authority,
+            controller=handle.controller if handle is not None else None,
+            runtime_resumable=runtime_resumable,
+            tmux_session_live=tmux_session_live,
+            can_accept_prompt_now=runtime_resumable and tmux_session_live and active_turn is None,
+            interruptible=active_turn is not None,
+            active_turn=active_turn,
+            latest_turn=latest_turn,
+        )
+
     # -- internal -------------------------------------------------------------
 
     def _require_handle(self, tracked_agent_id: str) -> _ManagedHeadlessHandle | None:
@@ -589,6 +631,22 @@ class HeadlessAgentService:
 
         with self.m_lock:
             return self.m_handles.get(tracked_agent_id)
+
+    def _latest_turn_record(self, *, tracked_agent_id: str) -> ManagedHeadlessTurnRecord | None:
+        """Return the latest persisted turn record when present."""
+
+        turn_records = self.m_store.list_turn_records(tracked_agent_id=tracked_agent_id)
+        if not turn_records:
+            return None
+        turn_records.sort(
+            key=lambda record: (
+                record.completed_at_utc or "",
+                record.started_at_utc,
+                record.turn_id,
+            ),
+            reverse=True,
+        )
+        return turn_records[0]
 
     def _rebuild_handles(self) -> None:
         """Scan persisted authority records and rebuild live resumable handles."""

@@ -12,12 +12,14 @@ from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
     load_session_manifest,
+    parse_session_manifest_payload,
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 
 
 def _identity_fields(session_name: str) -> dict[str, str]:
@@ -139,12 +141,16 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     loaded = load_session_manifest(path)
 
     assert loaded.path == path
-    assert loaded.payload["schema_version"] == 3
+    assert loaded.payload["schema_version"] == 4
     assert loaded.payload["backend"] == "claude_headless"
     assert loaded.payload["agent_name"] == "AGENTSYS-claude"
     assert loaded.payload["agent_id"] == derive_agent_id_from_name("AGENTSYS-claude")
     assert loaded.payload["tmux_session_name"] == "AGENTSYS-claude"
     assert loaded.payload["registry_launch_authority"] == "runtime"
+    assert loaded.payload["runtime"]["session_id"] == "sess-1"
+    assert loaded.payload["runtime"]["agent_pid"] is None
+    assert loaded.payload["tmux"]["session_name"] == "AGENTSYS-claude"
+    assert loaded.payload["agent_launch_authority"]["primary_window_index"] == "0"
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "AGENTSYS-claude"
     assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (
@@ -325,4 +331,64 @@ def test_houmao_manifest_round_trip_uses_dedicated_backend_section(tmp_path: Pat
     assert loaded.payload["houmao_server"]["session_name"] == "cao-gpu"
     assert loaded.payload["houmao_server"]["terminal_id"] == "abcd1234"
     assert loaded.payload["houmao_server"]["tmux_window_name"] == "developer-1"
+    assert loaded.payload["gateway_authority"]["attach"]["managed_agent_ref"] == "cao-gpu"
+    assert loaded.payload["gateway_authority"]["control"]["terminal_id"] == "abcd1234"
     assert "cao" not in loaded.payload or loaded.payload["cao"] is None
+
+
+def test_resolve_manifest_session_authority_normalizes_houmao_server_attach(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "houmao-session.json"
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_houmao_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-gpu"),
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "session_name": "cao-gpu",
+                "terminal_id": "abcd1234",
+                "tmux_window_name": "developer-1",
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+            },
+        )
+    )
+
+    authority = resolve_manifest_session_authority(
+        manifest_path=manifest_path,
+        payload=parse_session_manifest_payload(payload, source=str(manifest_path)),
+    )
+
+    assert authority.attach.require_pair_target() == ("http://127.0.0.1:9889", "cao-gpu")
+    assert authority.control.require_terminal_id() == "abcd1234"
+
+
+def test_resolve_manifest_session_authority_normalizes_cao_control(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "cao-session.json"
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_cao_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("AGENTSYS-gpu"),
+            backend_state={
+                "api_base_url": "http://localhost:9889",
+                "session_name": "AGENTSYS-gpu",
+                "terminal_id": "term-123",
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+            },
+        )
+    )
+
+    authority = resolve_manifest_session_authority(
+        manifest_path=manifest_path,
+        payload=parse_session_manifest_payload(payload, source=str(manifest_path)),
+    )
+
+    assert authority.control.require_terminal_id() == "term-123"
+    assert authority.control.api_base_url == "http://localhost:9889"
+    assert authority.control.profile_name == "runtime-profile"

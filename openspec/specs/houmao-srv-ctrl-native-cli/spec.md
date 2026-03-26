@@ -1,8 +1,6 @@
 ## Purpose
 Define the Houmao-owned native `houmao-mgr` command tree for covered pair workflows, including server-backed managed-agent operations and local utility commands.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr` exposes a native pair-operations command tree
 `houmao-mgr` SHALL expose a Houmao-owned top-level native command tree.
 
@@ -28,6 +26,22 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **WHEN** an operator runs `houmao-mgr` without any arguments
 - **THEN** the CLI prints help text showing available command groups
 - **AND THEN** the CLI does NOT raise a Python exception or print a stack trace
+
+### Requirement: `houmao-mgr server` accepts passive server pair authorities
+`houmao-mgr server` lifecycle commands SHALL accept a supported pair authority whose `GET /health` reports `houmao_service == "houmao-passive-server"` in addition to `houmao-server`.
+
+At minimum, this SHALL apply to status-style inspection and shutdown-style control commands that operate through the pair authority.
+
+#### Scenario: Server status works against a passive server
+- **WHEN** an operator runs `houmao-mgr server status --port 9891`
+- **AND WHEN** the addressed server's `GET /health` response identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` returns lifecycle status instead of rejecting the server as unsupported
+
+#### Scenario: Server stop works against a passive server
+- **WHEN** an operator runs `houmao-mgr server stop --port 9891`
+- **AND WHEN** the addressed server's `GET /health` response identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` calls the passive-server shutdown contract successfully
+- **AND THEN** the command does not require the operator to switch back to the old server CLI
 
 ### Requirement: `houmao-mgr agents` is the preferred pair-native managed-agent command family
 `houmao-mgr agents ...` SHALL be the preferred pair-native command family for managed-agent operations.
@@ -95,6 +109,23 @@ The documented default prompt path for ordinary pair-native prompt submission SH
 - **THEN** they present `houmao-mgr agents prompt ...` as the default documented path
 - **AND THEN** they present `houmao-mgr agents gateway prompt ...` as the explicit gateway-managed alternative rather than the default
 
+### Requirement: `houmao-mgr agents gateway attach` and `detach` preserve same-host passive-server support
+When an operator targets a passive server for `houmao-mgr agents gateway attach` or `houmao-mgr agents gateway detach`, the CLI SHALL prefer local registry/controller authority for those operations instead of blindly calling the passive server's HTTP attach/detach routes.
+
+If the target cannot be resolved to a local registry-backed authority on the current host, the CLI SHALL fail explicitly that passive-server gateway attach/detach is not available through remote pair HTTP control.
+
+#### Scenario: Gateway attach succeeds through local authority while targeting a passive server
+- **WHEN** an operator runs `houmao-mgr agents gateway attach --agent-id abc123 --port 9891`
+- **AND WHEN** `abc123` can be resolved to a local registry/controller authority on the current host
+- **THEN** `houmao-mgr` attaches or reuses the live gateway through that local authority
+- **AND THEN** the command does not fail with the passive server's HTTP 501 guidance
+
+#### Scenario: Gateway detach fails clearly when only remote passive authority is available
+- **WHEN** an operator runs `houmao-mgr agents gateway detach --agent-id abc123 --port 9891`
+- **AND WHEN** `abc123` cannot be resolved to a local registry/controller authority on the current host
+- **THEN** `houmao-mgr` fails explicitly that passive-server gateway detach requires local authority on the owning host
+- **AND THEN** the command does not falsely claim that remote passive-server HTTP detach succeeded
+
 ### Requirement: `houmao-mgr agents mail` exposes pair-native mailbox follow-up commands
 `houmao-mgr` SHALL expose a native `agents mail ...` command family for pair-managed mailbox follow-up on managed agents.
 
@@ -146,6 +177,29 @@ Those commands SHALL use the managed headless turn routes exposed by the support
 - **AND WHEN** the addressed managed agent is TUI-backed
 - **THEN** the command fails explicitly
 - **AND THEN** it does not pretend that the TUI-backed agent supports the headless turn contract
+
+### Requirement: Server-backed managed-agent commands accept passive server pair authorities
+`houmao-mgr` server-backed managed-agent command paths SHALL accept `houmao-passive-server` as a supported pair authority and SHALL resolve their managed client through the pair-authority factory.
+
+This SHALL cover the `agents`, `agents mail`, and `agents turn` families whenever those commands are operating through an explicit pair authority instead of a resumed local controller.
+
+#### Scenario: Managed-agent summary inspection works through a passive server
+- **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123 --port 9891`
+- **AND WHEN** the addressed pair authority identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` returns the managed-agent summary view for `abc123`
+- **AND THEN** the command does not fail only because the selected pair authority is passive
+
+#### Scenario: Managed-agent detail inspection works for passive-server-managed headless agents
+- **WHEN** an operator runs `houmao-mgr agents show --agent-id abc123 --port 9891`
+- **AND WHEN** `abc123` is a headless agent managed by the passive server
+- **THEN** `houmao-mgr` returns the managed headless detail view
+- **AND THEN** the command does not require the operator to know a turn id first
+
+#### Scenario: Headless turn submission works through a passive server
+- **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --port 9891 --prompt "..." `
+- **AND WHEN** the addressed pair authority identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` submits the turn through the passive server
+- **AND THEN** the command returns the accepted turn identity needed for later inspection
 
 ### Requirement: `houmao-mgr brains build` exposes local brain construction
 `houmao-mgr` SHALL expose a native `brains build` command for local brain construction.
@@ -255,3 +309,32 @@ For these commands, callers SHALL provide exactly one of those selectors unless 
 - **AND WHEN** that command has no separate current-session targeting contract
 - **THEN** `houmao-mgr` fails explicitly
 - **AND THEN** the error states that exactly one of `--agent-id` or `--agent-name` is required
+
+### Requirement: `houmao-mgr agents gateway attach` supports explicit foreground tmux-window mode for tmux-backed managed sessions
+`houmao-mgr agents gateway attach` SHALL accept an explicit `--foreground` option for tmux-backed managed sessions.
+
+When `--foreground` is requested for a runtime-owned tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in same-session foreground tmux-window mode rather than detached-process mode.
+
+When `--foreground` is requested for a pair-managed `houmao_server_rest` session that already uses same-session tmux-window gateway execution, `houmao-mgr` MAY treat that request as an explicit idempotent request for the already-supported foreground topology.
+
+When foreground tmux-window mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` SHALL surface the gateway execution mode and the authoritative tmux window index for the live gateway surface so operators can inspect that console directly.
+
+Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract: tmux window `0` remains reserved for the agent surface, and the gateway window SHALL use index `>=1`.
+
+#### Scenario: Operator requests foreground gateway attach for a runtime-owned tmux-backed session
+- **WHEN** an operator runs `houmao-mgr agents gateway attach --foreground --agent-id <id>`
+- **AND WHEN** the addressed managed session is a runtime-owned tmux-backed session
+- **THEN** `houmao-mgr` attaches or reuses the gateway in same-session foreground tmux-window mode
+- **AND THEN** the command reports the actual tmux window index for the live gateway surface
+
+#### Scenario: Operator inspects foreground gateway status through the native CLI
+- **WHEN** an operator runs `houmao-mgr agents gateway status --agent-id <id>`
+- **AND WHEN** the addressed gateway is running in foreground tmux-window mode
+- **THEN** the command reports `execution_mode=tmux_auxiliary_window`
+- **AND THEN** the command reports the authoritative tmux window index for the live gateway surface
+
+#### Scenario: Foreground attach preserves the agent surface contract
+- **WHEN** an operator requests foreground gateway attach for a tmux-backed managed session
+- **THEN** the gateway attaches in a tmux window whose index is `>=1`
+- **AND THEN** tmux window `0` remains the managed agent surface
+

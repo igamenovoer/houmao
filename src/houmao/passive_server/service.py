@@ -32,6 +32,18 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
 )
+from houmao.passive_server.compatibility import (
+    gateway_summary_from_status,
+    is_headless_backend,
+    mailbox_summary_from_headless_control_state,
+    mailbox_summary_from_registry_record,
+    managed_headless_detail_response,
+    managed_headless_history_from_turn_records,
+    managed_headless_state_from_control_state,
+    managed_tui_detail_response,
+    managed_tui_history_from_observation,
+    managed_tui_state_from_observation,
+)
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, RegistryDiscoveryService
 from houmao.passive_server.headless import HeadlessAgentService
@@ -55,6 +67,11 @@ from houmao.passive_server.models import (
     PassiveRequestAcceptedResponse,
 )
 from houmao.passive_server.observation import TuiObservationService
+from houmao.server.models import (
+    HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentStateResponse,
+)
 
 log = logging.getLogger(__name__)
 
@@ -450,6 +467,90 @@ class PassiveServerService:
 
         return self.m_headless.turn_artifact_text(managed_tracked_agent_id, turn_id, name)
 
+    def managed_agent_state(
+        self, agent_ref: str
+    ) -> HoumaoManagedAgentStateResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-agent summary state for pair consumers."""
+
+        managed_tracked_agent_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is not None:
+            return self._managed_headless_state_response(
+                managed_tracked_agent_id=managed_tracked_agent_id,
+                resolved=resolved,
+            )
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
+        if is_headless_backend(resolved.record.identity.backend):
+            return self._managed_headless_unavailable_error(agent_ref)
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        return managed_tui_state_from_observation(
+            agent=resolved,
+            state=observer.current_state(),
+            gateway_summary=self._managed_gateway_summary(resolved),
+            mailbox_summary=mailbox_summary_from_registry_record(resolved.record),
+        )
+
+    def managed_agent_state_detail(
+        self, agent_ref: str
+    ) -> HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-agent transport-specific detail for pair consumers."""
+
+        managed_tracked_agent_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is not None:
+            return self._managed_headless_detail_response(
+                managed_tracked_agent_id=managed_tracked_agent_id,
+                resolved=resolved,
+            )
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
+        if is_headless_backend(resolved.record.identity.backend):
+            return self._managed_headless_unavailable_error(agent_ref)
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        summary_state = managed_tui_state_from_observation(
+            agent=resolved,
+            state=observer.current_state(),
+            gateway_summary=self._managed_gateway_summary(resolved),
+            mailbox_summary=mailbox_summary_from_registry_record(resolved.record),
+        )
+        return managed_tui_detail_response(
+            agent=resolved,
+            detail_state=observer.current_detail(),
+            summary_state=summary_state,
+        )
+
+    def managed_agent_history(
+        self, agent_ref: str, *, limit: int = 50
+    ) -> HoumaoManagedAgentHistoryResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-agent coarse history for pair consumers."""
+
+        managed_tracked_agent_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is not None:
+            return self._managed_headless_history_response(
+                managed_tracked_agent_id=managed_tracked_agent_id,
+                limit=limit,
+            )
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
+        if is_headless_backend(resolved.record.identity.backend):
+            return self._managed_headless_unavailable_error(agent_ref)
+        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        if observer is None:
+            return (503, {"detail": "Observer not yet initialized for this agent"})
+        return managed_tui_history_from_observation(
+            agent=resolved,
+            history=observer.history(limit=limit),
+        )
+
     def _resolve_managed_headless_target(
         self, agent_ref: str
     ) -> tuple[str | None, DiscoveredAgent | None, tuple[int, dict[str, Any]] | None]:
@@ -487,6 +588,128 @@ class PassiveServerService:
         if len(discovered_matches) == 1:
             return (discovered_matches[0], resolved, None)
         return (None, resolved, None)
+
+    def _managed_headless_state_response(
+        self,
+        *,
+        managed_tracked_agent_id: str,
+        resolved: DiscoveredAgent | None,
+    ) -> HoumaoManagedAgentStateResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-headless summary state for one resolved tracked id."""
+
+        control_state = self.m_headless.get_managed_control_state(managed_tracked_agent_id)
+        if control_state is None:
+            return (
+                503,
+                {
+                    "detail": (
+                        "Managed headless compatibility state is unavailable because the "
+                        f"passive server has no live authority for `{managed_tracked_agent_id}`."
+                    )
+                },
+            )
+        mailbox_summary = (
+            mailbox_summary_from_registry_record(resolved.record)
+            if resolved is not None
+            else mailbox_summary_from_headless_control_state(control_state)
+        )
+        return managed_headless_state_from_control_state(
+            control_state=control_state,
+            gateway_summary=self._managed_gateway_summary(resolved),
+            mailbox_summary=mailbox_summary,
+        )
+
+    def _managed_headless_detail_response(
+        self,
+        *,
+        managed_tracked_agent_id: str,
+        resolved: DiscoveredAgent | None,
+    ) -> HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-headless detail for one resolved tracked id."""
+
+        control_state = self.m_headless.get_managed_control_state(managed_tracked_agent_id)
+        if control_state is None:
+            return (
+                503,
+                {
+                    "detail": (
+                        "Managed headless compatibility detail is unavailable because the "
+                        f"passive server has no live authority for `{managed_tracked_agent_id}`."
+                    )
+                },
+            )
+        mailbox_summary = (
+            mailbox_summary_from_registry_record(resolved.record)
+            if resolved is not None
+            else mailbox_summary_from_headless_control_state(control_state)
+        )
+        summary_state = managed_headless_state_from_control_state(
+            control_state=control_state,
+            gateway_summary=self._managed_gateway_summary(resolved),
+            mailbox_summary=mailbox_summary,
+        )
+        return managed_headless_detail_response(
+            control_state=control_state,
+            summary_state=summary_state,
+        )
+
+    def _managed_headless_history_response(
+        self,
+        *,
+        managed_tracked_agent_id: str,
+        limit: int,
+    ) -> HoumaoManagedAgentHistoryResponse | tuple[int, dict[str, Any]]:
+        """Return passive managed-headless coarse history for one resolved tracked id."""
+
+        control_state = self.m_headless.get_managed_control_state(managed_tracked_agent_id)
+        if control_state is None:
+            return (
+                503,
+                {
+                    "detail": (
+                        "Managed headless compatibility history is unavailable because the "
+                        f"passive server has no live authority for `{managed_tracked_agent_id}`."
+                    )
+                },
+            )
+        return managed_headless_history_from_turn_records(
+            tracked_agent_id=managed_tracked_agent_id,
+            turn_records=self.m_headless.m_store.list_turn_records(
+                tracked_agent_id=managed_tracked_agent_id
+            ),
+            limit=limit,
+        )
+
+    def _managed_gateway_summary(
+        self,
+        agent: DiscoveredAgent | None,
+    ):
+        """Return optional managed-agent gateway summary when a live gateway is reachable."""
+
+        if agent is None:
+            return None
+        client = self._gateway_client_for_agent(agent)
+        if client is None:
+            return None
+        try:
+            return gateway_summary_from_status(client.status())
+        except GatewayHttpError:
+            return None
+
+    @staticmethod
+    def _managed_headless_unavailable_error(agent_ref: str) -> tuple[int, dict[str, Any]]:
+        """Return one explicit error for headless agents not owned by this passive server."""
+
+        return (
+            503,
+            {
+                "detail": (
+                    "Managed headless compatibility is unavailable because this headless agent "
+                    "is not owned by the current passive server instance: "
+                    f"{agent_ref}"
+                )
+            },
+        )
 
     # -- agent TUI observation --------------------------------------------------
 

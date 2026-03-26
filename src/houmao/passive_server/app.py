@@ -43,6 +43,11 @@ from houmao.passive_server.models import (
     PassiveShutdownResponse,
 )
 from houmao.passive_server.service import PassiveServerService
+from houmao.server.models import (
+    HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentHistoryResponse,
+    HoumaoManagedAgentStateResponse,
+)
 
 
 def create_app(
@@ -198,6 +203,30 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/history")
     def agent_history(agent_ref: str, limit: int = 50) -> AgentTuiHistoryResponse:
         result = resolved_service.agent_history(agent_ref, limit=limit)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/managed-state")
+    def managed_agent_state(agent_ref: str) -> HoumaoManagedAgentStateResponse:
+        result = resolved_service.managed_agent_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/managed-state/detail")
+    def managed_agent_state_detail(agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        result = resolved_service.managed_agent_state_detail(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/managed-history")
+    def managed_agent_history(
+        agent_ref: str,
+        limit: int = 50,
+    ) -> HoumaoManagedAgentHistoryResponse:
+        result = resolved_service.managed_agent_history(agent_ref, limit=limit)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

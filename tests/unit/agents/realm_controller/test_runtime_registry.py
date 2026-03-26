@@ -433,8 +433,9 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         *,
         host_override: str | None,
         port_override: int | None,
+        execution_mode_override: str | None,
     ) -> GatewayControlResult:
-        del controller, host_override, port_override
+        del controller, host_override, port_override, execution_mode_override
         write_gateway_current_instance(
             paths.current_instance_path,
             GatewayCurrentInstanceV1(

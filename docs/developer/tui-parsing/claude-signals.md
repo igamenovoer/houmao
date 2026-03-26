@@ -9,7 +9,7 @@ Use it together with:
 - [Runtime Lifecycle](runtime-lifecycle.md)
 - [Shared TUI Tracking Demo Pack README](../../../scripts/demo/shared-tui-tracking-demo-pack/README.md)
 
-The concrete examples here were confirmed from the maintained complex captures logged in [20260323-124129.md](../../../context/logs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md).
+The concrete examples here were confirmed from the maintained complex captures logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md).
 
 ## Latest-Turn Scoping Rule
 
