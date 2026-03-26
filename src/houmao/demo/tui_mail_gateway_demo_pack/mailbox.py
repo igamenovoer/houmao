@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, capture_tmux_pane
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
+    TmuxCommandError,
+    capture_tmux_pane,
+    resolve_tmux_pane,
+)
 from houmao.agents.realm_controller.gateway_models import GatewayMailCheckRequestV1
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
@@ -337,7 +342,11 @@ def capture_turn_evidence(
     capture_error: str | None = None
     capture_text = ""
     try:
-        capture_text = capture_tmux_pane(target=state.tmux_session_name)
+        pane = resolve_tmux_pane(
+            session_name=state.tmux_session_name,
+            window_name=HEADLESS_AGENT_WINDOW_NAME,
+        )
+        capture_text = capture_tmux_pane(target=pane.pane_id)
     except TmuxCommandError as exc:
         capture_error = str(exc)
     snapshot_path.write_text(capture_text, encoding="utf-8")

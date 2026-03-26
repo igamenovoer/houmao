@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import tomllib
+from contextlib import contextmanager
+import fcntl
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,6 +19,7 @@ _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CLAUDE_API_KEY_SUFFIX_LEN = 20
 _CODEX_AUTH_FILENAME = "auth.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
+_PROVIDER_STATE_LOCK_FILENAME = ".houmao-launch-policy.lock"
 
 
 def run_provider_hook(*, hook_id: str, request: LaunchPolicyRequest) -> None:
@@ -57,17 +62,25 @@ def load_json_state(path: Path) -> dict[str, Any]:
 def write_json_state(path: Path, payload: dict[str, Any]) -> None:
     """Persist one JSON object with stable formatting."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    )
 
 
-def set_json_key(*, path: Path, key_path: tuple[str, ...], value: Any) -> None:
+def set_json_key(
+    *,
+    path: Path,
+    key_path: tuple[str, ...],
+    value: Any,
+    repair_invalid: bool = False,
+) -> None:
     """Set one nested JSON key path while preserving unrelated state."""
 
     payload = (
-        _load_json_state_with_template(path)
+        _load_json_state_with_template(path, repair_invalid=repair_invalid)
         if path.name == _CLAUDE_RUNTIME_STATE_FILENAME
-        else load_json_state(path)
+        else _load_json_state_with_repair(path, repair_invalid=repair_invalid)
     )
     target = payload
     for key in key_path[:-1]:
@@ -80,7 +93,7 @@ def set_json_key(*, path: Path, key_path: tuple[str, ...], value: Any) -> None:
     write_json_state(path, payload)
 
 
-def load_toml_state(path: Path) -> dict[str, Any]:
+def load_toml_state(path: Path, *, repair_invalid: bool = False) -> dict[str, Any]:
     """Load one TOML object from disk, defaulting to an empty object."""
 
     if not path.exists():
@@ -91,16 +104,24 @@ def load_toml_state(path: Path) -> dict[str, Any]:
     try:
         payload = tomllib.loads(raw_text)
     except tomllib.TOMLDecodeError as exc:
+        if repair_invalid:
+            return {}
         raise LaunchPolicyError(f"Malformed TOML state `{path}`: {exc}.") from exc
     if not isinstance(payload, dict):
         raise LaunchPolicyError(f"TOML state `{path}` must contain a top-level table.")
     return payload
 
 
-def set_toml_key(*, path: Path, key_path: tuple[str, ...], value: str | bool | int) -> None:
+def set_toml_key(
+    *,
+    path: Path,
+    key_path: tuple[str, ...],
+    value: str | bool | int,
+    repair_invalid: bool = False,
+) -> None:
     """Set one TOML key path using a minimal writer."""
 
-    payload = load_toml_state(path)
+    payload = load_toml_state(path, repair_invalid=repair_invalid)
     target = payload
     for key in key_path[:-1]:
         existing = target.get(key)
@@ -109,20 +130,68 @@ def set_toml_key(*, path: Path, key_path: tuple[str, ...], value: str | bool | i
             target[key] = existing
         target = existing
     target[key_path[-1]] = value
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_render_toml_mapping(payload) + "\n", encoding="utf-8")
+    _atomic_write_text(path, _render_toml_mapping(payload) + "\n")
 
 
-def _load_json_state_with_template(path: Path) -> dict[str, Any]:
+def _load_json_state_with_template(path: Path, *, repair_invalid: bool = False) -> dict[str, Any]:
     """Load one JSON object, seeding from Claude template when available."""
 
     if path.exists():
-        return load_json_state(path)
+        return _load_json_state_with_repair(path, repair_invalid=repair_invalid)
 
     template_path = path.parent / _CLAUDE_STATE_TEMPLATE_FILENAME
     if template_path.exists():
-        return load_json_state(template_path)
+        return _load_json_state_with_repair(template_path, repair_invalid=repair_invalid)
     return {}
+
+
+def _load_json_state_with_repair(path: Path, *, repair_invalid: bool) -> dict[str, Any]:
+    """Load one JSON object and optionally fall back to an empty baseline."""
+
+    try:
+        return load_json_state(path)
+    except LaunchPolicyError:
+        if not repair_invalid:
+            raise
+        return {}
+
+
+@contextmanager
+def provider_state_mutation_lock(home_path: Path):
+    """Serialize provider-state mutation across one runtime home."""
+
+    home_path.mkdir(parents=True, exist_ok=True)
+    lock_path = home_path / _PROVIDER_STATE_LOCK_FILENAME
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write one text file through atomic replacement."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 def _claude_runtime_state_path(request: LaunchPolicyRequest) -> Path:
@@ -151,7 +220,10 @@ def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
         return
 
     state_path = _claude_runtime_state_path(request)
-    payload = _load_json_state_with_template(state_path)
+    payload = _load_json_state_with_template(
+        state_path,
+        repair_invalid=request.application_kind == "provider_start",
+    )
     payload["hasCompletedOnboarding"] = True
     payload["numStartups"] = 1
     payload["customApiKeyResponses"] = {
@@ -171,7 +243,10 @@ def _claude_ensure_project_trust(request: LaunchPolicyRequest) -> None:
     """Seed Claude workspace-trust state for the resolved workdir."""
 
     state_path = _claude_runtime_state_path(request)
-    payload = _load_json_state_with_template(state_path)
+    payload = _load_json_state_with_template(
+        state_path,
+        repair_invalid=request.application_kind == "provider_start",
+    )
     payload["hasCompletedOnboarding"] = True
     payload["numStartups"] = 1
 
@@ -251,6 +326,7 @@ def _codex_ensure_project_trust(request: LaunchPolicyRequest) -> None:
         path=_codex_config_path(request),
         key_path=("projects", str(trust_target), "trust_level"),
         value="trusted",
+        repair_invalid=request.application_kind == "provider_start",
     )
 
 
@@ -258,14 +334,23 @@ def _codex_ensure_model_migration_state(request: LaunchPolicyRequest) -> None:
     """Seed Codex startup migration state for the current supported version."""
 
     config_path = _codex_config_path(request)
-    payload = load_toml_state(config_path)
+    payload = load_toml_state(
+        config_path,
+        repair_invalid=request.application_kind == "provider_start",
+    )
     model_value = payload.get("model")
     if model_value is None or model_value == "gpt-5.3-codex":
-        set_toml_key(path=config_path, key_path=("model",), value="gpt-5.4")
+        set_toml_key(
+            path=config_path,
+            key_path=("model",),
+            value="gpt-5.4",
+            repair_invalid=request.application_kind == "provider_start",
+        )
         set_toml_key(
             path=config_path,
             key_path=("notice", "model_migrations", "gpt-5.3-codex"),
             value="gpt-5.4",
+            repair_invalid=request.application_kind == "provider_start",
         )
 
 

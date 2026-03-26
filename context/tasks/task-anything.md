@@ -1,16 +1,15 @@
-# test standalone tui tracking module
+we want to have a way to allow user-started TUI process to join our houmao system.
 
-we want to implement a test suite for the standalone tui tracking module, which has the following properties:
+by "joining", we mean, that TUI process is just like any other process launched by houmao, except that it is started by user instead of houmao, in a way that houmao shall not care.
 
-## Support automatic test with recorded sessions
+specifically, we want to have `houmao-mgr agents join <args>` command, which can be used to join any TUI process into houmao system, in that:
+- this command should be run inside tmux session of the TUI process, assume TUI process is in window 0, and this command is being executed in other window of the same session
+- assume the TUI process is already up and running
+- houmao-mgr will detect the TUI process (claude code or codex), and then create necessary artifacts and metadata for this TUI process (registry, dirs, manifests, inject tmux envs, etc), so that houmao system can treat this TUI process as if it is launched by houmao itself
+- optionally, user can provide a command string for launching the TUI process, so that houmao knows how to restart the TUI process when needed, this should be recorded somewhere.
 
-It can make use of tmux recording tools to capture real sessions, and then replay them for testing. This allows us to have a rich set of test cases based on actual user interactions. To do that, you
+headless agent can also join the houmao system similarly, in this way:
+- still, must be inside a tmux session, call `houmao-mgr agents join --headless --launch-cmd <cmd-string-to-launch-agent> <other-args>` in one of the windows of the session
+- then required artifacts and metadata will be created for this headless agent, and houmao system can treat this headless agent as if it is launched by houmao itself
 
-- come up with some test cases to record, at least 4, covering critical state detection and transitions
-- for each case, use the tmux recording tools to capture the session, and then you first read the recorded session directly and classify the states, save them as ground truth, and then feed the same recording into the standalone tracking module and compare the outputs against the ground truth.
-- implement harness code to automate the above process
-- to verify that your state classification is correct, you will need to convert the recorded session that finally gets fed into the tracking module into .mp4 format with visually identifiable state changes, mark the ground truth state changes on the video, so that human developers can visually verify that the state classification matches the actual session behavior.
-
-## Support interactive test with live sessions
-
-It can also support interactive testing with live sessions, where developers can run the tracking module (as a dashboard, impl with python's `rich` module) with live tmux sessions and agents, so that developer can watch the dashboard (in a separate tmux session) while interacting with the live agent, see state changes.
+in any case, if some required info to create artifacts and metadata is missing, the command should fail with proper error message, and you just define cli shape to require for enough info from user.

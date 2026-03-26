@@ -9,6 +9,7 @@ from typing import Any, Final, cast
 
 from houmao.agents.launch_policy import apply_launch_policy
 from houmao.agents.launch_policy.models import (
+    LaunchPolicyApplicationKind,
     LaunchPolicyCompatibilityError,
     LaunchPolicyError,
     LaunchPolicyRequest,
@@ -55,6 +56,7 @@ class LaunchPlanRequest:
     backend: BackendKind
     working_directory: Path
     mailbox: MailboxResolvedConfig | None = None
+    intent: LaunchPolicyApplicationKind = "provider_start"
 
 
 def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
@@ -153,6 +155,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 working_directory=request.working_directory.resolve(),
                 home_path=home_path,
                 env=policy_env,
+                application_kind=request.intent,
             )
         )
     except LaunchPolicyCompatibilityError as exc:

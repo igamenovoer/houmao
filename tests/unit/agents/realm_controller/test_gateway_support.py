@@ -73,8 +73,10 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
+    _same_session_gateway_is_alive,
     _same_session_gateway_shell_command,
 )
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
@@ -941,7 +943,7 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_man
     assert identity.session_name == "local-interactive-1"
     assert identity.tool == "codex"
     assert identity.tmux_session_name == "AGENTSYS-local"
-    assert identity.tmux_window_name is None
+    assert identity.tmux_window_name == "agent"
     assert identity.terminal_aliases == []
     assert identity.agent_name == "AGENTSYS-local"
     assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
@@ -991,7 +993,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         assert identity.tracked_session_id == "local-interactive-1"
         assert identity.session_name == "local-interactive-1"
         assert identity.tmux_session_name == "AGENTSYS-local"
-        assert identity.tmux_window_name is None
+        assert identity.tmux_window_name == "agent"
         assert identity.terminal_aliases == []
         assert identity.agent_name == "AGENTSYS-local"
         assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
@@ -1446,6 +1448,57 @@ def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Pat
     assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_id}'" in command
     assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_index}'" in command
     assert "'$TMUX_PANE'" not in command
+
+
+def test_same_session_gateway_liveness_ignores_current_agent_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_instance = GatewayCurrentInstanceV1(
+        pid=4242,
+        host="127.0.0.1",
+        port=43123,
+        execution_mode="tmux_auxiliary_window",
+        tmux_window_id="@9",
+        tmux_window_index="1",
+        tmux_pane_id="%9",
+        managed_agent_instance_epoch=1,
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        lambda *, session_name: (
+            TmuxPaneRecord(
+                pane_id="%1",
+                session_name=session_name,
+                window_id="@1",
+                window_index="0",
+                window_name="agent",
+                pane_index="0",
+                pane_active=True,
+                pane_dead=False,
+                pane_pid=1111,
+            ),
+            TmuxPaneRecord(
+                pane_id="%9",
+                session_name=session_name,
+                window_id="@9",
+                window_index="1",
+                window_name="gateway",
+                pane_index="0",
+                pane_active=False,
+                pane_dead=False,
+                pane_pid=4242,
+            ),
+        ),
+    )
+
+    assert (
+        _same_session_gateway_is_alive(
+            session_name="AGENTSYS-local",
+            current_instance=current_instance,
+        )
+        is True
+    )
 
 
 def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(

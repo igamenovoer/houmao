@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -520,7 +519,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    attach_calls: list[list[str]] = []
+    attach_calls: list[str] = []
     captured: dict[str, object] = {}
     working_directory = tmp_path.resolve()
     manifest_path = working_directory / "brain.json"
@@ -563,10 +562,12 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
         lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.subprocess.run",
-        lambda args, **kwargs: (
-            attach_calls.append(list(args)) or subprocess.CompletedProcess(args=args, returncode=0)
-        ),
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
+        lambda *, session_name: attach_calls.append(session_name),
     )
 
     result = CliRunner().invoke(
@@ -598,7 +599,83 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     assert captured["start_kwargs"]["backend"] == "local_interactive"
     assert captured["start_kwargs"]["agent_name"] == "gpu"
     assert captured["start_kwargs"]["agent_id"] is None
-    assert attach_calls == [["tmux", "attach-session", "-t", "gpu-session"]]
+    assert attach_calls == ["gpu-session"]
+
+
+def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_follow_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = SimpleNamespace(
+        tool="claude",
+        agent_def_dir=working_directory / "agents",
+        role_name="gpu-kernel-coder",
+        recipe=SimpleNamespace(
+            tool="claude",
+            skills=[],
+            config_profile="default",
+            credential_profile="default",
+            launch_overrides=None,
+            operator_prompt_mode="unattended",
+            mailbox=None,
+            default_agent_name="AGENTSYS-gpu",
+        ),
+        recipe_path=working_directory / "recipe.yaml",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: controller,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("attach should be skipped")),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "claude_code",
+            "--session-name",
+            "gpu-session",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Managed agent launch complete:" in result.output
+    assert "terminal_handoff=skipped_non_interactive" in result.output
+    assert "attach_command=tmux attach-session -t gpu-session" in result.output
 
 
 def test_agents_launch_headless_keeps_native_headless_backend(
@@ -647,8 +724,8 @@ def test_agents_launch_headless_keeps_native_headless_backend(
         lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.subprocess.run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("tmux attach should not run")),
+        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("tmux attach should not run")),
     )
 
     result = CliRunner().invoke(

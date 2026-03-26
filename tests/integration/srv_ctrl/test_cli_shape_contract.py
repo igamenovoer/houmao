@@ -531,6 +531,8 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
 
     assert launch_result.exit_code == 0, launch_result.output
     assert "Managed agent launch complete:" in launch_result.output
+    assert "terminal_handoff=skipped_non_interactive" in launch_result.output
+    assert "attach_command=tmux attach-session -t AGENTSYS-gpu-" in launch_result.output
     record = resolve_live_agent_record("gpu")
     assert record is not None
     assert record.identity.backend == "local_interactive"

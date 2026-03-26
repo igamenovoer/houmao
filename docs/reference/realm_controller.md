@@ -464,6 +464,10 @@ when they are missing from `PATH`.
 - To discover the live tmux handle, inspect the returned `tmux_session_name`,
   the persisted manifest, or shared-registry metadata. Name-addressed runtime
   control still uses the canonical `AGENTSYS-<name>` identity.
+- Operator-facing tmux handoff after managed launch is libtmux-backed when the
+  caller has a real interactive terminal. Non-interactive launch callers do not
+  attempt tmux attach and instead receive explicit attach coordinates for later
+  manual follow-up.
 - Parsing mode must not change AGENTSYS identity naming, tmux manifest-pointer
   publication, or name-based resolution semantics.
 - Startup window hygiene for `backend=cao_rest`:

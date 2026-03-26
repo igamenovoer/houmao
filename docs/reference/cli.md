@@ -73,6 +73,8 @@ Detached startup results include `success`, `running`, `mode`, `api_base_url`, `
 
 Managed-agent launch prints distinct identity fields for follow-up control: `agent_name`, `agent_id`, `tmux_session_name`, and `manifest_path`. Use `--agent-id` for exact automation or disambiguation, and use the same raw creation-time `--agent-name` value for normal operator-facing targeting. When `--session-name` is omitted on tmux-backed managed launches, runtime generates `AGENTSYS-<agent_name>-<epoch-ms>` and fails explicitly if that handle is already occupied.
 
+For non-headless tmux-backed managed launches, immediate terminal handoff is now TTY-aware. Interactive callers are handed off through the repo-owned libtmux integration, while non-interactive callers skip attach, still succeed after provider readiness is confirmed, and print `terminal_handoff=skipped_non_interactive` plus `attach_command=tmux attach-session -t <tmux_session_name>` for later manual follow-up.
+
 For managed agents, the public gateway attach surface lives on `houmao-mgr agents gateway attach`:
 
 - `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>` for explicit managed-agent targeting

@@ -16,8 +16,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachContractV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
+    build_offline_gateway_status,
     gateway_paths_from_session_root,
     write_attach_contract,
+    write_gateway_status,
 )
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
@@ -456,23 +458,28 @@ def _write_offline_gateway_attach_contract(session_root: Path) -> None:
 
     paths = gateway_paths_from_session_root(session_root=session_root.resolve())
     paths.gateway_root.mkdir(parents=True, exist_ok=True)
-    write_attach_contract(
-        paths.attach_path,
-        GatewayAttachContractV1(
-            attach_identity=f"{session_root.name}-attach",
-            backend="houmao_server_rest",
-            tmux_session_name=session_root.name,
-            working_directory=str(session_root.resolve()),
-            backend_metadata=GatewayAttachBackendMetadataHoumaoServerV1(
-                api_base_url="http://127.0.0.1:9889",
-                session_name=session_root.name,
-                terminal_id="abcd1234",
-                parsing_mode="shadow_only",
-                tmux_window_name="developer-1",
-            ),
-            manifest_path=str((session_root / "manifest.json").resolve()),
-            agent_def_dir=str((session_root / "agent_def").resolve()),
-            runtime_session_id=session_root.name,
+    attach_contract = GatewayAttachContractV1(
+        attach_identity=f"{session_root.name}-attach",
+        backend="houmao_server_rest",
+        tmux_session_name=session_root.name,
+        working_directory=str(session_root.resolve()),
+        backend_metadata=GatewayAttachBackendMetadataHoumaoServerV1(
+            api_base_url="http://127.0.0.1:9889",
+            session_name=session_root.name,
+            terminal_id="abcd1234",
+            parsing_mode="shadow_only",
+            tmux_window_name="developer-1",
+        ),
+        manifest_path=str((session_root / "manifest.json").resolve()),
+        agent_def_dir=str((session_root / "agent_def").resolve()),
+        runtime_session_id=session_root.name,
+    )
+    write_attach_contract(paths.attach_path, attach_contract)
+    write_gateway_status(
+        paths.state_path,
+        build_offline_gateway_status(
+            attach_contract=attach_contract,
+            managed_agent_instance_epoch=1,
         ),
     )
 

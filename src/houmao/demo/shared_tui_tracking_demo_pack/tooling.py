@@ -19,6 +19,7 @@ from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     capture_tmux_pane,
+    find_tmux_pane,
     list_tmux_panes,
     run_tmux,
     tmux_session_exists,
@@ -148,26 +149,13 @@ def resolve_active_pane_id(*, session_name: str) -> str:
 def query_pane_state(*, session_name: str, pane_id: str) -> dict[str, Any] | None:
     """Return tmux pane state for one pane id when available."""
 
-    result = run_tmux(
-        [
-            "list-panes",
-            "-t",
-            session_name,
-            "-F",
-            "#{pane_id}\t#{pane_dead}\t#{pane_pid}",
-        ]
-    )
-    if result.returncode != 0:
+    pane = find_tmux_pane(session_name=session_name, pane_id=pane_id)
+    if pane is None:
         return None
-    for raw_line in result.stdout.splitlines():
-        parts = raw_line.strip().split("\t")
-        if len(parts) != 3 or parts[0] != pane_id:
-            continue
-        return {
-            "pane_dead": parts[1] == "1",
-            "pane_pid": int(parts[2]) if parts[2].isdigit() else None,
-        }
-    return None
+    return {
+        "pane_dead": pane.pane_dead,
+        "pane_pid": pane.pane_pid,
+    }
 
 
 def process_tree() -> dict[int, dict[str, Any]]:
