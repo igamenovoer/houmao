@@ -1652,6 +1652,18 @@ class CaoRestSession:
 
         self.terminate()
 
+    def relaunch(self) -> SessionControlResult:
+        """Report that raw CAO relaunch is no longer a supported active workflow."""
+
+        return SessionControlResult(
+            status="error",
+            action="relaunch",
+            detail=(
+                "backend='cao_rest' relaunch is deprecated. Use the supported "
+                "`houmao-mgr` and `houmao-server` managed-session surfaces instead."
+            ),
+        )
+
     def _preflight_start_terminal(self) -> None:
         """Require the runtime executables needed by CAO-backed startup."""
 
@@ -1744,6 +1756,62 @@ class CaoRestSession:
             )
 
         return terminal.id
+
+    def _relaunch_existing_terminal(self, *, primary_window_index: str | None = None) -> str:
+        """Create one replacement terminal inside the existing tmux session."""
+
+        try:
+            self._preflight_start_terminal()
+            self._client.health()
+            _ensure_tmux_available()
+            if self._session_name not in _list_tmux_sessions():
+                raise BackendExecutionError(
+                    "Tmux-backed relaunch requires the existing tmux session "
+                    f"`{self._session_name}`, but it is unavailable."
+                )
+            self._publish_tmux_session_environment()
+            terminal = self._client.create_terminal(
+                self._session_name,
+                provider=self._provider,
+                agent_profile=self._profile_name,
+                working_directory=str(self._plan.working_directory),
+            )
+            previous_terminal_id = self._terminal_id
+            if previous_terminal_id != terminal.id:
+                try:
+                    self._client.delete_terminal(previous_terminal_id)
+                except CaoApiError:
+                    pass
+            resolved_window = _resolve_tmux_window_by_name(
+                session_name=self._session_name,
+                window_name=terminal.name,
+            )
+            if resolved_window is None:
+                raise BackendExecutionError(
+                    "Unable to resolve relaunch tmux window "
+                    f"`{terminal.name}` in session `{self._session_name}`."
+                )
+            if primary_window_index is not None and resolved_window.window_index != primary_window_index:
+                _move_tmux_window(
+                    source_window_id=resolved_window.window_id,
+                    target=f"{self._session_name}:{primary_window_index}",
+                )
+                moved_window = _resolve_tmux_window_by_index(
+                    session_name=self._session_name,
+                    window_index=primary_window_index,
+                    max_attempts=1,
+                    retry_sleep_seconds=0.0,
+                )
+                if moved_window is not None:
+                    resolved_window = moved_window
+            _select_tmux_window(window_id=resolved_window.window_id)
+            self._terminal_id = terminal.id
+            self._tmux_window_name = resolved_window.window_name
+            return terminal.id
+        except (CaoApiError, BackendExecutionError, TimeoutError, OSError) as exc:
+            raise BackendExecutionError(
+                f"Failed to relaunch CAO-compatible terminal in `{self._session_name}`: {exc}"
+            ) from exc
 
 
 def _resolve_shadow_stall_policy(launch_plan: LaunchPlan) -> _ShadowStallPolicy:
@@ -2095,6 +2163,23 @@ def _kill_tmux_window(*, window_id: str) -> None:
         detail = _tmux_error_detail(result)
         raise BackendExecutionError(
             f"Failed to kill tmux window `{window_id}`: {detail or 'unknown tmux error'}"
+        )
+
+
+def _move_tmux_window(*, source_window_id: str, target: str) -> None:
+    """Move one tmux window onto a specific target, replacing any existing target."""
+
+    try:
+        result = run_tmux_shared(["move-window", "-k", "-s", source_window_id, "-t", target])
+    except TmuxCommandError as exc:
+        raise BackendExecutionError(
+            f"Failed to run tmux move-window for `{source_window_id}` -> `{target}`: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        detail = _tmux_error_detail(result)
+        raise BackendExecutionError(
+            "Failed to move tmux window "
+            f"`{source_window_id}` to `{target}`: {detail or 'unknown tmux error'}"
         )
 
 

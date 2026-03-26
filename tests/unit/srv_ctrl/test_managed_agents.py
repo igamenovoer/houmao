@@ -23,6 +23,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     list_managed_agents,
     managed_agent_detail_payload,
     managed_agent_state_payload,
+    relaunch_managed_agent,
     resolve_managed_agent_target,
     submit_headless_turn,
 )
@@ -396,3 +397,72 @@ def test_detach_gateway_requires_local_authority_for_passive_pair(
 
     with pytest.raises(click.ClickException, match="requires local authority on the owning host"):
         detach_gateway(target)
+
+
+def test_relaunch_managed_agent_uses_local_controller() -> None:
+    calls: list[str] = []
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        controller=SimpleNamespace(
+            relaunch=lambda: (
+                calls.append("relaunch")
+                or SimpleNamespace(status="ok", detail="Runtime relaunched.")
+            )
+        ),
+    )
+
+    response = relaunch_managed_agent(target)
+
+    assert response.success is True
+    assert response.tracked_agent_id == "tracked-alpha"
+    assert response.detail == "Runtime relaunched."
+    assert calls == ["relaunch"]
+
+
+def test_relaunch_managed_agent_prefers_local_authority_for_passive_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakePassivePairClient()
+    identity = client.m_state.identity
+    record = SimpleNamespace(identity=SimpleNamespace(backend="houmao_server_rest"))
+    calls: list[object] = []
+    controller = SimpleNamespace(
+        relaunch=lambda: (
+            calls.append("relaunch")
+            or SimpleNamespace(status="ok", detail="Pair runtime relaunched.")
+        )
+    )
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=identity,
+        client=client,
+        record=record,
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_controller_from_record",
+        lambda resolved_record: (calls.append(resolved_record), controller)[1],
+    )
+
+    response = relaunch_managed_agent(target)
+
+    assert response.success is True
+    assert response.tracked_agent_id == "tracked-alpha"
+    assert response.detail == "Pair runtime relaunched."
+    assert calls == [record, "relaunch"]
+
+
+def test_relaunch_managed_agent_requires_local_authority_for_passive_pair() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    with pytest.raises(click.ClickException, match="requires local manifest authority"):
+        relaunch_managed_agent(target)

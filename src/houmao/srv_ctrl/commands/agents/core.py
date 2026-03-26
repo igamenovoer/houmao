@@ -10,14 +10,19 @@ import click
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
-from houmao.agents.realm_controller.runtime import start_runtime_session
+from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
     LaunchPolicyResolutionError,
     SessionManifestError,
 )
 
-from .gateway import gateway_group
+from .gateway import (
+    _require_current_tmux_session_name,
+    _resolve_current_session_agent_def_dir,
+    _resolve_current_session_manifest,
+    gateway_group,
+)
 from .mail import mail_group
 from .turn import turn_group
 from ..common import (
@@ -25,6 +30,7 @@ from ..common import (
     managed_agent_selector_options,
     pair_port_option,
     resolve_prompt_text,
+    resolve_managed_agent_selector,
 )
 from ..managed_agents import (
     interrupt_managed_agent,
@@ -32,6 +38,7 @@ from ..managed_agents import (
     managed_agent_detail_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
+    relaunch_managed_agent,
     resolve_managed_agent_target,
     stop_managed_agent,
 )
@@ -252,6 +259,58 @@ def stop_agent_command(port: int | None, agent_id: str | None, agent_name: str |
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit_json(stop_managed_agent(target))
+
+
+@agents_group.command(name="relaunch")
+@pair_port_option(help_text="Houmao server port override for explicit relaunch")
+@managed_agent_selector_options
+def relaunch_agent_command(
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Relaunch one tmux-backed managed agent without rebuilding its home."""
+
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        allow_missing=True,
+    )
+    if selected_agent_id is None and selected_agent_name is None:
+        if port is not None:
+            raise click.ClickException(
+                "`--port` is only supported with an explicit `--agent-id` or `--agent-name` relaunch target."
+            )
+        session_name = _require_current_tmux_session_name()
+        resolution = _resolve_current_session_manifest(session_name=session_name)
+        agent_def_dir = _resolve_current_session_agent_def_dir(
+            session_name=session_name,
+            registry_record=resolution.registry_record,
+        )
+        controller = resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=resolution.manifest_path,
+        )
+        result = controller.relaunch()
+        emit_json(
+            {
+                "success": result.status == "ok",
+                "tracked_agent_id": (
+                    controller.agent_id
+                    or controller.agent_identity
+                    or controller.manifest_path.parent.name
+                ),
+                "detail": result.detail,
+            }
+        )
+        return
+
+    target = resolve_managed_agent_target(
+        agent_id=selected_agent_id,
+        agent_name=selected_agent_name,
+        port=port,
+    )
+    emit_json(relaunch_managed_agent(target))
 
 
 agents_group.add_command(gateway_group)

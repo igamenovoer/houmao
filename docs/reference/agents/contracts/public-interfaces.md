@@ -72,15 +72,15 @@ Runtime-managed sessions persist a durable manifest under `<runtime_root>/sessio
 Publicly relevant details:
 
 - `manifest.json` is the runtime's durable session record.
-- Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR`.
-- Gateway-capable sessions publish stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
+- Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, and `AGENTSYS_AGENT_DEF_DIR`.
+- `gateway/attach.json` is internal runtime bootstrap state, not part of the supported external discovery contract.
 - Live gateway env vars appear only while a gateway instance is actually attached.
 
 Pair-managed note:
 
 - `attach-gateway` remains the repo runtime command surface, but the supported public pair command for `houmao_server_rest` is `houmao-mgr agents gateway attach`
 - explicit pair attach resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract on `houmao-server`
-- current-session pair attach validates the tmux-published attach contract and uses its persisted `api_base_url` plus `session_name` as the only route target
+- current-session pair attach resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID` and uses persisted manifest authority as the only route target
 - for pair-managed sessions, tmux window `0` remains the contractual agent surface while live gateway auxiliary windows are implementation detail except for the exact handle recorded in `gateway/run/current-instance.json`
 
 Representative `start-session` output for a gateway-capable session:
@@ -95,9 +95,7 @@ Representative `start-session` output for a gateway-capable session:
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
   "tmux_session_name": "AGENTSYS-gpu-270b87",
   "job_dir": "/abs/path/workspace/.houmao/jobs/cao-rest-1",
-  "parsing_mode": "shadow_only",
-  "gateway_root": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway",
-  "gateway_attach_path": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway/attach.json"
+  "parsing_mode": "shadow_only"
 }
 ```
 

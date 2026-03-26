@@ -18,7 +18,7 @@ Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the canon
 Authority boundaries:
 
 - `manifest.json` is the runtime's durable session record.
-- `gateway/attach.json` describes attachability for the same logical session.
+- `gateway/attach.json` is internal bootstrap state for the same logical session.
 - `gateway/state.json` is the last known gateway status contract.
 - `gateway/run/` is ephemeral live-instance state.
 
@@ -29,12 +29,8 @@ For tmux-backed sessions, the runtime publishes discovery pointers into tmux ses
 Core runtime pointers:
 
 - `AGENTSYS_MANIFEST_PATH`
+- `AGENTSYS_AGENT_ID`
 - `AGENTSYS_AGENT_DEF_DIR`
-
-Stable gateway-capability pointers:
-
-- `AGENTSYS_GATEWAY_ATTACH_PATH`
-- `AGENTSYS_GATEWAY_ROOT`
 
 Live gateway pointers, present only while a gateway is attached:
 
@@ -45,7 +41,7 @@ Live gateway pointers, present only while a gateway is attached:
 
 Important rule:
 
-- tmux env helps the runtime rediscover a session quickly, but the manifest and validated gateway artifacts remain the durable source of truth.
+- tmux env helps the runtime rediscover a session quickly, but the manifest and validated live gateway artifacts remain the durable source of truth.
 
 ## Manifest Persistence
 

@@ -2,73 +2,35 @@
   "$defs": {
     "RegistryGatewayV1": {
       "additionalProperties": false,
-      "description": "Stable and live gateway metadata published into the registry.",
+      "description": "Optional live gateway connect metadata published into the registry.",
       "properties": {
-        "attach_path": {
-          "title": "Attach Path",
-          "type": "string"
-        },
-        "gateway_root": {
-          "title": "Gateway Root",
-          "type": "string"
-        },
         "host": {
-          "anyOf": [
-            {
-              "enum": [
-                "127.0.0.1",
-                "0.0.0.0"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
+          "enum": [
+            "127.0.0.1",
+            "0.0.0.0"
           ],
-          "default": null,
-          "title": "Host"
+          "title": "Host",
+          "type": "string"
         },
         "port": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Port"
+          "title": "Port",
+          "type": "integer"
         },
         "protocol_version": {
-          "anyOf": [
-            {
-              "const": "v1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Protocol Version"
+          "const": "v1",
+          "title": "Protocol Version",
+          "type": "string"
         },
         "state_path": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "State Path"
+          "title": "State Path",
+          "type": "string"
         }
       },
       "required": [
-        "gateway_root",
-        "attach_path"
+        "host",
+        "port",
+        "state_path",
+        "protocol_version"
       ],
       "title": "RegistryGatewayV1",
       "type": "object"

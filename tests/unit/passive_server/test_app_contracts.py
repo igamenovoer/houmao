@@ -298,8 +298,6 @@ def _agent_with_gateway(
 
     record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
     record.gateway = RegistryGatewayV1(
-        gateway_root="/tmp/gw",
-        attach_path="/tmp/gw/attach.json",
         host=gateway_host,  # type: ignore[arg-type]
         port=gateway_port,
         state_path="/tmp/gw/state.json",

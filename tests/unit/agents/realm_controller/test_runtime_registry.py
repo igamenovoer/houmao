@@ -154,7 +154,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert started_record is not None
     assert started_record.agent_name == "gpu"
     assert started_record.generation_id == controller.registry_generation_id
-    assert started_record.gateway is not None
+    assert started_record.gateway is None
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["registry_generation_id"] == controller.registry_generation_id
@@ -488,5 +488,4 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
 
     detached_record = resolve_live_agent_record("gpu")
     assert detached_record is not None
-    assert detached_record.gateway is not None
-    assert detached_record.gateway.host is None
+    assert detached_record.gateway is None

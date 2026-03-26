@@ -40,6 +40,7 @@ from .backends.cao_rest import (
 from .backends.houmao_server_rest import HoumaoServerRestSession
 from .boundary_models import (
     RegistryLaunchAuthorityV1,
+    SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV3,
     SessionManifestPayloadV4,
 )
@@ -96,9 +97,11 @@ from .gateway_models import (
     default_gateway_execution_mode_for_backend,
 )
 from .gateway_storage import (
+    AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    AGENT_GATEWAY_ROOT_ENV_VAR,
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     GatewayCapabilityPublication,
     GatewayPaths,
@@ -114,7 +117,6 @@ from .gateway_storage import (
     load_gateway_desired_config,
     load_gateway_status,
     publish_live_gateway_env,
-    publish_stable_gateway_env,
     read_pid_file,
     refresh_gateway_manifest_publication,
     write_attach_contract,
@@ -182,6 +184,8 @@ from .registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
 )
+from houmao.server.client import HoumaoServerClient
+from houmao.server.models import HoumaoRegisterLaunchRequest
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {
@@ -448,6 +452,51 @@ class RuntimeSessionController:
         self.persist_manifest()
         return refreshed
 
+    def relaunch(self) -> SessionControlResult:
+        """Relaunch the tmux-backed managed-agent surface without rebuilding the home."""
+
+        self._reset_operation_warnings()
+        authority = _resolve_manifest_relaunch_authority(self)
+        if authority.primary_window_index != _PRIMARY_AGENT_WINDOW_INDEX:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Manifest relaunch authority is invalid because the primary window index "
+                    f"is `{authority.primary_window_index}` instead of `{_PRIMARY_AGENT_WINDOW_INDEX}`."
+                ),
+            )
+
+        session_name = _tmux_session_name_for_controller(self)
+        if session_name is None or session_name.strip() != authority.tmux_session_name:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Manifest relaunch authority is stale because the controller tmux session "
+                    f"`{session_name}` does not match the persisted relaunch session "
+                    f"`{authority.tmux_session_name}`."
+                ),
+            )
+
+        result = _relaunch_backend_session(self)
+        if result.status != "ok":
+            self.persist_manifest()
+            return result
+
+        try:
+            _refresh_pair_launch_registration(self)
+        except SessionManifestError as exc:
+            self.persist_manifest()
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        self.persist_manifest()
+        return result
+
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         """Persist current backend state to session manifest."""
 
@@ -514,12 +563,6 @@ class RuntimeSessionController:
                 blueprint_gateway_defaults=blueprint_gateway_defaults,
             )
         )
-        publish_stable_gateway_env(
-            session_name=session_name,
-            attach_path=paths.attach_path,
-            gateway_root=paths.gateway_root,
-            set_env=set_tmux_session_environment_shared,
-        )
         stable_discovery_env = {
             AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
         }
@@ -529,6 +572,17 @@ class RuntimeSessionController:
             session_name=session_name,
             env_vars=stable_discovery_env,
         )
+        if has_tmux_session_shared(session_name=session_name).returncode == 0:
+            try:
+                unset_tmux_session_environment_shared(
+                    session_name=session_name,
+                    variable_names=[
+                        AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+                        AGENT_GATEWAY_ROOT_ENV_VAR,
+                    ],
+                )
+            except TmuxCommandError:
+                pass
         self.gateway_root = paths.gateway_root
         self.gateway_attach_path = paths.attach_path
         self.refresh_shared_registry_record()
@@ -1219,17 +1273,23 @@ def _resume_headless_state(
         raise SessionManifestError(
             "Headless resume requires a non-empty headless.session_id after turn 0"
         )
-    tmux_session_name = payload.backend_state.get("tmux_session_name")
-    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
         raise SessionManifestError(
-            "Headless resume requires non-empty backend_state.tmux_session_name"
+            "Headless resume requires a non-empty tmux session authority."
         )
 
     return HeadlessSessionState(
         session_id=session_id.strip() if session_id else None,
-        turn_index=turn_index,
-        role_bootstrap_applied=headless.role_bootstrap_applied,
-        working_directory=headless.working_directory or str(launch_plan.working_directory),
+        turn_index=_manifest_interactive_turn_index(payload, fallback=turn_index),
+        role_bootstrap_applied=_manifest_interactive_role_bootstrap_applied(
+            payload,
+            fallback=headless.role_bootstrap_applied,
+        ),
+        working_directory=_manifest_interactive_working_directory(
+            payload,
+            fallback=headless.working_directory or str(launch_plan.working_directory),
+        ),
         tmux_session_name=tmux_session_name.strip(),
     )
 
@@ -1248,18 +1308,22 @@ def _resume_local_interactive_state(
             "Local interactive session manifest missing `local_interactive` state"
         )
 
-    tmux_session_name = payload.backend_state.get("tmux_session_name")
-    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
         raise SessionManifestError(
-            "Local interactive resume requires non-empty backend_state.tmux_session_name"
+            "Local interactive resume requires a non-empty tmux session authority."
         )
 
     return HeadlessSessionState(
         session_id=None,
-        turn_index=local_interactive.turn_index,
-        role_bootstrap_applied=local_interactive.role_bootstrap_applied,
-        working_directory=(
-            local_interactive.working_directory or str(launch_plan.working_directory)
+        turn_index=_manifest_interactive_turn_index(payload, fallback=local_interactive.turn_index),
+        role_bootstrap_applied=_manifest_interactive_role_bootstrap_applied(
+            payload,
+            fallback=local_interactive.role_bootstrap_applied,
+        ),
+        working_directory=_manifest_interactive_working_directory(
+            payload,
+            fallback=local_interactive.working_directory or str(launch_plan.working_directory),
         ),
         tmux_session_name=tmux_session_name.strip(),
     )
@@ -1271,6 +1335,208 @@ def _require_session_manifest_path(
     if session_manifest_path is None:
         raise SessionManifestError(f"backend={backend} requires a resolved session manifest path.")
     return session_manifest_path.resolve()
+
+
+def _manifest_tmux_session_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized tmux session name from one parsed manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+        return payload.tmux.session_name
+    return payload.tmux_session_name
+
+
+def _manifest_interactive_turn_index(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: int,
+) -> int:
+    """Return the normalized interactive turn index for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.turn_index
+    return fallback
+
+
+def _manifest_interactive_working_directory(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: str,
+) -> str:
+    """Return the normalized interactive working directory for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        value = payload.interactive.working_directory
+        if value is not None and value.strip():
+            return value
+    return fallback
+
+
+def _manifest_interactive_role_bootstrap_applied(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: bool,
+) -> bool:
+    """Return the normalized role-bootstrap flag for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        value = payload.interactive.role_bootstrap_applied
+        if value is not None:
+            return value
+    return fallback
+
+
+def _manifest_interactive_terminal_id(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized interactive terminal id for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.terminal_id
+    return None
+
+
+def _manifest_interactive_parsing_mode(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> CaoParsingMode | None:
+    """Return the normalized interactive parsing mode for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.parsing_mode
+    return None
+
+
+def _manifest_interactive_tmux_window_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized interactive tmux window name for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.tmux_window_name
+    return None
+
+
+def _manifest_pair_managed_agent_ref(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized pair-managed session alias for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.gateway_authority is not None:
+        return payload.gateway_authority.attach.managed_agent_ref
+    if payload.houmao_server is not None:
+        return payload.houmao_server.session_name
+    return None
+
+
+def _optional_backend_state_str(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    key: str,
+) -> str | None:
+    """Return one normalized optional backend_state string."""
+
+    value = payload.backend_state.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _resolve_manifest_relaunch_authority(
+    controller: RuntimeSessionController,
+) -> SessionManifestAgentLaunchAuthorityV1:
+    """Load and validate the relaunch authority for one tmux-backed controller."""
+
+    handle = load_session_manifest(controller.manifest_path)
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    if (
+        isinstance(payload, SessionManifestPayloadV4)
+        and payload.agent_launch_authority is not None
+    ):
+        return payload.agent_launch_authority
+
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
+        raise SessionManifestError(
+            f"Manifest `{handle.path}` is missing tmux-backed relaunch authority."
+        )
+    return SessionManifestAgentLaunchAuthorityV1(
+        backend=payload.backend,
+        tool=payload.tool,
+        tmux_session_name=tmux_session_name,
+        primary_window_index=_PRIMARY_AGENT_WINDOW_INDEX,
+        working_directory=payload.working_directory,
+        session_id=(
+            payload.runtime.session_id
+            if isinstance(payload, SessionManifestPayloadV4)
+            else _runtime_session_id_from_manifest_path(handle.path)
+        ),
+        profile_name=(
+            payload.cao.profile_name
+            if payload.cao is not None
+            else _optional_backend_state_str(payload, "profile_name")
+        ),
+        profile_path=(
+            payload.cao.profile_path
+            if payload.cao is not None
+            else _optional_backend_state_str(payload, "profile_path")
+        ),
+    )
+
+
+def _relaunch_backend_session(controller: RuntimeSessionController) -> SessionControlResult:
+    """Dispatch the shared relaunch primitive across supported tmux-backed backends."""
+
+    backend_session = controller.backend_session
+    if isinstance(backend_session, HoumaoServerRestSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, LocalInteractiveSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, HeadlessInteractiveSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, CaoRestSession):
+        return backend_session.relaunch()
+    return SessionControlResult(
+        status="error",
+        action="relaunch",
+        detail=(
+            f"backend={controller.launch_plan.backend!r} does not support tmux-backed relaunch."
+        ),
+    )
+
+
+def _refresh_pair_launch_registration(controller: RuntimeSessionController) -> None:
+    """Refresh the pair launch registration after a successful local relaunch."""
+
+    if controller.launch_plan.backend != "houmao_server_rest":
+        return
+    backend_session = controller.backend_session
+    if not isinstance(backend_session, HoumaoServerRestSession):
+        raise SessionManifestError(
+            "Pair-backed relaunch completed without a houmao_server_rest backend session."
+        )
+
+    state = backend_session.state
+    client = HoumaoServerClient(state.api_base_url)
+    try:
+        client.register_launch(
+            HoumaoRegisterLaunchRequest(
+                session_name=state.session_name,
+                terminal_id=state.terminal_id,
+                tool=controller.launch_plan.tool,
+                manifest_path=str(controller.manifest_path),
+                session_root=str(controller.manifest_path.parent),
+                agent_name=controller.agent_identity,
+                agent_id=controller.agent_id,
+                tmux_session_name=controller.tmux_session_name or state.session_name,
+                tmux_window_name=state.tmux_window_name,
+            )
+        )
+    except Exception as exc:
+        raise SessionManifestError(
+            "Pair-managed relaunch succeeded locally, but failed to refresh the owning "
+            f"`houmao-server` registration: {exc}"
+        ) from exc
 
 
 def _resume_cao_state(
@@ -1288,8 +1554,16 @@ def _resume_cao_state(
         raise SessionManifestError("CAO session manifest missing or blank cao.api_base_url")
 
     terminal_id = cao.terminal_id.strip()
+    normalized_terminal_id = _manifest_interactive_terminal_id(payload)
+    if normalized_terminal_id is not None:
+        normalized_terminal_id = normalized_terminal_id.strip()
     if not terminal_id:
         raise SessionManifestError("CAO session manifest missing or blank cao.terminal_id")
+    if normalized_terminal_id is not None and terminal_id != normalized_terminal_id:
+        raise SessionManifestError(
+            "CAO session manifest terminal_id mismatch: "
+            "cao.terminal_id must equal interactive.terminal_id"
+        )
 
     session_name = cao.session_name.strip()
     if not session_name:
@@ -1304,6 +1578,12 @@ def _resume_cao_state(
         raise SessionManifestError("CAO session manifest missing or blank cao.profile_path")
 
     parsing_mode = cao.parsing_mode
+    normalized_parsing_mode = _manifest_interactive_parsing_mode(payload)
+    if normalized_parsing_mode is not None and parsing_mode != normalized_parsing_mode:
+        raise SessionManifestError(
+            "CAO session manifest parsing_mode mismatch: "
+            "cao.parsing_mode must equal interactive.parsing_mode"
+        )
 
     backend_api_base_url = payload.backend_state.get("api_base_url")
     if not isinstance(backend_api_base_url, str) or not backend_api_base_url.strip():
@@ -1316,35 +1596,45 @@ def _resume_cao_state(
             "cao.api_base_url must equal backend_state.api_base_url"
         )
     backend_parsing_mode = payload.backend_state.get("parsing_mode")
-    if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
-        raise SessionManifestError(
-            "CAO session manifest missing or blank backend_state.parsing_mode"
-        )
-    if parsing_mode != backend_parsing_mode.strip():
+    if normalized_parsing_mode is None:
+        if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
+            raise SessionManifestError(
+                "CAO session manifest missing or blank backend_state.parsing_mode"
+            )
+        normalized_parsing_mode = cast(CaoParsingMode, backend_parsing_mode.strip())
+    if parsing_mode != normalized_parsing_mode:
         raise SessionManifestError(
             "CAO session manifest parsing_mode mismatch: "
-            "cao.parsing_mode must equal backend_state.parsing_mode"
+            "cao.parsing_mode must equal normalized interactive parsing mode"
         )
 
-    tmux_window_name: str | None = None
-    if cao.tmux_window_name is not None:
-        tmux_window_name = cao.tmux_window_name.strip()
-
-    backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
-    if backend_tmux_window_name is not None:
-        if not isinstance(backend_tmux_window_name, str) or not backend_tmux_window_name.strip():
-            raise SessionManifestError(
-                "CAO session manifest backend_state.tmux_window_name must be a "
-                "non-empty string when present"
-            )
-        resolved_backend_tmux_window_name = backend_tmux_window_name.strip()
+    tmux_window_name = cao.tmux_window_name.strip() if cao.tmux_window_name is not None else None
+    normalized_tmux_window_name = _manifest_interactive_tmux_window_name(payload)
+    if normalized_tmux_window_name is not None:
+        normalized_tmux_window_name = normalized_tmux_window_name.strip()
         if tmux_window_name is None:
-            tmux_window_name = resolved_backend_tmux_window_name
-        elif tmux_window_name != resolved_backend_tmux_window_name:
+            tmux_window_name = normalized_tmux_window_name
+        elif tmux_window_name != normalized_tmux_window_name:
             raise SessionManifestError(
                 "CAO session manifest tmux_window_name mismatch: "
-                "cao.tmux_window_name must equal backend_state.tmux_window_name"
+                "cao.tmux_window_name must equal interactive.tmux_window_name"
             )
+    else:
+        backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
+        if backend_tmux_window_name is not None:
+            if not isinstance(backend_tmux_window_name, str) or not backend_tmux_window_name.strip():
+                raise SessionManifestError(
+                    "CAO session manifest backend_state.tmux_window_name must be a "
+                    "non-empty string when present"
+                )
+            resolved_backend_tmux_window_name = backend_tmux_window_name.strip()
+            if tmux_window_name is None:
+                tmux_window_name = resolved_backend_tmux_window_name
+            elif tmux_window_name != resolved_backend_tmux_window_name:
+                raise SessionManifestError(
+                    "CAO session manifest tmux_window_name mismatch: "
+                    "cao.tmux_window_name must equal backend_state.tmux_window_name"
+                )
 
     return CaoSessionState(
         api_base_url=persisted_api_base_url,
@@ -1375,15 +1665,31 @@ def _resume_houmao_server_state(
         )
 
     terminal_id = houmao_server.terminal_id.strip()
+    normalized_terminal_id = _manifest_interactive_terminal_id(payload)
+    if normalized_terminal_id is not None:
+        normalized_terminal_id = normalized_terminal_id.strip()
     if not terminal_id:
         raise SessionManifestError(
             "houmao-server session manifest missing or blank houmao_server.terminal_id"
         )
+    if normalized_terminal_id is not None and terminal_id != normalized_terminal_id:
+        raise SessionManifestError(
+            "houmao-server session manifest terminal_id mismatch: "
+            "houmao_server.terminal_id must equal interactive.terminal_id"
+        )
 
     session_name = houmao_server.session_name.strip()
+    normalized_session_name = _manifest_pair_managed_agent_ref(payload)
+    if normalized_session_name is not None:
+        normalized_session_name = normalized_session_name.strip()
     if not session_name:
         raise SessionManifestError(
             "houmao-server session manifest missing or blank houmao_server.session_name"
+        )
+    if normalized_session_name is not None and session_name != normalized_session_name:
+        raise SessionManifestError(
+            "houmao-server session manifest session_name mismatch: "
+            "houmao_server.session_name must equal gateway_authority.attach.managed_agent_ref"
         )
 
     backend_api_base_url = payload.backend_state.get("api_base_url")
@@ -1397,15 +1703,18 @@ def _resume_houmao_server_state(
             "houmao_server.api_base_url must equal backend_state.api_base_url"
         )
 
-    backend_parsing_mode = payload.backend_state.get("parsing_mode")
-    if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
-        raise SessionManifestError(
-            "houmao-server session manifest missing or blank backend_state.parsing_mode"
-        )
-    if houmao_server.parsing_mode != backend_parsing_mode.strip():
+    normalized_parsing_mode = _manifest_interactive_parsing_mode(payload)
+    if normalized_parsing_mode is None:
+        backend_parsing_mode = payload.backend_state.get("parsing_mode")
+        if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
+            raise SessionManifestError(
+                "houmao-server session manifest missing or blank backend_state.parsing_mode"
+            )
+        normalized_parsing_mode = cast(CaoParsingMode, backend_parsing_mode.strip())
+    if houmao_server.parsing_mode != normalized_parsing_mode:
         raise SessionManifestError(
             "houmao-server session manifest parsing_mode mismatch: "
-            "houmao_server.parsing_mode must equal backend_state.parsing_mode"
+            "houmao_server.parsing_mode must equal normalized interactive parsing mode"
         )
 
     profile_name = str(payload.backend_state.get("profile_name", "houmao-server")).strip()
@@ -1421,9 +1730,11 @@ def _resume_houmao_server_state(
         terminal_id=terminal_id,
         profile_name=profile_name,
         profile_path=profile_path,
-        tmux_window_name=houmao_server.tmux_window_name,
+        tmux_window_name=(
+            _manifest_interactive_tmux_window_name(payload) or houmao_server.tmux_window_name
+        ),
         parsing_mode=houmao_server.parsing_mode,
-        turn_index=houmao_server.turn_index,
+        turn_index=_manifest_interactive_turn_index(payload, fallback=houmao_server.turn_index),
     )
 
 
@@ -2160,35 +2471,28 @@ def _build_shared_registry_record_for_controller(
 def _shared_registry_gateway_payload(
     controller: RuntimeSessionController,
 ) -> RegistryGatewayV1 | None:
-    """Build stable and live gateway metadata for registry publication."""
+    """Build optional live gateway connect metadata for registry publication."""
 
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
-    if paths is None or not paths.attach_path.is_file():
+    if paths is None:
         return None
-
-    host: str | None = None
-    port: int | None = None
-    state_path: str | None = None
-    protocol_version: GatewayProtocolVersion | None = None
 
     if paths.current_instance_path.is_file():
         try:
             current_instance = load_gateway_current_instance(paths.current_instance_path)
         except SessionManifestError:
             current_instance = None
-        if current_instance is not None:
-            host = current_instance.host
-            port = current_instance.port
-            state_path = str(paths.state_path.resolve())
-            protocol_version = current_instance.protocol_version
+    else:
+        current_instance = None
+
+    if current_instance is None:
+        return None
 
     return RegistryGatewayV1(
-        gateway_root=str(paths.gateway_root.resolve()),
-        attach_path=str(paths.attach_path.resolve()),
-        host=cast(GatewayHost | None, host),
-        port=port,
-        state_path=state_path,
-        protocol_version=protocol_version,
+        host=cast(GatewayHost, current_instance.host),
+        port=current_instance.port,
+        state_path=str(paths.state_path.resolve()),
+        protocol_version=current_instance.protocol_version,
     )
 
 

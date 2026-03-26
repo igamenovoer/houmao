@@ -9,7 +9,7 @@ from houmao.cao.rest_client import CaoRestClient
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.client import HoumaoServerClient
 
-from ..models import CaoParsingMode, LaunchPlan
+from ..models import CaoParsingMode, LaunchPlan, SessionControlResult
 from .cao_rest import CaoRestSession, CaoSessionState
 
 
@@ -94,4 +94,25 @@ class HoumaoServerRestSession(CaoRestSession):
         _ensure_required_executable(
             executable=self._plan.executable,
             flow=f"pair-backed `{self._plan.tool}` flow",
+        )
+
+    def relaunch(self) -> SessionControlResult:
+        """Recreate the pair-managed terminal on the stable tmux window `0` surface."""
+
+        try:
+            new_terminal_id = self._relaunch_existing_terminal(primary_window_index="0")
+        except BackendExecutionError as exc:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        return SessionControlResult(
+            status="ok",
+            action="relaunch",
+            detail=(
+                "Pair-managed terminal relaunched on tmux window `0` without rebuilding the "
+                f"agent home (terminal_id={new_terminal_id})."
+            ),
         )

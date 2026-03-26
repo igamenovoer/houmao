@@ -182,8 +182,8 @@ Important attach behavior:
 For pair-managed `houmao_server_rest` sessions, operators normally reach this route through `houmao-mgr agents gateway attach`.
 
 - explicit mode resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first and then calls the managed-agent gateway attach route
-- current-session mode runs inside the target tmux session, validates `AGENTSYS_GATEWAY_ATTACH_PATH` plus `AGENTSYS_GATEWAY_ROOT`, requires a readable `houmao_server_rest` attach contract, and uses its persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` as the authoritative route target
-- current-session attach is not ready until the delegated launch has both published stable gateway capability and completed managed-agent registration on that same persisted server
+- current-session mode runs inside the target tmux session, resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID`, requires a `houmao_server_rest` manifest authority, and uses its persisted `gateway_authority.attach.api_base_url` plus `gateway_authority.attach.managed_agent_ref` as the authoritative route target
+- current-session attach is not ready until the delegated launch has completed managed-agent registration on that same persisted server
 - for same-session `houmao_server_rest` attach, tmux window `0` remains the contractual agent surface while any non-zero auxiliary gateway window remains implementation detail except for the exact live handle recorded in `gateway/run/current-instance.json`
 
 `POST /houmao/agents/{agent_ref}/gateway/detach` removes the live sidecar when one is attached and returns the updated gateway status. The managed agent remains gateway-capable after detach because stable attach metadata stays in place.

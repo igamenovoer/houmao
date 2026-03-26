@@ -420,6 +420,30 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
     )
 
 
+def relaunch_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionResponse:
+    """Relaunch one tmux-backed managed agent through the resolved runtime authority."""
+
+    if target.mode == "server":
+        if target.record is None:
+            raise click.ClickException(
+                "Managed-agent relaunch requires local manifest authority on the owning host. "
+                "This target is only resolvable through pair HTTP metadata."
+            )
+        controller = _resume_controller_from_record(target.record)
+        tracked_agent_id = target.identity.tracked_agent_id
+    else:
+        assert target.controller is not None
+        controller = target.controller
+        tracked_agent_id = target.identity.tracked_agent_id
+
+    result = controller.relaunch()
+    return HoumaoManagedAgentActionResponse(
+        success=result.status == "ok",
+        tracked_agent_id=tracked_agent_id,
+        detail=result.detail,
+    )
+
+
 def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Return gateway status for one managed agent."""
 

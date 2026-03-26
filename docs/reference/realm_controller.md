@@ -16,6 +16,8 @@ For the new detailed reference trees, use:
 - [Mailbox Reference](./mailbox/index.md) for filesystem mailbox behavior and managed mailbox flows.
 - [Mailbox Roundtrip Tutorial Pack](../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md) for the explicit two-agent CAO-backed walkthrough that ties `build-brain`, `start-session`, `mail send/check/reply`, and `stop-session` together.
 
+This page is now a legacy runtime-local reference. Supported operator guidance for managed agents should prefer [`houmao-mgr`](./cli.md) and [`houmao-server`](./houmao_server_pair.md).
+
 ## CLI Entry Point
 
 Use the module CLI:
@@ -65,11 +67,12 @@ New runtime-owned tmux-backed sessions now publish gateway capability by default
 
 Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical session-root, nested `gateway/`, and `job_dir` filesystem map. This page keeps the gateway overview short so those details live in one place.
 
-- The tmux session environment publishes stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
+- The tmux session environment publishes stable managed-agent discovery through `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`.
 - When a live gateway is attached, tmux also publishes `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`.
 - `state.json` is seeded under the gateway root before the first live attach and returns to the offline or not-attached state on graceful detach.
 - Blueprint `gateway.host` and `gateway.port` act only as listener defaults for attach actions; they do not start a live gateway by themselves, and unknown gateway keys are rejected during blueprint load.
 - If no gateway port override or default is supplied, attach requests a system-assigned port during gateway startup and then persists the actual bound port for later re-attach or restart.
+- `gateway/attach.json` remains an internal runtime bootstrap artifact, not part of the supported external discovery contract.
 
 Launch-time auto-attach is optional:
 
@@ -392,8 +395,8 @@ Behavior:
   the session strictly from the persisted manifest (`cao.api_base_url`,
   `cao.terminal_id`) after resolving `--agent-identity`; there is no resume-time
   `--cao-base-url` override.
-- For gateway-aware CAO operations (`attach-gateway`, `detach-gateway`, `gateway-status`, `gateway-send-prompt`, `gateway-interrupt`), runtime validates the stable attach pointers plus the live gateway bindings and then uses `GET /health` as the authoritative liveness check before trusting a live gateway instance.
-- `gateway-status` reads the live `GET /v1/status` contract when a live gateway is attached and otherwise falls back to the seeded `state.json` snapshot under `AGENTSYS_GATEWAY_ROOT`.
+- For gateway-aware CAO operations (`attach-gateway`, `detach-gateway`, `gateway-status`, `gateway-send-prompt`, `gateway-interrupt`), runtime validates manifest-owned gateway capability plus the live gateway bindings and then uses `GET /health` as the authoritative liveness check before trusting a live gateway instance.
+- `gateway-status` reads the live `GET /v1/status` contract when a live gateway is attached and otherwise falls back to the seeded `state.json` snapshot under the session-owned `gateway/` subtree.
 - `send-prompt` remains the high-level prompt-turn path. It waits for readiness/completion, uses the configured parsing mode, and advances persisted turn state.
 - `gateway-send-prompt` and `gateway-interrupt` route through `POST /v1/requests` and return accepted queue records instead of waiting for turn completion.
 - `send-keys` is CAO-only in the first release. It resolves the tmux target from persisted CAO session state, reuses `cao.tmux_window_name` when available, falls back to live `GET /terminals/{id}` metadata when older manifests do not yet persist the window name, and returns one JSON control result immediately after delivery.

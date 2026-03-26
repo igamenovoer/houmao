@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from houmao.agents.realm_controller.boundary_models import (
+    SessionManifestGatewayEndpointAuthorityV1,
     SessionManifestPayloadV3,
     SessionManifestPayloadV4,
 )
@@ -65,6 +66,58 @@ def resolve_manifest_session_authority(
 ) -> ManifestSessionAuthority:
     """Normalize gateway attach and control authority from one parsed manifest."""
 
+    if isinstance(payload, SessionManifestPayloadV4) and payload.gateway_authority is not None:
+        attach = _authority_from_v4_endpoint(payload.gateway_authority.attach)
+        control = _authority_from_v4_endpoint(payload.gateway_authority.control)
+    else:
+        attach, control = _legacy_manifest_authority(
+            manifest_path=manifest_path,
+            payload=payload,
+        )
+
+    return ManifestSessionAuthority(
+        manifest_path=manifest_path.resolve(),
+        backend=payload.backend,
+        tool=payload.tool,
+        tmux_session_name=_manifest_tmux_session_name(payload),
+        agent_name=payload.agent_name,
+        agent_id=payload.agent_id,
+        attach=attach,
+        control=control,
+    )
+
+
+def _manifest_tmux_session_name(payload: SessionManifestPayloadV3 | SessionManifestPayloadV4) -> str | None:
+    """Return the normalized tmux session name for one parsed manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+        return payload.tmux.session_name
+    return payload.tmux_session_name
+
+
+def _authority_from_v4_endpoint(
+    endpoint: SessionManifestGatewayEndpointAuthorityV1,
+) -> ManifestGatewayAuthority:
+    """Convert one v4 gateway authority endpoint into the normalized dataclass."""
+
+    return ManifestGatewayAuthority(
+        api_base_url=endpoint.api_base_url,
+        managed_agent_ref=endpoint.managed_agent_ref,
+        terminal_id=endpoint.terminal_id,
+        profile_name=endpoint.profile_name,
+        profile_path=endpoint.profile_path,
+        parsing_mode=endpoint.parsing_mode,
+        tmux_window_name=endpoint.tmux_window_name,
+    )
+
+
+def _legacy_manifest_authority(
+    *,
+    manifest_path: Path,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> tuple[ManifestGatewayAuthority, ManifestGatewayAuthority]:
+    """Return normalized authority from legacy backend-specific manifest sections."""
+
     if payload.backend == "cao_rest":
         if payload.cao is None:
             raise SessionManifestError(
@@ -78,7 +131,9 @@ def resolve_manifest_session_authority(
             parsing_mode=payload.cao.parsing_mode,
             tmux_window_name=payload.cao.tmux_window_name,
         )
-    elif payload.backend == "houmao_server_rest":
+        return authority, authority
+
+    if payload.backend == "houmao_server_rest":
         if payload.houmao_server is None:
             raise SessionManifestError(
                 "Manifest "
@@ -92,16 +147,7 @@ def resolve_manifest_session_authority(
             parsing_mode=payload.houmao_server.parsing_mode,
             tmux_window_name=payload.houmao_server.tmux_window_name,
         )
-    else:
-        authority = ManifestGatewayAuthority()
+        return authority, authority
 
-    return ManifestSessionAuthority(
-        manifest_path=manifest_path.resolve(),
-        backend=payload.backend,
-        tool=payload.tool,
-        tmux_session_name=payload.tmux_session_name,
-        agent_name=payload.agent_name,
-        agent_id=payload.agent_id,
-        attach=authority,
-        control=authority,
-    )
+    authority = ManifestGatewayAuthority()
+    return authority, authority

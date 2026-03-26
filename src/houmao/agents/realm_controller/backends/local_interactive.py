@@ -182,6 +182,28 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
         self.terminate()
 
+    def relaunch(self) -> SessionControlResult:
+        """Respawn the provider TUI on the stable tmux window `0` surface."""
+
+        try:
+            self._launch_provider_surface()
+            self._apply_startup_bootstrap()
+        except BackendExecutionError as exc:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        return SessionControlResult(
+            status="ok",
+            action="relaunch",
+            detail=(
+                "Local interactive provider surface relaunched on tmux window `0` without "
+                "rebuilding the agent home."
+            ),
+        )
+
     def _launch_provider_surface(self) -> None:
         session_name = self._require_tmux_session_name()
         pane_target = headless_agent_pane_target_shared(session_name=session_name)
