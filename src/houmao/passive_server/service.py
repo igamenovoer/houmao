@@ -310,22 +310,24 @@ class PassiveServerService:
     ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
         """Interrupt an agent via gateway or, for managed headless, directly."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
+        managed_tracked_agent_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is not None:
+            return self.m_headless.interrupt_managed(managed_tracked_agent_id)
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
 
         agent_id = resolved.record.agent_id
-
-        # Check if this is a managed headless agent
-        if self.m_headless.is_managed(agent_id):
-            return self.m_headless.interrupt_managed(agent_id)
 
         # Otherwise try gateway
         client = self._gateway_client_for_agent(resolved)
         if client is None:
             return (
                 502,
-                {"detail": "No gateway attached and agent is not managed headless — cannot interrupt"},
+                {
+                    "detail": "No gateway attached and agent is not managed headless — cannot interrupt"
+                },
             )
         try:
             gw_payload = GatewayRequestCreateV1(
@@ -340,9 +342,7 @@ class PassiveServerService:
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 
-    def stop_agent(
-        self, agent_ref: str
-    ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
+    def stop_agent(self, agent_ref: str) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
         """Stop an agent by killing its tmux session and cleaning up.
 
         For managed headless agents, delegates full cleanup to
@@ -350,22 +350,18 @@ class PassiveServerService:
         direct tmux kill and registry cleanup.
         """
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
+        managed_tracked_agent_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is not None:
+            return self.m_headless.stop_managed(managed_tracked_agent_id)
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
 
         agent_id = resolved.record.agent_id
 
-        # Managed headless: delegate full lifecycle cleanup
-        if self.m_headless.is_managed(agent_id):
-            return self.m_headless.stop_managed(agent_id)
-
         # Discovered-only agent: kill tmux + clear registry
-        tmux_session = (
-            resolved.record.terminal.session_name
-            if resolved.record.terminal
-            else None
-        )
+        tmux_session = resolved.record.terminal.session_name if resolved.record.terminal else None
         if tmux_session:
             try:
                 kill_tmux_session(session_name=tmux_session)
@@ -399,60 +395,98 @@ class PassiveServerService:
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Submit a turn to a managed headless agent."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-
-        agent_id = resolved.record.agent_id
-        if not self.m_headless.is_managed(agent_id):
+        managed_tracked_agent_id, _resolved, error = self._resolve_managed_headless_target(
+            agent_ref
+        )
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
-        return self.m_headless.submit_turn(agent_id, payload.prompt)
+        return self.m_headless.submit_turn(managed_tracked_agent_id, payload.prompt)
 
     def turn_status(
         self, agent_ref: str, turn_id: str
     ) -> PassiveHeadlessTurnStatusResponse | tuple[int, dict[str, Any]]:
         """Return status of a headless turn."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-
-        agent_id = resolved.record.agent_id
-        if not self.m_headless.is_managed(agent_id):
+        managed_tracked_agent_id, _resolved, error = self._resolve_managed_headless_target(
+            agent_ref
+        )
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
-        return self.m_headless.turn_status(agent_id, turn_id)
+        return self.m_headless.turn_status(managed_tracked_agent_id, turn_id)
 
     def turn_events(
         self, agent_ref: str, turn_id: str
     ) -> PassiveHeadlessTurnEventsResponse | tuple[int, dict[str, Any]]:
         """Return structured events from a headless turn."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-
-        agent_id = resolved.record.agent_id
-        if not self.m_headless.is_managed(agent_id):
+        managed_tracked_agent_id, _resolved, error = self._resolve_managed_headless_target(
+            agent_ref
+        )
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
-        return self.m_headless.turn_events(agent_id, turn_id)
+        return self.m_headless.turn_events(managed_tracked_agent_id, turn_id)
 
     def turn_artifact_text(
         self, agent_ref: str, turn_id: str, name: str
     ) -> str | tuple[int, dict[str, Any]]:
         """Return text content of a turn artifact (stdout / stderr)."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-
-        agent_id = resolved.record.agent_id
-        if not self.m_headless.is_managed(agent_id):
+        managed_tracked_agent_id, _resolved, error = self._resolve_managed_headless_target(
+            agent_ref
+        )
+        if error is not None:
+            return error
+        if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
-        return self.m_headless.turn_artifact_text(agent_id, turn_id, name)
+        return self.m_headless.turn_artifact_text(managed_tracked_agent_id, turn_id, name)
+
+    def _resolve_managed_headless_target(
+        self, agent_ref: str
+    ) -> tuple[str | None, DiscoveredAgent | None, tuple[int, dict[str, Any]] | None]:
+        """Resolve one agent reference onto the authoritative managed headless id."""
+
+        direct_matches = self.m_headless.resolve_managed_matches(agent_ref)
+        if len(direct_matches) > 1:
+            return (
+                None,
+                None,
+                (409, {"detail": f"Ambiguous managed headless agent reference: {agent_ref}"}),
+            )
+        if len(direct_matches) == 1:
+            return (direct_matches[0], None, None)
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return (None, None, resolved)
+
+        discovered_matches = self.m_headless.resolve_managed_matches(resolved.record.agent_id)
+        if len(discovered_matches) > 1:
+            return (
+                None,
+                None,
+                (
+                    409,
+                    {
+                        "detail": (
+                            "Ambiguous managed headless agent reference after discovery "
+                            f"resolution: {resolved.record.agent_id}"
+                        )
+                    },
+                ),
+            )
+        if len(discovered_matches) == 1:
+            return (discovered_matches[0], resolved, None)
+        return (None, resolved, None)
 
     # -- agent TUI observation --------------------------------------------------
 

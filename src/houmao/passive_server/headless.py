@@ -7,27 +7,35 @@ startup rebuild.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
+)
+from houmao.agents.realm_controller.backends.headless_runner import (
+    load_headless_turn_events,
+    read_headless_turn_return_code,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     tmux_session_exists,
 )
+from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.registry_storage import (
+    publish_live_agent_record,
     remove_live_agent_record,
 )
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
+    resume_runtime_session,
     start_runtime_session,
 )
 from houmao.passive_server.config import PassiveServerConfig
@@ -86,7 +94,7 @@ class HeadlessAgentService:
     def __init__(self, config: PassiveServerConfig) -> None:
         self.m_config = config
         adapter = _StoreConfigAdapter(config.managed_agents_root)
-        self.m_store = ManagedHeadlessStore(config=adapter)  # type: ignore[arg-type]
+        self.m_store = ManagedHeadlessStore(config=adapter)
         self.m_handles: dict[str, _ManagedHeadlessHandle] = {}
         self.m_lock = threading.Lock()
 
@@ -108,50 +116,103 @@ class HeadlessAgentService:
     ) -> PassiveHeadlessLaunchResponse | tuple[int, dict[str, Any]]:
         """Launch a new headless agent and return its tracked identity."""
 
-        working_dir = Path(request.working_directory).resolve()
+        resolved_tool = request.tool.strip()
+        working_dir = Path(request.working_directory).expanduser().resolve()
         if not working_dir.is_dir():
-            return (400, {"detail": f"working_directory not found: {request.working_directory}"})
+            return (
+                422,
+                {
+                    "detail": "Native headless launch requires an existing working_directory directory."
+                },
+            )
 
-        agent_def_dir = Path(request.agent_def_dir).resolve()
+        agent_def_dir = Path(request.agent_def_dir).expanduser().resolve()
         if not agent_def_dir.is_dir():
-            return (400, {"detail": f"agent_def_dir not found: {request.agent_def_dir}"})
+            return (
+                422,
+                {"detail": "Native headless launch requires an existing agent_def_dir directory."},
+            )
 
-        manifest_path = Path(request.brain_manifest_path).resolve()
+        manifest_path = Path(request.brain_manifest_path).expanduser().resolve()
         if not manifest_path.is_file():
             return (
-                400,
-                {"detail": f"brain_manifest_path not found: {request.brain_manifest_path}"},
+                422,
+                {"detail": "Native headless launch requires an existing brain_manifest_path file."},
             )
 
-        backend = backend_for_tool(request.tool)
-        if backend not in _HEADLESS_BACKENDS:
+        resolved_role_name = None
+        if request.role_name is not None and request.role_name.strip():
+            resolved_role_name = request.role_name.strip()
+
+        try:
+            manifest = load_brain_manifest(manifest_path)
+            if resolved_role_name is not None:
+                load_role_package(agent_def_dir, resolved_role_name)
+        except (LaunchPlanError, SessionManifestError) as exc:
+            return (422, {"detail": str(exc)})
+
+        manifest_tool = str(manifest.get("inputs", {}).get("tool", "")).strip()
+        if manifest_tool != resolved_tool:
             return (
-                400,
-                {"detail": f"Unsupported backend for headless launch: {backend}"},
+                422,
+                {
+                    "detail": (
+                        "Native headless launch requires tool to match "
+                        f"brain_manifest_path inputs.tool; got request={resolved_tool!r} "
+                        f"manifest={manifest_tool!r}."
+                    )
+                },
             )
 
-        tracked_agent_id = uuid.uuid4().hex[:12]
-        now_utc = datetime.now(UTC).isoformat(timespec="seconds")
+        try:
+            resolved_backend = backend_for_tool(resolved_tool)
+        except LaunchPlanError as exc:
+            return (422, {"detail": str(exc)})
+        if resolved_backend not in _HEADLESS_BACKENDS:
+            return (
+                422,
+                {
+                    "detail": (
+                        f"Native headless launch for tool `{resolved_tool}` did not resolve to "
+                        "a supported headless backend."
+                    )
+                },
+            )
+        backend = cast(
+            Literal["claude_headless", "codex_headless", "gemini_headless"],
+            resolved_backend,
+        )
 
         mailbox_transport: str | None = None
         mailbox_root: Path | None = None
         mailbox_principal_id: str | None = None
         mailbox_address: str | None = None
+        mailbox_stalwart_base_url: str | None = None
+        mailbox_stalwart_jmap_url: str | None = None
+        mailbox_stalwart_management_url: str | None = None
+        mailbox_stalwart_login_identity: str | None = None
         if request.mailbox is not None:
             mailbox_transport = request.mailbox.transport
             mailbox_root = (
-                Path(request.mailbox.filesystem_root)
+                Path(request.mailbox.filesystem_root).expanduser().resolve()
                 if request.mailbox.filesystem_root
                 else None
             )
             mailbox_principal_id = request.mailbox.principal_id
             mailbox_address = request.mailbox.address
+            mailbox_stalwart_base_url = request.mailbox.stalwart_base_url
+            mailbox_stalwart_jmap_url = request.mailbox.stalwart_jmap_url
+            mailbox_stalwart_management_url = request.mailbox.stalwart_management_url
+            mailbox_stalwart_login_identity = request.mailbox.stalwart_login_identity
+
+        tracked_agent_id = uuid.uuid4().hex[:12]
+        now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
         try:
             controller = start_runtime_session(
                 agent_def_dir=agent_def_dir,
                 brain_manifest_path=manifest_path,
-                role_name=request.role_name,
+                role_name=resolved_role_name,
                 backend=backend,
                 working_directory=working_dir,
                 api_base_url=self.m_config.api_base_url,
@@ -161,24 +222,50 @@ class HeadlessAgentService:
                 mailbox_root=mailbox_root,
                 mailbox_principal_id=mailbox_principal_id,
                 mailbox_address=mailbox_address,
+                mailbox_stalwart_base_url=mailbox_stalwart_base_url,
+                mailbox_stalwart_jmap_url=mailbox_stalwart_jmap_url,
+                mailbox_stalwart_management_url=mailbox_stalwart_management_url,
+                mailbox_stalwart_login_identity=mailbox_stalwart_login_identity,
                 registry_launch_authority="external",
             )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            return (422, {"detail": str(exc)})
         except Exception as exc:
             log.error("Failed to start runtime session for headless agent: %s", exc)
             return (500, {"detail": f"Failed to start headless agent: {exc}"})
 
-        session_root = str(controller.job_dir) if controller.job_dir else str(working_dir)
+        try:
+            self._publish_controller_registry_record(controller)
+        except (OSError, SessionManifestError) as exc:
+            try:
+                controller.stop(force_cleanup=True)
+            except Exception:
+                log.warning(
+                    "Failed to rollback managed headless launch after shared-registry publish failure",
+                    exc_info=True,
+                )
+            return (
+                503,
+                {
+                    "detail": (
+                        f"Managed headless launch could not publish shared-registry state: {exc}"
+                    )
+                },
+            )
+
+        controller_manifest_path = controller.manifest_path.resolve()
+        session_root = str(controller_manifest_path.parent)
 
         authority = ManagedHeadlessAuthorityRecord(
             tracked_agent_id=tracked_agent_id,
-            backend=backend,  # type: ignore[arg-type]
-            tool=request.tool,
-            manifest_path=str(manifest_path),
+            backend=backend,
+            tool=resolved_tool,
+            manifest_path=str(controller_manifest_path),
             session_root=session_root,
             tmux_session_name=controller.tmux_session_name or tracked_agent_id,
             agent_def_dir=str(agent_def_dir),
-            agent_name=request.agent_name,
-            agent_id=request.agent_id or tracked_agent_id,
+            agent_name=controller.agent_identity,
+            agent_id=controller.agent_id,
             created_at_utc=now_utc,
             updated_at_utc=now_utc,
         )
@@ -191,14 +278,14 @@ class HeadlessAgentService:
         log.info(
             "Launched headless agent %s (tool=%s, backend=%s)",
             tracked_agent_id,
-            request.tool,
+            resolved_tool,
             backend,
         )
 
         return PassiveHeadlessLaunchResponse(
             tracked_agent_id=tracked_agent_id,
-            agent_name=request.agent_name or tracked_agent_id,
-            manifest_path=str(manifest_path),
+            agent_name=controller.agent_identity or tracked_agent_id,
+            manifest_path=str(controller_manifest_path),
             session_root=session_root,
             detail=f"Headless agent launched: {tracked_agent_id}",
         )
@@ -290,9 +377,7 @@ class HeadlessAgentService:
     ) -> PassiveHeadlessTurnStatusResponse | tuple[int, dict[str, Any]]:
         """Return the status of one turn."""
 
-        record = self.m_store.read_turn_record(
-            tracked_agent_id=tracked_agent_id, turn_id=turn_id
-        )
+        record = self.m_store.read_turn_record(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
         if record is None:
             return (404, {"detail": f"Turn not found: {turn_id}"})
 
@@ -313,11 +398,9 @@ class HeadlessAgentService:
     def turn_events(
         self, tracked_agent_id: str, turn_id: str
     ) -> PassiveHeadlessTurnEventsResponse | tuple[int, dict[str, Any]]:
-        """Return structured events from the turn's stdout artifact."""
+        """Return structured events from the turn's finalized stdout artifact."""
 
-        record = self.m_store.read_turn_record(
-            tracked_agent_id=tracked_agent_id, turn_id=turn_id
-        )
+        record = self.m_store.read_turn_record(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
         if record is None:
             return (404, {"detail": f"Turn not found: {turn_id}"})
 
@@ -326,36 +409,29 @@ class HeadlessAgentService:
             stdout_path = Path(record.stdout_path)
             if stdout_path.is_file():
                 try:
-                    text = stdout_path.read_text(encoding="utf-8", errors="replace")
-                    for i, line in enumerate(text.splitlines()):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            payload = json.loads(line)
-                            entries.append(
-                                HoumaoHeadlessTurnEvent(
-                                    kind=payload.get("type", "output"),
-                                    message=payload.get("message", line),
-                                    turn_index=record.turn_index,
-                                    timestamp_utc=payload.get(
-                                        "timestamp",
-                                        record.started_at_utc,
-                                    ),
-                                    payload=payload,
-                                )
+                    events = load_headless_turn_events(
+                        stdout_path=stdout_path,
+                        output_format=self._headless_output_format(
+                            tracked_agent_id=tracked_agent_id
+                        ),
+                        turn_index=record.turn_index,
+                    )
+                    for event in events:
+                        entries.append(
+                            HoumaoHeadlessTurnEvent(
+                                kind=event.kind,
+                                message=event.message,
+                                turn_index=event.turn_index,
+                                timestamp_utc=event.timestamp_utc,
+                                payload=event.payload,
                             )
-                        except (json.JSONDecodeError, TypeError):
-                            entries.append(
-                                HoumaoHeadlessTurnEvent(
-                                    kind="output",
-                                    message=line,
-                                    turn_index=record.turn_index,
-                                    timestamp_utc=record.started_at_utc,
-                                )
-                            )
-                except OSError:
-                    pass
+                        )
+                except (OSError, RuntimeError, ValueError):
+                    log.warning(
+                        "Failed to load persisted headless turn events for %s/%s",
+                        tracked_agent_id,
+                        turn_id,
+                    )
 
         return PassiveHeadlessTurnEventsResponse(
             tracked_agent_id=tracked_agent_id,
@@ -368,9 +444,7 @@ class HeadlessAgentService:
     ) -> str | tuple[int, dict[str, Any]]:
         """Return the text content of a named turn artifact (stdout / stderr)."""
 
-        record = self.m_store.read_turn_record(
-            tracked_agent_id=tracked_agent_id, turn_id=turn_id
-        )
+        record = self.m_store.read_turn_record(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
         if record is None:
             return (404, {"detail": f"Turn not found: {turn_id}"})
 
@@ -479,6 +553,35 @@ class HeadlessAgentService:
         with self.m_lock:
             return tracked_agent_id in self.m_handles
 
+    def resolve_managed_matches(self, agent_ref: str) -> tuple[str, ...]:
+        """Return managed tracked ids matching one tracked/published/name reference."""
+
+        candidate = agent_ref.strip()
+        if not candidate:
+            return ()
+
+        matches: list[str] = []
+        with self.m_lock:
+            handles = list(self.m_handles.items())
+        for tracked_agent_id, handle in handles:
+            authority = handle.authority
+            aliases = {tracked_agent_id}
+            if authority.agent_name is not None:
+                aliases.add(authority.agent_name)
+            if authority.agent_id is not None:
+                aliases.add(authority.agent_id)
+            if candidate in aliases:
+                matches.append(tracked_agent_id)
+        return tuple(sorted(set(matches)))
+
+    def resolve_managed_tracked_id(self, agent_ref: str) -> str | None:
+        """Resolve one managed tracked id when the reference is unambiguous."""
+
+        matches = self.resolve_managed_matches(agent_ref)
+        if len(matches) != 1:
+            return None
+        return matches[0]
+
     # -- internal -------------------------------------------------------------
 
     def _require_handle(self, tracked_agent_id: str) -> _ManagedHeadlessHandle | None:
@@ -488,27 +591,72 @@ class HeadlessAgentService:
             return self.m_handles.get(tracked_agent_id)
 
     def _rebuild_handles(self) -> None:
-        """Scan persisted authority records and rebuild in-memory handles."""
+        """Scan persisted authority records and rebuild live resumable handles."""
 
-        records = self.m_store.list_authority_records()
-        for authority in records:
-            tid = authority.tracked_agent_id
-            alive = tmux_session_exists(session_name=authority.tmux_session_name)
-            if alive:
-                log.info("Rebuilding handle for live agent %s", tid)
-                # We don't attempt to resume the RuntimeSessionController here;
-                # the agent runs in tmux and can be stopped via tmux kill.
-                handle = _ManagedHeadlessHandle(authority=authority, controller=None)
-                with self.m_lock:
-                    self.m_handles[tid] = handle
-            else:
-                log.info("Cleaning up dead agent %s (tmux session gone)", tid)
-                agent_id = authority.agent_id or tid
+        rebuilt: dict[str, _ManagedHeadlessHandle] = {}
+        for authority in self.m_store.list_authority_records():
+            tracked_agent_id = authority.tracked_agent_id
+            if not tmux_session_exists(session_name=authority.tmux_session_name):
+                log.info(
+                    "Cleaning up stale managed headless agent %s (tmux session gone)",
+                    tracked_agent_id,
+                )
+                self._delete_authority(authority)
+                continue
+
+            manifest_path = Path(authority.manifest_path).expanduser().resolve()
+            agent_def_dir = Path(authority.agent_def_dir).expanduser().resolve()
+            if not manifest_path.is_file() or not agent_def_dir.is_dir():
+                log.warning(
+                    "Cleaning up stale managed headless agent %s (manifest or agent_def_dir missing)",
+                    tracked_agent_id,
+                )
+                self._delete_authority(authority)
+                continue
+
+            try:
+                controller = resume_runtime_session(
+                    agent_def_dir=agent_def_dir,
+                    session_manifest_path=manifest_path,
+                )
+            except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+                log.warning(
+                    "Cleaning up unrecoverable managed headless agent %s after resume failure: %s",
+                    tracked_agent_id,
+                    exc,
+                )
+                self._delete_authority(authority)
+                continue
+
+            if controller.registry_launch_authority != "runtime":
                 try:
-                    remove_live_agent_record(agent_id)
-                except Exception:
-                    pass
-                self.m_store.delete_agent(tracked_agent_id=tid)
+                    self._publish_controller_registry_record(controller)
+                except (OSError, SessionManifestError) as exc:
+                    log.warning(
+                        "Shared-registry refresh failed while rebuilding managed headless %s: %s",
+                        tracked_agent_id,
+                        exc,
+                    )
+
+            rebuilt_authority = authority.model_copy(
+                update={
+                    "manifest_path": str(controller.manifest_path.resolve()),
+                    "session_root": str(controller.manifest_path.resolve().parent),
+                    "tmux_session_name": controller.tmux_session_name
+                    or authority.tmux_session_name,
+                    "agent_name": controller.agent_identity or authority.agent_name,
+                    "agent_id": controller.agent_id or authority.agent_id,
+                    "updated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+                }
+            )
+            self.m_store.write_authority(rebuilt_authority)
+            rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
+                authority=rebuilt_authority,
+                controller=controller,
+            )
+
+        with self.m_lock:
+            self.m_handles = rebuilt
 
     def _run_turn_worker(
         self,
@@ -520,40 +668,158 @@ class HeadlessAgentService:
         """Worker thread: send prompt and finalize turn record."""
 
         try:
-            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
-
-            record = self.m_store.read_turn_record(
-                tracked_agent_id=tracked_agent_id, turn_id=turn_id
+            events = backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            self._refresh_turn_record(
+                tracked_agent_id=tracked_agent_id,
+                turn_id=turn_id,
+                completion_events=events,
+                error_detail=None,
             )
-            if record is not None:
-                completed_at = datetime.now(UTC).isoformat(timespec="seconds")
-                updated = record.model_copy(
-                    update={
-                        "status": "completed",
-                        "completed_at_utc": completed_at,
-                        "returncode": 0,
-                        "completion_source": "send_prompt",
-                    }
-                )
-                self.m_store.write_turn_record(updated)
-
-            self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
             log.info("Turn %s completed for agent %s", turn_id, tracked_agent_id)
-
         except Exception as exc:
             log.error("Turn %s failed for agent %s: %s", turn_id, tracked_agent_id, exc)
-            record = self.m_store.read_turn_record(
-                tracked_agent_id=tracked_agent_id, turn_id=turn_id
+            self._refresh_turn_record(
+                tracked_agent_id=tracked_agent_id,
+                turn_id=turn_id,
+                completion_events=None,
+                error_detail=str(exc),
             )
-            if record is not None:
-                failed_at = datetime.now(UTC).isoformat(timespec="seconds")
-                updated = record.model_copy(
-                    update={
-                        "status": "failed",
-                        "completed_at_utc": failed_at,
-                        "error": str(exc),
-                    }
-                )
-                self.m_store.write_turn_record(updated)
 
-            self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+    def _headless_output_format(self, *, tracked_agent_id: str) -> str:
+        """Return the configured headless output format for one managed agent."""
+
+        handle = self._require_handle(tracked_agent_id)
+        if handle is None or handle.controller is None:
+            return "stream-json"
+        output_format = handle.controller.launch_plan.metadata.get("headless_output_format")
+        if isinstance(output_format, str) and output_format.strip():
+            return output_format
+        return "stream-json"
+
+    def _refresh_turn_record(
+        self,
+        *,
+        tracked_agent_id: str,
+        turn_id: str,
+        completion_events: list[SessionEvent] | None,
+        error_detail: str | None,
+    ) -> ManagedHeadlessTurnRecord | None:
+        """Refresh one completed turn record from durable artifacts and final events."""
+
+        record = self.m_store.read_turn_record(
+            tracked_agent_id=tracked_agent_id,
+            turn_id=turn_id,
+        )
+        active_turn = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+        if record is None:
+            if active_turn is not None and active_turn.turn_id == turn_id:
+                self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+            return None
+        if active_turn is not None and active_turn.turn_id != turn_id:
+            active_turn = None
+
+        turn_dir = Path(record.turn_artifact_dir)
+        stdout_path = turn_dir / "stdout.jsonl"
+        stderr_path = turn_dir / "stderr.log"
+        status_path = turn_dir / "exitcode"
+        interrupt_requested_at_utc = (
+            active_turn.interrupt_requested_at_utc if active_turn is not None else None
+        ) or record.interrupt_requested_at_utc
+
+        completion_source = (
+            self._completion_source_from_events(completion_events) or record.completion_source
+        )
+        returncode = record.returncode
+        final_status: Literal["active", "completed", "failed", "interrupted"]
+
+        if status_path.exists():
+            try:
+                returncode = read_headless_turn_return_code(status_path=status_path)
+            except Exception as exc:
+                final_status = "failed"
+                if error_detail is None:
+                    error_detail = str(exc)
+            else:
+                if returncode == 0:
+                    final_status = "completed"
+                elif interrupt_requested_at_utc is not None:
+                    final_status = "interrupted"
+                else:
+                    final_status = "failed"
+                if completion_source is None and stdout_path.exists():
+                    try:
+                        completion_source = self._completion_source_from_events(
+                            load_headless_turn_events(
+                                stdout_path=stdout_path,
+                                output_format=self._headless_output_format(
+                                    tracked_agent_id=tracked_agent_id
+                                ),
+                                turn_index=record.turn_index,
+                            )
+                        )
+                    except Exception:
+                        log.warning(
+                            "Failed to parse completion source from persisted stdout for %s/%s",
+                            tracked_agent_id,
+                            turn_id,
+                        )
+        elif interrupt_requested_at_utc is not None:
+            final_status = "interrupted"
+        else:
+            final_status = "failed"
+            if error_detail is None:
+                error_detail = "Headless execution ended without a durable completion marker."
+
+        updated_record = record.model_copy(
+            update={
+                "status": final_status,
+                "completed_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+                "stdout_path": str(stdout_path) if stdout_path.exists() else None,
+                "stderr_path": str(stderr_path) if stderr_path.exists() else None,
+                "status_path": str(status_path) if status_path.exists() else None,
+                "completion_source": completion_source,
+                "returncode": returncode,
+                "error": error_detail,
+                "interrupt_requested_at_utc": interrupt_requested_at_utc,
+            }
+        )
+        self.m_store.write_turn_record(updated_record)
+        self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+        return updated_record
+
+    def _completion_source_from_events(
+        self,
+        events: list[SessionEvent] | None,
+    ) -> str | None:
+        """Extract one completion-source hint from the final runtime events."""
+
+        if not events:
+            return None
+        for event in reversed(events):
+            payload = event.payload
+            if not isinstance(payload, dict):
+                continue
+            value = payload.get("completion_source")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _publish_controller_registry_record(self, controller: RuntimeSessionController) -> None:
+        """Publish the current runtime controller state into the shared registry."""
+
+        record = controller.build_shared_registry_record()
+        if record is None:
+            raise SessionManifestError(
+                "Managed runtime controller could not build a shared-registry record."
+            )
+        publish_live_agent_record(record)
+
+    def _delete_authority(self, authority: ManagedHeadlessAuthorityRecord) -> None:
+        """Remove one stale managed authority from registry and local storage."""
+
+        agent_id = authority.agent_id or authority.tracked_agent_id
+        try:
+            remove_live_agent_record(agent_id)
+        except Exception as exc:
+            log.warning("Error clearing shared registry for stale agent %s: %s", agent_id, exc)
+        self.m_store.delete_agent(tracked_agent_id=authority.tracked_agent_id)
