@@ -49,6 +49,7 @@ class HeadlessSessionState:
     role_bootstrap_applied: bool = False
     working_directory: str = ""
     tmux_session_name: str | None = None
+    tmux_window_name: str | None = None
     resume_selection_kind: HeadlessResumeSelectionKind = "none"
     resume_selection_value: str | None = None
     joined_session: bool = False
@@ -450,6 +451,7 @@ def headless_backend_state_payload(state: HeadlessSessionState) -> dict[str, Any
         "role_bootstrap_applied": state.role_bootstrap_applied,
         "working_directory": state.working_directory,
         "tmux_session_name": state.tmux_session_name,
+        "tmux_window_name": state.tmux_window_name,
         "resume_selection_kind": state.resume_selection_kind,
         "resume_selection_value": state.resume_selection_value,
     }

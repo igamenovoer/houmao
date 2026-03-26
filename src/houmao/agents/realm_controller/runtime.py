@@ -1325,6 +1325,7 @@ def _resume_headless_state(
     tmux_session_name = _manifest_tmux_session_name(payload)
     if tmux_session_name is None or not tmux_session_name.strip():
         raise SessionManifestError("Headless resume requires a non-empty tmux session authority.")
+    tmux_window_name = _resolved_resumed_tmux_window_name(payload=payload, launch_plan=launch_plan)
 
     return HeadlessSessionState(
         session_id=session_id.strip() if session_id else None,
@@ -1338,6 +1339,7 @@ def _resume_headless_state(
             fallback=headless.working_directory or str(launch_plan.working_directory),
         ),
         tmux_session_name=tmux_session_name.strip(),
+        tmux_window_name=tmux_window_name,
         resume_selection_kind=headless.resume_selection_kind,
         resume_selection_value=headless.resume_selection_value,
         joined_session=_is_joined_tmux_manifest(payload),
@@ -1363,6 +1365,7 @@ def _resume_local_interactive_state(
         raise SessionManifestError(
             "Local interactive resume requires a non-empty tmux session authority."
         )
+    tmux_window_name = _resolved_resumed_tmux_window_name(payload=payload, launch_plan=launch_plan)
 
     return HeadlessSessionState(
         session_id=None,
@@ -1376,6 +1379,7 @@ def _resume_local_interactive_state(
             fallback=local_interactive.working_directory or str(launch_plan.working_directory),
         ),
         tmux_session_name=tmux_session_name.strip(),
+        tmux_window_name=tmux_window_name,
         joined_session=_is_joined_tmux_manifest(payload),
     )
 
@@ -1465,6 +1469,48 @@ def _manifest_interactive_tmux_window_name(
 
     if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
         return payload.interactive.tmux_window_name
+    return None
+
+
+def _manifest_primary_tmux_window_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the best persisted tmux window name from one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+        value = payload.tmux.primary_window_name
+        if value is not None and value.strip():
+            return value.strip()
+    interactive_value = _manifest_interactive_tmux_window_name(payload)
+    if interactive_value is not None and interactive_value.strip():
+        return interactive_value.strip()
+    backend_window_name = payload.backend_state.get("tmux_window_name")
+    if isinstance(backend_window_name, str) and backend_window_name.strip():
+        return backend_window_name.strip()
+    return None
+
+
+def _joined_launch_plan_tmux_window_name(launch_plan: LaunchPlan) -> str | None:
+    """Return the joined launch-plan tmux window name when one was persisted."""
+
+    value = launch_plan.metadata.get("tmux_window_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _resolved_resumed_tmux_window_name(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    launch_plan: LaunchPlan,
+) -> str | None:
+    """Resolve the tmux window name to keep during resume-time manifest persistence."""
+
+    persisted_window_name = _manifest_primary_tmux_window_name(payload)
+    if persisted_window_name is not None:
+        return persisted_window_name
+    if _is_joined_tmux_manifest(payload):
+        return _joined_launch_plan_tmux_window_name(launch_plan)
     return None
 
 

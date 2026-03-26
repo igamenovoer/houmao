@@ -1108,6 +1108,14 @@ def _managed_tmux_window_name_from_manifest_path(
     backend_window_name = payload.backend_state.get("tmux_window_name")
     if isinstance(backend_window_name, str) and backend_window_name.strip():
         return backend_window_name.strip()
+    if (
+        isinstance(payload, SessionManifestPayloadV4)
+        and payload.agent_launch_authority is not None
+        and payload.agent_launch_authority.session_origin == "joined_tmux"
+    ):
+        launch_window_name = payload.launch_plan.metadata.get("tmux_window_name")
+        if isinstance(launch_window_name, str) and launch_window_name.strip():
+            return launch_window_name.strip()
     return default
 
 
