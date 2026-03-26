@@ -573,12 +573,6 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     parsing_mode = getattr(controller, "parsing_mode", None)
     if parsing_mode is not None:
         payload["parsing_mode"] = parsing_mode
-    gateway_root = getattr(controller, "gateway_root", None)
-    if gateway_root is not None:
-        payload["gateway_root"] = str(gateway_root)
-    gateway_attach_path = getattr(controller, "gateway_attach_path", None)
-    if gateway_attach_path is not None:
-        payload["gateway_attach_path"] = str(gateway_attach_path)
     gateway_host = getattr(controller, "gateway_host", None)
     if gateway_host is not None:
         payload["gateway_host"] = gateway_host

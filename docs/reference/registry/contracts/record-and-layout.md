@@ -78,8 +78,6 @@ Representative record with optional gateway and mailbox metadata present:
     "session_name": "AGENTSYS-gpu"
   },
   "gateway": {
-    "gateway_root": "/abs/path/runtime/sessions/cao_rest/cao-rest-1/gateway",
-    "attach_path": "/abs/path/runtime/sessions/cao_rest/cao-rest-1/gateway/attach.json",
     "host": "127.0.0.1",
     "port": 43123,
     "state_path": "/abs/path/runtime/sessions/cao_rest/cao-rest-1/gateway/state.json",
@@ -123,11 +121,10 @@ Current implementation scope:
 
 ### Gateway
 
-`gateway` appears only when stable or live gateway metadata exists.
+`gateway` appears only when live gateway connect metadata exists.
 
-- `gateway_root` and `attach_path` are the stable pointers,
-- `host`, `port`, `state_path`, and `protocol_version` appear together as one complete live-binding group when a live gateway is attached,
-- detached sessions can still publish stable gateway pointers without live host and port data.
+- `host`, `port`, `state_path`, and `protocol_version` appear together as one complete live-binding group when a live gateway is attached.
+- detached sessions omit `gateway` entirely.
 
 ### Mailbox
 

@@ -63,8 +63,8 @@ That preserves the existing pair runtime seam while redirecting the underlying C
 
 ## What Stayed The Same
 
-- `houmao-cli` remains the runtime and agent lifecycle CLI.
 - the public pair boundary remains `houmao-server + houmao-mgr`.
+- `houmao-cli` remains available only as a legacy runtime-local reference surface; it is no longer the recommended operator CLI.
 - the explicit `/cao/*` HTTP namespace remains present for compatibility, but CLI guidance now points to `houmao-mgr server ...` and `houmao-mgr agents ...`.
 - pair-managed runtime artifacts, gateway attachability publication, and reserved tmux window `0` behavior remain centered on `houmao_server_rest`.
 

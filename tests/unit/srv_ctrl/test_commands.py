@@ -72,6 +72,14 @@ def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
     assert "window index" in result.output
 
 
+def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
+    result = CliRunner().invoke(cli, ["agents", "--help"])
+
+    assert result.exit_code == 0
+    assert "relaunch" in result.output
+    assert "cao" not in result.output
+
+
 def test_agents_gateway_attach_forwards_foreground_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -265,6 +273,121 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     assert captured["session_manifest_path"] == manifest_path
     assert captured["execution_mode_override"] == "tmux_auxiliary_window"
     assert json.loads(result.output) == {"status": "local-attached"}
+
+
+def test_agents_relaunch_current_session_uses_manifest_first_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    agent_def_dir = (tmp_path / "agent-def").resolve()
+    agent_def_dir.mkdir(parents=True)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._require_current_tmux_session_name",
+        lambda: "headless-session",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_manifest",
+        lambda *, session_name: (
+            captured.setdefault("session_name", session_name),
+            SimpleNamespace(manifest_path=manifest_path, registry_record=None),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_agent_def_dir",
+        lambda *, session_name, registry_record: (
+            captured.update(
+                {"agent_def_dir_session_name": session_name, "registry_record": registry_record}
+            )
+            or agent_def_dir
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resume_runtime_session",
+        lambda *, agent_def_dir, session_manifest_path: (
+            captured.update(
+                {
+                    "agent_def_dir": agent_def_dir,
+                    "session_manifest_path": session_manifest_path,
+                }
+            )
+            or SimpleNamespace(
+                agent_id="published-alpha",
+                agent_identity="AGENTSYS-alpha",
+                manifest_path=manifest_path,
+                relaunch=lambda: SimpleNamespace(status="ok", detail="Runtime relaunched."),
+            )
+        ),
+    )
+
+    result = CliRunner().invoke(cli, ["agents", "relaunch"])
+
+    assert result.exit_code == 0, result.output
+    assert captured == {
+        "session_name": "headless-session",
+        "agent_def_dir_session_name": "headless-session",
+        "registry_record": None,
+        "agent_def_dir": agent_def_dir,
+        "session_manifest_path": manifest_path,
+    }
+    assert json.loads(result.output) == {
+        "success": True,
+        "tracked_agent_id": "published-alpha",
+        "detail": "Runtime relaunched.",
+    }
+
+
+def test_agents_relaunch_rejects_port_without_explicit_selector() -> None:
+    result = CliRunner().invoke(cli, ["agents", "relaunch", "--port", "9889"])
+
+    assert result.exit_code != 0
+    assert (
+        "`--port` is only supported with an explicit `--agent-id` or `--agent-name` relaunch target."
+        in result.output
+    )
+
+
+def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.relaunch_managed_agent",
+        lambda resolved_target: (
+            captured.setdefault("target", resolved_target),
+            {
+                "success": True,
+                "tracked_agent_id": "tracked-alpha",
+                "detail": "Relaunched through managed authority.",
+            },
+        )[1],
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "relaunch", "--agent-id", "agent-123", "--port", "9889"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": "agent-123",
+        "agent_name": None,
+        "port": 9889,
+    }
+    assert captured["target"] is target
+    assert json.loads(result.output) == {
+        "success": True,
+        "tracked_agent_id": "tracked-alpha",
+        "detail": "Relaunched through managed authority.",
+    }
 
 
 def test_server_status_reports_no_server_running(monkeypatch: pytest.MonkeyPatch) -> None:

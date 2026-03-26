@@ -10,12 +10,11 @@ pixi install
 
 ## Primary Commands
 
-- Runtime CLI: `houmao-cli`
+- Supported operator CLIs: `houmao-mgr`, `houmao-server`
+- Legacy runtime-local CLI: `houmao-cli`
 - Retired standalone launcher: `houmao-cao-server`
-- Houmao server CLI: `houmao-server`
-- Houmao management CLI: `houmao-mgr`
 
-Runtime subcommands:
+Legacy runtime CLI subcommands:
 
 - `build-brain`
 - `start-session`
@@ -50,7 +49,7 @@ Useful `build-brain` or `houmao-mgr brains build` override:
 
 The paired replacement for `cao-server + cao` is `houmao-server + houmao-mgr`. Mixed use with raw `cao-server` or raw `cao` is intentionally unsupported for this path. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
 
-For pair-managed agents, the preferred operator surface is still the managed-agent command family on `houmao-mgr` and the matching `/houmao/agents/*` server routes. When an attached gateway is healthy, those same commands automatically gain richer live backing behavior such as gateway-owned admission, queueing, and live state projection without changing the public CLI shape.
+For pair-managed agents, the supported operator surface is the managed-agent command family on `houmao-mgr` and the matching `/houmao/agents/*` server routes. When an attached gateway is healthy, those same commands automatically gain richer live backing behavior such as gateway-owned admission, queueing, and live state projection without changing the public CLI shape.
 
 Within that pair, `houmao-mgr` is split deliberately:
 
@@ -64,6 +63,7 @@ The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` ar
 Useful pair runtime controls:
 
 - `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider>` performs local brain build plus launch without requiring a running `houmao-server`.
+- `houmao-mgr agents relaunch --agent-name <friendly-name>` or `houmao-mgr agents relaunch` from inside the owning tmux session refreshes the supported tmux-backed runtime surface without rebuilding the managed-agent home.
 - `houmao-mgr server start` is detached by default, emits one structured startup result, and accepts `--foreground` when you want the server attached to the current terminal.
 - `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
 - `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
@@ -80,7 +80,7 @@ For managed agents, the public gateway attach surface lives on `houmao-mgr agent
 - `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
 
-Current-session attach requires the target tmux session to publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. It becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
+Current-session attach requires the target tmux session to publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
 
 When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
 

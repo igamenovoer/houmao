@@ -26,7 +26,6 @@ from houmao.agents.realm_controller.loaders import RolePackage
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayCapabilityPublication,
     ensure_gateway_capability,
-    publish_stable_gateway_env,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayJsonObject
 from houmao.agents.realm_controller.manifest import (
@@ -239,12 +238,6 @@ def materialize_delegated_launch(
             ),
             agent_def_dir=agent_def_dir,
         )
-    )
-    publish_stable_gateway_env(
-        session_name=session_name,
-        attach_path=gateway_paths.attach_path,
-        gateway_root=gateway_paths.gateway_root,
-        set_env=set_tmux_session_environment,
     )
 
     published_at = datetime.now(UTC)

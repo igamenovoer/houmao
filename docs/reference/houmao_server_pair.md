@@ -26,7 +26,7 @@ Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes plus the explicit `/cao/*` compatibility namespace
 - `houmao-mgr`: exposes `server`, `agents`, `brains`, and `admin`
-- `houmao-cli`: remains available for uncovered or intentionally runtime-local workflows
+- `houmao-cli`: legacy runtime-local CLI, not part of the supported pair operator surface
 
 Representative usage:
 
@@ -39,6 +39,7 @@ houmao-mgr server sessions list --port 9889
 houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex --headless
 houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
 houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state."
+houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
 houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
@@ -137,7 +138,12 @@ Current-session mode is intentionally strict:
 - the resolved manifest must belong to the current tmux session
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared attach authority is authoritative
-- current-session attach becomes valid only after launch has both published gateway capability and completed managed-agent registration on that persisted `api_base_url`
+- current-session attach becomes valid only after launch has completed managed-agent registration on that persisted `api_base_url`
+
+The matching relaunch surface is `houmao-mgr agents relaunch`.
+
+- explicit relaunch resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first
+- current-session relaunch runs inside the owning tmux session, resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
 
 Pair-managed tmux topology is intentionally narrow:
 

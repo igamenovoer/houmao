@@ -250,8 +250,6 @@ def _agent_with_gateway(
 
     record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
     record.gateway = RegistryGatewayV1(
-        gateway_root="/tmp/gw",
-        attach_path="/tmp/gw/attach.json",
         host=gateway_host,  # type: ignore[arg-type]
         port=gateway_port,
         state_path="/tmp/gw/state.json",
@@ -283,10 +281,6 @@ class TestGatewayClientForAgent:
     def test_returns_none_when_gateway_has_no_live_fields(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
         record = _make_record()
-        record.gateway = RegistryGatewayV1(
-            gateway_root="/tmp/gw",
-            attach_path="/tmp/gw/attach.json",
-        )
         agent = DiscoveredAgent(record=record, summary=_summary_from_record(record))
         client = svc._gateway_client_for_agent(agent)
         assert client is None

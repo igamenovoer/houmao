@@ -77,50 +77,30 @@ class RegistryTerminalV1(_StrictRegistryModel):
 
 
 class RegistryGatewayV1(_StrictRegistryModel):
-    """Stable and live gateway metadata published into the registry."""
+    """Optional live gateway connect metadata published into the registry."""
 
-    gateway_root: str
-    attach_path: str
-    host: GatewayHost | None = None
-    port: int | None = None
-    state_path: str | None = None
-    protocol_version: GatewayProtocolVersion | None = None
+    host: GatewayHost
+    port: int
+    state_path: str
+    protocol_version: GatewayProtocolVersion
 
-    @field_validator("gateway_root", "attach_path", "state_path")
+    @field_validator("state_path")
     @classmethod
-    def _optional_path_not_blank(cls, value: str | None) -> str | None:
-        """Validate gateway pointer strings."""
+    def _path_not_blank(cls, value: str) -> str:
+        """Validate gateway state-path strings."""
 
-        if value is None:
-            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
     @field_validator("port")
     @classmethod
-    def _port_range(cls, value: int | None) -> int | None:
-        """Validate the optional live gateway port."""
+    def _port_range(cls, value: int) -> int:
+        """Validate the live gateway port."""
 
-        if value is None:
-            return None
         if value < 1 or value > 65535:
             raise ValueError("must be between 1 and 65535")
         return value
-
-    @model_validator(mode="after")
-    def _validate_live_fields(self) -> "RegistryGatewayV1":
-        """Require live gateway fields to appear as one complete group."""
-
-        live_fields = (
-            self.host is not None,
-            self.port is not None,
-            self.state_path is not None,
-            self.protocol_version is not None,
-        )
-        if any(live_fields) and not all(live_fields):
-            raise ValueError("host, port, state_path, and protocol_version must be set together")
-        return self
 
 
 class RegistryMailboxFilesystemV1(_StrictRegistryModel):

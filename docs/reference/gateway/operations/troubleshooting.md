@@ -2,9 +2,9 @@
 
 This page covers the current operator-facing failure modes for pair-managed `houmao_server_rest` gateway attach and same-session gateway lifecycle.
 
-## `houmao-mgr agents gateway attach` Reports Missing Stable Tmux Metadata
+## `houmao-mgr agents gateway attach` Reports Missing Manifest Tmux Metadata
 
-If current-session attach says the tmux session does not publish `AGENTSYS_GATEWAY_ATTACH_PATH` or `AGENTSYS_GATEWAY_ROOT`, the command is not running against a session that has published stable gateway capability yet.
+If current-session attach says the tmux session does not publish `AGENTSYS_MANIFEST_PATH` or a usable `AGENTSYS_AGENT_ID`, the command is not running against a session that has published supported managed-agent discovery metadata yet.
 
 Check:
 
@@ -20,7 +20,7 @@ houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-por
 
 ## Current-Session Attach Reports Stale Metadata
 
-Current-session attach fails closed when the tmux-published pointers no longer match the runtime-owned gateway subtree or when the persisted attach contract belongs to another tmux session.
+Current-session attach fails closed when the tmux-published manifest or registry fallback no longer matches the current tmux session, or when the persisted manifest authority belongs to another managed agent.
 
 Typical causes:
 
@@ -35,9 +35,9 @@ Operator guidance:
 
 ## Current-Session Attach Returns Unknown Managed Agent
 
-Current-session pair attach uses the persisted `backend_metadata.api_base_url` plus `backend_metadata.session_name` from `attach.json` as its only managed-agent route target.
+Current-session pair attach uses the persisted manifest authority `gateway_authority.attach.api_base_url` plus `gateway_authority.attach.managed_agent_ref` as its only managed-agent route target.
 
-That means a seeded `attach.json` alone is not enough. Current-session attach becomes valid only after the matching delegated launch has completed managed-agent registration on that same server.
+That means a seeded manifest alone is not enough. Current-session attach becomes valid only after the matching delegated launch has completed managed-agent registration on that same server.
 
 If the server returns unknown managed agent:
 

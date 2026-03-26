@@ -226,6 +226,41 @@ class HeadlessInteractiveSession:
         self._plan = launch_plan
         self._publish_tmux_session_environment()
 
+    def relaunch(self) -> SessionControlResult:
+        """Refresh the stable tmux-backed headless surface on window `0`."""
+
+        session_name = self._require_tmux_session_name()
+        has = has_tmux_session_shared(session_name=session_name)
+        if has.returncode != 0:
+            detail = tmux_error_detail_shared(has) or "unknown tmux error"
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Headless relaunch requires the existing tmux session "
+                    f"`{session_name}`, but it is unavailable: {detail}"
+                ),
+            )
+
+        try:
+            prepare_headless_agent_window_shared(session_name=session_name)
+            self._publish_tmux_session_environment()
+        except TmuxCommandError as exc:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=f"Failed to prepare headless relaunch surface in `{session_name}`: {exc}",
+            )
+
+        return SessionControlResult(
+            status="ok",
+            action="relaunch",
+            detail=(
+                "Headless relaunch authority refreshed on tmux window `0`; the session remains "
+                "ready for the next turn without rebuilding the agent home."
+            ),
+        )
+
     def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args, *self._base_command_args()]
         effective_prompt = prompt
