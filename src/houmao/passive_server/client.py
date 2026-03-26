@@ -13,6 +13,8 @@ from houmao.passive_server.models import (
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
     PassiveAgentActionResponse,
+    PassiveHeadlessLaunchRequest,
+    PassiveHeadlessLaunchResponse,
     PassiveHeadlessTurnAcceptedResponse,
     PassiveHeadlessTurnEventsResponse,
     PassiveHeadlessTurnRequest,
@@ -333,6 +335,19 @@ class PassiveServerClient(HoumaoServerClient):
             turn_index=accepted.turn_index,
             status=accepted.turn_status,
             detail=accepted.detail,
+        )
+
+    def launch_passive_headless_agent(
+        self,
+        request_model: PassiveHeadlessLaunchRequest,
+    ) -> PassiveHeadlessLaunchResponse:
+        """Call the passive headless-launch endpoint with the passive request model."""
+
+        return self._request_root_model(
+            "POST",
+            "/houmao/agents/headless/launches",
+            PassiveHeadlessLaunchResponse,
+            json_body=request_model.model_dump(mode="json"),
         )
 
     def get_headless_turn_status(

@@ -8,6 +8,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.passive_server.client import PassiveServerClient
+from houmao.passive_server.models import (
+    PassiveHeadlessLaunchRequest,
+    PassiveHeadlessLaunchResponse,
+)
 from houmao.server.client import HoumaoServerClient
 from houmao.server.pair_client import (
     UnsupportedPairAuthorityError,
@@ -845,6 +849,54 @@ def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypa
     assert recorded == {
         "method": "POST",
         "path": "/houmao/agents/AGENTSYS%20gpu%2F1/turns",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_passive_server_client_launch_passive_headless_agent_posts_request_model(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: dict[str, object] = {}
+    request_model = PassiveHeadlessLaunchRequest(
+        tool="claude",
+        working_directory="/tmp/workdir",
+        agent_def_dir="/tmp/agents",
+        brain_manifest_path="/tmp/brain/manifest.json",
+        role_name="server-api-smoke",
+        agent_name="AGENTSYS-headless",
+        agent_id="published-headless",
+    )
+    response_payload = {
+        "status": "ok",
+        "tracked_agent_id": "tracked-headless",
+        "agent_name": "AGENTSYS-headless",
+        "manifest_path": "/tmp/brain/manifest.json",
+        "session_root": "/tmp/session-root",
+        "detail": "launch accepted",
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.launch_passive_headless_agent(request_model)
+
+    assert response == PassiveHeadlessLaunchResponse(
+        status="ok",
+        tracked_agent_id="tracked-headless",
+        agent_name="AGENTSYS-headless",
+        manifest_path="/tmp/brain/manifest.json",
+        session_root="/tmp/session-root",
+        detail="launch accepted",
+    )
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/headless/launches",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
