@@ -14,6 +14,7 @@ When a task involves a library, tool, or integration that has a source reference
 Use Pixi as the default workflow:
 - `pixi install && pixi shell` installs dependencies and opens the dev shell.
 - When invoking Python or Python-based tools, prefer `pixi run ...` so commands execute in the managed environment; do not rely on `pixi shell`, `python`, or other system-level interpreters being active.
+- Prefer the supported CLI surfaces `houmao-mgr` and `houmao-server` for lifecycle and server work. `houmao-cli` and `houmao-cao-server` are deprecated compatibility entrypoints and should not be used for new workflows or documentation.
 - `pixi run format` runs `ruff format` on `src tests docs scripts`.
 - `pixi run lint` runs Ruff static checks.
 - `pixi run typecheck` runs strict `mypy` on `src`.

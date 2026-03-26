@@ -239,7 +239,7 @@ The pair boundary is intentionally split into three groups.
 Filesystem-authoritative artifacts:
 
 - runtime-owned session roots and manifests
-- runtime-owned gateway attach contracts and live gateway execution records
+- runtime-owned manifest-backed gateway authority plus live gateway execution records
 - shared-registry `live_agents/<agent-id>/record.json` pointers while the bridge remains in use
 - server-backed managed-session manifests and session roots under `sessions/houmao_server_rest/...`
 - native headless authority and per-turn records under `state/managed_agents/<tracked_agent_id>/`
@@ -274,7 +274,7 @@ Runtime-owned sessions that use the pair-backed mode persist `backend = "houmao_
 That backend uses dedicated persisted sections instead of overloading the older `cao_rest` contract:
 
 - session manifests write a `houmao_server` section with `api_base_url`, `session_name`, `terminal_id`, `parsing_mode`, optional `tmux_window_name`, and `turn_index`
-- gateway attach contracts use Houmao-specific backend metadata
+- internal gateway bootstrap artifacts use Houmao-specific backend metadata
 - shared-registry records still point back to the runtime-owned manifest and session root instead of copying runtime state into the registry
 
 This keeps the pair-owned compatibility transport details out of the persisted public contract while preserving existing discovery and gateway flows.

@@ -15,17 +15,23 @@ Those layers are kept separate so a session can stay gateway-capable even when n
 
 ## Stable Attachability
 
-Stable attachability is published in two ways:
+Stable attachability is published through the manifest-first contract:
 
 - tmux discovery env:
   - `AGENTSYS_MANIFEST_PATH`
   - `AGENTSYS_AGENT_ID`
-- runtime-owned attach contract:
-  - `<session-root>/gateway/attach.json`
+- runtime-owned manifest authority:
+  - `<session-root>/manifest.json`
 - derived outward-facing gateway bookkeeping:
   - `<session-root>/gateway/gateway_manifest.json`
+- internal bootstrap artifacts may also exist:
+  - `<session-root>/gateway/attach.json`
 
-Representative CAO-backed attach contract:
+The supported external contract for attach, resume, and relaunch is `manifest.json` together with tmux-local discovery and shared-registry fallback. `gateway_manifest.json` remains derived publication only.
+
+`attach.json` may still exist as internal bootstrap state for gateway startup, offline status materialization, and metadata transfer. It is not the supported public attach authority.
+
+Representative CAO-backed internal bootstrap payload:
 
 ```json
 {
@@ -49,7 +55,7 @@ Representative CAO-backed attach contract:
 }
 ```
 
-Representative `houmao_server_rest` attach contract used by pair-managed current-session attach:
+Representative `houmao_server_rest` internal bootstrap payload:
 
 ```json
 {
@@ -76,10 +82,10 @@ Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach and request execution currently support runtime-owned `local_interactive` sessions, runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
-- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable attach metadata and uses the runtime session id as the public `terminal_id` compatibility value because no CAO terminal alias exists on that path.
-- Native headless attach metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
-- `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
-- `gateway_manifest.json` is derived publication only. It may expose desired listener data and `gateway_pid`, but attach and control behavior must trust `manifest.json` plus the attach contract instead of treating `gateway_manifest.json` as primary authority.
+- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no CAO terminal alias exists on that path.
+- Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
+- `attach.json` may keep `manifest_path` for gateway internals, but the runtime-owned session manifest remains the supported persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
+- `gateway_manifest.json` is derived publication only. It may expose desired listener data and `gateway_pid`, but attach and control behavior must trust `manifest.json` plus tmux or registry discovery instead of treating `gateway_manifest.json` as primary authority.
 
 Pair-managed current-session attach rules:
 
@@ -259,7 +265,7 @@ Current availability rules:
 - attached runtime-owned `local_interactive` sessions, and
 - HTTP `422` for attached backends that do not have a gateway-owned TUI tracker.
 
-For attached `local_interactive`, the gateway synthesizes tracked identity from `attach.json.runtime_session_id` (falling back to `attach_identity`), keeps `terminal_aliases` empty, and therefore exposes the runtime session id as the public `terminal_id` on this route.
+For attached `local_interactive`, the gateway synthesizes tracked identity from internal bootstrap `runtime_session_id` metadata (falling back to `attach_identity`), keeps `terminal_aliases` empty, and therefore exposes the runtime session id as the public `terminal_id` on this route.
 
 For attached runtime-owned `local_interactive` sessions outside `houmao-server`, repo-owned local/serverless workflow guidance now centers on this route together with `POST /v1/control/tui/note-prompt`. That pairing is the supported local inspection and explicit-input-provenance surface.
 
@@ -489,9 +495,9 @@ Representative status response:
 
 Support contract rules:
 
-- The gateway loads the runtime-owned session manifest referenced by `attach.json.manifest_path`.
+- The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest to determine whether notifier behavior is supported.
-- Enabling the notifier fails explicitly when the attach contract has no readable manifest or when the manifest launch plan has no mailbox binding.
+- Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest or when the manifest launch plan has no mailbox binding.
 - Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
 - Wake-up prompts nominate exactly one actionable unread target using the oldest unread message by `created_at_utc` with a stable tie-breaker.
@@ -558,6 +564,7 @@ Representative gateway tree:
 ```text
 <session-root>/gateway/
   attach.json
+  gateway_manifest.json
   protocol-version.txt
   desired-config.json
   state.json
@@ -572,7 +579,8 @@ Representative gateway tree:
 
 Artifact roles:
 
-- `attach.json`: stable attachability contract
+- `attach.json`: internal bootstrap state
+- `gateway_manifest.json`: derived outward-facing gateway bookkeeping
 - `protocol-version.txt`: simple version marker for local artifacts
 - `desired-config.json`: desired host and port to reuse on later starts
 - `state.json`: read-optimized current status contract

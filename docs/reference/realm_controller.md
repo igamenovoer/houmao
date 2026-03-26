@@ -65,7 +65,7 @@ For the dedicated registry subtree, start at [Shared Registry Reference](./regis
 
 New runtime-owned tmux-backed sessions now publish gateway capability by default even when no live gateway process is attached yet.
 
-Use [Agent Gateway Reference](./gateway/index.md) for the detailed attach contract, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical session-root, nested `gateway/`, and `job_dir` filesystem map. This page keeps the gateway overview short so those details live in one place.
+Use [Agent Gateway Reference](./gateway/index.md) for the detailed manifest-first attach authority, live HTTP routes, status model, durable artifacts, and lifecycle or recovery semantics. Use [Agents And Runtime](./system-files/agents-and-runtime.md) for the canonical session-root, nested `gateway/`, and `job_dir` filesystem map. This page keeps the gateway overview short so those details live in one place.
 
 - The tmux session environment publishes stable managed-agent discovery through `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`.
 - When a live gateway is attached, tmux also publishes `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`.

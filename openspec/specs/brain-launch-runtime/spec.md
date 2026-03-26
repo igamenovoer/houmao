@@ -491,22 +491,37 @@ The system SHALL support streaming output/events for interactive sessions, and S
 - **AND THEN** the session reports an `interrupted`/`terminated` outcome (or an error if interruption fails)
 
 ### Requirement: Persist a session manifest JSON
-The system SHALL persist a session manifest JSON (session handle) alongside the brain manifest for audit/resume/stop.
+The system SHALL persist a session manifest JSON (session handle) alongside the brain manifest for audit, resume, stop, gateway attach authority, and tmux-backed relaunch authority.
 
-#### Scenario: Start session writes a session manifest
-- **WHEN** a developer starts a session
-- **THEN** the system writes a session manifest JSON that records the backend type and the minimal reconnect/stop fields (e.g., process identity for long-lived backends, `session_id` for resumable headless backends, terminal IDs and CAO API base URL for CAO, artifact paths, working directory)
+For tmux-backed sessions, that manifest SHALL persist normalized session authority that includes at minimum:
 
-#### Scenario: Resume headless session from persisted manifest
-- **WHEN** a developer resumes a Claude/Gemini session from a persisted session manifest
-- **THEN** the system uses the persisted `session_id` with backend resume flags for the next prompt
-- **AND THEN** if required resume fields are missing or invalid, the system returns an explicit resume error instead of silently starting an unrelated new conversation
+- runtime-owned session identity and paths
+- authoritative `agent_id` and canonical `agent_name`
+- persisted tmux session identity
+- agent process pid when a live agent worker process currently exists
+- secret-free agent relaunch authority needed for later gateway-managed or CLI-managed relaunch
+- the backend-specific attach authority needed for later gateway attach
+- the backend-specific runtime control authority needed for later resumed control
 
-#### Scenario: Resume CAO session from persisted manifest (manifest-only addressing)
-- **WHEN** a developer resumes a CAO-backed session from a persisted session manifest (for prompt sending or stop)
-- **THEN** the system uses the persisted `cao.api_base_url` and `cao.terminal_id` as the sole address for the resumed operation (no external base URL override)
-- **AND THEN** if required CAO manifest fields are missing/blank or internally inconsistent (for example `cao.api_base_url` != `backend_state.api_base_url`), the system fails fast with `SessionManifestError`
-- **AND THEN** if CAO network/HTTP requests fail, the system reports the failure as `BackendExecutionError`
+For native headless tmux-backed sessions, that manifest SHALL additionally persist enough authority for the gateway or resumed controller to relaunch future headless turns from manifest-owned state even when no live worker process currently exists.
+
+For tmux-backed supported surfaces, the manifest SHALL be the stable authority for later gateway attach and runtime control rather than relying on `gateway_manifest.json`, `attach.json`, or duplicated legacy `backend_state` blobs.
+
+#### Scenario: Start session writes a manifest with normalized session authority
+- **WHEN** a developer starts a tmux-backed runtime-owned session
+- **THEN** the system writes a session manifest JSON that records backend type, canonical session authority, persisted tmux session identity, and the attach or control fields required for later resume and gateway attach
+- **AND THEN** that manifest includes secret-free relaunch posture plus the live agent process pid when one exists as part of runtime-owned session truth
+
+#### Scenario: Native headless manifest remains attachable between turns
+- **WHEN** a developer starts or resumes a native headless tmux-backed session
+- **AND WHEN** no live headless worker process is currently running because the prior turn already completed
+- **THEN** the persisted manifest still contains the authority needed for later gateway attach and future turn relaunch
+- **AND THEN** a missing live `agent_pid` does not invalidate that manifest
+
+#### Scenario: Resume tmux-backed session uses manifest authority rather than gateway bootstrap publication
+- **WHEN** a developer resumes a tmux-backed session from a persisted session manifest
+- **THEN** the system uses the manifest's persisted attach or control authority as the source of truth for resumed control
+- **AND THEN** it does not require `gateway_manifest.json` or `attach.json` to remain authoritative for the resumed operation
 
 ### Requirement: Runtime defaults new build and session state to the Houmao runtime root
 When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
@@ -1358,59 +1373,31 @@ If a caller requests live gateway attach for any backend whose gateway adapter i
 - **THEN** the runtime fails that attach request with an explicit unsupported-backend error
 - **AND THEN** the runtime does not silently convert that attach request into legacy direct control
 
-### Requirement: Runtime-owned tmux sessions publish a stable gateway attach contract
-When the runtime makes a tmux-backed session gateway-capable, it SHALL publish a stable attach contract for that session in a secret-free file and SHALL expose the absolute path to that file through tmux session environment.
+### Requirement: Runtime-owned tmux sessions materialize internal gateway artifacts under the session root
+When the runtime makes a tmux-backed session gateway-capable, it SHALL materialize session-owned gateway artifacts under the nested `gateway/` directory of that session root.
 
-The attach contract SHALL be sufficient for a later gateway attach flow to determine how to observe and control the live session.
+Those artifacts MAY include internal bootstrap state such as `attach.json`, derived outward-facing bookkeeping such as `gateway_manifest.json`, seeded `state.json`, and queue or bootstrap assets needed by runtime or gateway internals.
 
-The attach contract SHALL use one strict versioned schema for both runtime-owned sessions in v1 and future manual-session adopters.
+For runtime-owned sessions in v1, the canonical runtime-owned session root SHALL be `<runtime_root>/sessions/<backend>/<session_id>/`, using the runtime-generated session id used for manifest storage. The session manifest SHALL live at `<session-root>/manifest.json`, and the gateway root SHALL live at `<session-root>/gateway`.
 
-That strict schema SHALL require a shared core containing at least:
+Manifest-backed authority plus tmux-published manifest-first discovery SHALL remain the supported external contract. Internal gateway artifacts SHALL support runtime and gateway internals without redefining the authoritative attach or relaunch contract.
 
-- `schema_version`
-- `attach_identity`
-- `backend`
-- `tmux_session_name`
-- `working_directory`
-- `backend_metadata`
-
-That strict schema MAY additionally include runtime-owned-only fields such as:
-
-- `manifest_path`
-- `agent_def_dir`
-- `runtime_session_id`
-- `desired_host`
-- `desired_port`
-
-Runtime-owned attach-contract publication SHALL populate the shared core and any runtime-owned fields that are available for that live session.
-
-Runtime-owned attachability publication SHALL coexist with the existing manifest and agent-definition discovery pointers instead of replacing them.
-
-For runtime-owned sessions in v1, the canonical runtime-owned session root SHALL be `<runtime_root>/sessions/<backend>/<session_id>/`, using the runtime-generated session id used for manifest storage. The session manifest SHALL live at `<session-root>/manifest.json`, the gateway root SHALL live at `<session-root>/gateway`, and the attach contract SHALL live at `<session-root>/gateway/attach.json`.
-
-#### Scenario: Session start publishes attach metadata without a live gateway
+#### Scenario: Session start materializes internal gateway artifacts without a live gateway
 - **WHEN** a developer starts a runtime-owned tmux-backed session without launch-time gateway attach
-- **THEN** the runtime publishes stable gateway attach metadata for that live session
+- **THEN** the runtime materializes the session-owned gateway root and its internal or derived artifacts for that live session
 - **AND THEN** the session can remain gateway-capable even though no gateway instance is currently running
 
-#### Scenario: Resume re-publishes attach metadata
+#### Scenario: Resume re-materializes internal gateway artifacts
 - **WHEN** the runtime resumes control of a runtime-owned tmux-backed session
-- **AND WHEN** attachability metadata for that session can be determined from persisted session state
-- **THEN** the runtime re-publishes the attach-contract pointer for that live session
-- **AND THEN** later attach flows do not need to rediscover the session from unrelated state
+- **AND WHEN** gateway capability for that session can be determined from persisted session state
+- **THEN** the runtime refreshes the applicable internal or derived gateway artifacts for that live session
+- **AND THEN** later attach flows continue to resolve supported authority from `manifest.json` plus tmux or registry discovery
 
 #### Scenario: Runtime-owned session root and gateway root use the persisted session id
 - **WHEN** the runtime starts a runtime-owned tmux-backed session with generated session id `cao_rest-20260312-120000Z-abcd1234`
 - **THEN** the stable runtime-owned session root for that session is derived from that persisted session id under `<runtime_root>/sessions/<backend>/<session_id>/`
 - **AND THEN** the session manifest path for that session is `<session-root>/manifest.json`
 - **AND THEN** the gateway root for that session is `<session-root>/gateway`
-- **AND THEN** the attach-contract path for that session is `<session-root>/gateway/attach.json`
-
-#### Scenario: Runtime-owned attach contract publishes required core plus optional runtime fields
-- **WHEN** the runtime publishes attach metadata for a gateway-capable runtime-owned tmux session
-- **THEN** the attach contract includes the required shared core fields for attach identity, backend kind, tmux session name, working directory, and backend metadata
-- **AND THEN** runtime-owned fields such as `manifest_path` and `runtime_session_id` are included when available
-- **AND THEN** the contract is validated as one strict versioned schema rather than as an open-ended map
 
 ### Requirement: Runtime supports optional launch-time auto-attach for supported backends
 When a caller explicitly requests launch-time gateway attach for a supported backend, the runtime SHALL start the agent session, resolve attach metadata for that live session, and then start a gateway instance without restarting the agent.
@@ -1518,16 +1505,16 @@ Gateway bootstrap, discovery publication, and resumed gateway control SHALL NOT 
 - **AND THEN** resumed gateway control does not require mailbox bindings to be reintroduced
 
 ### Requirement: Gateway-capable sessions persist and restore stable attach metadata
-For gateway-capable runtime-owned tmux sessions, the runtime SHALL persist the stable gateway attach metadata needed to rediscover the same session-owned gateway root, attach contract, and protocol context on resume.
+For gateway-capable runtime-owned tmux sessions, the runtime SHALL persist the manifest-backed gateway metadata needed to rediscover the same session-owned gateway root and protocol context on resume.
 
 #### Scenario: Session start persists gateway metadata for resume
 - **WHEN** a developer starts a gateway-capable runtime-owned tmux session
-- **THEN** the runtime persists the gateway metadata needed to rediscover that session's session-owned gateway root and attach context later
+- **THEN** the runtime persists the gateway metadata needed to rediscover that session's session-owned gateway root and manifest-backed authority later
 - **AND THEN** resumed control paths can validate or restore gateway discovery using persisted session state instead of re-deriving an unrelated gateway location
 
 #### Scenario: Resume preserves stable attach identity for a live session
 - **WHEN** a developer resumes control of a gateway-capable runtime-owned tmux session
-- **THEN** the runtime uses the persisted session state to rediscover the expected session-owned gateway root and attach contract for that live session
+- **THEN** the runtime uses the persisted session state to rediscover the expected session-owned gateway root and manifest-backed authority for that live session
 - **AND THEN** the resumed control path does not silently attach the session to a different gateway-capability identity
 
 ### Requirement: Runtime-owned recovery preserves stable session identity while allowing managed-agent replacement
@@ -1572,15 +1559,15 @@ When runtime-owned recovery observes unexpected managed-agent loss while a gatew
 - **THEN** the shared status contract continues to identify the same logical session and gateway root
 - **AND THEN** that status reports managed-agent recovery or unavailability explicitly instead of collapsing immediately to "no gateway attached"
 
-### Requirement: Runtime publishes stable attach pointers and ephemeral live gateway bindings separately
-When the runtime makes a tmux-backed session gateway-capable, it SHALL publish stable attach pointers into the tmux session environment in addition to the existing manifest and agent-definition bindings.
+### Requirement: Runtime publishes manifest-first stable discovery pointers and live gateway bindings separately
+When the runtime makes a tmux-backed session gateway-capable, it SHALL publish stable manifest-first discovery pointers into the tmux session environment in addition to the existing agent-definition binding.
 
 When a live gateway instance is currently attached, the runtime or gateway lifecycle SHALL also publish live gateway bindings for that running instance.
 
 At minimum, the runtime SHALL publish:
 
-- `AGENTSYS_GATEWAY_ATTACH_PATH`
-- `AGENTSYS_GATEWAY_ROOT`
+- `AGENTSYS_MANIFEST_PATH`
+- `AGENTSYS_AGENT_ID`
 
 When a live gateway instance exists, the system SHALL additionally publish:
 
@@ -1589,24 +1576,17 @@ When a live gateway instance exists, the system SHALL additionally publish:
 - `AGENTSYS_GATEWAY_STATE_PATH`
 - `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
 
-When runtime-owned recovery rebinds the same logical session to a replacement managed-agent instance, the runtime or gateway lifecycle SHALL also refresh any published runtime-managed metadata needed to distinguish the new managed-agent instance from the one that failed.
+The stable tmux discovery pointers SHALL also be the current-session entrypoint for tmux-backed relaunch.
 
-When resumed runtime control has already determined the effective attach metadata or live gateway bindings for the same live session, it SHALL re-publish the applicable bindings into the tmux session environment.
-
-#### Scenario: Session start publishes stable attach pointers
+#### Scenario: Session start publishes manifest-first stable discovery pointers
 - **WHEN** the runtime starts a gateway-capable tmux-backed session
-- **THEN** the tmux session environment contains `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
-- **AND THEN** those bindings point to the stable attach contract and nested session-owned gateway root for that session even when no gateway instance is running
+- **THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`
+- **AND THEN** those bindings point to the stable manifest authority or authoritative identity for that session even when no gateway instance is running
 
 #### Scenario: Live gateway attach publishes active gateway bindings
 - **WHEN** the runtime or lifecycle command attaches a live gateway instance to a gateway-capable tmux-backed session
 - **THEN** the tmux session environment contains `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
 - **AND THEN** those bindings point to the currently running gateway instance rather than merely to stable attachability
-
-#### Scenario: Managed-agent replacement refreshes runtime-managed metadata
-- **WHEN** runtime-owned recovery preserves a logical session but binds a replacement managed-agent instance for it
-- **THEN** the runtime or gateway lifecycle refreshes the runtime-managed metadata associated with that logical session
-- **AND THEN** later gateway-aware readers can distinguish the replacement managed-agent instance from the one that failed without allocating a new gateway root
 
 ### Requirement: Runtime-owned stop-session teardown also cleans up a live attached gateway
 When the runtime tears down a runtime-owned session through its authoritative `stop-session` path and that session currently has a live attached gateway, the runtime SHALL stop that gateway as part of the same teardown flow.
@@ -1905,11 +1885,13 @@ The runtime SHALL choose and persist one tmux session name per launched session 
 
 The runtime SHALL reserve tmux window `0` as the primary agent surface for that session and SHALL keep the managed agent itself on that primary surface across pair-managed turns.
 
-The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` into the tmux session environment so that pair-managed discovery can locate the persisted session manifest.
+Later relaunch of that tmux-backed pair-managed session SHALL reuse the same window `0` surface and SHALL NOT allocate a replacement tmux window.
 
-The runtime SHALL reuse the existing runtime-owned gateway capability publication seam to materialize `gateway/attach.json`, `gateway/state.json`, queue/bootstrap assets, and the stable gateway attachability pointers `AGENTSYS_GATEWAY_ATTACH_PATH=<absolute attach path>` and `AGENTSYS_GATEWAY_ROOT=<absolute gateway root>` during pair launch or launch registration, before a live gateway is attached.
+The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` and `AGENTSYS_AGENT_ID=<authoritative agent id>` into the tmux session environment so that pair-managed current-session discovery can locate the persisted session manifest directly and fall back through shared-registry resolution when needed.
 
-A pair-managed session SHALL NOT be treated as current-session attach-ready until both that runtime-owned gateway capability publication and successful managed-agent registration for the same persisted `api_base_url` and `session_name` have completed.
+The runtime SHALL reuse the existing runtime-owned gateway capability publication seam to materialize derived gateway bookkeeping, `state.json`, queue or bootstrap assets, and related session-owned gateway artifacts during pair launch or launch registration, before a live gateway is attached.
+
+A pair-managed session SHALL NOT be treated as current-session attach-ready until both that runtime-owned manifest-backed gateway publication and successful managed-agent registration for the same persisted attach authority have completed.
 
 The runtime SHALL allow auxiliary windows to exist later in the same tmux session for gateway or operator diagnostics, but they SHALL NOT displace the agent from window `0` and SHALL NOT redefine the primary pair-managed attach surface.
 
@@ -1919,13 +1901,13 @@ Runtime-controlled pair-managed turns and pair-managed tmux resolution SHALL con
 - **WHEN** a developer launches a pair-managed TUI session through `houmao-mgr`
 - **THEN** the runtime persists the actual tmux session name for that live session
 - **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`
+- **AND THEN** the tmux session environment contains `AGENTSYS_AGENT_ID`
 - **AND THEN** the gateway capability artifacts are materialized through the shared runtime-owned gateway publication seam
 - **AND THEN** window `0` is reserved as the primary agent surface for that session
 
 #### Scenario: Current-session attach is unavailable before matching registration completes
-- **WHEN** a delegated pair launch has already published stable gateway attachability into the tmux session
-- **AND WHEN** managed-agent registration for that same persisted `api_base_url` and `session_name` has not yet completed successfully
+- **WHEN** a delegated pair launch has already published the stable manifest-first discovery inputs into the tmux session
+- **AND WHEN** managed-agent registration for that same persisted attach authority has not yet completed successfully
 - **THEN** the session is not yet current-session attach-ready
 - **AND THEN** pair-managed current-session gateway attach fails closed rather than guessing another authority or alias
 
@@ -1934,6 +1916,37 @@ Runtime-controlled pair-managed turns and pair-managed tmux resolution SHALL con
 - **AND WHEN** the runtime starts another controlled turn against that managed session
 - **THEN** the controlled work still executes on the agent surface in window `0`
 - **AND THEN** the runtime does not need to treat the selected auxiliary window as the authoritative agent surface
+
+### Requirement: Tmux-backed sessions support session-local relaunch without rebuilding the brain home
+For tmux-backed managed sessions, the system SHALL expose a relaunch surface that reuses the already-built agent home and does not route through build-time `houmao-mgr agents launch` behavior.
+
+The public operator surface SHALL be `houmao-mgr agents relaunch`, and gateway-managed relaunch SHALL use the same internal runtime relaunch primitive rather than shelling out to the build-time launch command.
+
+For tmux-backed relaunchable sessions, the persisted manifest SHALL carry secret-free `agent_launch_authority` sufficient to describe how the managed agent surface is relaunched, while the owning tmux session environment SHALL carry the effective env values needed at relaunch time.
+
+Tmux-backed relaunch SHALL resolve the target session through the same manifest-first discovery contract used by current-session attach.
+
+Tmux-backed relaunch SHALL always target tmux window `0` for the managed agent surface and SHALL NOT allocate a new tmux window.
+
+The system SHALL NOT require per-agent launcher directories, copied launcher scripts, or copied credentials in shared registry in order to relaunch a tmux-backed managed session.
+
+For native headless sessions, relaunch remains valid between turns even when no live `runtime.agent_pid` is published.
+
+#### Scenario: Current-session relaunch uses tmux session env and existing built home
+- **WHEN** a developer runs `houmao-mgr agents relaunch` inside a tmux-backed managed session
+- **THEN** the system resolves the session through `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`
+- **AND THEN** it relaunches the managed agent surface from manifest-owned relaunch posture plus the current tmux session env
+- **AND THEN** it does not rebuild the brain home
+
+#### Scenario: Gateway-managed relaunch shares the same runtime primitive
+- **WHEN** an attached gateway requests relaunch for a tmux-backed managed session
+- **THEN** the gateway uses the same manifest-backed runtime relaunch primitive as `houmao-mgr agents relaunch`
+- **AND THEN** it does not fall back to build-time `houmao-mgr agents launch`
+
+#### Scenario: Relaunch reuses window 0 rather than allocating a new window
+- **WHEN** the runtime relaunches a tmux-backed managed session
+- **THEN** it targets the managed agent surface in window `0`
+- **AND THEN** it does not create or search for another tmux window when window `0` has been repurposed by the user
 
 ### Requirement: Supported pair-managed tmux sessions keep the agent in window 0 while auxiliary windows remain non-authoritative
 For pair-managed tmux sessions that place gateway or other support processes in the same tmux session, the runtime SHALL reserve tmux window `0` for the agent process.
@@ -1968,20 +1981,28 @@ If the agent process later disappears unexpectedly and the runtime relaunches it
 - **THEN** the runtime restores the relaunched agent process to window `0`
 - **AND THEN** the session is not treated as recovered until that canonical agent surface is re-established
 
-### Requirement: Runtime-owned headless sessions publish attach metadata sufficient for local headless gateway execution
-For runtime-owned native headless sessions, the published gateway attach contract SHALL include the headless backend metadata needed by the local headless gateway execution adapter.
+### Requirement: Native headless tmux-backed sessions reserve window 0 for console output and remain gateway-attachable between turns
+For runtime-owned native headless sessions that use tmux as the durable terminal container, the runtime SHALL keep window `0` reserved for the headless agent console surface.
 
-That published metadata SHALL remain secret-free and SHALL be sufficient for later runtime-owned gateway attach and resume flows affecting the same live headless session.
+The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` and `AGENTSYS_AGENT_ID=<authoritative agent id>` into that tmux session so current-session gateway attach can resolve the manifest directly and fall back through shared-registry resolution when needed.
 
-#### Scenario: Runtime-owned Codex headless session publishes headless attach metadata
-- **WHEN** the runtime starts a gateway-capable runtime-owned Codex headless session
-- **THEN** the published attach contract includes headless backend metadata for that session
-- **AND THEN** a later runtime-owned gateway attach flow can use that contract to target the same live headless session
+Gateway attach SHALL NOT assume a native headless worker process is currently running. Attach targets the logical persisted session, and the manifest SHALL contain enough authority for later headless turn launch even when `runtime.agent_pid` is empty.
 
-#### Scenario: Resume preserves headless attach authority
-- **WHEN** the runtime resumes a gateway-capable runtime-owned native headless session
-- **THEN** the runtime re-publishes the stable attach metadata for that headless session
-- **AND THEN** later gateway-aware control paths do not need to rediscover the headless session from unrelated state
+If the runtime launches a same-session gateway surface for a native headless session, that surface SHALL live outside window `0` and SHALL NOT displace the headless console from window `0`.
+
+Any native headless relaunch path SHALL reuse window `0` as the headless console surface and SHALL NOT allocate a replacement tmux window.
+
+#### Scenario: Native headless session reserves window 0 and publishes manifest-first discovery
+- **WHEN** a developer launches a native headless tmux-backed session
+- **THEN** window `0` is reserved for the headless console surface
+- **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH`
+- **AND THEN** the tmux session environment contains `AGENTSYS_AGENT_ID`
+
+#### Scenario: Native headless attach remains valid after a turn exits
+- **WHEN** a native headless turn finishes and its worker process exits
+- **AND WHEN** the tmux session and manifest remain live
+- **THEN** current-session gateway attach remains valid for that logical session
+- **AND THEN** a missing `runtime.agent_pid` does not make the session non-attachable
 
 ### Requirement: Runtime launch resolves operator prompt policy from the actual tool version
 When a resolved brain manifest requests an operator prompt policy that forbids startup operator prompts, the runtime SHALL resolve that policy against the actual installed CLI tool version and backend before starting the provider process.

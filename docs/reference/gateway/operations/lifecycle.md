@@ -21,12 +21,14 @@ That means session start or resume can create:
 - `gateway/gateway_manifest.json`,
 - `gateway/attach.json`,
 - `gateway/state.json`,
-- stable tmux discovery env,
+- manifest-first tmux discovery env,
 - a `not_attached` status snapshot.
 
 It does not mean a live gateway is already running.
 
-Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `gateway_manifest.json`, `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux discovery env before the server-side managed-agent registration step finishes.
+`attach.json` is internal bootstrap state and `gateway_manifest.json` is derived outward-facing bookkeeping. Supported attach and relaunch behavior still resolve authority from `manifest.json` plus tmux or shared-registry discovery.
+
+Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `gateway_manifest.json`, `attach.json`, seeded offline status, queue/bootstrap assets, and manifest-first tmux discovery env before the server-side managed-agent registration step finishes.
 
 ## Post-Launch Attach Is The Official Managed-Agent Path
 
@@ -35,7 +37,7 @@ For the official managed-agent flow, launch and gateway lifecycle stay separate.
 That means:
 
 - the managed agent launches first,
-- gateway capability is published through `manifest.json`, `attach.json`, `gateway_manifest.json`, seeded state, and tmux discovery env,
+- gateway capability is published through `manifest.json`, derived gateway artifacts, seeded state, and tmux discovery env,
 - live gateway attach happens later through an explicit attach action,
 - async mailbox demos and server-managed flows should treat this post-launch attach as the supported path.
 
@@ -136,7 +138,7 @@ Listener resolution rules in the current implementation:
 1. CLI host or port override for the attach action,
 2. caller environment variable for host or port,
 3. stored desired config when present,
-4. attach-contract defaults,
+4. internal bootstrap defaults when present,
 5. fallback host `127.0.0.1` and system-assigned port request when no port is specified.
 
 Important rule:
@@ -195,7 +197,7 @@ Effects:
 - live gateway env vars are removed,
 - `gateway_manifest.json` is regenerated as offline derived bookkeeping,
 - `state.json` returns to the offline `not_attached` shape,
-- stable attach metadata stays in place for later re-attach.
+- persisted manifest-backed attach authority stays in place for later re-attach.
 
 `stop-session` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
 

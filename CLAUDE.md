@@ -51,8 +51,9 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 - `src/houmao/agents/realm_controller/` — Run phase: `LaunchPlan`, `RuntimeSessionController`, backends
 - `src/houmao/agents/realm_controller/backends/` — Per-tool/backend implementations
 - `src/houmao/cao/` — CAO REST client, server launcher, no-proxy helpers
-- `src/houmao/cli.py` — `houmao-cli` entrypoint (delegates to `realm_controller.cli`)
-- `src/houmao/cao_cli.py` — `houmao-cao-server` entrypoint
+- `src/houmao/srv_ctrl/cli.py` — `houmao-mgr` entrypoint for managed lifecycle, agent, and server control
+- `src/houmao/server/cli.py` — `houmao-server` entrypoint
+- `src/houmao/cli.py` and `src/houmao/cao_cli.py` — deprecated compatibility entrypoints; prefer `houmao-mgr` and `houmao-server`
 
 ### Backend Model
 
