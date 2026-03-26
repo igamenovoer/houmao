@@ -157,4 +157,4 @@ That would keep a parser contradiction from turning into visible dashboard oscil
 - **Direct consequence of issue-003** (bag-of-signals classification) — this is the live-demo proof that historical signals in the tail window cause real completion oscillation, not just theoretical misclassification
 - **Fixed by the same solution as issue-003**: cursor-anchored zone partitioning (see `openspec/changes/fix-bag-of-signals-classification/`) would restrict signal detection to the active zone, eliminating the historical progress line from classification
 - Reinforces the lifecycle fragility described in `context/issues/known/issue-002-shadow-turn-monitor-imperative-timing.md`
-- Related to `context/logs/code-reivew/20260318-shadow-parser-tui-state-detection-review.md`
+- Related to `context/logs/code-review/20260318-shadow-parser-tui-state-detection-review.md`

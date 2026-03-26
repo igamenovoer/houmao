@@ -50,6 +50,7 @@ GatewayJsonValue: TypeAlias = (
 GatewayJsonObject: TypeAlias = dict[str, GatewayJsonValue]
 
 GATEWAY_ATTACH_SCHEMA_VERSION = 1
+GATEWAY_MANIFEST_SCHEMA_VERSION = 1
 GATEWAY_PROTOCOL_VERSION: GatewayProtocolVersion = "v1"
 GATEWAY_STATE_SCHEMA_VERSION = 1
 GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
@@ -57,6 +58,56 @@ GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
+
+
+def default_gateway_execution_mode_for_backend(
+    backend: BackendKind,
+) -> GatewayCurrentExecutionMode:
+    """Return the default gateway execution mode for one managed backend."""
+
+    if backend == "houmao_server_rest":
+        return "tmux_auxiliary_window"
+    return "detached_process"
+
+
+def _validate_gateway_backend_metadata_shape(
+    *,
+    backend: BackendKind,
+    backend_metadata: (
+        GatewayAttachBackendMetadataHeadlessV1
+        | GatewayAttachBackendMetadataCaoV1
+        | GatewayAttachBackendMetadataHoumaoServerV1
+    ),
+    context: str,
+) -> None:
+    """Validate backend-specific gateway metadata against one backend kind."""
+
+    if backend == "cao_rest":
+        if not isinstance(backend_metadata, GatewayAttachBackendMetadataCaoV1):
+            raise ValueError(f"{context} must use the CAO attach schema for backend=cao_rest")
+        return
+    if backend == "houmao_server_rest":
+        if not isinstance(
+            backend_metadata,
+            GatewayAttachBackendMetadataHoumaoServerV1,
+        ):
+            raise ValueError(
+                f"{context} must use the houmao-server attach schema for backend=houmao_server_rest"
+            )
+        return
+    if backend in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }:
+        if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
+            raise ValueError(
+                f"{context} must use the headless attach schema for tmux-backed "
+                "local/headless backends"
+            )
+        return
+    raise ValueError(f"backend={backend!r} is not gateway-capable in v1")
 
 
 class _StrictGatewayModel(BaseModel):
@@ -240,33 +291,133 @@ class GatewayAttachContractV1(_StrictGatewayModel):
 
         if self.schema_version != GATEWAY_ATTACH_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_ATTACH_SCHEMA_VERSION}")
-        if self.backend == "cao_rest":
-            if not isinstance(self.backend_metadata, GatewayAttachBackendMetadataCaoV1):
+        _validate_gateway_backend_metadata_shape(
+            backend=self.backend,
+            backend_metadata=self.backend_metadata,
+            context="backend_metadata",
+        )
+        return self
+
+
+class GatewayManifestV1(_StrictGatewayModel):
+    """Derived outward-facing gateway bookkeeping for one session-owned gateway root."""
+
+    schema_version: int = Field(default=GATEWAY_MANIFEST_SCHEMA_VERSION)
+    attach_identity: str
+    backend: BackendKind
+    tmux_session_name: str
+    working_directory: str
+    backend_metadata: (
+        GatewayAttachBackendMetadataHeadlessV1
+        | GatewayAttachBackendMetadataCaoV1
+        | GatewayAttachBackendMetadataHoumaoServerV1
+    )
+    manifest_path: str | None = None
+    agent_def_dir: str | None = None
+    runtime_session_id: str | None = None
+    desired_host: GatewayHost | None = None
+    desired_port: int | None = None
+    gateway_pid: int | None = None
+    gateway_host: GatewayHost | None = None
+    gateway_port: int | None = None
+    gateway_protocol_version: GatewayProtocolVersion | None = None
+    gateway_execution_mode: GatewayCurrentExecutionMode | None = None
+    gateway_tmux_window_id: str | None = None
+    gateway_tmux_window_index: str | None = None
+    gateway_tmux_pane_id: str | None = None
+
+    @field_validator(
+        "attach_identity",
+        "tmux_session_name",
+        "working_directory",
+        "manifest_path",
+        "agent_def_dir",
+        "runtime_session_id",
+        "gateway_tmux_window_id",
+        "gateway_tmux_window_index",
+        "gateway_tmux_pane_id",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate required and optional manifest string fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("desired_port", "gateway_port")
+    @classmethod
+    def _optional_port_range(cls, value: int | None) -> int | None:
+        """Validate desired and live gateway listener ports."""
+
+        if value is None:
+            return None
+        if value < 1 or value > 65535:
+            raise ValueError("must be between 1 and 65535")
+        return value
+
+    @field_validator("gateway_pid")
+    @classmethod
+    def _optional_gateway_pid(cls, value: int | None) -> int | None:
+        """Validate the optional published gateway pid."""
+
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema_and_live_fields(self) -> "GatewayManifestV1":
+        """Validate schema version, backend metadata, and live publication shape."""
+
+        if self.schema_version != GATEWAY_MANIFEST_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MANIFEST_SCHEMA_VERSION}")
+        _validate_gateway_backend_metadata_shape(
+            backend=self.backend,
+            backend_metadata=self.backend_metadata,
+            context="backend_metadata",
+        )
+
+        live_fields = (
+            self.gateway_pid is not None,
+            self.gateway_host is not None,
+            self.gateway_port is not None,
+            self.gateway_protocol_version is not None,
+            self.gateway_execution_mode is not None,
+        )
+        if any(live_fields) and not all(live_fields):
+            raise ValueError(
+                "gateway_pid, gateway_host, gateway_port, gateway_protocol_version, and "
+                "gateway_execution_mode must be set together"
+            )
+
+        tmux_fields = (
+            self.gateway_tmux_window_id,
+            self.gateway_tmux_window_index,
+            self.gateway_tmux_pane_id,
+        )
+        if self.gateway_execution_mode is None:
+            if any(value is not None for value in tmux_fields):
                 raise ValueError(
-                    "backend_metadata must use the CAO attach schema for backend=cao_rest"
+                    "gateway tmux execution handle fields require gateway_execution_mode"
                 )
-        elif self.backend == "houmao_server_rest":
-            if not isinstance(
-                self.backend_metadata,
-                GatewayAttachBackendMetadataHoumaoServerV1,
-            ):
+            return self
+        if self.gateway_execution_mode == "detached_process":
+            if any(value is not None for value in tmux_fields):
                 raise ValueError(
-                    "backend_metadata must use the houmao-server attach schema for "
-                    "backend=houmao_server_rest"
+                    "detached_process gateway manifest must not include tmux execution handle fields"
                 )
-        elif self.backend in {
-            "local_interactive",
-            "codex_headless",
-            "claude_headless",
-            "gemini_headless",
-        }:
-            if not isinstance(self.backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
-                raise ValueError(
-                    "backend_metadata must use the headless attach schema "
-                    "for tmux-backed local/headless backends"
-                )
-        else:
-            raise ValueError(f"backend={self.backend!r} is not gateway-capable in v1")
+            return self
+        if any(value is None for value in tmux_fields):
+            raise ValueError(
+                "tmux_auxiliary_window gateway manifest requires gateway_tmux_window_id, "
+                "gateway_tmux_window_index, and gateway_tmux_pane_id"
+            )
+        if self.gateway_tmux_window_index == "0":
+            raise ValueError("tmux auxiliary gateway window must not use window index 0")
         return self
 
 
@@ -276,6 +427,7 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION)
     desired_host: GatewayHost | None = None
     desired_port: int | None = None
+    desired_execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
 
     @field_validator("desired_port")
     @classmethod
@@ -893,15 +1045,22 @@ class GatewayStatusV1(_StrictGatewayModel):
     request_admission: GatewayAdmissionState
     terminal_surface_eligibility: GatewaySurfaceEligibilityState
     active_execution: GatewayExecutionState
+    execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
     queue_depth: int
     gateway_host: GatewayHost | None = None
     gateway_port: int | None = None
+    gateway_tmux_window_id: str | None = None
+    gateway_tmux_window_index: str | None = None
+    gateway_tmux_pane_id: str | None = None
     managed_agent_instance_epoch: int
     managed_agent_instance_id: str | None = None
 
     @field_validator(
         "attach_identity",
         "tmux_session_name",
+        "gateway_tmux_window_id",
+        "gateway_tmux_window_index",
+        "gateway_tmux_pane_id",
         "managed_agent_instance_id",
     )
     @classmethod
@@ -943,6 +1102,36 @@ class GatewayStatusV1(_StrictGatewayModel):
         if self.gateway_health == "not_attached":
             if self.gateway_host is not None or self.gateway_port is not None:
                 raise ValueError("offline gateway status must omit live gateway host and port")
+        elif self.gateway_host is None or self.gateway_port is None:
+            raise ValueError("healthy gateway status must include live gateway host and port")
+
+        tmux_fields = (
+            self.gateway_tmux_window_id,
+            self.gateway_tmux_window_index,
+            self.gateway_tmux_pane_id,
+        )
+        if self.execution_mode == "detached_process":
+            if any(value is not None for value in tmux_fields):
+                raise ValueError(
+                    "detached_process gateway status must not include gateway tmux surface fields"
+                )
+            return self
+
+        if self.gateway_health == "healthy":
+            if self.gateway_tmux_window_id is None or self.gateway_tmux_window_index is None:
+                raise ValueError(
+                    "healthy tmux_auxiliary_window gateway status requires "
+                    "gateway_tmux_window_id and gateway_tmux_window_index"
+                )
+        elif any(value is not None for value in tmux_fields):
+            if self.gateway_tmux_window_id is None or self.gateway_tmux_window_index is None:
+                raise ValueError(
+                    "tmux_auxiliary_window gateway status requires "
+                    "gateway_tmux_window_id and gateway_tmux_window_index when tmux metadata "
+                    "is present"
+                )
+        if self.gateway_tmux_window_index == "0":
+            raise ValueError("gateway tmux window index must not be 0")
         return self
 
 

@@ -818,86 +818,65 @@ def _best_effort_cleanup_gateway(manifest_path: Path) -> None:
     time.sleep(0.1)
 
 
-def test_start_session_reports_partial_gateway_auto_attach_failure_on_bind_conflict(
-    monkeypatch: pytest.MonkeyPatch,
+def _assert_raw_cao_start_session_is_retired(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
+    *,
+    extra_args: list[str] | None = None,
 ) -> None:
-    """Launch-time auto-attach should keep the session alive on bind conflicts."""
+    """Assert that public raw `cao_rest` startup is rejected with migration guidance."""
 
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
     brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    argv = [
+        "start-session",
+        "--agent-def-dir",
+        str(agent_def_dir),
+        "--runtime-root",
+        str(runtime_root),
+        "--brain-manifest",
+        str(brain_manifest_path),
+        "--role",
+        "r",
+        "--backend",
+        "cao_rest",
+        "--workdir",
+        str(tmp_path),
+        "--cao-base-url",
+        "http://127.0.0.1:9889",
+    ]
+    if extra_args is not None:
+        argv.extend(extra_args)
+    exit_code, payload, err = _run_cli_json(capsys, argv)
+    assert exit_code == 2
+    assert payload == {}
+    assert "Standalone backend='cao_rest' operator workflows are retired" in err
 
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
+def test_start_session_rejects_retired_raw_cao_backend_even_with_gateway_auto_attach_args(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Raw `cao_rest` startup should stay retired even when gateway args are present."""
 
-        conflict_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        conflict_socket.bind(("127.0.0.1", 0))
-        conflict_socket.listen(1)
-        conflict_port = int(conflict_socket.getsockname()[1])
-        try:
-            exit_code, payload, err = _run_cli_json(
-                capsys,
-                [
-                    "start-session",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--runtime-root",
-                    str(runtime_root),
-                    "--brain-manifest",
-                    str(brain_manifest_path),
-                    "--role",
-                    "r",
-                    "--backend",
-                    "cao_rest",
-                    "--workdir",
-                    str(tmp_path),
-                    "--cao-base-url",
-                    fake_cao.base_url,
-                    "--gateway-auto-attach",
-                    "--gateway-host",
-                    "127.0.0.1",
-                    "--gateway-port",
-                    str(conflict_port),
-                ],
-            )
-        finally:
-            conflict_socket.close()
-
-        assert exit_code == 2
-        assert err == ""
-        assert "gateway_auto_attach_error" in payload
-        assert "already in use" in str(payload["gateway_auto_attach_error"])
-
-        manifest_path = Path(str(payload["session_manifest"]))
-        assert manifest_path.is_file()
-        assert Path(str(payload["gateway_root"])).is_dir()
-        assert Path(str(payload["gateway_attach_path"])).is_file()
-
-        direct_exit, direct_events, direct_err = _run_cli_events(
+    conflict_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    conflict_socket.bind(("127.0.0.1", 0))
+    conflict_socket.listen(1)
+    conflict_port = int(conflict_socket.getsockname()[1])
+    try:
+        _assert_raw_cao_start_session_is_retired(
             capsys,
-            [
-                "send-prompt",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--agent-identity",
-                str(manifest_path),
-                "--prompt",
-                "still-running",
+            tmp_path,
+            extra_args=[
+                "--gateway-auto-attach",
+                "--gateway-host",
+                "127.0.0.1",
+                "--gateway-port",
+                str(conflict_port),
             ],
         )
-        assert direct_exit == 0
-        assert direct_err == ""
-        assert direct_events[-1]["message"] == "direct:still-running"
-        assert registry.m_direct_prompts == ["still-running"]
+    finally:
+        conflict_socket.close()
 
 
 def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
@@ -923,13 +902,14 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port: (
+        lambda *, controller, paths, host, port, execution_mode: (
             captured_attach.update(
                 {
                     "controller": controller,
                     "paths": paths,
                     "host": host,
                     "port": port,
+                    "execution_mode": execution_mode,
                 }
             )
             or port
@@ -978,6 +958,7 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     assert attach_payload["gateway_port"] == 43123
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 43123
+    assert captured_attach["execution_mode"] == "detached_process"
 
 
 def test_runtime_owned_headless_resume_republishes_gateway_attach_metadata(
@@ -1069,13 +1050,14 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port: (
+        lambda *, controller, paths, host, port, execution_mode: (
             captured_attach.update(
                 {
                     "controller": controller,
                     "paths": paths,
                     "host": host,
                     "port": port,
+                    "execution_mode": execution_mode,
                 }
             )
             or port
@@ -1140,266 +1122,17 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
     assert attach_payload["gateway_port"] == 43123
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 43123
+    assert captured_attach["execution_mode"] == "detached_process"
     assert getattr(captured_attach["controller"], "launch_plan").backend == "local_interactive"
 
 
-def test_gateway_cli_contract_covers_attach_control_detach_replacement_and_stop(
-    monkeypatch: pytest.MonkeyPatch,
+def test_gateway_cli_contract_rejects_retired_raw_cao_backend_startup(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """The gateway CLI contract should cover attach, control, detach, and stop flows."""
+    """Gateway CLI coverage should not rely on retired raw `cao_rest` startup."""
 
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
-            capsys,
-            [
-                "start-session",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "cao_rest",
-                "--workdir",
-                str(tmp_path),
-                "--cao-base-url",
-                fake_cao.base_url,
-            ],
-        )
-        assert start_exit == 0
-        assert start_err == ""
-
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        session_name = registry.m_session_name
-        paths = gateway_paths_from_manifest_path(manifest_path)
-        assert paths is not None
-
-        try:
-            offline_exit, offline_status, offline_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-status",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert offline_exit == 0
-            assert offline_err == ""
-            assert offline_status["gateway_health"] == "not_attached"
-
-            direct_exit, direct_events, direct_err = _run_cli_events(
-                capsys,
-                [
-                    "send-prompt",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--prompt",
-                    "legacy-direct",
-                ],
-            )
-            assert direct_exit == 0
-            assert direct_err == ""
-            assert direct_events[-1]["message"] == "direct:legacy-direct"
-            assert registry.m_direct_prompts == ["legacy-direct"]
-
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-host",
-                    "127.0.0.1",
-                ],
-            )
-            assert attach_exit == 0
-            assert attach_err == ""
-            assert attach_payload["status"] == "ok"
-            attach_port = int(attach_payload["gateway_port"])
-            assert attach_port > 0
-            assert tmux_env.get(session_name=session_name, variable_name=AGENT_GATEWAY_HOST_ENV_VAR)
-            assert tmux_env.get(
-                session_name=session_name, variable_name=AGENT_GATEWAY_PORT_ENV_VAR
-            ) == str(attach_port)
-
-            live_exit, live_status, live_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-status",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert live_exit == 0
-            assert live_err == ""
-            assert live_status["gateway_health"] == "healthy"
-            assert live_status["request_admission"] == "open"
-            assert live_status["gateway_port"] == attach_port
-            assert live_status["managed_agent_instance_epoch"] == 1
-
-            prompt_exit, prompt_payload, prompt_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-send-prompt",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--prompt",
-                    "via-gateway",
-                ],
-            )
-            assert prompt_exit == 0
-            assert prompt_err == ""
-            assert prompt_payload["request_kind"] == "submit_prompt"
-            _wait_until(lambda: fake_cao.messages() == [("term-1", "via-gateway")])
-
-            interrupt_exit, interrupt_payload, interrupt_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-interrupt",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert interrupt_exit == 0
-            assert interrupt_err == ""
-            assert interrupt_payload["request_kind"] == "interrupt"
-            _wait_until(lambda: fake_cao.interrupt_count() == 1)
-
-            detach_exit, detach_payload, detach_err = _run_cli_json(
-                capsys,
-                [
-                    "detach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert detach_exit == 0
-            assert detach_err == ""
-            assert detach_payload["status"] == "ok"
-            assert (
-                tmux_env.get(session_name=session_name, variable_name=AGENT_GATEWAY_HOST_ENV_VAR)
-                is None
-            )
-
-            detached_exit, detached_status, detached_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-status",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert detached_exit == 0
-            assert detached_err == ""
-            assert detached_status["gateway_health"] == "not_attached"
-
-            reattach_exit, reattach_payload, reattach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert reattach_exit == 0
-            assert reattach_err == ""
-            assert reattach_payload["status"] == "ok"
-            assert reattach_payload["gateway_port"] == attach_port
-            _rewrite_manifest_terminal_id(manifest_path, terminal_id="term-2")
-            fake_cao.set_terminal_id("term-2")
-
-            blocked_exit, blocked_status, blocked_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-status",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert blocked_exit == 0
-            assert blocked_err == ""
-            assert blocked_status["request_admission"] == "blocked_reconciliation"
-            assert blocked_status["managed_agent_instance_epoch"] == 2
-
-            denied_exit = cli.main(
-                [
-                    "gateway-send-prompt",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--prompt",
-                    "blocked",
-                ]
-            )
-            denied_output = capsys.readouterr()
-            assert denied_exit == 2
-            assert denied_output.out == ""
-            assert "status=409" in denied_output.err
-            assert "reconciliation" in denied_output.err
-
-            stop_exit, stop_payload, stop_err = _run_cli_json(
-                capsys,
-                [
-                    "stop-session",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
-            )
-            assert stop_exit == 0
-            assert stop_err == ""
-            assert stop_payload["status"] == "ok"
-            assert registry.m_terminated is True
-            assert (
-                tmux_env.get(session_name=session_name, variable_name=AGENT_GATEWAY_HOST_ENV_VAR)
-                is None
-            )
-
-            persisted_status = load_gateway_status(paths.state_path)
-            assert persisted_status.gateway_health == "not_attached"
-            assert persisted_status.request_admission == "blocked_unavailable"
-        finally:
-            _best_effort_cleanup_gateway(manifest_path)
+    _assert_raw_cao_start_session_is_retired(capsys, tmp_path)
 
 
 def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(

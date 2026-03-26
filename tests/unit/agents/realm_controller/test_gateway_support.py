@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -17,6 +18,10 @@ from houmao.agents.mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.agents.realm_controller.agent_identity import (
+    AGENT_ID_ENV_VAR,
+    AGENT_MANIFEST_PATH_ENV_VAR,
+)
 from houmao.agents.realm_controller.errors import GatewayHttpError, LaunchPlanError
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
@@ -43,7 +48,11 @@ from houmao.agents.realm_controller.gateway_storage import (
     GatewayCapabilityPublication,
     ensure_gateway_capability,
     gateway_paths_from_manifest_path,
+    load_gateway_current_instance,
+    load_gateway_desired_config,
+    load_gateway_manifest,
     read_gateway_notifier_audit_records,
+    refresh_gateway_manifest_publication,
     write_gateway_current_instance,
 )
 from houmao.agents.realm_controller.loaders import load_blueprint
@@ -58,7 +67,10 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionControlResult,
 )
-from houmao.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.agents.realm_controller.runtime import (
+    RuntimeSessionController,
+    _same_session_gateway_shell_command,
+)
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
@@ -70,7 +82,15 @@ from houmao.mailbox.stalwart import (
     runtime_stalwart_credential_path,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.server.pair_client import PairAuthorityHealthProbe
 from houmao.server.models import (
+    HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentRequestAcceptedResponse,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTurnView,
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
@@ -370,6 +390,7 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
     )
 
     assert paths.gateway_root == manifest_path.parent / "gateway"
+    assert paths.gateway_manifest_path.is_file()
     assert paths.attach_path.is_file()
     assert paths.state_path.is_file()
     assert paths.queue_path.is_file()
@@ -380,12 +401,61 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
     assert attach_payload["desired_port"] == 43123
     state_payload = json.loads(paths.state_path.read_text(encoding="utf-8"))
     assert state_payload["gateway_health"] == "not_attached"
+    gateway_manifest = load_gateway_manifest(paths.gateway_manifest_path)
+    assert gateway_manifest.attach_identity == "cao_rest-20260312-120000Z-abcd1234"
+    assert gateway_manifest.desired_host == "127.0.0.1"
+    assert gateway_manifest.desired_port == 43123
+    assert gateway_manifest.gateway_pid is None
     assert gateway_paths_from_manifest_path(manifest_path) == paths
     with sqlite3.connect(paths.queue_path) as connection:
         row = connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='gateway_requests'"
         ).fetchone()
     assert row == (1,)
+
+
+def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
+    _write(manifest_path, "{}\n")
+    controller = RuntimeSessionController(
+        launch_plan=_sample_headless_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-gpu",
+        agent_id="published-alpha",
+        tmux_session_name="AGENTSYS-gpu",
+    )
+
+    published_env_calls: list[tuple[str, dict[str, str]]] = []
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda *, session_name, env_vars: published_env_calls.append(
+            (session_name, dict(env_vars))
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.resolve_live_agent_record_by_agent_id",
+        lambda agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.publish_live_agent_record",
+        lambda record: record,
+    )
+
+    controller.ensure_gateway_capability()
+
+    assert ("AGENTSYS-gpu",) == tuple({call[0] for call in published_env_calls})
+    assert any(
+        env_vars.get(AGENT_MANIFEST_PATH_ENV_VAR) == str(manifest_path.resolve())
+        and env_vars.get(AGENT_ID_ENV_VAR) == "published-alpha"
+        for _, env_vars in published_env_calls
+    )
 
 
 def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None:
@@ -429,13 +499,14 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port: (
+        lambda *, controller, paths, host, port, execution_mode: (
             captured_attach.update(
                 {
                     "controller": controller,
                     "paths": paths,
                     "host": host,
                     "port": port,
+                    "execution_mode": execution_mode,
                 }
             )
             or 43123
@@ -452,6 +523,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     assert captured_attach["controller"] is controller
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 0
+    assert captured_attach["execution_mode"] == "detached_process"
 
 
 def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
@@ -478,13 +550,14 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port: (
+        lambda *, controller, paths, host, port, execution_mode: (
             captured_attach.update(
                 {
                     "controller": controller,
                     "paths": paths,
                     "host": host,
                     "port": port,
+                    "execution_mode": execution_mode,
                 }
             )
             or 43123
@@ -501,6 +574,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     assert captured_attach["controller"] is controller
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 0
+    assert captured_attach["execution_mode"] == "detached_process"
 
 
 def test_gateway_service_routes_local_interactive_prompts_through_runtime_control(
@@ -569,6 +643,147 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
     assert fake_session.prompt_calls == [("hello", "turn-local-123")]
     assert fake_controller.persist_manifest_calls == [False]
     assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
+
+
+def test_gateway_service_exposes_foreground_tmux_execution_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+    monkeypatch.setenv("AGENTSYS_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
+    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_ID", "@9")
+    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX", "2")
+    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_PANE_ID", "%9")
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        status = runtime.status()
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+        gateway_manifest = load_gateway_manifest(paths.gateway_manifest_path)
+    finally:
+        runtime.shutdown()
+
+    assert status.execution_mode == "tmux_auxiliary_window"
+    assert status.gateway_tmux_window_id == "@9"
+    assert status.gateway_tmux_window_index == "2"
+    assert status.gateway_tmux_pane_id == "%9"
+    assert current_instance.execution_mode == "tmux_auxiliary_window"
+    assert current_instance.tmux_window_id == "@9"
+    assert current_instance.tmux_window_index == "2"
+    assert current_instance.tmux_pane_id == "%9"
+    assert gateway_manifest.gateway_pid == current_instance.pid
+    assert gateway_manifest.gateway_host == "127.0.0.1"
+    assert gateway_manifest.gateway_port == 43123
+    assert gateway_manifest.gateway_execution_mode == "tmux_auxiliary_window"
+    assert gateway_manifest.gateway_tmux_window_index == "2"
+
+
+def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_path: Path) -> None:
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _write(manifest_path, "{}\n")
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="cao_rest",
+            tool="codex",
+            session_id="cao-rest-1",
+            tmux_session_name="AGENTSYS-gpu",
+            working_directory=tmp_path,
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9889",
+                "terminal_id": "term-123",
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+            },
+            agent_def_dir=tmp_path / "agents",
+            blueprint_gateway_defaults=BlueprintGatewayDefaults(
+                host="127.0.0.1",
+                port=43123,
+            ),
+        )
+    )
+    paths.gateway_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "attach_identity": "stale",
+                "backend": "cao_rest",
+                "tmux_session_name": "stale",
+                "working_directory": str(tmp_path),
+                "backend_metadata": {
+                    "api_base_url": "http://127.0.0.1:9999",
+                    "terminal_id": "term-stale",
+                    "profile_name": "stale-profile",
+                    "profile_path": str(tmp_path / "stale-profile.md"),
+                    "parsing_mode": "shadow_only",
+                },
+                "gateway_pid": 99999,
+                "gateway_host": "127.0.0.1",
+                "gateway_port": 49999,
+                "gateway_protocol_version": "v1",
+                "gateway_execution_mode": "detached_process",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_gateway_current_instance(
+        paths.current_instance_path,
+        GatewayCurrentInstanceV1(
+            pid=43210,
+            host="127.0.0.1",
+            port=43123,
+            execution_mode="detached_process",
+            managed_agent_instance_epoch=1,
+            managed_agent_instance_id="term-123",
+        ),
+    )
+
+    refreshed = refresh_gateway_manifest_publication(paths)
+
+    assert refreshed.attach_identity == "cao-rest-1"
+    assert refreshed.tmux_session_name == "AGENTSYS-gpu"
+    assert refreshed.gateway_pid == 43210
+    assert refreshed.gateway_port == 43123
+    assert refreshed.desired_port == 43123
+    persisted = load_gateway_manifest(paths.gateway_manifest_path)
+    assert persisted.gateway_pid == 43210
+    assert persisted.backend_metadata.terminal_id == "term-123"
 
 
 def test_gateway_service_routes_local_interactive_interrupts_through_runtime_control(
@@ -793,19 +1008,13 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
     )
-    fake_session = _FakeGatewayHeadlessSession()
-    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    fake_client = _FakeManagedPairClient()
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
-        _FakeGatewayHeadlessSession,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
-        lambda **_kwargs: fake_controller,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-headless",
+        "houmao.agents.realm_controller.gateway_service.resolve_pair_authority_client",
+        lambda *, base_url: SimpleNamespace(
+            client=fake_client,
+            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-server"),
+        ),
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -830,13 +1039,12 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
             )
         )
         assert accepted.request_kind == "submit_prompt"
-        assert fake_session.started_event.wait(timeout=2.0)
+        assert fake_client.started_event.wait(timeout=2.0)
     finally:
-        fake_session.release_event.set()
+        fake_client.release_event.set()
         runtime.shutdown()
 
-    assert fake_session.prompt_calls == [("hello", "turn-server-123")]
-    assert fake_controller.persist_manifest_calls == [False]
+    assert fake_client.prompt_calls == ["hello"]
 
 
 def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is_closed(
@@ -848,19 +1056,13 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
         managed_api_base_url="http://127.0.0.1:9889",
         managed_agent_ref="claude-headless-1",
     )
-    fake_session = _FakeGatewayHeadlessSession(block_prompt=True)
-    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    fake_client = _FakeManagedPairClient(block_prompt=True)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
-        _FakeGatewayHeadlessSession,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
-        lambda **_kwargs: fake_controller,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-headless",
+        "houmao.agents.realm_controller.gateway_service.resolve_pair_authority_client",
+        lambda *, base_url: SimpleNamespace(
+            client=fake_client,
+            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
+        ),
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -885,7 +1087,7 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
                 ),
             )
         )
-        assert fake_session.started_event.wait(timeout=2.0)
+        assert fake_client.started_event.wait(timeout=2.0)
 
         status = runtime.status()
         assert status.active_execution == "running"
@@ -901,7 +1103,7 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
                 )
             )
     finally:
-        fake_session.release_event.set()
+        fake_client.release_event.set()
         runtime.shutdown()
 
 
@@ -1207,6 +1409,497 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
     assert not paths.current_instance_path.exists()
 
 
+def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Path) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+
+    command = _same_session_gateway_shell_command(paths=paths, host="127.0.0.1", port=43123)
+
+    assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_id}'" in command
+    assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_index}'" in command
+    assert "'$TMUX_PANE'" not in command
+
+
+def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    tmux_state = {
+        "handles": [("@9", "1", "%9"), ("@10", "2", "%10")],
+        "alive": {"%9": True, "%10": True},
+        "current": None,
+        "kill_calls": [],
+    }
+
+    def _fake_run_tmux(
+        args: list[str], *, timeout_seconds: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del timeout_seconds
+        if args[:1] == ["new-window"]:
+            window_id, window_index, pane_id = tmux_state["handles"].pop(0)
+            tmux_state["current"] = (window_id, window_index, pane_id)
+            write_gateway_current_instance(
+                paths.current_instance_path,
+                GatewayCurrentInstanceV1(
+                    pid=4242,
+                    host="127.0.0.1",
+                    port=43123,
+                    execution_mode="tmux_auxiliary_window",
+                    tmux_window_id=window_id,
+                    tmux_window_index=window_index,
+                    tmux_pane_id=pane_id,
+                    managed_agent_instance_epoch=1,
+                ),
+            )
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=0,
+                stdout=f"{window_id}\t{window_index}\t{pane_id}\n",
+                stderr="",
+            )
+        if args[:1] == ["kill-window"]:
+            tmux_state["kill_calls"].append(list(args))
+            target = args[-1]
+            current = tmux_state["current"]
+            if current is not None and current[0] == target:
+                if not tmux_state["alive"].get(current[2], False):
+                    return subprocess.CompletedProcess(
+                        args=args,
+                        returncode=1,
+                        stdout="",
+                        stderr="can't find window",
+                    )
+                tmux_state["alive"][current[2]] = False
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=1,
+                stdout="",
+                stderr="can't find window",
+            )
+        raise AssertionError(f"Unexpected tmux call: {args}")
+
+    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+        assert session_name == "AGENTSYS-local"
+        current = tmux_state["current"]
+        if current is None:
+            return ()
+        window_id, window_index, pane_id = current
+        if not tmux_state["alive"].get(pane_id, False):
+            return ()
+        return (
+            type(
+                "Pane",
+                (),
+                {
+                    "pane_id": pane_id,
+                    "session_name": session_name,
+                    "window_id": window_id,
+                    "window_index": window_index,
+                    "window_name": "gateway",
+                    "pane_index": "0",
+                    "pane_active": True,
+                    "pane_dead": False,
+                    "pane_pid": 4242,
+                },
+            )(),
+        )
+
+    class _HealthyGatewayClient:
+        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
+            del endpoint, timeout_seconds
+
+        def health(self):  # type: ignore[no-untyped-def]
+            return type("Health", (), {"protocol_version": "v1"})()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        _fake_run_tmux,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        _fake_list_tmux_panes,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.GatewayClient",
+        _HealthyGatewayClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    first_attach = controller.attach_gateway(execution_mode_override="tmux_auxiliary_window")
+    assert first_attach.status == "ok"
+    first_current_instance = load_gateway_current_instance(paths.current_instance_path)
+    first_desired_config = load_gateway_desired_config(paths.desired_config_path)
+    assert first_current_instance.execution_mode == "tmux_auxiliary_window"
+    assert first_current_instance.tmux_window_id == "@9"
+    assert first_current_instance.tmux_window_index == "1"
+    assert first_current_instance.tmux_pane_id == "%9"
+    assert first_desired_config.desired_execution_mode == "tmux_auxiliary_window"
+    assert first_desired_config.desired_port == 43123
+
+    tmux_state["alive"]["%9"] = False
+
+    second_attach = controller.attach_gateway()
+    assert second_attach.status == "ok"
+    second_current_instance = load_gateway_current_instance(paths.current_instance_path)
+    second_desired_config = load_gateway_desired_config(paths.desired_config_path)
+    assert second_current_instance.execution_mode == "tmux_auxiliary_window"
+    assert second_current_instance.tmux_window_id == "@10"
+    assert second_current_instance.tmux_window_index == "2"
+    assert second_current_instance.tmux_pane_id == "%10"
+    assert second_desired_config.desired_execution_mode == "tmux_auxiliary_window"
+
+    detach_result = controller.detach_gateway()
+    assert detach_result.status == "ok"
+    assert tmux_state["kill_calls"] == [
+        ["kill-window", "-t", "@9"],
+        ["kill-window", "-t", "@10"],
+    ]
+    assert not paths.current_instance_path.exists()
+
+
+def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_delay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    tmux_state = {
+        "current": None,
+        "list_calls": 0,
+    }
+
+    def _fake_run_tmux(
+        args: list[str], *, timeout_seconds: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del timeout_seconds
+        if args[:1] != ["new-window"]:
+            raise AssertionError(f"Unexpected tmux call: {args}")
+        tmux_state["current"] = ("@9", "1", "%9")
+        write_gateway_current_instance(
+            paths.current_instance_path,
+            GatewayCurrentInstanceV1(
+                pid=4242,
+                host="127.0.0.1",
+                port=43123,
+                execution_mode="tmux_auxiliary_window",
+                tmux_window_id="@9",
+                tmux_window_index="1",
+                tmux_pane_id="%9",
+                managed_agent_instance_epoch=1,
+            ),
+        )
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="@9\t1\t%9\n",
+            stderr="",
+        )
+
+    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+        assert session_name == "AGENTSYS-local"
+        tmux_state["list_calls"] += 1
+        if tmux_state["list_calls"] < 3:
+            return ()
+        window_id, window_index, pane_id = tmux_state["current"]
+        return (
+            type(
+                "Pane",
+                (),
+                {
+                    "pane_id": pane_id,
+                    "session_name": session_name,
+                    "window_id": window_id,
+                    "window_index": window_index,
+                    "window_name": "gateway",
+                    "pane_index": "0",
+                    "pane_active": True,
+                    "pane_dead": False,
+                    "pane_pid": 4242,
+                },
+            )(),
+        )
+
+    class _HealthyGatewayClient:
+        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
+            del endpoint, timeout_seconds
+
+        def health(self):  # type: ignore[no-untyped-def]
+            return type("Health", (), {"protocol_version": "v1"})()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        _fake_run_tmux,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        _fake_list_tmux_panes,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.GatewayClient",
+        _HealthyGatewayClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    result = controller.attach_gateway(execution_mode_override="tmux_auxiliary_window")
+
+    assert result.status == "ok"
+    assert load_gateway_current_instance(paths.current_instance_path).tmux_pane_id == "%9"
+    assert tmux_state["list_calls"] >= 2
+
+
+def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before_tmux_pane_visible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    def _fake_run_tmux(
+        args: list[str], *, timeout_seconds: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        del timeout_seconds
+        if args[:1] != ["new-window"]:
+            raise AssertionError(f"Unexpected tmux call: {args}")
+        write_gateway_current_instance(
+            paths.current_instance_path,
+            GatewayCurrentInstanceV1(
+                pid=4242,
+                host="127.0.0.1",
+                port=43123,
+                execution_mode="tmux_auxiliary_window",
+                tmux_window_id="@9",
+                tmux_window_index="1",
+                tmux_pane_id="%9",
+                managed_agent_instance_epoch=1,
+            ),
+        )
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="@9\t1\t%9\n",
+            stderr="",
+        )
+
+    class _HealthyGatewayClient:
+        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
+            del endpoint, timeout_seconds
+
+        def health(self):  # type: ignore[no-untyped-def]
+            return type("Health", (), {"protocol_version": "v1"})()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        _fake_run_tmux,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        lambda *, session_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.GatewayClient",
+        _HealthyGatewayClient,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+
+    result = controller.attach_gateway(execution_mode_override="tmux_auxiliary_window")
+
+    assert result.status == "ok"
+    assert load_gateway_current_instance(paths.current_instance_path).tmux_pane_id == "%9"
+
+
+def test_same_session_gateway_detach_refuses_reserved_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    reserved_window_instance = type(
+        "CurrentInstance",
+        (),
+        {
+            "execution_mode": "tmux_auxiliary_window",
+            "tmux_window_id": "@0",
+            "tmux_window_index": "0",
+            "tmux_pane_id": "%0",
+        },
+    )()
+
+    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+        assert session_name == "AGENTSYS-local"
+        return (
+            type(
+                "Pane",
+                (),
+                {
+                    "pane_id": "%0",
+                    "session_name": session_name,
+                    "window_id": "@0",
+                    "window_index": "0",
+                    "window_name": "agent",
+                    "pane_index": "0",
+                    "pane_active": True,
+                    "pane_dead": False,
+                    "pane_pid": 4242,
+                },
+            )(),
+        )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.load_gateway_current_instance",
+        lambda _path: reserved_window_instance,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        _fake_list_tmux_panes,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("reserved tmux window `0` must not be targeted")
+        ),
+    )
+
+    result = controller.detach_gateway()
+
+    assert result.status == "error"
+    assert "reserved agent window `0`" in result.detail
+
+
+def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="AGENTSYS-local",
+        tmux_session_name="AGENTSYS-local",
+    )
+
+    reserved_window_instance = type(
+        "CurrentInstance",
+        (),
+        {
+            "execution_mode": "tmux_auxiliary_window",
+            "tmux_window_id": "@0",
+            "tmux_window_index": "0",
+            "tmux_pane_id": "%0",
+        },
+    )()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.load_gateway_current_instance",
+        lambda _path: reserved_window_instance,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        lambda *, session_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("reserved tmux window `0` must not be targeted")
+        ),
+    )
+
+    status = controller.gateway_status()
+
+    assert status.gateway_health == "not_attached"
+
+
 class _FakeCaoRestClient:
     def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
         del timeout_seconds
@@ -1413,6 +2106,83 @@ class _FakeGatewayHeadlessController:
             status="ok",
             action="control_input",
             detail="Delivered control input to the local interactive session.",
+        )
+
+
+class _FakeManagedPairClient:
+    def __init__(
+        self,
+        *,
+        block_prompt: bool = False,
+        pair_authority_kind: str = "houmao-server",
+    ) -> None:
+        self.pair_authority_kind = pair_authority_kind
+        self.block_prompt = block_prompt
+        self.prompt_calls: list[str] = []
+        self.started_event = threading.Event()
+        self.release_event = threading.Event()
+
+    def get_managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+        identity = HoumaoManagedAgentIdentity(
+            tracked_agent_id=agent_ref,
+            transport="headless",
+            tool="claude",
+            session_name=None,
+            terminal_id=None,
+            runtime_session_id=agent_ref,
+            tmux_session_name="AGENTSYS-headless",
+            tmux_window_name="agent",
+            manifest_path="/tmp/manifest.json",
+            session_root="/tmp/runtime",
+            agent_name="AGENTSYS-headless",
+            agent_id=agent_ref,
+        )
+        summary_state = HoumaoManagedAgentStateResponse(
+            tracked_agent_id=agent_ref,
+            identity=identity,
+            availability="available",
+            turn=HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None),
+            last_turn=HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None),
+            diagnostics=[],
+            mailbox=None,
+            gateway=None,
+        )
+        return HoumaoManagedAgentDetailResponse(
+            tracked_agent_id=agent_ref,
+            identity=identity,
+            summary_state=summary_state,
+            detail=HoumaoManagedAgentHeadlessDetailView(
+                runtime_resumable=True,
+                tmux_session_live=True,
+                can_accept_prompt_now=True,
+                interruptible=False,
+                turn=summary_state.turn,
+                last_turn=summary_state.last_turn,
+                mailbox=None,
+                gateway=None,
+                diagnostics=[],
+            ),
+        )
+
+    def submit_managed_agent_request(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        request_kind = getattr(request_model, "request_kind", "submit_prompt")
+        prompt = getattr(request_model, "prompt", None)
+        if isinstance(prompt, str):
+            self.prompt_calls.append(prompt)
+            self.started_event.set()
+            if self.block_prompt:
+                self.release_event.wait(timeout=5.0)
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id=agent_ref,
+            request_id=f"req-{request_kind}",
+            request_kind=request_kind,
+            disposition="accepted",
+            detail="accepted",
         )
 
 

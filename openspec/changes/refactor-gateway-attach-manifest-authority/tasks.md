@@ -1,20 +1,20 @@
 ## 1. Manifest-First Resolution
 
-- [ ] 1.1 Add a manifest-first current-session resolution path for tmux-backed sessions, including native headless, that prefers `AGENTSYS_MANIFEST_PATH` and falls back to `AGENTSYS_AGENT_ID` via shared-registry lookup.
-- [ ] 1.2 Introduce a normalized manifest-derived session authority model for gateway attach and gateway runtime startup decisions.
-- [ ] 1.3 Update pair-managed current-session attach flows to stop depending on `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
+- [x] 1.1 Add a manifest-first current-session resolution path for tmux-backed sessions, including native headless, that prefers `AGENTSYS_MANIFEST_PATH` and falls back to `AGENTSYS_AGENT_ID` via shared-registry lookup.
+- [x] 1.2 Introduce a normalized manifest-derived session authority model for gateway attach and gateway runtime startup decisions.
+- [x] 1.3 Update pair-managed current-session attach flows to stop depending on `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
 
 ## 2. Manifest And Publication Contracts
 
-- [ ] 2.1 Add the new manifest schema/version and persist normalized runtime, tmux, interactive, manifest-owned `agent_launch_authority`, and gateway-authority sections, including nullable `runtime.agent_pid`.
-- [ ] 2.2 Keep backward-compatible manifest reads while migrating runtime resume and control code to the normalized manifest authority model.
-- [ ] 2.3 Redefine `gateway/gateway_manifest.json` as derived outward-facing gateway bookkeeping and make attach actions force-overwrite it from manifest-derived authority.
-- [ ] 2.4 Publish `gateway_pid` in `gateway_manifest.json` and stop treating `gateway_manifest.json` as the gateway process's mutable working store.
+- [x] 2.1 Add the new manifest schema/version and persist normalized runtime, tmux, interactive, manifest-owned `agent_launch_authority`, and gateway-authority sections, including nullable `runtime.agent_pid`.
+- [x] 2.2 Keep backward-compatible manifest reads while migrating runtime resume and control code to the normalized manifest authority model.
+- [x] 2.3 Redefine `gateway/gateway_manifest.json` as derived outward-facing gateway bookkeeping and make attach actions force-overwrite it from manifest-derived authority.
+- [x] 2.4 Publish `gateway_pid` in `gateway_manifest.json` and stop treating `gateway_manifest.json` as the gateway process's mutable working store.
 - [ ] 2.5 Keep the manifest secret-free while making tmux-backed relaunch consume manifest-owned relaunch posture plus the effective env published in the owning tmux session.
 
 ## 3. Runtime, Gateway, And Registry Integration
 
-- [ ] 3.1 Update runtime gateway-capability publication to emit the new stable tmux discovery env contract (`AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`) while preserving ephemeral live gateway bindings.
+- [x] 3.1 Update runtime gateway-capability publication to emit the new stable tmux discovery env contract (`AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`) while preserving ephemeral live gateway bindings.
 - [ ] 3.2 Update gateway runtime startup to derive behavior from the resolved manifest authority instead of loading `gateway_manifest.json` as the primary input, including native headless attach when no worker process is currently live.
 - [ ] 3.3 Update shared-registry publication and lookup to use `runtime.manifest_path` as the fallback manifest locator without requiring stable gateway attach-path or gateway-root pointers.
 - [ ] 3.4 Align `houmao_server_rest` attach and control handling with manifest-declared attach authority and runtime control authority.

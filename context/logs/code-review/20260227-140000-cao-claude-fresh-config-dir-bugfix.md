@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-27
 **Related issue:** `context/issues/known/issue-cao-claude-code-init-timeout.md`
-**Supersedes:** `context/logs/code-reivew/20260227-120000-cao-claude-proxy-env-bugfix.md` (proxy hypothesis was secondary, not primary)
+**Supersedes:** `context/logs/code-review/20260227-120000-cao-claude-proxy-env-bugfix.md` (proxy hypothesis was secondary, not primary)
 
 ---
 

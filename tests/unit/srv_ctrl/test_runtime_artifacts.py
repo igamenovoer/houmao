@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.agent_identity import (
+    AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_agent_id_from_name,
     normalize_agent_identity_name,
@@ -54,7 +55,10 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert session_root == manifest_path.parent
     assert canonical_agent_name == expected_agent_name
     assert agent_id == derive_agent_id_from_name(expected_agent_name)
+    assert manifest_payload["schema_version"] == 4
     assert manifest_payload["backend"] == "houmao_server_rest"
+    assert manifest_payload["runtime"]["session_id"] == session_root.name
+    assert manifest_payload["runtime"]["agent_def_dir"] == str(session_root / "agent_def")
     assert manifest_payload["houmao_server"]["api_base_url"] == "http://127.0.0.1:9889"
     assert manifest_payload["houmao_server"]["session_name"] == "cao-gpu"
     assert manifest_payload["houmao_server"]["terminal_id"] == "abcd1234"
@@ -68,6 +72,7 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert (
         Path(str(published_env[AGENT_MANIFEST_PATH_ENV_VAR])).resolve() == manifest_path.resolve()
     )
+    assert published_env[AGENT_ID_ENV_VAR] == agent_id
     assert Path(str(published_env[AGENT_GATEWAY_ATTACH_PATH_ENV_VAR])).is_file()
     assert Path(str(published_env[AGENT_GATEWAY_ROOT_ENV_VAR])).is_dir()
     attach_contract = load_attach_contract(

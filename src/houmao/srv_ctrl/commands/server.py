@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import click
 
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.client import HoumaoServerClient
+from houmao.server.pair_client import (
+    PairAuthorityConnectionError,
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
 from houmao.server.commands.common import build_config
 
 from .common import (
     emit_json,
     pair_port_option,
-    require_supported_houmao_pair,
+    require_houmao_server_pair,
     resolve_server_base_url,
 )
 from ...server.commands.serve import run_server, server_serve_options
@@ -20,7 +27,7 @@ from ..server_startup import start_detached_server
 
 @click.group(name="server")
 def server_group() -> None:
-    """Manage the `houmao-server` lifecycle and server-owned sessions."""
+    """Manage supported pair-authority lifecycle and `houmao-server` sessions."""
 
 
 @server_group.command(name="start")
@@ -93,44 +100,58 @@ def status_server_command(port: int | None) -> None:
     """Show server health and a compact active-session summary."""
 
     base_url = resolve_server_base_url(port=port)
-    client = HoumaoServerClient(base_url)
     try:
-        health = client.health_extended()
-    except Exception:
+        resolution = resolve_pair_authority_client(base_url=base_url)
+    except PairAuthorityConnectionError:
         emit_json(
             {
                 "running": False,
                 "api_base_url": base_url,
-                "detail": "No houmao-server is running.",
+                "detail": "No supported Houmao pair authority is running.",
             }
         )
         return
+    except UnsupportedPairAuthorityError as exc:
+        raise click.ClickException(str(exc)) from exc
 
-    if health.houmao_service != "houmao-server":
-        raise click.ClickException(
-            "The supported replacement is `houmao-server + houmao-mgr`; "
-            "mixed usage with raw `cao-server` is unsupported."
-        )
+    client = resolution.client
+    health_payload: object
+    if resolution.health.houmao_service == "houmao-server":
+        try:
+            health_payload = cast(HoumaoServerClient, client).health_extended()
+        except Exception:
+            health_payload = resolution.health
+    else:
+        health_payload = resolution.health
 
     try:
         instance = client.current_instance()
     except Exception:
         instance = None
-    try:
-        sessions = client.list_sessions()
-    except Exception:
-        sessions = []
+
+    sessions: list[object] | None
+    if resolution.health.houmao_service == "houmao-server":
+        try:
+            sessions = cast(HoumaoServerClient, client).list_sessions()
+        except Exception:
+            sessions = []
+    else:
+        sessions = None
 
     emit_json(
         {
             "running": True,
             "api_base_url": base_url,
-            "health": health.model_dump(mode="json"),
+            "health": health_payload.model_dump(mode="json"),
             "current_instance": (
                 instance.model_dump(mode="json") if instance is not None else None
             ),
-            "active_session_count": len(sessions),
-            "active_sessions": [session.model_dump(mode="json") for session in sessions],
+            "active_session_count": len(sessions) if sessions is not None else None,
+            "active_sessions": (
+                [session.model_dump(mode="json") for session in sessions]
+                if sessions is not None
+                else None
+            ),
         }
     )
 
@@ -141,30 +162,25 @@ def stop_server_command(port: int | None) -> None:
     """Request graceful shutdown of the running `houmao-server`."""
 
     base_url = resolve_server_base_url(port=port)
-    client = HoumaoServerClient(base_url)
     try:
-        health = client.health_extended()
-    except Exception:
+        client = resolve_pair_authority_client(base_url=base_url).client
+    except PairAuthorityConnectionError:
         emit_json(
             {
                 "success": True,
                 "running": False,
                 "api_base_url": base_url,
-                "detail": "No houmao-server is running to stop.",
+                "detail": "No supported Houmao pair authority is running to stop.",
             }
         )
         return
+    except UnsupportedPairAuthorityError as exc:
+        raise click.ClickException(str(exc)) from exc
 
-    if health.houmao_service != "houmao-server":
-        raise click.ClickException(
-            "The supported replacement is `houmao-server + houmao-mgr`; "
-            "mixed usage with raw `cao-server` is unsupported."
-        )
-
-    response = client.shutdown_server()
+    client.shutdown_server()
     emit_json(
         {
-            "success": response.success,
+            "success": True,
             "running": False,
             "api_base_url": base_url,
             "detail": "Shutdown request accepted.",
@@ -182,7 +198,7 @@ def server_sessions_group() -> None:
 def list_server_sessions_command(port: int | None) -> None:
     """List active sessions from the running server."""
 
-    client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
+    client = require_houmao_server_pair(base_url=resolve_server_base_url(port=port))
     emit_json({"sessions": [session.model_dump(mode="json") for session in client.list_sessions()]})
 
 
@@ -192,7 +208,7 @@ def list_server_sessions_command(port: int | None) -> None:
 def show_server_session_command(port: int | None, session: str) -> None:
     """Show one server-owned session payload."""
 
-    client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
+    client = require_houmao_server_pair(base_url=resolve_server_base_url(port=port))
     emit_json(client.get_session(session).model_dump(mode="json"))
 
 
@@ -212,7 +228,7 @@ def shutdown_server_sessions_command(
     if shutdown_all and session:
         raise click.ClickException("Cannot use --all and --session together.")
 
-    client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
+    client = require_houmao_server_pair(base_url=resolve_server_base_url(port=port))
     if shutdown_all:
         sessions_to_shutdown = [item.id for item in client.list_sessions()]
     else:

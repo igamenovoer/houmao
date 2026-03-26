@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
+from typing import Literal, TypeVar
 from urllib import error, parse, request
 
 from pydantic import BaseModel, ValidationError
@@ -75,6 +75,12 @@ class HoumaoServerClient(CaoRestClient):
             create_timeout_seconds=create_timeout_seconds,
             path_prefix="/cao",
         )
+
+    @property
+    def pair_authority_kind(self) -> Literal["houmao-server"]:
+        """Return the old server pair-authority identity."""
+
+        return "houmao-server"
 
     def health_extended(self) -> HoumaoHealthResponse:
         """Call `GET /health` and parse Houmao extensions."""

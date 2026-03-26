@@ -227,7 +227,7 @@ Option C: Rely only on caller-env inheritance (turn it on when needed) and do no
 
 ### 12) Version Pinning And Compatibility Signals
 
-Question: The contract is based on reverse-engineered upstream behavior (e.g., Claude Code v2.1.62 per `context/logs/code-reivew/20260227-140000-cao-claude-fresh-config-dir-bugfix.md`). Where do we record this, and what is the expected upgrade workflow?
+Question: The contract is based on reverse-engineered upstream behavior (e.g., Claude Code v2.1.62 per `context/logs/code-review/20260227-140000-cao-claude-fresh-config-dir-bugfix.md`). Where do we record this, and what is the expected upgrade workflow?
 
 Option A: Record a single “verified against” version in design/spec/docs, and treat the demo script as the compatibility smoke test. Pros: lightweight; realistic. Cons: still manual; may be missed.
 

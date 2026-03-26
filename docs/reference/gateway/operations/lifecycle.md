@@ -18,14 +18,15 @@ Runtime-owned tmux-backed sessions publish gateway capability by default.
 
 That means session start or resume can create:
 
+- `gateway/gateway_manifest.json`,
 - `gateway/attach.json`,
 - `gateway/state.json`,
-- stable tmux env pointers,
+- stable tmux discovery env,
 - a `not_attached` status snapshot.
 
 It does not mean a live gateway is already running.
 
-Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux env pointers before the server-side managed-agent registration step finishes.
+Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `gateway_manifest.json`, `attach.json`, seeded offline status, queue/bootstrap assets, and stable tmux discovery env before the server-side managed-agent registration step finishes.
 
 ## Post-Launch Attach Is The Official Managed-Agent Path
 
@@ -34,7 +35,7 @@ For the official managed-agent flow, launch and gateway lifecycle stay separate.
 That means:
 
 - the managed agent launches first,
-- gateway capability is published through `attach.json`, seeded state, and tmux env pointers,
+- gateway capability is published through `manifest.json`, `attach.json`, `gateway_manifest.json`, seeded state, and tmux discovery env,
 - live gateway attach happens later through an explicit attach action,
 - async mailbox demos and server-managed flows should treat this post-launch attach as the supported path.
 
@@ -42,7 +43,7 @@ The same design works whether the attach action comes from runtime CLI control o
 
 For pair-managed `houmao_server_rest`, current-session attach becomes valid only after two conditions hold at the same time:
 
-- the tmux session already publishes stable gateway pointers for that runtime-owned session
+- the tmux session already publishes manifest-first discovery for that runtime-owned session
 - the same logical session is already registered under `/houmao/agents/*` on the persisted `api_base_url`
 
 Before registration completes, the seeded offline gateway artifacts may already exist, but current-session pair attach still fails because the managed-agent lookup is not ready yet.
@@ -65,17 +66,35 @@ houmao-mgr agents gateway attach
 
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent attach route:
 
-- `AGENTSYS_GATEWAY_ATTACH_PATH` exists and points to a readable runtime-owned `attach.json`
-- `AGENTSYS_GATEWAY_ROOT` exists and matches the same runtime-owned gateway subtree
-- `attach.json.tmux_session_name` matches the current tmux session
-- `attach.json.backend == "houmao_server_rest"`
-- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` become the authoritative managed-agent attach target
+- `AGENTSYS_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `AGENTSYS_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
+- the resolved manifest belongs to the current tmux session
+- the resolved manifest uses `backend == "houmao_server_rest"`
+- manifest-declared attach authority becomes the authoritative managed-agent attach target
+- any existing `gateway_manifest.json` is treated as derived publication rather than current-session attach authority
 
 Important boundary:
 
 - `--port` is only valid with explicit `--agent-name` or `--agent-id` attach
 - current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
+
+## Runtime-Owned Foreground Managed Attach
+
+For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach --foreground` reuses the same-session auxiliary-window execution path instead of the detached-process path.
+
+Example:
+
+```bash
+houmao-mgr agents gateway attach --foreground --agent-name AGENTSYS-local
+houmao-mgr agents gateway status --agent-name AGENTSYS-local
+```
+
+Foreground attach rules:
+
+- tmux window `0` remains the contractual agent surface
+- the gateway runs in an auxiliary tmux window whose recorded index is `>=1`
+- `gateway status` reports `execution_mode` plus the authoritative `gateway_tmux_window_index` and `gateway_tmux_window_id` for the live gateway surface
+- later attach or restart flows reuse the persisted desired execution mode instead of silently falling back to detached execution
 
 ## Runtime Auto-Attach Convenience
 
@@ -174,6 +193,7 @@ Effects:
 
 - the gateway process is terminated,
 - live gateway env vars are removed,
+- `gateway_manifest.json` is regenerated as offline derived bookkeeping,
 - `state.json` returns to the offline `not_attached` shape,
 - stable attach metadata stays in place for later re-attach.
 
@@ -239,7 +259,7 @@ tail -f <session-root>/gateway/logs/gateway.log
 - Attached runtime-owned `local_interactive` sessions expose the gateway-owned `/v1/control/tui/state` and `/v1/control/tui/note-prompt` routes as the supported local/serverless tracking surface; that surface uses the runtime session id as the public `terminal_id` fallback because there is no CAO-style terminal alias. `/v1/control/tui/history` remains a compatibility-only route for shared consumers rather than a repo-owned local workflow dependency.
 - Server-managed native headless agents use the same post-launch attach model, but the live gateway routes prompt and interrupt work back through `/houmao/agents/{agent_ref}/requests` instead of resuming the headless session privately.
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
-- Desired host and port are rewritten after successful live attach so later starts can reuse the actual bound listener.
+- Desired host, port, and execution mode are rewritten after successful live attach so later starts can reuse the actual bound listener and gateway surface topology.
 
 ## Source References
 

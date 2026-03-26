@@ -8,7 +8,7 @@ import pytest
 
 from houmao.agents.realm_controller.boundary_models import (
     LaunchPlanPayloadV1,
-    SessionManifestPayloadV3,
+    SessionManifestPayloadV4,
 )
 from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
 
@@ -17,14 +17,14 @@ from houmao.agents.realm_controller.registry_models import LiveAgentRegistryReco
     ("schema_name", "model"),
     [
         ("launch_plan.v1.schema.json", LaunchPlanPayloadV1),
-        ("session_manifest.v3.schema.json", SessionManifestPayloadV3),
+        ("session_manifest.v4.schema.json", SessionManifestPayloadV4),
         ("live_agent_registry_record.v2.schema.json", LiveAgentRegistryRecordV2),
     ],
 )
 def test_packaged_schema_matches_pydantic_model(
     schema_name: str,
     model: (
-        type[LaunchPlanPayloadV1] | type[SessionManifestPayloadV3] | type[LiveAgentRegistryRecordV2]
+        type[LaunchPlanPayloadV1] | type[SessionManifestPayloadV4] | type[LiveAgentRegistryRecordV2]
     ),
 ) -> None:
     packaged_schema = _load_packaged_schema(schema_name)

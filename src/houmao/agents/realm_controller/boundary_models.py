@@ -265,6 +265,144 @@ class HoumaoServerSectionV1(_StrictBoundaryModel):
         return value
 
 
+class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
+    """Normalized runtime-owned manifest authority for one tmux-backed session."""
+
+    session_id: str | None = None
+    job_dir: str | None = None
+    agent_def_dir: str | None = None
+    agent_pid: int | None = None
+    registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
+
+    @field_validator(
+        "session_id",
+        "job_dir",
+        "agent_def_dir",
+        "registry_generation_id",
+        "registry_launch_authority",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("agent_pid")
+    @classmethod
+    def _optional_positive_int(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+
+class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
+    """Normalized tmux session authority for one managed surface."""
+
+    session_name: str
+    primary_window_index: str = "0"
+    primary_window_role: Literal["managed_agent_surface"] = "managed_agent_surface"
+    primary_window_name: str | None = None
+
+    @field_validator("session_name", "primary_window_index", "primary_window_name")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class SessionManifestInteractiveSectionV1(_StrictBoundaryModel):
+    """Shared interactive/runtime control state persisted in v4 manifests."""
+
+    turn_index: int = 0
+    working_directory: str | None = None
+    role_bootstrap_applied: bool | None = None
+    terminal_id: str | None = None
+    parsing_mode: CaoParsingMode | None = None
+    tmux_window_name: str | None = None
+
+    @field_validator("working_directory", "terminal_id", "tmux_window_name")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
+    """Secret-free relaunch posture persisted in v4 manifests."""
+
+    backend: BackendKind
+    tool: str
+    tmux_session_name: str | None = None
+    primary_window_index: str = "0"
+    working_directory: str
+    session_id: str | None = None
+    profile_name: str | None = None
+    profile_path: str | None = None
+
+    @field_validator(
+        "tool",
+        "tmux_session_name",
+        "primary_window_index",
+        "working_directory",
+        "session_id",
+        "profile_name",
+        "profile_path",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class SessionManifestGatewayEndpointAuthorityV1(_StrictBoundaryModel):
+    """Normalized attach or control authority endpoint metadata."""
+
+    api_base_url: str | None = None
+    managed_agent_ref: str | None = None
+    terminal_id: str | None = None
+    profile_name: str | None = None
+    profile_path: str | None = None
+    parsing_mode: CaoParsingMode | None = None
+    tmux_window_name: str | None = None
+
+    @field_validator(
+        "api_base_url",
+        "managed_agent_ref",
+        "terminal_id",
+        "profile_name",
+        "profile_path",
+        "tmux_window_name",
+    )
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class SessionManifestGatewayAuthorityV1(_StrictBoundaryModel):
+    """Normalized attach and control authority persisted in v4 manifests."""
+
+    attach: SessionManifestGatewayEndpointAuthorityV1
+    control: SessionManifestGatewayEndpointAuthorityV1
+
+
 class SessionManifestPayloadV2(_StrictBoundaryModel):
     """Persisted `session_manifest.v2` payload."""
 
@@ -546,6 +684,198 @@ class SessionManifestPayloadV3(_StrictBoundaryModel):
         return self
 
 
+class SessionManifestPayloadV4(_StrictBoundaryModel):
+    """Persisted ``session_manifest.v4`` payload."""
+
+    schema_version: int
+    backend: BackendKind
+    tool: str
+    role_name: str
+    created_at_utc: str
+    working_directory: str
+    brain_manifest_path: str
+    agent_name: str | None = None
+    agent_id: str | None = None
+    tmux_session_name: str | None = None
+    job_dir: str | None = None
+    registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
+    runtime: SessionManifestRuntimeSectionV1
+    tmux: SessionManifestTmuxSectionV1 | None = None
+    interactive: SessionManifestInteractiveSectionV1 | None = None
+    agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
+    gateway_authority: SessionManifestGatewayAuthorityV1 | None = None
+    launch_plan: LaunchPlanPayloadV1
+    launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
+    backend_state: JsonObject
+    codex: CodexSectionV1 | None = None
+    headless: HeadlessSectionV1 | None = None
+    local_interactive: LocalInteractiveSectionV1 | None = None
+    cao: CaoSectionV2 | None = None
+    houmao_server: HoumaoServerSectionV1 | None = None
+
+    @field_validator(
+        "tool",
+        "role_name",
+        "created_at_utc",
+        "working_directory",
+        "brain_manifest_path",
+        "agent_name",
+        "agent_id",
+        "tmux_session_name",
+        "job_dir",
+        "registry_generation_id",
+        "registry_launch_authority",
+    )
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_backend_sections_and_authority(self) -> "SessionManifestPayloadV4":
+        if self.schema_version != 4:
+            raise ValueError("schema_version must be 4")
+        if self.launch_plan.backend != self.backend:
+            raise ValueError("launch_plan.backend must match manifest backend")
+        if self.launch_plan.tool != self.tool:
+            raise ValueError("launch_plan.tool must match manifest tool")
+
+        if self.agent_name is not None:
+            try:
+                normalized_agent_name = normalize_managed_agent_name(self.agent_name)
+            except SessionManifestError as exc:
+                raise ValueError(str(exc)) from exc
+            if normalized_agent_name != self.agent_name:
+                raise ValueError("agent_name must not include leading or trailing whitespace")
+
+        if self.agent_id is not None:
+            try:
+                normalized_agent_id = normalize_managed_agent_id(self.agent_id)
+            except SessionManifestError as exc:
+                raise ValueError(str(exc)) from exc
+            if normalized_agent_id != self.agent_id:
+                raise ValueError("agent_id must not include leading or trailing whitespace")
+
+        expects_tmux_identity = self.backend in _TMUX_BACKED_BACKENDS
+        identity_fields = (
+            self.agent_name is not None,
+            self.agent_id is not None,
+            self.tmux_session_name is not None,
+        )
+        if expects_tmux_identity and not all(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name are required for tmux-backed backends"
+            )
+        if not expects_tmux_identity and any(identity_fields):
+            raise ValueError(
+                "agent_name, agent_id, and tmux_session_name must be omitted for non-tmux backends"
+            )
+
+        if expects_tmux_identity:
+            if self.tmux is None:
+                raise ValueError("tmux is required for tmux-backed backends")
+            if self.interactive is None:
+                raise ValueError("interactive is required for tmux-backed backends")
+            if self.agent_launch_authority is None:
+                raise ValueError("agent_launch_authority is required for tmux-backed backends")
+            if self.gateway_authority is None:
+                raise ValueError("gateway_authority is required for tmux-backed backends")
+            if self.tmux_session_name != self.tmux.session_name:
+                raise ValueError("tmux.session_name must match top-level tmux_session_name")
+
+        if self.job_dir is not None and self.runtime.job_dir != self.job_dir:
+            raise ValueError("runtime.job_dir must match top-level job_dir when both are set")
+        if (
+            self.registry_generation_id is not None
+            and self.runtime.registry_generation_id != self.registry_generation_id
+        ):
+            raise ValueError(
+                "runtime.registry_generation_id must match top-level registry_generation_id"
+            )
+        if self.runtime.registry_launch_authority != self.registry_launch_authority:
+            raise ValueError(
+                "runtime.registry_launch_authority must match top-level registry_launch_authority"
+            )
+
+        if self.backend == "codex_app_server":
+            if self.codex is None:
+                raise ValueError("codex is required for backend=codex_app_server")
+            if (
+                self.headless is not None
+                or self.local_interactive is not None
+                or self.cao is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "headless/local_interactive/cao/houmao_server must be omitted for "
+                    "backend=codex_app_server"
+                )
+        elif self.backend in {
+            "codex_headless",
+            "claude_headless",
+            "gemini_headless",
+        }:
+            if self.headless is None:
+                raise ValueError(
+                    "headless is required for backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+            if (
+                self.codex is not None
+                or self.local_interactive is not None
+                or self.cao is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "codex/local_interactive/cao/houmao_server must be omitted for "
+                    "backend=codex_headless/"
+                    "claude_headless/gemini_headless"
+                )
+        elif self.backend == "local_interactive":
+            if self.local_interactive is None:
+                raise ValueError("local_interactive is required for backend=local_interactive")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.cao is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "codex/headless/cao/houmao_server must be omitted for backend=local_interactive"
+                )
+        elif self.backend == "cao_rest":
+            if self.cao is None:
+                raise ValueError("cao is required for backend=cao_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.local_interactive is not None
+                or self.houmao_server is not None
+            ):
+                raise ValueError(
+                    "codex/headless/local_interactive/houmao_server must be omitted for "
+                    "backend=cao_rest"
+                )
+        elif self.backend == "houmao_server_rest":
+            if self.houmao_server is None:
+                raise ValueError("houmao_server is required for backend=houmao_server_rest")
+            if (
+                self.codex is not None
+                or self.headless is not None
+                or self.local_interactive is not None
+                or self.cao is not None
+            ):
+                raise ValueError(
+                    "codex/headless/local_interactive/cao must be omitted for "
+                    "backend=houmao_server_rest"
+                )
+        return self
+
+
 def format_pydantic_error(prefix: str, exc: ValidationError) -> str:
     """Return an actionable field-path error message."""
 
@@ -576,3 +906,4 @@ def _format_error_location(location: object) -> str:
 LaunchPlanPayloadV1.model_rebuild()
 SessionManifestPayloadV2.model_rebuild()
 SessionManifestPayloadV3.model_rebuild()
+SessionManifestPayloadV4.model_rebuild()

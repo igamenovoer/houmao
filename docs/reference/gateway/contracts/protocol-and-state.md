@@ -17,11 +17,13 @@ Those layers are kept separate so a session can stay gateway-capable even when n
 
 Stable attachability is published in two ways:
 
-- tmux env pointers:
-  - `AGENTSYS_GATEWAY_ATTACH_PATH`
-  - `AGENTSYS_GATEWAY_ROOT`
-- strict attach contract:
+- tmux discovery env:
+  - `AGENTSYS_MANIFEST_PATH`
+  - `AGENTSYS_AGENT_ID`
+- runtime-owned attach contract:
   - `<session-root>/gateway/attach.json`
+- derived outward-facing gateway bookkeeping:
+  - `<session-root>/gateway/gateway_manifest.json`
 
 Representative CAO-backed attach contract:
 
@@ -77,13 +79,15 @@ Current v1 scope:
 - Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable attach metadata and uses the runtime session id as the public `terminal_id` compatibility value because no CAO terminal alias exists on that path.
 - Native headless attach metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` keeps `manifest_path`, and that runtime-owned session manifest is the sole persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
+- `gateway_manifest.json` is derived publication only. It may expose desired listener data and `gateway_pid`, but attach and control behavior must trust `manifest.json` plus the attach contract instead of treating `gateway_manifest.json` as primary authority.
 
 Pair-managed current-session attach rules:
 
-- tmux-published `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` must resolve to the same runtime-owned gateway subtree
-- `attach.json.tmux_session_name` must match the current tmux session
-- `attach.json.backend` must be `houmao_server_rest`
-- `attach.json.backend_metadata.api_base_url` and `attach.json.backend_metadata.session_name` are the authoritative managed-agent attach target for current-session pair attach
+- tmux-published `AGENTSYS_MANIFEST_PATH` is the preferred current-session manifest locator
+- when `AGENTSYS_MANIFEST_PATH` is missing or stale, `AGENTSYS_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
+- the resolved manifest must belong to the current tmux session
+- the resolved manifest must use `backend = "houmao_server_rest"`
+- manifest-declared pair attach authority is authoritative for current-session pair attach
 - delegated pair launch may publish these stable artifacts before the matching managed-agent registration exists, so current-session attach readiness is later than capability publication
 
 ## Live Gateway Bindings
@@ -156,9 +160,13 @@ Representative live status:
   "request_admission": "open",
   "terminal_surface_eligibility": "ready",
   "active_execution": "idle",
+  "execution_mode": "tmux_auxiliary_window",
   "queue_depth": 0,
   "gateway_host": "127.0.0.1",
   "gateway_port": 43123,
+  "gateway_tmux_window_id": "@9",
+  "gateway_tmux_window_index": "2",
+  "gateway_tmux_pane_id": "%9",
   "managed_agent_instance_epoch": 1,
   "managed_agent_instance_id": "term-123"
 }
@@ -179,6 +187,7 @@ Representative seeded offline status:
   "request_admission": "blocked_unavailable",
   "terminal_surface_eligibility": "unknown",
   "active_execution": "idle",
+  "execution_mode": "detached_process",
   "queue_depth": 0,
   "managed_agent_instance_epoch": 0
 }
@@ -192,6 +201,9 @@ Current status axes:
 - `request_admission`: `open`, `blocked_unavailable`, or `blocked_reconciliation`
 - `terminal_surface_eligibility`: `ready`, `unknown`, or `not_ready`
 - `active_execution`: `idle` or `running`
+- `execution_mode`: `detached_process` or `tmux_auxiliary_window`
+- `gateway_tmux_window_id` and `gateway_tmux_window_index`: present for live `tmux_auxiliary_window` status; `gateway_tmux_window_index` must never be `"0"`
+- seeded offline status carries the resolved desired execution mode even when no live gateway is attached
 
 ### `POST /v1/requests`
 

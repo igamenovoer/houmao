@@ -67,22 +67,40 @@ Useful pair runtime controls:
 - `houmao-mgr server start` is detached by default, emits one structured startup result, and accepts `--foreground` when you want the server attached to the current terminal.
 - `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
 - `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
+- `houmao-mgr server status` and `houmao-mgr server stop` also accept `houmao-passive-server` pair authorities, so Step 7 side-by-side checks can target an alternate passive-server port such as `9891` without switching CLIs.
 
 Detached startup results include `success`, `running`, `mode`, `api_base_url`, `detail`, and server identity fields when available. On failed detached startup, inspect the owned log files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`.
 
 Managed-agent launch prints distinct identity fields for follow-up control: `agent_name`, `agent_id`, `tmux_session_name`, and `manifest_path`. Use `--agent-id` for exact automation or disambiguation, and `--agent-name` for normal operator-friendly targeting.
 
-For pair-managed terminal sessions, the public gateway attach surface also lives on the pair CLI:
+For managed agents, the public gateway attach surface lives on `houmao-mgr agents gateway attach`:
 
 - `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>` for explicit managed-agent targeting
 - `houmao-mgr agents gateway attach --agent-id <authoritative-id> --port <public-port>` when exact disambiguation matters
+- `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
 
-Current-session attach requires the target tmux session to publish `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`, and it becomes valid only after the matching managed-agent registration exists on the persisted `api_base_url`.
+Current-session attach requires the target tmux session to publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. It becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
+
+When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
+
+For pair-managed `houmao_server_rest` sessions, `--foreground` is redundant but valid because those same-session gateways already use the auxiliary-window execution model.
 
 For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr brains build ...` and `houmao-mgr admin cleanup-registry ...`.
+
+During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` and run `houmao-passive-server` on `9891`. The same `houmao-mgr` surface can then compare both pair authorities directly:
+
+```bash
+houmao-mgr server status --port 9889
+houmao-mgr server status --port 9891
+houmao-mgr agents state --agent-id <agent-id> --port 9891
+houmao-mgr agents show --agent-id <agent-id> --port 9891
+houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
+```
+
+Passive-server gateway attach and detach remain same-host operations. `houmao-mgr agents gateway attach|detach --port 9891` succeeds only when the target can be resolved to a local registry-backed runtime authority on the current host; remote passive-server HTTP attach and detach are intentionally unsupported.
 
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 
