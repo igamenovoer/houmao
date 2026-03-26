@@ -74,9 +74,9 @@ Shared tmux helpers in `tmux_runtime.py`:
 - client counting through `list_tmux_clients()`
 - tmux session env publication helpers
 
-Managed control input in `cao_rest.py`:
+Managed control input in the runtime session backend:
 
-- `CaoRestSession.send_input_ex()` still parses and delivers tmux control input first
+- `send_input_ex()` still parses and delivers tmux control input first
 - after successful delivery it calls `append_managed_control_input_for_tmux_session()`
 - the runtime bridge reads the recorder live-state pointer from the target tmux session env
 - only active recorder runs append `managed_send_keys` events

@@ -247,7 +247,7 @@ That file is the operator-facing view for:
 - mail notifier enable or disable changes,
 - notifier poll decisions such as empty polls, dedup skips, and busy deferrals.
 
-For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone. The runnable operator walkthrough for that inspection flow lives in [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), which now uses the repository's copied dummy-project plus lightweight `mailbox-demo` defaults for this narrow gateway walkthrough.
+For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone.
 
 Typical watch command:
 
@@ -259,7 +259,7 @@ tail -f <session-root>/gateway/logs/gateway.log
 
 - A session can be gateway-capable even when `gateway-status` reports `gateway_health=not_attached`.
 - Runtime-owned live attach currently supports `local_interactive`, REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless backends whose execution adapters are implemented.
-- Attached runtime-owned `local_interactive` sessions expose the gateway-owned `/v1/control/tui/state` and `/v1/control/tui/note-prompt` routes as the supported local/serverless tracking surface; that surface uses the runtime session id as the public `terminal_id` fallback because there is no CAO-style terminal alias. `/v1/control/tui/history` remains a compatibility-only route for shared consumers rather than a repo-owned local workflow dependency.
+- Attached runtime-owned `local_interactive` sessions expose the gateway-owned `/v1/control/tui/state` and `/v1/control/tui/note-prompt` routes as the supported local/serverless tracking surface; that surface uses the runtime session id as the public `terminal_id` fallback because there is no backend-provided terminal alias. `/v1/control/tui/history` remains a compatibility-only route for shared consumers rather than a repo-owned local workflow dependency.
 - Server-managed native headless agents use the same post-launch attach model, but the live gateway routes prompt and interrupt work back through `/houmao/agents/{agent_ref}/requests` instead of resuming the headless session privately.
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
 - Desired host, port, and execution mode are rewritten after successful live attach so later starts can reuse the actual bound listener and gateway surface topology.

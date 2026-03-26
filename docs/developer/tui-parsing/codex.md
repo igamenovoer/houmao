@@ -1,6 +1,6 @@
 # Codex Parsing Contract
 
-Codex-specific parsing lives in `backends/codex_shadow.py`. The parser is responsible for one-snapshot interpretation of CAO `mode=full` output and returns `CodexSurfaceAssessment` plus `CodexDialogProjection`.
+Codex-specific parsing lives in `backends/codex_shadow.py`. The parser is responsible for one-snapshot interpretation of captured pane output and returns `CodexSurfaceAssessment` plus `CodexDialogProjection`.
 
 For the concrete on-screen cues currently used by the maintained tracked-TUI workflow, see [Codex Signals](codex-signals.md).
 
@@ -133,7 +133,7 @@ These events describe parser observations, not runtime lifecycle decisions. The 
 
 Codex is also version-aware. Preset selection uses this order:
 
-1. `AGENTSYS_CAO_CODEX_VERSION`
+1. `AGENTSYS_CODEX_VERSION` (or the legacy `AGENTSYS_CAO_CODEX_VERSION`)
 2. banner detection from Codex version strings
 3. latest known preset fallback
 

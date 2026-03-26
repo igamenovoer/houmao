@@ -6,7 +6,7 @@ For the canonical filesystem layout behind generated homes, runtime session root
 
 ## Mental Model
 
-The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or CAO-backed.
+The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or server-backed.
 
 - `start-session` creates a runtime-owned session root and persists a manifest.
 - Later control commands either address that manifest directly or rediscover it from tmux session state.
@@ -57,7 +57,7 @@ The main runtime-managed commands are intentionally different:
 | Surface | What it does now | Waits for completion? | Notes |
 | --- | --- | --- | --- |
 | `send-prompt` | Runs the normal prompt-turn path against the resumed backend session | Yes | Advances persisted backend state after the turn |
-| `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | CAO-only in the current implementation |
+| `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | Legacy `cao_rest` backend only |
 | `mail check/send/reply` | Prepares a structured prompt and sends it through the normal prompt-turn path | Yes | Mailbox transport is `filesystem` only in v1 |
 | `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for runtime-owned `local_interactive`, `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends with implemented adapters |
 | `gateway-status` | Reads live gateway status or seeded offline state | No | Falls back to `state.json` when no live gateway is attached |
@@ -114,7 +114,7 @@ These docs intentionally describe the implemented behavior, not the full design 
 
 - Gateway capability publication exists for runtime-owned tmux-backed sessions.
 - Live gateway attach supports runtime-owned `local_interactive`, `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
-- `send-keys` is implemented only for resumed `cao_rest` sessions.
+- `send-keys` is implemented only for resumed `cao_rest` sessions (legacy backend).
 - Mailbox control currently supports the filesystem transport only.
 - The public managed-agent server surface for TUI-backed and server-managed headless agents lives under `/houmao/agents/*`; use [Managed-Agent API](../../managed_agent_api.md) for the server-owned request, detail-state, and gateway-route contracts.
 

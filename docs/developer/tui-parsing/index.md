@@ -1,15 +1,15 @@
 # TUI Parsing Developer Guide
 
-This guide documents the runtime-owned TUI parsing stack used for CAO `shadow_only` sessions.
+This guide documents the runtime-owned TUI parsing stack used for tracking interactive and headless agent sessions.
 
 It is the maintainer-oriented companion to the shorter reference and troubleshooting pages under `docs/reference/`. Use this guide when you need to understand why the parser stack is structured the way it is, how the runtime lifecycle works, or how to safely change provider-specific parsing rules.
 
 ## What This Guide Covers
 
-The TUI parsing stack turns CAO `mode=full` tmux snapshots into stable runtime artifacts without pretending that raw terminal scrollback can always prove “the answer for the current prompt.” The current contract is built around these layers:
+The TUI parsing stack turns raw tmux pane snapshots (for `local_interactive` sessions) or headless stdout (for headless sessions) into stable runtime artifacts without pretending that raw terminal scrollback can always prove “the answer for the current prompt.” The current contract is built around these layers:
 
 - provider parsers classify one snapshot into `SurfaceAssessment` and `DialogProjection`
-- current-thread CAO polling in `cao_rest.py` feeds `ShadowObservation` values into readiness and completion monitor pipelines in `cao_rx_monitor.py`
+- the `shared_tui_tracking/` package provides `StreamStateReducer`, detector profiles, and `TuiTrackerSession` for raw-snapshot reduction and turn lifecycle tracking
 - callers may optionally layer answer association on top of projected dialog
 
 ## Reading Order
@@ -37,6 +37,10 @@ This doc set summarizes the active runtime contract from these sources:
 The most important implementation files are:
 
 - `backends/shadow_parser_core.py`
+- `shared_tui_tracking/session.py`
+- `shared_tui_tracking/reducer.py`
+- `shared_tui_tracking/detectors.py`
+- `shared_tui_tracking/apps/`
 - `backends/cao_rx_monitor.py`
 - `backends/cao_rest.py`
 - `backends/claude_code_shadow.py`
@@ -44,15 +48,10 @@ The most important implementation files are:
 - `backends/shadow_answer_association.py`
 - `tests/unit/agents/realm_controller/test_cao_rx_monitor.py`
 
-All of those paths are relative to `src/houmao/agents/realm_controller/`.
+All of those paths are relative to `src/houmao/agents/realm_controller/` except `shared_tui_tracking/` paths which are relative to `src/houmao/`.
 
 ## Relationship To Reference Docs
 
-The shorter reference pages remain useful for operators and quick lookups:
-
-- [CAO Claude Code Shadow Parsing](../../reference/cao_claude_shadow_parsing.md)
-- [CAO Shadow Parser Troubleshooting](../../reference/cao_shadow_parser_troubleshooting.md)
-
-Those pages now point back to this guide for design-level detail. If you are changing contracts, state transitions, or parser responsibilities, treat this developer guide as the place where the deep explanation should live.
+If you are changing contracts, state transitions, or parser responsibilities, treat this developer guide as the place where the deep explanation should live.
 
 The existing [Architecture](architecture.md) and [Runtime Lifecycle](runtime-lifecycle.md) pages are the maintained home for the runtime monitor explanation. This guide intentionally does not split that material into a separate Rx-only page unless the lifecycle story becomes too large to keep readable.

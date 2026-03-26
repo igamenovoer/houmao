@@ -1,6 +1,8 @@
-# Troubleshooting Codex CAO Approval Prompts
+# Troubleshooting Codex Approval Prompts (Legacy `cao_rest` Backend)
 
-This page covers one specific failure mode for CAO-backed Codex sessions: the live session starts, but the first real prompt turn stops on an operator approval menu instead of completing the requested action.
+> **Legacy notice:** This troubleshooting page applies to the `cao_rest` backend, which is planned for removal. For new sessions, use the `local_interactive` backend where Codex launch is directly controlled.
+
+This page covers one specific failure mode for `cao_rest`-backed Codex sessions: the live session starts, but the first real prompt turn stops on an operator approval menu instead of completing the requested action.
 
 ## Observed Version
 

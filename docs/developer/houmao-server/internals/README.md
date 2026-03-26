@@ -1,6 +1,6 @@
 # TUI Handling Internals
 
-This doc set explains how `houmao-server` performs server-owned live TUI tracking after `add-houmao-server-official-tui-tracker` and the later hardening work. It is intentionally about the internal watch plane, not about the broader operator migration story in [`docs/migration/houmao/server-pair/README.md`](../../../migration/houmao/server-pair/README.md).
+This doc set explains how `houmao-server` performs server-owned live TUI tracking. It is intentionally about the internal watch plane: discovery, polling, parsing, and tracked-state authority.
 
 The key architectural boundary is:
 

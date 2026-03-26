@@ -31,7 +31,7 @@ For the canonical filesystem map behind these terms, use [System Files Reference
 
 - [Houmao Server Pair](../houmao_server_pair.md): supported operator workflow for `houmao-server + houmao-mgr`, including launch, join, gateway attach, and relaunch.
 - [Session And Message Flows](operations/session-and-message-flows.md): Start, resume, stop, and choose between prompt turns, control input, mailbox, and gateway paths.
-- [Troubleshooting Codex CAO Approval Prompts](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a CAO-backed Codex prompt turn stops on an approval menu and verify the selected unattended launch-policy strategy.
+- [Troubleshooting Codex Approval Prompts (Legacy)](troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Diagnose why a `cao_rest`-backed Codex prompt turn stops on an approval menu and verify the selected unattended launch-policy strategy.
 
 ### Contracts
 

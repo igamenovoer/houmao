@@ -10,7 +10,7 @@ Important request fields are:
 
 - `session_name`: the server-owned tracked session key
 - `tool`: parser/process selection key
-- `terminal_id`: optional compatibility terminal id; if absent, the server resolves it from the child CAO session view
+- `terminal_id`: optional compatibility terminal id; if absent, the server resolves it from the local compatibility session view
 - `manifest_path` and `session_root`: optional runtime-owned artifact references
 - `agent_name` and `agent_id`: optional compatibility metadata
 - `tmux_session_name`: optional explicit tmux session name; defaults to `session_name` later if omitted
@@ -19,8 +19,8 @@ Important request fields are:
 `register_launch()` in [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py) performs the following steps:
 
 1. Validate `session_name` with `_validated_registration_session_name()`.
-2. If `terminal_id` is absent, query the child CAO-compatible surface for `/sessions/{session_name}/terminals` and take the first returned terminal id.
-3. Validate that `/terminals/{terminal_id}` returns a valid CAO terminal payload.
+2. If `terminal_id` is absent, query the local compatibility surface for `/sessions/{session_name}/terminals` and take the first returned terminal id.
+3. Validate that `/terminals/{terminal_id}` returns a valid terminal payload.
 4. Resolve the registration storage directory with `_registration_dir_for_session_name(..., strict=True)`.
 5. Persist the normalized request as `registration.json`.
 6. Create or refresh an in-memory dormant tracker immediately with `_ensure_tracker_for_registered_launch()`.

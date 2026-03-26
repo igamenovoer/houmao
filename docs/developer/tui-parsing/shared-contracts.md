@@ -71,7 +71,7 @@ Provider subclasses add provider-specific evidence:
 - `closed`
 - `unknown`
 
-Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `waiting`, `in_progress`, `candidate_complete`, `completed`, and `stalled` live one layer higher in the readiness/completion monitor pipelines in `cao_rx_monitor.py`, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
+Parser state is still only a one-snapshot observation. Runtime lifecycle states such as `waiting`, `in_progress`, `candidate_complete`, `completed`, and `stalled` live one layer higher in the `shared_tui_tracking/` reducer and detector profiles, and runtime derives `submit_ready` from `availability == supported`, `business_state == idle`, and `input_mode == freeform`.
 
 ### Shared `ui_context`
 
@@ -143,7 +143,7 @@ The provider parser emits version/baseline anomalies, while the runtime readines
 
 `shadow_only` callers get projection slices derived from projected dialog, not raw tmux transport output.
 
-The runtime payload in `cao_rest.py` exposes:
+The runtime result payload exposes:
 
 - `surface_assessment`
 - `dialog_projection`

@@ -2,7 +2,7 @@
 
 This guide documents the maintainer-facing design of the tmux-backed terminal recorder used to capture agent TUI sessions for parser and lifecycle testing.
 
-It is the deep companion to the shorter operator/reference page in `docs/reference/terminal_record.md`. Use this guide when you need to change recorder lifecycle behavior, artifact contracts, active/passive semantics, or the managed `send-keys` integration.
+It is the deep companion to the shorter operator/reference page in `docs/reference/terminal-record/index.md`. Use this guide when you need to change recorder lifecycle behavior, artifact contracts, active/passive semantics, or the managed `send-keys` integration.
 
 ## What This Guide Covers
 
@@ -30,7 +30,7 @@ This doc set summarizes the active terminal-recorder contract from these sources
 - the `add-terminal-record-tooling` OpenSpec change under `openspec/changes/`
 - the recorder package under `src/houmao/terminal_record/`
 - tmux shared primitives under `src/houmao/agents/realm_controller/backends/tmux_runtime.py`
-- CAO managed control-input integration under `src/houmao/agents/realm_controller/backends/cao_rest.py`
+- managed control-input integration under `src/houmao/agents/realm_controller/backends/`
 - recorder lifecycle and integration tests under `tests/unit/terminal_record/` and `tests/integration/agents/realm_controller/`
 
 The most important implementation files are:
@@ -39,7 +39,7 @@ The most important implementation files are:
 - `src/houmao/terminal_record/models.py`
 - `src/houmao/terminal_record/runtime_bridge.py`
 - `src/houmao/agents/realm_controller/backends/tmux_runtime.py`
-- `src/houmao/agents/realm_controller/backends/cao_rest.py`
+- `src/houmao/agents/realm_controller/backends/` (managed control-input integration)
 - `tools/terminal_record/cli.py`
 - `tests/unit/terminal_record/test_service.py`
 - `tests/integration/agents/realm_controller/test_cao_control_input_runtime_contract.py`
@@ -48,6 +48,6 @@ The most important implementation files are:
 
 The shorter reference page remains the right entry point for command examples and artifact names:
 
-- [Terminal Recorder Reference](../../reference/terminal_record.md)
+- [Terminal Recorder Reference](../../reference/terminal-record/index.md)
 
 If you are changing lifecycle guarantees, capture-authority semantics, or replay behavior, treat this developer guide as the place where the design-level explanation should live.

@@ -31,7 +31,7 @@ The supported external contract for attach, resume, and relaunch is `manifest.js
 
 `attach.json` may still exist as internal bootstrap state for gateway startup, offline status materialization, and metadata transfer. It is not the supported public attach authority.
 
-Representative CAO-backed internal bootstrap payload:
+Representative internal bootstrap payload for a `cao_rest` session:
 
 ```json
 {
@@ -82,7 +82,7 @@ Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
 - Live attach and request execution currently support runtime-owned `local_interactive` sessions, runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
-- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no CAO terminal alias exists on that path.
+- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no backend-provided terminal alias exists on that path.
 - Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` may keep `manifest_path` for gateway internals, but the runtime-owned session manifest remains the supported persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
 - `gateway_manifest.json` is derived publication only. It may expose desired listener data and `gateway_pid`, but attach and control behavior must trust `manifest.json` plus tmux or registry discovery instead of treating `gateway_manifest.json` as primary authority.
@@ -508,7 +508,7 @@ Detailed inspection note:
 
 - `GET /v1/mail-notifier` stays a compact snapshot surface.
 - Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
-- The runnable walkthrough for this behavior lives at [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), using the copied dummy-project plus lightweight `mailbox-demo` fixture shape rather than a repository worktree.
+- Detailed per-poll decision history can be inspected via the `gateway_notifier_audit` table inside `queue.sqlite`.
 
 ## Current-Instance Execution Handle
 

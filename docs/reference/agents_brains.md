@@ -199,7 +199,7 @@ Once you want repo-owned lifecycle control instead of raw helper execution, the 
 - [Runtime-Managed Agents Reference](./agents/index.md)
 - [Agent Gateway Reference](./gateway/index.md)
 
-Once you move to the paired `houmao-server + houmao-mgr` workflow, prefer the managed-agent routes and `houmao-mgr agents ...` commands as the public control surface. Attached gateways enrich that same surface automatically with richer live control behavior; they do not replace it with a second operator API. The explicit `cao` compatibility namespace remains separate from this managed-agent seam in phase 1.
+Once you move to the paired `houmao-server + houmao-mgr` workflow, prefer the managed-agent routes and `houmao-mgr agents ...` commands as the public control surface. Attached gateways enrich that same surface automatically with richer live control behavior; they do not replace it with a second operator API.
 
 ## Roles
 
@@ -208,9 +208,7 @@ Roles live under `roles/<role>/system-prompt.md`.
 Today, roles are applied manually (copy/paste as the first prompt) unless the
 tool provides a native system/developer prompt injection mechanism.
 
-For repo-owned session lifecycle workflows (build/start/resume/stop, including
-CAO-backed sessions), use the [Realm Controller](realm_controller.md)
-module and CLI.
+For repo-owned session lifecycle workflows (build/start/resume/stop), use the [Realm Controller](realm_controller.md) module and CLI.
 
 ## Programmatic Use (Python)
 

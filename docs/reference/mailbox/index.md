@@ -29,8 +29,6 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - [Quickstart](quickstart.md): Enable mailbox support and run `mail check`, `mail send`, and `mail reply`.
 - [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Start a Stalwart-backed mailbox session, verify it directly, and understand when the gateway mailbox facade becomes the preferred shared path.
-- [Mailbox Roundtrip Tutorial Pack](../../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md): Run the full two-agent CAO-backed roundtrip and verify the sanitized report contract.
-
 ### Contracts
 
 - [Canonical Model](contracts/canonical-model.md): Message schema, addressing, threading, attachments, and immutable versus mutable state.
