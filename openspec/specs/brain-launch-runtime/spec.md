@@ -2346,6 +2346,8 @@ The join materialization path SHALL create the resolved job directory on disk be
 
 The join materialization path SHALL publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR` into the adopted tmux session environment.
 
+For joined TUI adoption, the persisted manifest and later manifest rewrites SHALL preserve the adopted tmux window identity needed to find the live provider surface. Resume-time capability publication and other post-join local control paths SHALL NOT overwrite that adopted window metadata with `null` or a default launch-time window name.
+
 The adopted session SHALL reuse the current tmux session name as the live tmux handle and SHALL keep tmux window `0` as the canonical managed agent surface even when the join command itself runs from another window of that same tmux session.
 
 After successful join, the runtime SHALL treat shared-registry publication and later refresh or teardown for that adopted session as runtime-owned publication state even though the current provider process was originally started by the user.
@@ -2375,6 +2377,12 @@ The resulting manifest and tmux session environment SHALL remain the authoritati
 - **AND WHEN** the one-shot `houmao-mgr agents join` command exits successfully
 - **THEN** the adopted session remains discoverable through its initial long sentinel lease
 - **AND THEN** the design does not require a background lease-renewal daemon just to keep that joined session visible
+
+#### Scenario: Joined local TUI resume preserves the adopted tmux window metadata
+- **WHEN** a live Claude TUI is joined from tmux window `0` whose current window name is `claude`
+- **AND WHEN** a later local control path resumes that joined session and republishes manifest-backed gateway capability
+- **THEN** the persisted manifest still records the adopted window identity needed to find window `0`
+- **AND THEN** later local TUI tracking does not fall back to probing window name `agent` only because the resume path rewrote the manifest
 
 ### Requirement: Joined tmux-backed sessions persist explicit adopted relaunch posture
 For tmux-backed joined sessions, the persisted relaunch authority SHALL record that the session origin is tmux join adoption rather than Houmao-started provider launch.
