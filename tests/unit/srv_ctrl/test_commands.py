@@ -48,7 +48,7 @@ class _FakePairClient:
 
 
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
-    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "server"}
+    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "server"}
 
 
 def test_bare_invocation_prints_help() -> None:
@@ -58,6 +58,7 @@ def test_bare_invocation_prints_help() -> None:
     assert "Usage: houmao-mgr" in result.output
     assert "server" in result.output
     assert "agents" in result.output
+    assert "mailbox" in result.output
     assert "cao" not in result.output
     assert "\nTraceback" not in result.output
 
@@ -75,8 +76,31 @@ def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     result = CliRunner().invoke(cli, ["agents", "--help"])
 
     assert result.exit_code == 0
+    assert "mailbox" in result.output
     assert "relaunch" in result.output
     assert "cao" not in result.output
+
+
+def test_top_level_mailbox_help_mentions_local_admin_surface() -> None:
+    result = CliRunner().invoke(cli, ["mailbox", "--help"])
+
+    assert result.exit_code == 0
+    assert "local filesystem mailbox administration" in result.output.lower()
+    assert "init" in result.output
+    assert "status" in result.output
+    assert "register" in result.output
+    assert "unregister" in result.output
+    assert "repair" in result.output
+
+
+def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
+    result = CliRunner().invoke(cli, ["agents", "mailbox", "--help"])
+
+    assert result.exit_code == 0
+    assert "late filesystem mailbox registration" in result.output.lower()
+    assert "status" in result.output
+    assert "register" in result.output
+    assert "unregister" in result.output
 
 
 def test_agents_gateway_attach_forwards_foreground_flag(

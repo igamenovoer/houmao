@@ -14,7 +14,7 @@ For the deeper explanation of live terminal tracking and managed-agent state, se
 Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes, managed-agent routes, terminal-tracking routes, and a legacy `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes `server`, `agents`, `brains`, and `admin` command groups
+- `houmao-mgr`: exposes `server`, `agents`, `brains`, `mailbox`, and `admin` command groups
 - `houmao-cli`: legacy runtime-local CLI, not part of the supported pair
 
 Representative usage:
@@ -29,6 +29,9 @@ houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider c
 houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
 houmao-mgr agents join --agent-name gpu
 houmao-mgr agents join --headless --agent-name reviewer --provider codex --launch-args exec --launch-args=--json --resume-id last
+houmao-mgr mailbox init --mailbox-root tmp/shared-mail
+houmao-mgr agents mailbox register --agent-name gpu --mailbox-root tmp/shared-mail
+houmao-mgr agents mailbox status --agent-name gpu
 houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state."
 houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
@@ -85,6 +88,7 @@ Retired standalone surfaces (legacy):
 - `server`
 - `agents`
 - `brains`
+- `mailbox`
 - `admin`
 
 Authority is split intentionally:
@@ -92,11 +96,22 @@ Authority is split intentionally:
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
 - `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
+- `mailbox ...` manages the shared filesystem mailbox root and address lifecycle without `houmao-server`
+- `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
 - `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
 - `admin cleanup-registry` is local shared-registry maintenance
 
 For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
+
+For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
+
+1. `houmao-mgr mailbox init --mailbox-root <path>`
+2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
+3. `houmao-mgr agents mailbox register --agent-name <friendly-name> --mailbox-root <path>`
+4. `houmao-mgr agents mail ...`
+
+This keeps `agents launch` and `agents join` mailbox-agnostic. For long-lived local interactive TUI sessions, `agents mailbox register` and `agents mailbox unregister` may report `pending_relaunch`; run `houmao-mgr agents relaunch --agent-name <friendly-name>` before treating runtime-owned `agents mail ...` commands as active on that live provider process.
 
 ## Adopting Existing Sessions With `agents join`
 

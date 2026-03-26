@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.agents.realm_controller.boundary_models import SessionManifestAgentLaunchAuthorityV1
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -22,6 +25,7 @@ from houmao.agents.realm_controller.runtime import (
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox.filesystem import MailboxBootstrapError
+from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
 
 def _write(path: Path, text: str) -> None:
@@ -416,3 +420,212 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
 
     persisted = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(new_root.resolve())
+
+
+def _controller_for_mailbox_mutation(
+    *,
+    tmp_path: Path,
+    backend: str,
+    mailbox: FilesystemMailboxResolvedConfig | None,
+    metadata: dict[str, object] | None = None,
+) -> tuple[RuntimeSessionController, dict[str, LaunchPlan]]:
+    """Build one runtime controller suitable for mailbox mutation tests."""
+
+    env = mailbox_env_bindings(mailbox) if mailbox is not None else {}
+    env_var_names = sorted(env.keys())
+    launch_plan = LaunchPlan(
+        backend=backend,
+        tool="codex",
+        executable="codex",
+        args=["exec", "--json"],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env=env,
+        env_var_names=env_var_names,
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions",
+            role_name="r",
+            prompt="Role prompt",
+        ),
+        metadata=dict(metadata or {}),
+        mailbox=mailbox,
+    )
+    manifest_path = tmp_path / "session.json"
+    captured: dict[str, LaunchPlan] = {}
+
+    class _FakeBackend:
+        def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
+            captured["launch_plan"] = launch_plan
+
+    controller = RuntimeSessionController(
+        launch_plan=launch_plan,
+        role_name="r",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        backend_session=_FakeBackend(),  # type: ignore[arg-type]
+        agent_identity="AGENTSYS-research",
+        agent_id=derive_agent_id_from_name("AGENTSYS-research"),
+        tmux_session_name="AGENTSYS-research",
+    )
+    controller.persist_manifest()
+    return controller, captured
+
+
+def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
+    tmp_path: Path,
+) -> None:
+    controller, captured = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="codex_headless",
+        mailbox=None,
+    )
+    mailbox_root = tmp_path / "shared-mail"
+
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=mailbox_root,
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+    )
+
+    assert result.activation_state == "active"
+    assert result.mailbox is not None
+    assert controller.launch_plan.mailbox == result.mailbox
+    assert controller.launch_plan.mailbox.filesystem_root == mailbox_root.resolve()
+    assert controller.mailbox_activation_state() == "active"
+    assert captured["launch_plan"].mailbox == result.mailbox
+    persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
+    assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox_root.resolve())
+
+
+def test_register_filesystem_mailbox_marks_local_interactive_session_pending_relaunch(
+    tmp_path: Path,
+) -> None:
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="local_interactive",
+        mailbox=None,
+    )
+
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=tmp_path / "shared-mail",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+    )
+
+    assert result.activation_state == "pending_relaunch"
+    assert controller.launch_plan.mailbox is not None
+    assert controller.mailbox_activation_state() == "pending_relaunch"
+    assert controller.launch_plan.metadata["mailbox_live_enabled"] is False
+
+
+def test_unregister_filesystem_mailbox_marks_local_interactive_session_pending_relaunch(
+    tmp_path: Path,
+) -> None:
+    existing_mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root=(tmp_path / "shared-mail").resolve(),
+        bindings_version="2026-03-26T00:00:00.000001Z",
+    )
+    bootstrap_filesystem_mailbox(
+        existing_mailbox.filesystem_root,
+        principal=MailboxPrincipal(
+            principal_id=existing_mailbox.principal_id,
+            address=existing_mailbox.address,
+        ),
+    )
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="local_interactive",
+        mailbox=existing_mailbox,
+    )
+
+    result = controller.unregister_filesystem_mailbox()
+
+    assert result.activation_state == "pending_relaunch"
+    assert controller.launch_plan.mailbox is None
+    assert controller.mailbox_activation_state() == "pending_relaunch"
+    assert controller.launch_plan.metadata["mailbox_live_enabled"] is True
+    assert (
+        controller.launch_plan.metadata["mailbox_live_bindings_version"]
+        == existing_mailbox.bindings_version
+    )
+
+
+def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    existing_mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root=(tmp_path / "shared-mail").resolve(),
+        bindings_version="2026-03-26T00:00:00.000001Z",
+    )
+    bootstrap_filesystem_mailbox(
+        existing_mailbox.filesystem_root,
+        principal=MailboxPrincipal(
+            principal_id=existing_mailbox.principal_id,
+            address=existing_mailbox.address,
+        ),
+    )
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="local_interactive",
+        mailbox=existing_mailbox,
+        metadata={
+            "mailbox_live_enabled": False,
+        },
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._backend_requires_provider_start_relaunch",
+        lambda backend: False,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._relaunch_backend_session",
+        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
+        lambda controller: None,
+    )
+
+    result = controller.relaunch()
+
+    assert result.status == "ok"
+    assert controller.mailbox_activation_state() == "active"
+    assert controller.launch_plan.metadata["mailbox_live_enabled"] is True
+    assert (
+        controller.launch_plan.metadata["mailbox_live_bindings_version"]
+        == existing_mailbox.bindings_version
+    )
+
+
+def test_late_mailbox_registration_rejects_joined_sessions_without_relaunch_posture(
+    tmp_path: Path,
+) -> None:
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="local_interactive",
+        mailbox=None,
+    )
+    controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
+        backend="local_interactive",
+        tool="codex",
+        tmux_session_name="AGENTSYS-research",
+        working_directory=str(tmp_path),
+        session_origin="joined_tmux",
+        posture_kind="unavailable",
+    )
+
+    assert controller.mailbox_activation_state() == "unsupported_joined_session"
+    with pytest.raises(SessionManifestError, match="Late mailbox registration is unavailable"):
+        controller.register_filesystem_mailbox(
+            mailbox_root=tmp_path / "shared-mail",
+            principal_id="AGENTSYS-research",
+            address="AGENTSYS-research@agents.localhost",
+        )
