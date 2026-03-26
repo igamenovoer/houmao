@@ -18,7 +18,10 @@ from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
     read_headless_turn_return_code,
 )
-from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
+    tmux_session_exists,
+)
 from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
@@ -795,6 +798,11 @@ def _identity_from_record(record: LiveAgentRegistryRecordV2) -> HoumaoManagedAge
         "headless" if record.identity.backend in _HEADLESS_BACKENDS else "tui"
     )
     tracked_agent_id = record.agent_id or record.agent_name or record.terminal.session_name
+    tmux_window_name = (
+        HEADLESS_AGENT_WINDOW_NAME
+        if transport == "headless" or record.identity.backend == "local_interactive"
+        else None
+    )
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
@@ -803,7 +811,7 @@ def _identity_from_record(record: LiveAgentRegistryRecordV2) -> HoumaoManagedAge
         terminal_id=None,
         runtime_session_id=tracked_agent_id,
         tmux_session_name=record.terminal.session_name,
-        tmux_window_name=None,
+        tmux_window_name=tmux_window_name,
         manifest_path=record.runtime.manifest_path,
         session_root=record.runtime.session_root,
         agent_name=record.agent_name,
@@ -836,6 +844,11 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     transport: ManagedAgentTransportKind = (
         "headless" if controller.launch_plan.backend in _HEADLESS_BACKENDS else "tui"
     )
+    tmux_window_name = (
+        HEADLESS_AGENT_WINDOW_NAME
+        if transport == "headless" or controller.launch_plan.backend == "local_interactive"
+        else None
+    )
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
@@ -844,7 +857,7 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
         terminal_id=None,
         runtime_session_id=controller.manifest_path.parent.name,
         tmux_session_name=controller.tmux_session_name,
-        tmux_window_name=None,
+        tmux_window_name=tmux_window_name,
         manifest_path=str(controller.manifest_path),
         session_root=str(controller.manifest_path.parent),
         agent_name=controller.agent_identity,

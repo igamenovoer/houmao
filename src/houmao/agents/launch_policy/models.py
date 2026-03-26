@@ -21,6 +21,7 @@ LaunchSurface = Literal[
     "houmao_server_rest",
 ]
 LaunchPolicySelectionSource = Literal["registry", "env_override"]
+LaunchPolicyApplicationKind = Literal["provider_start", "resume_control"]
 
 
 class LaunchPolicyError(RuntimeError):
@@ -227,6 +228,7 @@ class LaunchPolicyRequest:
     working_directory: Path
     home_path: Path
     env: Mapping[str, str]
+    application_kind: LaunchPolicyApplicationKind = "provider_start"
 
 
 @dataclass(frozen=True)

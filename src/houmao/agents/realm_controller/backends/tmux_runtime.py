@@ -8,7 +8,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Final, Literal, Mapping
 
 from ..agent_identity import (
     derive_auto_agent_name_base,
@@ -16,6 +16,9 @@ from ..agent_identity import (
     normalize_agent_identity_name,
 )
 from ..errors import SessionManifestError
+
+if TYPE_CHECKING:
+    import libtmux
 
 
 class TmuxCommandError(RuntimeError):
@@ -82,6 +85,8 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
 )
 HEADLESS_AGENT_WINDOW_INDEX: Final[str] = "0"
 HEADLESS_AGENT_WINDOW_NAME: Final[str] = "agent"
+_TMUX_PANE_DEAD_FORMAT: Final[str] = "#{pane_dead}"
+_TMUX_PANE_PID_FORMAT: Final[str] = "#{pane_pid}"
 
 
 def ensure_tmux_available() -> None:
@@ -94,14 +99,19 @@ def ensure_tmux_available() -> None:
 def list_tmux_sessions() -> set[str]:
     """Return active tmux session names."""
 
-    result = run_tmux(["list-sessions", "-F", "#{session_name}"])
-    if result.returncode != 0:
-        detail = tmux_error_detail(result)
-        lowered = detail.lower()
-        if "no server running" in lowered or "failed to connect to server" in lowered:
+    try:
+        return {
+            session.session_name.strip()
+            for session in _libtmux_server().sessions
+            if isinstance(session.session_name, str) and session.session_name.strip()
+        }
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip().lower()
+        if "no server running" in detail or "failed to connect to server" in detail:
             return set()
-        raise TmuxCommandError(f"Failed to list tmux sessions: {detail or 'unknown tmux error'}")
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+        raise TmuxCommandError(
+            f"Failed to list tmux sessions: {str(exc).strip() or 'unknown tmux error'}"
+        ) from exc
 
 
 def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
@@ -258,79 +268,155 @@ def read_tmux_session_environment_value(*, session_name: str, variable_name: str
 def list_tmux_clients(*, session_name: str) -> tuple[str, ...]:
     """Return attached tmux client identifiers for one session."""
 
-    result = run_tmux(
-        [
-            "list-clients",
-            "-t",
-            session_name,
-            "-F",
-            "#{client_tty}",
-        ]
-    )
+    session = _require_libtmux_session(session_name=session_name)
+    result = session.cmd("list-clients", "-F", "#{client_tty}")
     if result.returncode != 0:
-        detail = tmux_error_detail(result)
+        detail = _libtmux_cmd_detail(result)
         lowered = detail.lower()
         if "no current client" in lowered or "no server running" in lowered:
             return ()
         raise TmuxCommandError(
             f"Failed to list tmux clients for `{session_name}`: {detail or 'unknown tmux error'}"
         )
-    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+    return tuple(line.strip() for line in result.stdout if str(line).strip())
+
+
+def attach_tmux_session(*, session_name: str) -> None:
+    """Attach the caller terminal to one tmux session through libtmux."""
+
+    session = _require_libtmux_session(session_name=session_name)
+    attach_method = getattr(session, "attach", None)
+    try:
+        if callable(attach_method):
+            attach_method()
+            return
+        result = session.cmd("attach-session")
+    except Exception as exc:  # noqa: BLE001
+        raise TmuxCommandError(
+            f"Failed to attach tmux session `{session_name}`: "
+            f"{str(exc).strip() or 'unknown tmux error'}"
+        ) from exc
+    if result.returncode != 0:
+        detail = _libtmux_cmd_detail(result)
+        raise TmuxCommandError(
+            f"Failed to attach tmux session `{session_name}`: {detail or 'unknown tmux error'}"
+        )
 
 
 def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
-    """Return pane records for one tmux session."""
+    """Return pane records for all panes in one tmux session."""
 
-    result = run_tmux(
-        [
-            "list-panes",
-            "-t",
-            session_name,
-            "-F",
-            "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}"
-            "\t#{pane_index}\t#{pane_active}\t#{pane_dead}\t#{pane_pid}",
-        ]
+    session = _require_libtmux_session(session_name=session_name)
+    return tuple(
+        _tmux_pane_record_from_libtmux_pane(pane=pane, session_name=session_name)
+        for pane in session.panes
     )
-    if result.returncode != 0:
-        detail = tmux_error_detail(result)
-        raise TmuxCommandError(
-            f"Failed to list tmux panes for `{session_name}`: {detail or 'unknown tmux error'}"
-        )
 
-    panes: list[TmuxPaneRecord] = []
-    for raw_line in result.stdout.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        parts = line.split("\t")
-        if len(parts) not in {8, 9}:
-            raise TmuxCommandError(f"Unexpected tmux pane output for `{session_name}`: {line}")
-        panes.append(
-            TmuxPaneRecord(
-                pane_id=parts[0],
-                session_name=parts[1],
-                window_id=parts[2],
-                window_index=parts[3],
-                window_name=parts[4],
-                pane_index=parts[5],
-                pane_active=parts[6] == "1",
-                pane_dead=parts[7] == "1",
-                pane_pid=int(parts[8]) if len(parts) == 9 and parts[8].isdigit() else None,
+
+def resolve_tmux_pane(
+    *,
+    session_name: str,
+    pane_id: str | None = None,
+    window_id: str | None = None,
+    window_index: str | None = None,
+    window_name: str | None = None,
+) -> TmuxPaneRecord:
+    """Resolve one tmux pane from explicit pane/window identity.
+
+    Parameters
+    ----------
+    session_name:
+        Tmux session to search across.
+    pane_id:
+        Optional exact pane identifier.
+    window_id:
+        Optional exact window identifier.
+    window_index:
+        Optional window index within the session.
+    window_name:
+        Optional contractual window name.
+
+    Returns
+    -------
+    TmuxPaneRecord
+        One resolved tmux pane.
+
+    Raises
+    ------
+    TmuxCommandError
+        Raised when the session has no panes, when the selector matches no panes,
+        or when the session is ambiguous and no explicit selector narrows it to a
+        single contractual surface.
+    """
+
+    panes = list_tmux_panes(session_name=session_name)
+    if not panes:
+        raise TmuxCommandError(f"No tmux panes are available for `{session_name}`.")
+
+    if pane_id is not None:
+        matching = tuple(pane for pane in panes if pane.pane_id == pane_id)
+        if not matching:
+            raise TmuxCommandError(
+                f"No tmux panes matched pane id `{pane_id}` in `{session_name}`."
             )
+        return _prefer_live_tmux_pane(matching)
+
+    matching = panes
+    selectors: list[tuple[str, str]] = []
+    for label, expected, accessor in (
+        ("window id", window_id, lambda pane: pane.window_id),
+        ("window index", window_index, lambda pane: pane.window_index),
+        ("window", window_name, lambda pane: pane.window_name),
+    ):
+        if expected is None:
+            continue
+        selectors.append((label, expected))
+        matching = tuple(pane for pane in matching if accessor(pane) == expected)
+        if not matching:
+            selector_detail = " and ".join(
+                f"{selector_label} `{selector_value}`"
+                for selector_label, selector_value in selectors
+            )
+            raise TmuxCommandError(f"No tmux panes matched {selector_detail} in `{session_name}`.")
+
+    if not selectors and len(matching) != 1:
+        raise TmuxCommandError(
+            f"Ambiguous tmux pane target for `{session_name}`: {len(matching)} panes matched; "
+            "provide pane_id, window_id, window_index, or window_name."
         )
-    return tuple(panes)
+    return _prefer_live_tmux_pane(matching)
+
+
+def find_tmux_pane(*, session_name: str, pane_id: str) -> TmuxPaneRecord | None:
+    """Return one optional tmux pane record by pane id."""
+
+    try:
+        return resolve_tmux_pane(session_name=session_name, pane_id=pane_id)
+    except TmuxCommandError as exc:
+        if f"pane id `{pane_id}`" in str(exc):
+            return None
+        raise
 
 
 def capture_tmux_pane(*, target: str) -> str:
     """Return capture-pane text for one tmux target."""
 
-    result = run_tmux(["capture-pane", "-p", "-e", "-S", "-", "-t", target])
+    if target.startswith("%"):
+        pane = _require_libtmux_pane(pane_id=target)
+        try:
+            return "\n".join(pane.capture_pane(start="-", end="-", escape_sequences=True))
+        except Exception as exc:  # noqa: BLE001
+            raise TmuxCommandError(
+                f"Failed to capture tmux pane `{target}`: {str(exc).strip() or 'unknown tmux error'}"
+            ) from exc
+
+    result = _libtmux_server().cmd("capture-pane", "-p", "-e", "-S", "-", target=target)
     if result.returncode != 0:
-        detail = tmux_error_detail(result)
+        detail = _libtmux_cmd_detail(result)
         raise TmuxCommandError(
             f"Failed to capture tmux pane `{target}`: {detail or 'unknown tmux error'}"
         )
-    return result.stdout
+    return "\n".join(str(line) for line in result.stdout)
 
 
 def load_tmux_buffer(*, buffer_name: str, text: str) -> None:
@@ -524,3 +610,154 @@ def tmux_error_detail(result: subprocess.CompletedProcess[str]) -> str:
     """Extract concise stderr/stdout detail from a tmux command result."""
 
     return (result.stderr or result.stdout or "").strip()
+
+
+def _libtmux_server() -> "libtmux.Server":
+    """Return one libtmux server handle."""
+
+    try:
+        import libtmux
+    except ImportError as exc:
+        raise TmuxCommandError("`libtmux` is required for repo-owned tmux integration.") from exc
+    try:
+        return libtmux.Server()
+    except Exception as exc:  # noqa: BLE001
+        raise TmuxCommandError(
+            f"Failed to initialize libtmux server: {str(exc).strip() or 'unknown tmux error'}"
+        ) from exc
+
+
+def _require_libtmux_session(*, session_name: str) -> Any:
+    """Return one live libtmux session by name."""
+
+    for session in _libtmux_server().sessions:
+        if getattr(session, "session_name", None) == session_name:
+            return session
+    raise TmuxCommandError(f"Tmux session `{session_name}` does not exist.")
+
+
+def _require_libtmux_pane(*, pane_id: str) -> Any:
+    """Return one live libtmux pane by pane id."""
+
+    server = _libtmux_server()
+    try:
+        import libtmux
+
+        return libtmux.Pane.from_pane_id(server=server, pane_id=pane_id)
+    except Exception as exc:  # noqa: BLE001
+        raise TmuxCommandError(
+            f"Tmux pane `{pane_id}` could not be resolved: {str(exc).strip() or 'unknown tmux error'}"
+        ) from exc
+
+
+def _tmux_pane_record_from_libtmux_pane(*, pane: Any, session_name: str) -> TmuxPaneRecord:
+    """Convert one libtmux pane object into the repository pane record."""
+
+    pane_dead = _coerce_bool_tmux_flag(
+        _optional_libtmux_pane_value(
+            pane=pane,
+            attr_name="pane_dead",
+            format_expression=_TMUX_PANE_DEAD_FORMAT,
+        )
+    )
+    pane_pid_value = _optional_libtmux_pane_value(
+        pane=pane,
+        attr_name="pane_pid",
+        format_expression=_TMUX_PANE_PID_FORMAT,
+    )
+    return TmuxPaneRecord(
+        pane_id=_require_libtmux_text(getattr(pane, "pane_id", None), field_name="pane_id"),
+        session_name=_require_libtmux_text(
+            getattr(pane, "session_name", None) or session_name,
+            field_name="session_name",
+        ),
+        window_id=_require_libtmux_text(getattr(pane, "window_id", None), field_name="window_id"),
+        window_index=_require_libtmux_text(
+            getattr(pane, "window_index", None),
+            field_name="window_index",
+        ),
+        window_name=_require_libtmux_text(
+            getattr(pane, "window_name", None),
+            field_name="window_name",
+        ),
+        pane_index=_require_libtmux_text(
+            getattr(pane, "pane_index", None), field_name="pane_index"
+        ),
+        pane_active=_coerce_bool_tmux_flag(
+            _normalize_libtmux_scalar(getattr(pane, "pane_active", None))
+        ),
+        pane_dead=pane_dead,
+        pane_pid=int(pane_pid_value)
+        if pane_pid_value is not None and pane_pid_value.isdigit()
+        else None,
+    )
+
+
+def _optional_libtmux_pane_value(
+    *,
+    pane: Any,
+    attr_name: str,
+    format_expression: str,
+) -> str | None:
+    """Return one optional pane value from a direct attribute or object-bound format query."""
+
+    direct_value = _normalize_libtmux_scalar(getattr(pane, attr_name, None))
+    if direct_value is not None:
+        return direct_value
+    try:
+        output = pane.display_message(format_expression, get_text=True)
+    except Exception as exc:  # noqa: BLE001
+        raise TmuxCommandError(
+            f"Failed to query tmux pane format `{format_expression}`: "
+            f"{str(exc).strip() or 'unknown tmux error'}"
+        ) from exc
+    if not output:
+        return None
+    return _normalize_libtmux_scalar(output[0])
+
+
+def _require_libtmux_text(value: Any, *, field_name: str) -> str:
+    """Return one normalized required libtmux scalar string."""
+
+    normalized = _normalize_libtmux_scalar(value)
+    if normalized is None:
+        raise TmuxCommandError(f"libtmux pane is missing required `{field_name}`.")
+    return normalized
+
+
+def _normalize_libtmux_scalar(value: Any) -> str | None:
+    """Normalize one optional libtmux scalar into text."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_bool_tmux_flag(value: str | None) -> bool:
+    """Return one tmux flag string as a boolean."""
+
+    return value == "1"
+
+
+def _prefer_live_tmux_pane(panes: tuple[TmuxPaneRecord, ...]) -> TmuxPaneRecord:
+    """Prefer the active live pane when multiple tmux panes match."""
+
+    for pane in panes:
+        if pane.pane_active and not pane.pane_dead:
+            return pane
+    for pane in panes:
+        if not pane.pane_dead:
+            return pane
+    return panes[0]
+
+
+def _libtmux_cmd_detail(result: Any) -> str:
+    """Extract concise stderr/stdout detail from one libtmux command result."""
+
+    stderr = getattr(result, "stderr", []) or []
+    stdout = getattr(result, "stdout", []) or []
+    lines = stderr or stdout
+    return "\n".join(str(line).strip() for line in lines if str(line).strip())

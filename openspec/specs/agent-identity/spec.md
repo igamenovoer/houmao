@@ -56,40 +56,45 @@ The warning SHALL NOT change the canonicalization behavior (the identity is stil
 - **AND THEN** the canonical tmux session name is `AGENTSYS-agentsys-gpu`
 
 ### Requirement: User-provided agent names are validated and MUST NOT contain a standalone `AGENTSYS` token
-The system SHALL validate the agent name portion for tmux-backed sessions using a conservative character set that is safe for both tmux session names and Unix-style filenames.
+The system SHALL validate the user-provided agent name portion for tmux-backed managed launches using a conservative character set that is safe for both tmux session names and Unix-style filenames.
 
-Allowed characters for the agent name portion are:
+Allowed characters for the user-provided agent name portion are:
 - ASCII letters `A-Z` and `a-z`,
 - ASCII digits `0-9`,
 - underscore (`_`) and hyphen (`-`).
 
-The agent name portion MUST start with an ASCII letter or digit.
-The system SHALL NOT enforce an additional length limit on the agent name portion beyond tmux constraints.
+The user-provided agent name portion MUST start with an ASCII letter or digit.
+The system SHALL NOT enforce an additional length limit on the user-provided agent name portion beyond tmux constraints.
 
-Additionally, the agent name portion MUST NOT contain `AGENTSYS` as a standalone token, where token boundaries are defined as string boundaries or any non-alphanumeric character (regex boundary class `[^0-9A-Za-z]`).
-Substring occurrences inside a larger alphanumeric run (for example `MYAGENTSYS`, `AGENTSYSFOO`) are allowed.
+Additionally, the user-provided agent name portion MUST NOT begin with a case-insensitive `AGENTSYS` token immediately followed by a non-alphanumeric separator.
 
-This validation SHALL be applied to the agent name portion after stripping an optional exact `AGENTSYS-` namespace prefix.
+This reserved-prefix rejection applies only at the beginning of the user-provided agent name portion. Later occurrences of `AGENTSYS`, and substring occurrences inside a larger alphanumeric run, are allowed.
 
-#### Scenario: Reserved keyword alone is rejected
-- **WHEN** a caller provides `--agent-identity AGENTSYS`
-- **THEN** the system rejects the operation with an explicit reserved-name error
+This validation SHALL be applied before the runtime canonicalizes the managed-agent name into `AGENTSYS-<name>` form.
 
-#### Scenario: Standalone token inside name portion is rejected
-- **WHEN** a caller provides `--agent-identity foo-AGENTSYS-bar`
-- **THEN** the system rejects the operation with an explicit invalid-name error
+#### Scenario: Exact uppercase reserved prefix with hyphen is rejected
+- **WHEN** a caller provides managed-agent name `AGENTSYS-james`
+- **THEN** the system rejects the operation with an explicit reserved-prefix error
 
-#### Scenario: Standalone token delimited by underscore is rejected
-- **WHEN** a caller provides `--agent-identity foo_AGENTSYS_bar`
-- **THEN** the system rejects the operation with an explicit invalid-name error
+#### Scenario: Lowercase reserved prefix with hyphen is rejected
+- **WHEN** a caller provides managed-agent name `agentsys-james`
+- **THEN** the system rejects the operation with an explicit reserved-prefix error
 
-#### Scenario: Substring occurrences inside an alphanumeric run are allowed
-- **WHEN** a caller provides `--agent-identity MYAGENTSYS`
-- **THEN** the system accepts the identity
+#### Scenario: Reserved prefix with underscore separator is rejected
+- **WHEN** a caller provides managed-agent name `AGENTSYS_james`
+- **THEN** the system rejects the operation with an explicit reserved-prefix error
 
-#### Scenario: Substring prefix inside an alphanumeric run is allowed
-- **WHEN** a caller provides `--agent-identity AGENTSYSFOO`
-- **THEN** the system accepts the identity
+#### Scenario: Split spelling is allowed
+- **WHEN** a caller provides managed-agent name `AGENT-SYS-james`
+- **THEN** the system accepts the name
+
+#### Scenario: Later standalone token is allowed
+- **WHEN** a caller provides managed-agent name `james-AGENTSYS`
+- **THEN** the system accepts the name
+
+#### Scenario: Alphanumeric extension is allowed
+- **WHEN** a caller provides managed-agent name `AGENTSYS123`
+- **THEN** the system accepts the name
 
 ### Requirement: tmux-backed sessions expose their manifest path and agent-definition root via tmux session environment
 For tmux-backed sessions, the system SHALL set tmux session environment
@@ -152,7 +157,7 @@ When a caller provides a non-path-like `--agent-identity` value, the system SHAL
    - otherwise read `AGENTSYS_AGENT_DEF_DIR` from the resolved tmux session environment and validate that it is absolute and points to an existing directory,
 8) proceed with resume/control operations using the resolved manifest path and effective agent-definition root.
 
-The resolution path MAY accept an exact-canonical tmux session name as a legacy compatibility shortcut when such a session exists and its manifest matches the addressed canonical agent identity. For runtime-owned sessions whose tmux handle includes an agent-id suffix, the system SHALL resolve the tmux session from tmux-local or shared-registry metadata rather than requiring the live tmux session name to equal the canonical agent identity.
+The resolution path MAY accept an exact-canonical tmux session name as a legacy compatibility shortcut when such a session exists and its manifest matches the addressed canonical agent identity. For runtime-owned sessions whose tmux handle differs from the canonical agent identity, the system SHALL resolve the tmux session from tmux-local or shared-registry metadata rather than requiring the live tmux session name to equal the canonical agent identity.
 
 Resolution and control SHALL use the persisted manifest fields and tmux/session metadata described above rather than reverse-parsing the tmux session name string.
 
@@ -294,38 +299,53 @@ When a caller uses a gateway-aware lifecycle or control path that requires attac
 - **THEN** the system fails that lifecycle path with an explicit gateway-discovery error
 - **AND THEN** it does not silently guess unrelated attach metadata for that session
 
-### Requirement: Runtime-owned tmux session names combine canonical agent name and authoritative agent-id prefix
-For runtime-owned tmux-backed sessions in the current tmux-backed backend set (`codex_headless`, `claude_headless`, `gemini_headless`, and `cao_rest`), the system SHALL derive the live tmux session handle from:
+### Requirement: Runtime-owned tmux session names use canonical agent name and launch timestamp by default
+For runtime-owned tmux-backed managed launches in the current managed-launch backend set, the system SHALL derive the default live tmux session handle from:
 
-- the canonical agent name in `AGENTSYS-<name>` form, and
-- a prefix of the authoritative `agent_id`.
+- the canonical managed-agent name in `AGENTSYS-<name>` form, and
+- the launch timestamp expressed as Unix epoch milliseconds.
 
-The default tmux session handle format SHALL be:
+When the caller does not provide an explicit tmux session name, the default tmux session handle format SHALL be:
 
-- `<canonical-agent-name>-<agent-id-prefix>`
+- `<canonical-agent-name>-<epoch-ms>`
 
-The default `agent-id-prefix` length SHALL be 6 characters.
+The generated timestamp suffix SHALL use epoch time down to milliseconds at the moment the default tmux session name is chosen.
 
-When the default 6-character prefix would collide with an already occupied tmux session name for another live session, the system SHALL extend the `agent_id` prefix one character at a time until the tmux session name becomes unique, up to the full authoritative `agent_id`. If uniqueness still cannot be achieved, session start SHALL fail explicitly.
+If the generated default tmux session name is already occupied by another live tmux session, session start SHALL fail explicitly. The system SHALL NOT mutate the generated candidate by extending a suffix, appending randomness, or retrying with an alternate default handle inside the same launch attempt.
 
-The system SHALL treat the resulting tmux session name as an opaque transport handle. Runtime discovery and control SHALL rely on persisted metadata rather than reverse-parsing canonical agent identity or `agent_id` components from that tmux session name string.
+When the caller provides an explicit tmux session name such as `--session-name`, the system SHALL use that explicit value instead of the timestamp-based default.
 
-#### Scenario: Default runtime-owned tmux handle uses the first 6 agent-id characters
-- **WHEN** the runtime starts a tmux-backed session with canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** the authoritative `agent_id` is `270b8738f2f97092e572b73d19e6f923`
-- **AND WHEN** no live tmux session already occupies `AGENTSYS-gpu-270b87`
-- **THEN** the live tmux session name is `AGENTSYS-gpu-270b87`
+The system SHALL continue to treat the resulting tmux session name as an opaque transport handle. The purpose of this handle is limited to avoiding collisions with irrelevant tmux sessions and making Houmao-owned tmux sessions recognizable to operators.
 
-#### Scenario: Explicit agent-id override contributes to the tmux session handle
-- **WHEN** the runtime starts a tmux-backed session with canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** the caller explicitly provides `agent_id=deadbeefcafefeed`
-- **THEN** the live tmux session name starts with `AGENTSYS-gpu-deadbe`
+Runtime discovery and control SHALL rely on persisted shared-registry or manifest metadata rather than reverse-parsing canonical agent identity or timestamp components from that tmux session name string.
 
-#### Scenario: Colliding short prefixes extend until the tmux handle is unique
-- **WHEN** the runtime starts a tmux-backed session with canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** the 6-character candidate handle is already occupied by another live tmux session
-- **THEN** the runtime extends the `agent_id` prefix until it can create a unique tmux session name
-- **AND THEN** it does not silently create two live tmux sessions with the same tmux handle
+The system SHALL NOT use raw tmux session listing plus tmux-name parsing as the contract for managed-agent listing, agent-name-to-session mapping, or related discovery behaviors that already belong to the shared registry.
+
+#### Scenario: Default runtime-owned tmux handle uses canonical name plus epoch milliseconds
+- **WHEN** the runtime starts a tmux-backed managed session with canonical agent name `AGENTSYS-james`
+- **AND WHEN** the caller does not provide an explicit tmux session name
+- **AND WHEN** the chosen launch timestamp is `1760000123456`
+- **AND WHEN** no live tmux session already occupies `AGENTSYS-james-1760000123456`
+- **THEN** the live tmux session name is `AGENTSYS-james-1760000123456`
+
+#### Scenario: Explicit tmux session-name override bypasses the default generator
+- **WHEN** the runtime starts a tmux-backed managed session with canonical agent name `AGENTSYS-james`
+- **AND WHEN** the caller explicitly provides tmux session name `custom-james`
+- **THEN** the live tmux session name is `custom-james`
+- **AND THEN** the runtime does not replace it with an `AGENTSYS-james-<epoch-ms>` default
+
+#### Scenario: Generated default-name collision fails explicitly
+- **WHEN** the runtime starts a tmux-backed managed session with canonical agent name `AGENTSYS-james`
+- **AND WHEN** the caller does not provide an explicit tmux session name
+- **AND WHEN** the chosen launch timestamp is `1760000123456`
+- **AND WHEN** live tmux session `AGENTSYS-james-1760000123456` already exists
+- **THEN** session start fails with an explicit tmux-session-name conflict error
+- **AND THEN** the runtime does not generate a mutated fallback name
+
+#### Scenario: Discovery does not reverse-parse the timestamp-based tmux handle
+- **WHEN** a managed session persists tmux session name `AGENTSYS-james-1760000123456`
+- **THEN** the system treats that tmux session name as an opaque transport handle
+- **AND THEN** managed-agent listing or agent-name-to-session mapping continues to resolve through shared-registry or manifest metadata rather than tmux-name parsing
 
 ### Requirement: Repository documentation SHALL reflect the implemented tmux naming contract
 Once this change is implemented, repository documentation under `docs/` that describes runtime agent identity, tmux attach targets, or tmux-oriented troubleshooting SHALL reflect the implemented tmux naming contract.

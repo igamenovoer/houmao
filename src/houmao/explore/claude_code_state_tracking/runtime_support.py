@@ -12,6 +12,7 @@ from typing import Any
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     capture_tmux_pane,
+    find_tmux_pane,
     list_tmux_panes,
     run_tmux,
 )
@@ -93,28 +94,13 @@ def wait_for_pattern(*, pane_id: str, pattern: str, timeout_seconds: float) -> N
 def query_pane_state(*, session_name: str, pane_id: str) -> dict[str, Any] | None:
     """Return pane state from tmux including `pane_dead` and `pane_pid`."""
 
-    result = run_tmux(
-        [
-            "list-panes",
-            "-t",
-            session_name,
-            "-F",
-            "#{pane_id}\t#{pane_dead}\t#{pane_pid}",
-        ]
-    )
-    if result.returncode != 0:
+    pane = find_tmux_pane(session_name=session_name, pane_id=pane_id)
+    if pane is None:
         return None
-    for raw_line in result.stdout.splitlines():
-        parts = raw_line.strip().split("\t")
-        if len(parts) != 3:
-            continue
-        if parts[0] != pane_id:
-            continue
-        return {
-            "pane_dead": parts[1] == "1",
-            "pane_pid": int(parts[2]) if parts[2].isdigit() else None,
-        }
-    return None
+    return {
+        "pane_dead": pane.pane_dead,
+        "pane_pid": pane.pane_pid,
+    }
 
 
 def find_supported_process_pid(*, root_pid: int) -> int | None:

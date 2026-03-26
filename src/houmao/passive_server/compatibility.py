@@ -48,6 +48,11 @@ def managed_identity_from_discovered_summary(
     """Project one discovery summary into the shared managed-agent identity model."""
 
     transport = "headless" if is_headless_backend(summary.backend) else "tui"
+    tmux_window_name = (
+        HEADLESS_AGENT_WINDOW_NAME
+        if transport == "headless" or summary.backend == "local_interactive"
+        else None
+    )
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=summary.agent_id,
         transport=transport,
@@ -56,7 +61,7 @@ def managed_identity_from_discovered_summary(
         terminal_id=summary.agent_id if transport == "tui" else None,
         runtime_session_id=summary.agent_id,
         tmux_session_name=summary.tmux_session_name,
-        tmux_window_name=None if transport == "tui" else HEADLESS_AGENT_WINDOW_NAME,
+        tmux_window_name=tmux_window_name,
         manifest_path=summary.manifest_path,
         session_root=summary.session_root,
         agent_name=summary.agent_name,

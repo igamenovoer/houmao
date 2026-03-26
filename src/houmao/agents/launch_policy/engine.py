@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import re
 import subprocess
 from pathlib import Path
@@ -28,6 +29,7 @@ from houmao.agents.launch_policy.models import (
     ToolVersion,
 )
 from houmao.agents.launch_policy.provider_hooks import (
+    provider_state_mutation_lock,
     run_provider_hook,
     set_json_key,
     set_toml_key,
@@ -92,8 +94,14 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     )
     args = list(request.base_args)
 
-    for action in strategy.actions:
-        _apply_action(action=action, request=request, args=args)
+    mutation_context = (
+        provider_state_mutation_lock(request.home_path)
+        if request.application_kind == "provider_start"
+        else nullcontext()
+    )
+    with mutation_context:
+        for action in strategy.actions:
+            _apply_action(action=action, request=request, args=args)
 
     provenance = LaunchPolicyProvenance(
         requested_operator_prompt_mode=request.requested_operator_prompt_mode,
@@ -395,6 +403,8 @@ def _apply_action(
     """Apply one ordered launch-policy action."""
 
     if action.kind == "validate.reject_conflicting_launch_args":
+        if request.application_kind != "provider_start":
+            return
         _validate_owned_args(params=action.params, args=args)
         return
     if action.kind == "cli_arg.ensure_present":
@@ -408,11 +418,20 @@ def _apply_action(
             args.remove(arg)
         return
     if action.kind == "json.set":
+        if request.application_kind != "provider_start":
+            return
         path = request.home_path / _require_non_blank_str(action.params, "path", source=action.kind)
         key_path = _parse_key_path(action.params, source=action.kind)
-        set_json_key(path=path, key_path=key_path, value=action.params.get("value"))
+        set_json_key(
+            path=path,
+            key_path=key_path,
+            value=action.params.get("value"),
+            repair_invalid=True,
+        )
         return
     if action.kind == "toml.set":
+        if request.application_kind != "provider_start":
+            return
         path = request.home_path / _require_non_blank_str(action.params, "path", source=action.kind)
         key_path = _parse_key_path(action.params, source=action.kind)
         value = action.params.get("value")
@@ -420,9 +439,16 @@ def _apply_action(
             raise LaunchPolicyError(
                 f"{action.kind}.params.value must be a string, boolean, or integer."
             )
-        set_toml_key(path=path, key_path=key_path, value=value)
+        set_toml_key(
+            path=path,
+            key_path=key_path,
+            value=value,
+            repair_invalid=True,
+        )
         return
     if action.kind == "provider_hook.call":
+        if request.application_kind != "provider_start":
+            return
         hook_id = _require_non_blank_str(action.params, "hook_id", source=action.kind)
         run_provider_hook(hook_id=hook_id, request=request)
         return

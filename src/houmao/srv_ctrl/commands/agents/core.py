@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
+import sys
 
 import click
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    attach_tmux_session as attach_tmux_session_shared,
+)
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.agents.realm_controller.errors import (
@@ -76,6 +79,12 @@ def _format_launch_policy_resolution_error(
         f"detected_version={error.detected_version!r}). "
         f"Detail: {error.detail}"
     )
+
+
+def _caller_has_interactive_terminal() -> bool:
+    """Return whether the CLI currently owns a usable interactive terminal."""
+
+    return all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr))
 
 
 @click.group(name="agents")
@@ -183,10 +192,19 @@ def launch_agents_command(
     click.echo(f"tmux_session_name={controller.tmux_session_name or session_name or 'unknown'}")
     click.echo(f"manifest_path={controller.manifest_path}")
     if not headless and controller.tmux_session_name is not None:
-        subprocess.run(
-            ["tmux", "attach-session", "-t", controller.tmux_session_name],
-            check=False,
-        )
+        if _caller_has_interactive_terminal():
+            try:
+                attach_tmux_session_shared(session_name=controller.tmux_session_name)
+            except RuntimeError as exc:
+                raise click.ClickException(
+                    "Managed agent launch succeeded, but tmux handoff failed: "
+                    f"{exc}"
+                ) from exc
+        else:
+            click.echo("terminal_handoff=skipped_non_interactive")
+            click.echo(
+                f"attach_command=tmux attach-session -t {controller.tmux_session_name}"
+            )
 
 
 @agents_group.command(name="list")

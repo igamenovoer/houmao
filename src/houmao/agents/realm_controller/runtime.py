@@ -78,6 +78,8 @@ from .errors import (
     GatewayNoLiveInstanceError,
     GatewayProtocolError,
     GatewayUnsupportedBackendError,
+    LaunchPlanError,
+    LaunchPolicyResolutionError,
     SessionManifestError,
 )
 from .gateway_client import GatewayClient, GatewayEndpoint
@@ -480,6 +482,29 @@ class RuntimeSessionController:
                     f"`{authority.tmux_session_name}`."
                 ),
             )
+
+        if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
+            try:
+                updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                _refresh_backend_launch_plan(
+                    backend_session=self.backend_session,
+                    launch_plan=updated_launch_plan,
+                )
+            except (
+                FileNotFoundError,
+                LaunchPlanError,
+                LaunchPolicyResolutionError,
+                RuntimeError,
+                SessionManifestError,
+                ValueError,
+            ) as exc:
+                self.persist_manifest()
+                return SessionControlResult(
+                    status="error",
+                    action="relaunch",
+                    detail=str(exc),
+                )
+            self.launch_plan = updated_launch_plan
 
         result = _relaunch_backend_session(self)
         if result.status != "ok":
@@ -901,9 +926,7 @@ def start_runtime_session(
         agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
         agent_identity=(
-            resolved_runtime_identity.agent_name
-            if resolved_runtime_identity is not None
-            else None
+            resolved_runtime_identity.agent_name if resolved_runtime_identity is not None else None
         ),
         agent_id=resolved_runtime_identity.agent_id
         if resolved_runtime_identity is not None
@@ -1039,6 +1062,7 @@ def resume_runtime_session(
                 manifest_payload,
                 session_manifest_path=session_manifest_path,
             ),
+            intent="resume_control",
         )
     )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
@@ -1284,9 +1308,7 @@ def _resume_headless_state(
         )
     tmux_session_name = _manifest_tmux_session_name(payload)
     if tmux_session_name is None or not tmux_session_name.strip():
-        raise SessionManifestError(
-            "Headless resume requires a non-empty tmux session authority."
-        )
+        raise SessionManifestError("Headless resume requires a non-empty tmux session authority.")
 
     return HeadlessSessionState(
         session_id=session_id.strip() if session_id else None,
@@ -1458,10 +1480,7 @@ def _resolve_manifest_relaunch_authority(
 
     handle = load_session_manifest(controller.manifest_path)
     payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    if (
-        isinstance(payload, SessionManifestPayloadV4)
-        and payload.agent_launch_authority is not None
-    ):
+    if isinstance(payload, SessionManifestPayloadV4) and payload.agent_launch_authority is not None:
         return payload.agent_launch_authority
 
     tmux_session_name = _manifest_tmux_session_name(payload)
@@ -1631,7 +1650,10 @@ def _resume_cao_state(
     else:
         backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
         if backend_tmux_window_name is not None:
-            if not isinstance(backend_tmux_window_name, str) or not backend_tmux_window_name.strip():
+            if (
+                not isinstance(backend_tmux_window_name, str)
+                or not backend_tmux_window_name.strip()
+            ):
                 raise SessionManifestError(
                     "CAO session manifest backend_state.tmux_window_name must be a "
                     "non-empty string when present"
@@ -1828,6 +1850,47 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
     )
 
 
+def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
+    """Return whether one backend relaunch must rebuild provider-start state."""
+
+    return backend in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }
+
+
+def _build_provider_start_launch_plan_for_relaunch(
+    controller: RuntimeSessionController,
+) -> LaunchPlan:
+    """Rebuild a provider-start launch plan for one local tmux-backed relaunch."""
+
+    if controller.agent_def_dir is None:
+        raise SessionManifestError(
+            "Local provider relaunch requires a persisted agent-definition directory."
+        )
+
+    manifest = load_brain_manifest(controller.brain_manifest_path)
+    role_package = load_role_package(controller.agent_def_dir, controller.role_name)
+    updated_launch_plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role_package,
+            backend=controller.launch_plan.backend,
+            working_directory=controller.launch_plan.working_directory,
+            mailbox=controller.launch_plan.mailbox,
+            intent="provider_start",
+        )
+    )
+    if controller.job_dir is not None:
+        updated_launch_plan = _launch_plan_with_job_dir(
+            updated_launch_plan,
+            job_dir=controller.job_dir,
+        )
+    return updated_launch_plan
+
+
 def _job_dir_from_manifest_payload(
     *,
     payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
@@ -1900,9 +1963,7 @@ def _resolve_start_session_identity(
 
     persisted_agent_id = built_identity[1]
     agent_id = (
-        stripped_requested_agent_id
-        or persisted_agent_id
-        or derive_agent_id_from_name(agent_name)
+        stripped_requested_agent_id or persisted_agent_id or derive_agent_id_from_name(agent_name)
     )
 
     persisted_agent_name = built_identity[0]
@@ -2031,9 +2092,14 @@ def _preserve_server_managed_headless_gateway_authority(
     for endpoint_name in ("attach", "control"):
         raw_endpoint = merged_gateway_authority.get(endpoint_name)
         merged_endpoint = dict(raw_endpoint) if isinstance(raw_endpoint, dict) else {}
-        existing_endpoint = getattr(existing_gateway_authority, endpoint_name).model_dump(mode="json")
+        existing_endpoint = getattr(existing_gateway_authority, endpoint_name).model_dump(
+            mode="json"
+        )
         for field_name in ("api_base_url", "managed_agent_ref"):
-            if merged_endpoint.get(field_name) is None and existing_endpoint.get(field_name) is not None:
+            if (
+                merged_endpoint.get(field_name) is None
+                and existing_endpoint.get(field_name) is not None
+            ):
                 merged_endpoint[field_name] = existing_endpoint[field_name]
         merged_gateway_authority[endpoint_name] = merged_endpoint
 

@@ -69,7 +69,11 @@ For serverless local `houmao-mgr agents` post-launch commands that resolve a man
 For the native CLI surface, the local registry-backed discovery path SHALL be driven by explicit selector flags rather than one positional managed-agent reference:
 
 - `--agent-id <id>` performs exact authoritative-id lookup
-- `--agent-name <name>` performs friendly-name lookup
+- `--agent-name <name>` performs friendly-name lookup using the raw creation-time name supplied during managed-agent launch
+
+For `--agent-name` targeting, operators SHALL provide the same raw friendly name they used at creation time. The system SHALL NOT require callers to use canonical `AGENTSYS-...` names on this selector surface.
+
+When a caller provides an `--agent-name` value that begins with a case-sensitive or case-insensitive `AGENTSYS` namespace prefix plus separator, the command SHALL fail explicitly instead of silently normalizing or accepting that prefixed form as the user-facing selector.
 
 The tmux-session alias path remains an additional local discovery capability for serverless tooling and current-session-adjacent workflows, but it SHALL NOT redefine tmux session names as managed-agent identity and SHALL NOT require pair-managed server APIs to learn tmux-local aliases.
 
@@ -82,12 +86,18 @@ When friendly-name lookup or tmux-session alias lookup matches more than one fre
 - **THEN** `houmao-mgr` resolves that exact record as the local managed-agent target
 - **AND THEN** the operator does not depend on friendly-name uniqueness for that control action
 
-#### Scenario: Local command resolves a managed agent by unique friendly name
+#### Scenario: Local command resolves a managed agent by raw friendly name
 
-- **WHEN** an operator runs `houmao-mgr agents state --agent-name projection-demo-codex`
-- **AND WHEN** exactly one fresh shared-registry record stores `agent_name = "projection-demo-codex"`
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name james`
+- **AND WHEN** exactly one fresh shared-registry record stores `agent_name = "james"`
 - **THEN** `houmao-mgr` resolves that record as the local managed-agent target
-- **AND THEN** the operator can use the friendly name without needing the tmux session handle
+- **AND THEN** the operator uses the same raw name that was supplied during creation
+
+#### Scenario: Prefixed canonical name is rejected on `--agent-name`
+
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name AGENTSYS-james`
+- **THEN** `houmao-mgr` rejects that selector with an explicit unprefixed-agent-name error
+- **AND THEN** the command does not silently normalize that value into a friendly-name lookup
 
 #### Scenario: Ambiguous friendly-name lookup fails closed
 

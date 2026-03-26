@@ -2177,7 +2177,7 @@ class HoumaoServerService:
             payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         except (LaunchPlanError, SessionManifestError, OSError):
             return None
-        if payload.backend == "houmao_server_rest":
+        if payload.backend in {"houmao_server_rest", "local_interactive"}:
             return "0"
         return None
 
@@ -3276,9 +3276,7 @@ class HoumaoServerService:
         """Publish server-managed control-plane metadata into the manifest-backed authority."""
 
         manifest_path = Path(authority.manifest_path).expanduser().resolve()
-        paths = gateway_paths_from_manifest_path(
-            manifest_path
-        )
+        paths = gateway_paths_from_manifest_path(manifest_path)
         try:
             handle = load_session_manifest(manifest_path)
             payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))

@@ -88,7 +88,10 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
-from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
+    tmux_session_exists,
+)
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
@@ -1909,7 +1912,7 @@ class GatewayServiceRuntime:
                 self.m_attach_contract.runtime_session_id or self.m_attach_contract.attach_identity
             )
             session_name = tracked_session_id
-            tmux_window_name = None
+            tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
             terminal_aliases = []
             tool = metadata.tool
         else:

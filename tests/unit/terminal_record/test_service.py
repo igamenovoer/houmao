@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, TmuxPaneRecord
 from houmao.terminal_record import service as terminal_record_service
 from houmao.terminal_record.models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -139,15 +139,56 @@ def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
     )
     monkeypatch.setattr(
         terminal_record_service,
-        "list_tmux_panes",
-        lambda *, session_name: (
-            TmuxPaneRecord("%1", session_name, "@2", "1", "developer-1", "0", True),
-            TmuxPaneRecord("%2", session_name, "@2", "1", "developer-1", "1", False),
+        "resolve_tmux_pane_shared",
+        lambda *, session_name, pane_id: (_ for _ in ()).throw(
+            TmuxCommandError(
+                f"Ambiguous tmux pane target for `{session_name}`: 2 panes matched; "
+                "provide pane_id, window_id, window_index, or window_name."
+            )
         ),
     )
 
-    with pytest.raises(TerminalRecordError, match="provide --target-pane"):
+    with pytest.raises(TerminalRecordError, match="multiple panes; provide --target-pane"):
         resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane=None)
+
+
+def test_resolve_terminal_record_target_accepts_explicit_pane_in_non_current_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        terminal_record_service,
+        "has_tmux_session",
+        lambda *, session_name: subprocess.CompletedProcess(
+            args=["tmux", "has-session", "-t", session_name],
+            returncode=0,
+            stdout="",
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        terminal_record_service,
+        "resolve_tmux_pane_shared",
+        lambda *, session_name, pane_id: TmuxPaneRecord(
+            pane_id=pane_id or "%9",
+            session_name=session_name,
+            window_id="@9",
+            window_index="2",
+            window_name="gateway",
+            pane_index="0",
+            pane_active=False,
+            pane_dead=False,
+            pane_pid=4242,
+        ),
+    )
+
+    target = resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane="%9")
+
+    assert target == TerminalRecordTarget(
+        session_name="AGENTSYS-gpu",
+        pane_id="%9",
+        window_id="@9",
+        window_name="gateway",
+    )
 
 
 def test_start_terminal_record_persists_manifest_and_attach_command(
