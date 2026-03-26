@@ -33,6 +33,7 @@ from .gateway import (
     gateway_group,
 )
 from .mail import mail_group
+from .mailbox import mailbox_group
 from .turn import turn_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
@@ -454,6 +455,7 @@ def relaunch_agent_command(
 
 agents_group.add_command(gateway_group)
 agents_group.add_command(mail_group)
+agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
 
 

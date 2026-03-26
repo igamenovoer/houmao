@@ -629,6 +629,212 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     assert len(_FakeHeadlessSession.m_relaunch_calls) == 1
 
 
+def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_mail_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "agent-def"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    _install_fake_tmux_runtime(monkeypatch)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: SimpleNamespace(
+            tool="claude",
+            agent_def_dir=agent_def_dir.resolve(),
+            role_name="r",
+            recipe=SimpleNamespace(
+                tool="claude",
+                skills=[],
+                config_profile="default",
+                credential_profile="default",
+                launch_overrides=None,
+                operator_prompt_mode=None,
+                mailbox=None,
+                default_agent_name="gpu",
+            ),
+            recipe_path=(tmp_path / "recipe.yaml").resolve(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: SimpleNamespace(manifest_path=brain_manifest_path),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
+        lambda *, session_name: session_name.startswith("gpu-"),
+    )
+
+    runner = CliRunner()
+    launch_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "claude_code",
+            "--headless",
+            "--yolo",
+        ],
+    )
+    assert launch_result.exit_code == 0, launch_result.output
+
+    mailbox_root = (tmp_path / "shared-mail").resolve()
+    register_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "mailbox",
+            "register",
+            "--agent-name",
+            "gpu",
+            "--mailbox-root",
+            str(mailbox_root),
+        ],
+    )
+    assert register_result.exit_code == 0, register_result.output
+    register_payload = json.loads(register_result.output)
+    assert register_payload["activation_state"] == "active"
+    assert register_payload["address"] == "AGENTSYS-gpu@agents.localhost"
+    assert register_payload["mailbox_root"] == str(mailbox_root)
+
+    status_result = runner.invoke(cli, ["agents", "mailbox", "status", "--agent-name", "gpu"])
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["registered"] is True
+    assert status_payload["activation_state"] == "active"
+    assert status_payload["runtime_mailbox_enabled"] is True
+
+    record = resolve_live_agent_record("gpu")
+    assert record is not None
+    assert record.mailbox is not None
+    assert record.mailbox.address == "AGENTSYS-gpu@agents.localhost"
+
+    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
+    assert mail_status_result.exit_code == 0, mail_status_result.output
+    mail_status_payload = json.loads(mail_status_result.output)
+    assert mail_status_payload["transport"] == "filesystem"
+
+    unregister_result = runner.invoke(
+        cli,
+        ["agents", "mailbox", "unregister", "--agent-name", "gpu"],
+    )
+    assert unregister_result.exit_code == 0, unregister_result.output
+    unregister_payload = json.loads(unregister_result.output)
+    assert unregister_payload["activation_state"] == "active"
+
+    record = resolve_live_agent_record("gpu")
+    assert record is not None
+    assert record.mailbox is None
+
+    post_unregister_mail_status = runner.invoke(
+        cli,
+        ["agents", "mail", "status", "--agent-name", "gpu"],
+    )
+    assert post_unregister_mail_status.exit_code != 0
+    assert "not mailbox-enabled" in post_unregister_mail_status.output
+
+
+def test_houmao_mgr_agents_mailbox_register_requires_relaunch_for_local_interactive_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "agent-def"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    _install_fake_tmux_runtime(monkeypatch)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: SimpleNamespace(
+            tool="claude",
+            agent_def_dir=agent_def_dir.resolve(),
+            role_name="r",
+            recipe=SimpleNamespace(
+                tool="claude",
+                skills=[],
+                config_profile="default",
+                credential_profile="default",
+                launch_overrides=None,
+                operator_prompt_mode=None,
+                mailbox=None,
+                default_agent_name="gpu",
+            ),
+            recipe_path=(tmp_path / "recipe.yaml").resolve(),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: SimpleNamespace(manifest_path=brain_manifest_path),
+    )
+
+    runner = CliRunner()
+    launch_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "claude_code",
+            "--yolo",
+        ],
+    )
+    assert launch_result.exit_code == 0, launch_result.output
+
+    register_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "mailbox",
+            "register",
+            "--agent-name",
+            "gpu",
+            "--mailbox-root",
+            str((tmp_path / "shared-mail").resolve()),
+        ],
+    )
+    assert register_result.exit_code == 0, register_result.output
+    register_payload = json.loads(register_result.output)
+    assert register_payload["activation_state"] == "pending_relaunch"
+    assert register_payload["relaunch_required"] is True
+
+    mailbox_status_result = runner.invoke(
+        cli,
+        ["agents", "mailbox", "status", "--agent-name", "gpu"],
+    )
+    assert mailbox_status_result.exit_code == 0, mailbox_status_result.output
+    mailbox_status_payload = json.loads(mailbox_status_result.output)
+    assert mailbox_status_payload["activation_state"] == "pending_relaunch"
+    assert mailbox_status_payload["runtime_mailbox_enabled"] is False
+
+    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
+    assert mail_status_result.exit_code != 0
+    assert "pending relaunch" in mail_status_result.output
+
+    relaunch_result = runner.invoke(cli, ["agents", "relaunch", "--agent-name", "gpu"])
+    assert relaunch_result.exit_code == 0, relaunch_result.output
+
+    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
+    assert mail_status_result.exit_code == 0, mail_status_result.output
+    mail_status_payload = json.loads(mail_status_result.output)
+    assert mail_status_payload["transport"] == "filesystem"
+
+
 def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_session_pair(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

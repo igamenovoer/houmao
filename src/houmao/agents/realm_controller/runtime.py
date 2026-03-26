@@ -13,10 +13,11 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, cast
+from typing import Callable, Literal, cast
 
 from houmao.owned_paths import (
     AGENTSYS_JOB_DIR_ENV_VAR,
+    resolve_mailbox_root,
     resolve_runtime_root,
     resolve_session_job_dir,
 )
@@ -138,7 +139,10 @@ from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
+    default_mailbox_principal_id,
     mailbox_env_bindings,
+    mailbox_env_var_names,
+    mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
     refresh_filesystem_mailbox_config,
     resolve_effective_mailbox_config,
@@ -192,6 +196,13 @@ from .registry_storage import (
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import HoumaoRegisterLaunchRequest
+from houmao.mailbox import bootstrap_filesystem_mailbox, resolve_filesystem_mailbox_paths
+from houmao.mailbox.managed import (
+    DeregisterMailboxRequest,
+    RegisterMailboxRequest,
+    deregister_mailbox,
+    register_mailbox,
+)
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {
@@ -220,11 +231,32 @@ _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
 _GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
 _JOINED_SESSION_ORIGIN = "joined_tmux"
+_MAILBOX_LIVE_ENABLED_METADATA_KEY = "mailbox_live_enabled"
+_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY = "mailbox_live_bindings_version"
 _LOGGER = logging.getLogger(__name__)
+
+MailboxActivationState = Literal["active", "pending_relaunch", "unsupported_joined_session"]
 
 
 class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
     """Raised when tmux-local discovery pointers are unavailable for fallback."""
+
+
+@dataclass(frozen=True)
+class _MailboxLiveState:
+    """Persisted view of the live session's mailbox posture."""
+
+    enabled: bool
+    bindings_version: str | None
+
+
+@dataclass(frozen=True)
+class FilesystemMailboxBindingMutationResult:
+    """Structured result for one late filesystem mailbox mutation."""
+
+    mailbox: FilesystemMailboxResolvedConfig | None
+    shared_lifecycle_result: dict[str, object]
+    activation_state: MailboxActivationState
 
 
 @dataclass(frozen=True)
@@ -453,6 +485,11 @@ class RuntimeSessionController:
             self.launch_plan,
             refreshed,
         )
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
         _refresh_backend_launch_plan(
             backend_session=self.backend_session,
             launch_plan=updated_launch_plan,
@@ -460,6 +497,138 @@ class RuntimeSessionController:
         self.launch_plan = updated_launch_plan
         self.persist_manifest()
         return refreshed
+
+    def mailbox_activation_state(self) -> MailboxActivationState | None:
+        """Return the current local mailbox activation state, when meaningful."""
+
+        if _joined_session_mailbox_registration_is_unsupported(self):
+            return "unsupported_joined_session"
+
+        mailbox = self.launch_plan.mailbox
+        live_state = _mailbox_live_state(self.launch_plan)
+        if mailbox is None:
+            return "pending_relaunch" if live_state.enabled else None
+        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+            return "active"
+        if self.launch_plan.backend != "local_interactive":
+            return "active"
+        if live_state.enabled and live_state.bindings_version == mailbox.bindings_version:
+            return "active"
+        return "pending_relaunch"
+
+    def register_filesystem_mailbox(
+        self,
+        *,
+        mailbox_root: Path | None = None,
+        principal_id: str | None = None,
+        address: str | None = None,
+        mode: Literal["safe", "force", "stash"] = "safe",
+    ) -> FilesystemMailboxBindingMutationResult:
+        """Attach one filesystem mailbox binding to the current session."""
+
+        self._reset_operation_warnings()
+        _require_late_mailbox_registration_supported(self)
+
+        effective_principal_id = _normalize_optional_mailbox_text(
+            principal_id,
+            field_name="principal_id",
+        ) or default_mailbox_principal_id(
+            tool=self.launch_plan.tool,
+            role_name=self.role_name,
+            agent_identity=self.agent_identity,
+        )
+        effective_address = _normalize_optional_mailbox_text(
+            address,
+            field_name="address",
+        ) or f"{effective_principal_id}@agents.localhost"
+        effective_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
+
+        bootstrap_filesystem_mailbox(effective_mailbox_root)
+        mailbox_paths = resolve_filesystem_mailbox_paths(effective_mailbox_root)
+        shared_result = register_mailbox(
+            effective_mailbox_root,
+            RegisterMailboxRequest(
+                mode=mode,
+                address=effective_address,
+                owner_principal_id=effective_principal_id,
+                mailbox_kind="in_root",
+                mailbox_path=mailbox_paths.mailbox_entry_path(effective_address),
+                display_name=self.agent_identity,
+                manifest_path_hint=str(self.manifest_path.resolve()),
+                role=self.role_name,
+            ),
+        )
+
+        updated_mailbox = FilesystemMailboxResolvedConfig(
+            transport="filesystem",
+            principal_id=effective_principal_id,
+            address=effective_address,
+            filesystem_root=effective_mailbox_root.resolve(),
+            bindings_version=mailbox_bindings_version_now(),
+        )
+        updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, updated_mailbox)
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
+        _refresh_backend_launch_plan(
+            backend_session=self.backend_session,
+            launch_plan=updated_launch_plan,
+        )
+        self.launch_plan = updated_launch_plan
+        self.persist_manifest()
+        return FilesystemMailboxBindingMutationResult(
+            mailbox=updated_mailbox,
+            shared_lifecycle_result=shared_result,
+            activation_state=_mailbox_mutation_activation_state(
+                controller=self,
+                updated_mailbox=updated_mailbox,
+            ),
+        )
+
+    def unregister_filesystem_mailbox(
+        self,
+        *,
+        mode: Literal["deactivate", "purge"] = "deactivate",
+    ) -> FilesystemMailboxBindingMutationResult:
+        """Remove one filesystem mailbox binding from the current session."""
+
+        self._reset_operation_warnings()
+        _require_late_mailbox_registration_supported(self)
+
+        mailbox = self.launch_plan.mailbox
+        if mailbox is None:
+            raise SessionManifestError("Session does not have a filesystem mailbox binding.")
+        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+            raise SessionManifestError(
+                f"Late mailbox unregistration is not implemented for transport={mailbox.transport!r}."
+            )
+
+        shared_result = deregister_mailbox(
+            mailbox.filesystem_root,
+            DeregisterMailboxRequest(mode=mode, address=mailbox.address),
+        )
+        updated_launch_plan = _launch_plan_without_mailbox(self.launch_plan)
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
+        _refresh_backend_launch_plan(
+            backend_session=self.backend_session,
+            launch_plan=updated_launch_plan,
+        )
+        self.launch_plan = updated_launch_plan
+        self.persist_manifest()
+        return FilesystemMailboxBindingMutationResult(
+            mailbox=None,
+            shared_lifecycle_result=shared_result,
+            activation_state=_mailbox_mutation_activation_state(
+                controller=self,
+                updated_mailbox=None,
+            ),
+        )
 
     def relaunch(self) -> SessionControlResult:
         """Relaunch the tmux-backed managed-agent surface without rebuilding the home."""
@@ -526,6 +695,7 @@ class RuntimeSessionController:
                 detail=str(exc),
             )
 
+        self.launch_plan = _launch_plan_with_current_mailbox_live_state(self.launch_plan)
         self.persist_manifest()
         return result
 
@@ -1079,6 +1249,13 @@ def resume_runtime_session(
                 mailbox=resolved_mailbox,
                 intent="resume_control",
             )
+        )
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                **dict(manifest_payload.launch_plan.metadata),
+            },
         )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
@@ -1946,6 +2123,148 @@ def _launch_plan_with_mailbox(
         env_var_names=sorted({*launch_plan.env_var_names, *mailbox_env.keys()}),
         mailbox=mailbox,
     )
+
+
+def _launch_plan_without_mailbox(launch_plan: LaunchPlan) -> LaunchPlan:
+    """Return a launch plan with mailbox bindings removed."""
+
+    mailbox = launch_plan.mailbox
+    if mailbox is None:
+        return launch_plan
+
+    mailbox_env_names = set(mailbox_env_var_names(mailbox))
+    updated_env = {
+        key: value for key, value in launch_plan.env.items() if key not in mailbox_env_names
+    }
+    updated_env_var_names = [
+        name for name in launch_plan.env_var_names if name not in mailbox_env_names
+    ]
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=updated_env_var_names,
+        mailbox=None,
+    )
+
+
+def _mailbox_live_state(launch_plan: LaunchPlan) -> _MailboxLiveState:
+    """Return the persisted live mailbox posture for one launch plan."""
+
+    metadata = launch_plan.metadata
+    raw_enabled = metadata.get(_MAILBOX_LIVE_ENABLED_METADATA_KEY)
+    raw_bindings_version = metadata.get(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY)
+    if isinstance(raw_enabled, bool):
+        enabled = raw_enabled
+    else:
+        enabled = launch_plan.mailbox is not None
+
+    bindings_version = (
+        raw_bindings_version.strip()
+        if isinstance(raw_bindings_version, str) and raw_bindings_version.strip()
+        else None
+    )
+    if raw_enabled is None and launch_plan.mailbox is not None:
+        bindings_version = launch_plan.mailbox.bindings_version
+    if not enabled:
+        return _MailboxLiveState(enabled=False, bindings_version=bindings_version)
+    return _MailboxLiveState(enabled=True, bindings_version=bindings_version)
+
+
+def _launch_plan_with_mailbox_live_state(
+    launch_plan: LaunchPlan,
+    *,
+    live_enabled: bool,
+    bindings_version: str | None,
+) -> LaunchPlan:
+    """Return a launch plan with explicit live-mailbox posture metadata."""
+
+    metadata = dict(launch_plan.metadata)
+    metadata[_MAILBOX_LIVE_ENABLED_METADATA_KEY] = live_enabled
+    if bindings_version is None:
+        metadata.pop(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY, None)
+    else:
+        metadata[_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY] = bindings_version
+    return replace(launch_plan, metadata=metadata)
+
+
+def _launch_plan_with_current_mailbox_live_state(launch_plan: LaunchPlan) -> LaunchPlan:
+    """Mark the live mailbox posture as fully synchronized with the launch plan."""
+
+    mailbox = launch_plan.mailbox
+    return _launch_plan_with_mailbox_live_state(
+        launch_plan,
+        live_enabled=mailbox is not None,
+        bindings_version=None if mailbox is None else mailbox.bindings_version,
+    )
+
+
+def _apply_mailbox_live_state_after_mutation(
+    *,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+    backend: BackendKind,
+) -> LaunchPlan:
+    """Persist live-mailbox posture after one late mailbox mutation."""
+
+    if backend == "local_interactive":
+        previous_live_state = _mailbox_live_state(previous_launch_plan)
+        return _launch_plan_with_mailbox_live_state(
+            updated_launch_plan,
+            live_enabled=previous_live_state.enabled,
+            bindings_version=previous_live_state.bindings_version,
+        )
+    return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
+
+
+def _joined_session_mailbox_registration_is_unsupported(
+    controller: RuntimeSessionController,
+) -> bool:
+    """Return whether late mailbox mutation is unavailable for one joined session."""
+
+    authority = controller.agent_launch_authority
+    return bool(
+        authority is not None
+        and authority.session_origin == _JOINED_SESSION_ORIGIN
+        and authority.posture_kind == "unavailable"
+    )
+
+
+def _require_late_mailbox_registration_supported(
+    controller: RuntimeSessionController,
+) -> None:
+    """Fail when one joined-session controller cannot relaunch safely."""
+
+    if _joined_session_mailbox_registration_is_unsupported(controller):
+        raise SessionManifestError(
+            "Late mailbox registration is unavailable for this joined session because no "
+            "usable relaunch posture was recorded."
+        )
+
+
+def _mailbox_mutation_activation_state(
+    *,
+    controller: RuntimeSessionController,
+    updated_mailbox: FilesystemMailboxResolvedConfig | None,
+) -> MailboxActivationState:
+    """Return the activation state for one completed mailbox mutation."""
+
+    if _joined_session_mailbox_registration_is_unsupported(controller):
+        return "unsupported_joined_session"
+    if controller.launch_plan.backend == "local_interactive":
+        return "pending_relaunch"
+    del updated_mailbox
+    return "active"
+
+
+def _normalize_optional_mailbox_text(value: str | None, *, field_name: str) -> str | None:
+    """Normalize one optional mailbox command field."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise SessionManifestError(f"`{field_name}` must not be blank.")
+    return stripped
 
 
 def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> LaunchPlan:

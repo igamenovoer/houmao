@@ -2,7 +2,7 @@
 
 Houmao pair CLI with native server and managed-agent command families.
 
-`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, and `houmao-server` control. It provides command groups for agent orchestration, brain construction, server management, and administrative tasks.
+`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, server management, and administrative tasks.
 
 ## Synopsis
 
@@ -33,14 +33,43 @@ Agent lifecycle: launch, terminate, observe, send-prompt, mail, join, gateway op
 | Subcommand | Description |
 |---|---|
 | `launch` | Start a managed agent. Provisions a runtime home, builds the brain, and launches a live session. |
-| `terminate` | Stop a running managed agent and clean up its session. |
+| `join` | Adopt an existing tmux-backed TUI or native headless logical session into Houmao managed-agent control. |
+| `list`, `show`, `state` | Inspect locally discovered or pair-backed managed agents. |
 | `prompt` | Send a prompt to a running agent session. |
-| `join` | Attach to an existing agent's tmux session for direct interaction. |
+| `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. |
 | `mail` | Check, send, or reply to inter-agent mail messages. |
+| `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
 | `gateway attach` | Attach a gateway to an agent session. |
 | `gateway status` | Show gateway status for a session. |
 | `gateway prompt` | Send a prompt through the gateway. |
 | `gateway interrupt` | Interrupt the current gateway operation. |
+
+The preferred local serverless mailbox workflow is:
+
+1. `houmao-mgr mailbox init --mailbox-root <path>`
+2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
+3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
+4. `houmao-mgr agents mail ...`
+
+For long-lived local interactive TUI sessions, `agents mailbox register` and `agents mailbox unregister` may report `pending_relaunch`; run `houmao-mgr agents relaunch --agent-name <name>` before treating runtime-owned `agents mail ...` commands as active on that live provider process.
+
+### `mailbox` — Local filesystem mailbox administration
+
+```
+houmao-mgr mailbox [OPTIONS] COMMAND [ARGS]...
+```
+
+Local operator commands for filesystem mailbox roots and address lifecycle. This surface does not require `houmao-server`.
+
+#### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `init` | Bootstrap or validate one filesystem mailbox root. |
+| `status` | Inspect mailbox-root health plus active, inactive, and stashed registration counts. |
+| `register` | Create or reuse one filesystem mailbox registration for a full mailbox address. |
+| `unregister` | Deactivate or purge one filesystem mailbox registration. |
+| `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
 
 ### `brains` — Local brain-construction commands
 
