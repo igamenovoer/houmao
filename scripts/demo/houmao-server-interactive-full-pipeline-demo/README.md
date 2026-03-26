@@ -1,13 +1,12 @@
 # Houmao-Server Interactive Full-Pipeline Demo
 
-This demo pack is the pair-managed counterpart to the older CAO interactive full-pipeline demo. Startup goes through a demo-owned `houmao-server` and its native headless launch API, while every follow-up action uses direct `houmao-server` HTTP routes against the persisted server authority for that run.
+This demo pack now exercises the local/serverless managed-agent workflow. Startup does not bring up a demo-owned `houmao-server`; instead it builds one local brain home, launches one detached local interactive managed agent, and then reuses shared-registry plus resumed-controller surfaces for inspect, prompt, interrupt, verify, and stop.
 
-The pack intentionally uses a demo-owned generous startup profile so detached launch stays reliable under automation and slow provider startup:
+The demo still keeps explicit bounded startup waits so automation can tolerate slower provider startup:
 
 - shell-ready timeout: `20s`
 - provider-ready timeout: `120s`
 - Codex warmup override: `10s`
-- native headless launch create-timeout: `180s`
 
 ## Prerequisites
 
@@ -16,7 +15,7 @@ The pack intentionally uses a demo-owned generous startup profile so detached la
 - `tmux`
 - a working Claude Code or Codex CLI, depending on the selected provider
 
-The demo does not assume an operator-managed `houmao-server` is already running. Each `start` provisions a fresh run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, starts a loopback `houmao-server` owned by that run, resolves the tracked native selector from the demo pack's `agents/` entry (a repository-tracked symlink to `tests/fixtures/agents/`), and launches one detached delegated TUI session into a demo-owned git worktree.
+Each `start` creates or reuses a run root under `tmp/demo/houmao-server-interactive-full-pipeline-demo/`, resolves the tracked native selector from the demo pack's `agents/` entry (a repository-tracked symlink to `tests/fixtures/agents/`), provisions a demo-owned git worktree, and launches one detached local interactive session with run-local runtime, registry, and jobs roots.
 
 ## Quick Start
 
@@ -26,7 +25,7 @@ Start the default Claude-backed run:
 scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start
 ```
 
-Launch the fixed `alice` variant:
+Launch the stable `alice` variant:
 
 ```bash
 scripts/demo/houmao-server-interactive-full-pipeline-demo/launch_alice.sh
@@ -38,11 +37,11 @@ Start the Codex-backed variant:
 scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start --provider codex
 ```
 
-Tune the demo-owned startup budget explicitly:
+Tune the local startup budget explicitly:
 
 ```bash
 DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS=180 \
-DEMO_COMPAT_CREATE_TIMEOUT_SECONDS=240 \
+DEMO_COMPAT_CODEX_WARMUP_SECONDS=0 \
 scripts/demo/houmao-server-interactive-full-pipeline-demo/run_demo.sh start --provider codex
 ```
 
@@ -77,70 +76,64 @@ scripts/demo/houmao-server-interactive-full-pipeline-demo/stop_demo.sh
 `start` performs these steps:
 
 1. Creates a fresh run root and a demo-owned git worktree at `<run-root>/wktree`.
-2. Starts `sys.executable -m houmao.server serve` on a selected loopback port with demo-owned runtime, registry, jobs, and HOME roots.
-3. Resolves selector `gpu-kernel-coder` from the tracked native agent-definition root `scripts/demo/houmao-server-interactive-full-pipeline-demo/agents/`.
-4. Calls the demo-owned `houmao-server` native headless launch API to start one detached delegated TUI session without attaching the caller terminal.
-5. Uses the synchronous launch response to load the delegated runtime manifest under the demo-owned run root, reads the persisted `houmao_server` bridge section, confirms the launch is already addressable through `/houmao/agents/{agent_ref}`, and writes `state.json`.
+2. Resolves selector `gpu-kernel-coder` from the tracked native agent-definition root `scripts/demo/houmao-server-interactive-full-pipeline-demo/agents/`.
+3. Builds one local brain home into the run-owned runtime root.
+4. Launches one detached local interactive managed agent using the same underlying build and runtime surfaces as `houmao-mgr agents launch`.
+5. Waits for the tracked local shell to become available and for the provider UI to reach a ready posture.
+6. Writes `state.json` with the managed-agent identity tuple and run-owned runtime paths.
 
-The demo-owned server start command passes explicit compatibility startup overrides into `houmao-server serve`, and the native launch client uses an explicit create-timeout budget for the headless launch request. If you override one side for a slow environment, keep the launch create-timeout larger than the bounded server startup chain.
+The persisted local contract is:
 
-The persisted v1 route contract is:
+- `agent_name` is the friendly managed-agent name used for local registry lookup
+- `agent_id` is the authoritative managed-agent id published by the runtime
+- `tmux_session_name` is the concrete tmux session owned by the local interactive backend
+- `requested_session_name` is the optional operator override supplied to `start`
+- `session_manifest_path` and `session_root` point at the launched local runtime session under the run-owned runtime root
 
-- `agent_ref = session_name`
-- `session_name` is the native launch session name returned by `houmao-server`, typically the requested `--session-name` when one is supplied
-- `agent_identity` is the canonicalized operator-facing identity derived from the explicit `--session-name` override when present, or from the resolved session name otherwise
-
-## Route Split
-
-After startup, the demo only talks to the recorded `houmao-server` authority:
-
-- `inspect` reads:
-  - `GET /houmao/agents/{agent_ref}/state`
-  - `GET /houmao/agents/{agent_ref}/state/detail`
-  - `GET /houmao/agents/{agent_ref}/history`
-  - `GET /houmao/terminals/{terminal_id}/state`
-- `send-turn` submits:
-  - `POST /houmao/agents/{agent_ref}/requests` with `request_kind = submit_prompt`
-- `interrupt` submits:
-  - `POST /houmao/agents/{agent_ref}/requests` with `request_kind = interrupt`
-- `stop` tears down the TUI session through:
-  - `POST /houmao/agents/{agent_ref}/stop`
-
-The demo does not use post-launch `houmao-mgr agents ...`, `houmao-cli`, or any raw control-input `send-keys` equivalent.
+When `--session-name` is omitted, the demo derives a stable default `agent_name` from the selected variant, currently `<tool>-gpu-kernel-coder`.
 
 ## `launch_alice.sh` Behavior
 
-`launch_alice.sh` forwards `--session-name alice` into startup. In the current native launch flow, that requested name remains the persisted server-facing session name, so the demo records:
+`launch_alice.sh` forwards `--session-name alice` into startup. In the revised local flow, that override is used as both the friendly managed-agent name and the tmux session name for the stable wrapper contract, so the demo records:
 
 - `requested_session_name = "alice"`
-- `session_name = "alice"`
-- `agent_ref = "alice"`
-- `agent_identity = "AGENTSYS-alice"`
+- `agent_name = "alice"`
+- `tmux_session_name = "alice"`
+- `agent_id = <runtime-derived id for alice>`
 
-This keeps the stable operator-facing override while preserving the current server-addressable session naming contract.
+## Local Control Split
+
+After startup, the demo stays local:
+
+- `inspect` resolves the persisted managed agent through the run-local shared registry and collects managed-agent state, detail, history, and tracked-terminal state from local helper surfaces
+- `send-turn` submits a prompt through the resumed local runtime controller path
+- `interrupt` submits an interrupt through the resumed local runtime controller path
+- `stop` resumes the local runtime controller and requests force-cleanup stop, with best-effort tmux and stale session-root cleanup
+- `verify` combines prompt/interrupt artifacts with live local tracked state/history when available, and otherwise falls back to the captured local artifacts
+
+The demo does not use a demo-owned `houmao-server`, direct server routes, or raw `send-keys` style control.
 
 ## Manual Inspection Guidance
 
-`inspect_demo.sh` defaults to sanitized state output. It includes managed-agent availability, turn posture, last-turn result, terminal stability, and other non-text observables. Parser-derived dialog text is hidden by default. Use `--with-dialog-tail <chars>` when you explicitly want the last tracked dialog-tail excerpt from the server-owned tracked-terminal route.
+`inspect_demo.sh` defaults to sanitized state output. It includes managed-agent availability, turn posture, last-turn result, terminal stability, and other non-text observables. Parser-derived dialog text is hidden by default. Use `--with-dialog-tail <chars>` when you explicitly want the last tracked dialog-tail excerpt from the local tracked terminal state.
 
 Useful files inside one run root:
 
-- `state.json`: persisted startup state and stable identifiers
+- `state.json`: persisted startup state and stable local identifiers
 - `report.json`: sanitized verification report generated by `verify`
-- `turns/turn-*.json`: prompt-request acceptance plus bounded post-request state evidence
-- `interrupts/interrupt-*.json`: interrupt-request acceptance plus bounded post-request state evidence
-- `logs/houmao-server.stdout.log` and `logs/houmao-server.stderr.log`: demo-owned server logs
-- `runtime/sessions/houmao_server_rest/<session-name>/manifest.json`: delegated runtime manifest discovered after launch
+- `turns/turn-*.json`: prompt acceptance plus bounded post-request local state evidence
+- `interrupts/interrupt-*.json`: interrupt acceptance plus bounded post-request local state evidence
+- `runtime/`: build homes and local runtime session manifests owned by the run
+- `registry/`: shared-registry records owned by the run
+- `jobs/`: local per-session job directories owned by the run
+- `wktree/`: the demo-owned git worktree used as the managed-agent working directory
 
 The shell wrappers resolve the active run from `tmp/demo/houmao-server-interactive-full-pipeline-demo/current_run_root.txt` unless `DEMO_WORKSPACE_ROOT` is set explicitly.
 
 Optional startup override environment variables forwarded by `run_demo.sh`:
 
-- `DEMO_SERVER_START_TIMEOUT_SECONDS`
 - `DEMO_REQUEST_SETTLE_TIMEOUT_SECONDS`
 - `DEMO_REQUEST_POLL_INTERVAL_SECONDS`
-- `DEMO_SERVER_STOP_TIMEOUT_SECONDS`
 - `DEMO_COMPAT_SHELL_READY_TIMEOUT_SECONDS`
 - `DEMO_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS`
 - `DEMO_COMPAT_CODEX_WARMUP_SECONDS`
-- `DEMO_COMPAT_CREATE_TIMEOUT_SECONDS`

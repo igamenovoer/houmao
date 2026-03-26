@@ -8,7 +8,8 @@ show_usage() {
 Usage:
   $(basename "$0") [-y] [--help]
 
-Submit one interrupt through the active demo's managed-agent request route.
+Submit one interrupt through the active demo's local managed-agent control
+surface.
 \`-y\` is accepted as part of the demo-wide compatibility wrapper contract.
 
 Delegates to:

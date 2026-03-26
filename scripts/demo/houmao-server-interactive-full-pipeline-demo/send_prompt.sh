@@ -8,9 +8,8 @@ show_usage() {
 Usage:
   $(basename "$0") [-y] --prompt <text>
 
-Send one inline prompt through the active Houmao-server interactive demo
-session. \`-y\` is accepted as part of the demo-wide compatibility wrapper
-contract.
+Send one inline prompt through the active local interactive demo session.
+\`-y\` is accepted as part of the demo-wide compatibility wrapper contract.
 
 Delegates to:
   $SCRIPT_DIR/run_demo.sh [-y] send-turn --prompt <text>

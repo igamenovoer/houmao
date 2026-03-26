@@ -1,4 +1,4 @@
-"""Typed models and constants for the Houmao-server interactive demo."""
+"""Typed models and constants for the interactive full-pipeline demo."""
 
 from __future__ import annotations
 
@@ -6,31 +6,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-
-from houmao.agents.realm_controller.boundary_models import HoumaoServerSectionV1
-from houmao.server.models import HoumaoManagedAgentRequestAcceptedResponse
-
+from pydantic import BaseModel, ConfigDict, field_validator
 
 DEFAULT_DEMO_ROOT_DIRNAME = "houmao-server-interactive-full-pipeline-demo"
 DEFAULT_WORKTREE_DIRNAME = "wktree"
 CURRENT_RUN_ROOT_FILENAME = "current_run_root.txt"
 DEFAULT_PROVIDER = "claude_code"
 DEFAULT_AGENT_PROFILE = "gpu-kernel-coder"
-DEFAULT_SERVER_START_TIMEOUT_SECONDS = 20.0
 DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS = 15.0
 DEFAULT_REQUEST_POLL_INTERVAL_SECONDS = 0.25
-DEFAULT_SERVER_STOP_TIMEOUT_SECONDS = 10.0
 DEFAULT_COMPAT_SHELL_READY_TIMEOUT_SECONDS = 20.0
 DEFAULT_COMPAT_PROVIDER_READY_TIMEOUT_SECONDS = 120.0
 DEFAULT_COMPAT_CODEX_WARMUP_SECONDS = 10.0
-DEFAULT_COMPAT_CREATE_TIMEOUT_SECONDS = 180.0
 DEFAULT_HISTORY_LIMIT = 20
 PROVIDER_CHOICES = ("claude_code", "codex")
 STALE_STOP_MARKERS: tuple[str, ...] = (
     "404",
     "connection refused",
     "does not exist",
+    "failed to reach `houmao-server`",
+    "manifest",
     "not found",
     "no such session",
     "session missing",
@@ -241,27 +236,20 @@ class DemoState(_StrictModel):
     tool: str
     agent_profile: str
     variant_id: str
-    api_base_url: str
-    agent_identity: str
-    agent_ref: str
+    backend: Literal["local_interactive"] = "local_interactive"
+    agent_name: str
+    agent_id: str
     requested_session_name: str | None = None
+    tmux_session_name: str
     session_manifest_path: str
     session_root: str
-    session_name: str
-    terminal_id: str
     tracked_agent_id: str | None = None
     runtime_root: str
     registry_root: str
     jobs_root: str
     workspace_dir: str
     workdir: str
-    server_home_dir: str
-    server_runtime_root: str
-    server_pid: int
-    server_stdout_log_path: str
-    server_stderr_log_path: str
     agent_def_dir: str
-    houmao_server: HoumaoServerSectionV1
     updated_at: str
     prompt_turn_count: int = 0
     interrupt_count: int = 0
@@ -271,24 +259,18 @@ class DemoState(_StrictModel):
         "tool",
         "agent_profile",
         "variant_id",
-        "api_base_url",
-        "agent_identity",
-        "agent_ref",
+        "agent_name",
+        "agent_id",
         "requested_session_name",
+        "tmux_session_name",
         "session_manifest_path",
         "session_root",
-        "session_name",
-        "terminal_id",
         "tracked_agent_id",
         "runtime_root",
         "registry_root",
         "jobs_root",
         "workspace_dir",
         "workdir",
-        "server_home_dir",
-        "server_runtime_root",
-        "server_stdout_log_path",
-        "server_stderr_log_path",
         "agent_def_dir",
         "updated_at",
     )
@@ -303,22 +285,14 @@ class DemoState(_StrictModel):
             raise ValueError("must not be empty")
         return stripped
 
-    @field_validator("server_pid", "prompt_turn_count", "interrupt_count")
+    @field_validator("prompt_turn_count", "interrupt_count")
     @classmethod
     def _non_negative_ints(cls, value: int) -> int:
-        """Require non-negative counters and process ids."""
+        """Require non-negative counters."""
 
         if value < 0:
             raise ValueError("must be >= 0")
         return value
-
-    @model_validator(mode="after")
-    def _validate_agent_ref_contract(self) -> "DemoState":
-        """Require the persisted v1 `agent_ref` to match `session_name`."""
-
-        if self.agent_ref != self.session_name:
-            raise ValueError("agent_ref must match session_name for the v1 route contract")
-        return self
 
 
 class StartupPayload(_StrictModel):
@@ -348,11 +322,11 @@ class InspectPayload(_StrictModel):
     tool: str
     agent_profile: str
     variant_id: str
-    api_base_url: str
-    agent_identity: str
-    agent_ref: str
-    session_name: str
-    terminal_id: str
+    backend: Literal["local_interactive"] = "local_interactive"
+    agent_name: str
+    agent_id: str
+    requested_session_name: str | None = None
+    tmux_session_name: str
     tracked_agent_id: str | None = None
     workspace_dir: str
     workdir: str
@@ -370,11 +344,10 @@ class InspectPayload(_StrictModel):
         "tool",
         "agent_profile",
         "variant_id",
-        "api_base_url",
-        "agent_identity",
-        "agent_ref",
-        "session_name",
-        "terminal_id",
+        "agent_name",
+        "agent_id",
+        "requested_session_name",
+        "tmux_session_name",
         "tracked_agent_id",
         "workspace_dir",
         "workdir",
@@ -413,13 +386,15 @@ class TurnArtifact(_StrictModel):
     sequence_number: int
     request_kind: Literal["submit_prompt", "interrupt"]
     prompt: str | None = None
-    agent_ref: str
+    agent_name: str
+    agent_id: str
+    tmux_session_name: str
     tracked_agent_id: str
     requested_at_utc: str
     settled_at_utc: str
     poll_iterations: int
     state_change_observed: bool
-    request: HoumaoManagedAgentRequestAcceptedResponse
+    request: "DemoRequestRecord"
     state_before: ManagedAgentSnapshot
     state_after: ManagedAgentSnapshot
     history_after: ManagedAgentHistorySnapshot
@@ -427,7 +402,9 @@ class TurnArtifact(_StrictModel):
 
     @field_validator(
         "prompt",
-        "agent_ref",
+        "agent_name",
+        "agent_id",
+        "tmux_session_name",
         "tracked_agent_id",
         "requested_at_utc",
         "settled_at_utc",
@@ -451,6 +428,27 @@ class TurnArtifact(_StrictModel):
         if value <= 0:
             raise ValueError("must be > 0")
         return value
+
+
+class DemoRequestRecord(_StrictModel):
+    """Normalized request record captured by the demo artifact layer."""
+
+    request_id: str
+    request_kind: Literal["submit_prompt", "interrupt"]
+    tracked_agent_id: str
+    detail: str
+    success: bool
+    disposition: Literal["accepted", "action"]
+
+    @field_validator("request_id", "tracked_agent_id", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty request record strings."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
 
 
 class VerificationRequestSummary(_StrictModel):
@@ -510,17 +508,16 @@ class VerificationReport(_StrictModel):
     """Stable verification report for the interactive workflow."""
 
     status: Literal["ok"]
-    backend: Literal["houmao_server_rest"] = "houmao_server_rest"
-    evidence_source: Literal["live_server", "captured_artifacts"]
+    backend: Literal["local_interactive"] = "local_interactive"
+    evidence_source: Literal["live_local", "captured_artifacts"]
     provider: str
     tool: str
     agent_profile: str
     variant_id: str
-    api_base_url: str
-    agent_identity: str
-    agent_ref: str
-    session_name: str
-    terminal_id: str
+    agent_name: str
+    agent_id: str
+    requested_session_name: str | None = None
+    tmux_session_name: str
     tracked_agent_id: str | None = None
     session_manifest_path: str
     workspace_dir: str
@@ -538,11 +535,10 @@ class VerificationReport(_StrictModel):
         "tool",
         "agent_profile",
         "variant_id",
-        "api_base_url",
-        "agent_identity",
-        "agent_ref",
-        "session_name",
-        "terminal_id",
+        "agent_name",
+        "agent_id",
+        "requested_session_name",
+        "tmux_session_name",
         "tracked_agent_id",
         "session_manifest_path",
         "workspace_dir",
@@ -574,11 +570,10 @@ class StopPayload(_StrictModel):
     """Machine-readable stop payload."""
 
     state: DemoState
-    session_delete_status: str
+    stop_status: str
     stale_session_tolerated: bool
-    server_stop_status: str
 
-    @field_validator("session_delete_status", "server_stop_status")
+    @field_validator("stop_status")
     @classmethod
     def _not_blank(cls, value: str) -> str:
         """Require non-empty status strings."""
@@ -602,8 +597,6 @@ class DemoPaths:
     interrupts_dir: Path
     state_path: Path
     report_path: Path
-    server_home_dir: Path
-    server_runtime_root: Path
     workdir: Path
 
     @classmethod
@@ -621,8 +614,6 @@ class DemoPaths:
             interrupts_dir=root / "interrupts",
             state_path=root / "state.json",
             report_path=root / "report.json",
-            server_home_dir=root / "server" / "home",
-            server_runtime_root=root / "server" / "runtime",
             workdir=root / DEFAULT_WORKTREE_DIRNAME,
         )
 
@@ -635,14 +626,11 @@ class DemoEnvironment:
     demo_base_root: Path
     current_run_root_path: Path
     provision_worktree: bool
-    server_start_timeout_seconds: float
     request_settle_timeout_seconds: float
     request_poll_interval_seconds: float
-    server_stop_timeout_seconds: float
     compat_shell_ready_timeout_seconds: float
     compat_provider_ready_timeout_seconds: float
     compat_codex_warmup_seconds: float
-    compat_create_timeout_seconds: float
 
 
 @dataclass(frozen=True)

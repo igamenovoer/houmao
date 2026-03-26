@@ -1,4 +1,4 @@
-"""Public package surface for the Houmao-server interactive demo."""
+"""Public package surface for the interactive full-pipeline demo."""
 
 from importlib import import_module as _import_module
 from typing import Any as _Any
@@ -24,12 +24,11 @@ from houmao.demo.houmao_server_interactive_full_pipeline_demo.models import (
     DEFAULT_PROVIDER,
     DEFAULT_REQUEST_POLL_INTERVAL_SECONDS,
     DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS,
-    DEFAULT_SERVER_START_TIMEOUT_SECONDS,
-    DEFAULT_SERVER_STOP_TIMEOUT_SECONDS,
     DEFAULT_WORKTREE_DIRNAME,
     DemoEnvironment,
     DemoInvocation,
     DemoPaths,
+    DemoRequestRecord,
     DemoState,
     DemoWorkflowError,
     InspectPayload,
@@ -71,12 +70,11 @@ __all__ = [
     "DEFAULT_PROVIDER",
     "DEFAULT_REQUEST_POLL_INTERVAL_SECONDS",
     "DEFAULT_REQUEST_SETTLE_TIMEOUT_SECONDS",
-    "DEFAULT_SERVER_START_TIMEOUT_SECONDS",
-    "DEFAULT_SERVER_STOP_TIMEOUT_SECONDS",
     "DEFAULT_WORKTREE_DIRNAME",
     "DemoEnvironment",
     "DemoInvocation",
     "DemoPaths",
+    "DemoRequestRecord",
     "DemoState",
     "DemoWorkflowError",
     "InspectPayload",

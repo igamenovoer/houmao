@@ -1,8 +1,4 @@
-# houmao-server-interactive-full-pipeline-demo Specification
-
-## Purpose
-TBD - created by archiving change add-houmao-server-interactive-full-pipeline-demo. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Repository SHALL provide a standalone Houmao-server interactive full-pipeline demo pack under `scripts/demo/`
 The repository SHALL continue to include a demo-pack directory at `scripts/demo/houmao-server-interactive-full-pipeline-demo/`.

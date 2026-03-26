@@ -8,8 +8,8 @@ show_usage() {
 Usage:
   $(basename "$0") [-y] [--help]
 
-Stop the active Houmao-server interactive demo session through the
-managed-agent stop route.
+Stop the active local interactive demo session through the managed-agent stop
+path.
 \`-y\` is accepted as part of the demo-wide compatibility wrapper contract.
 
 Delegates to:
