@@ -20,6 +20,7 @@ from houmao.server.models import (
     HoumaoErrorDetail,
     HoumaoProbeSnapshot,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
@@ -44,6 +45,7 @@ class SingleSessionTrackingRuntime:
         identity: HoumaoTrackedSessionIdentity,
         watch_poll_interval_seconds: float = 0.5,
         recent_transition_limit: int = 24,
+        snapshot_history_limit: int = 1000,
         stability_threshold_seconds: float = 1.0,
         completion_stability_seconds: float = 1.0,
         unknown_to_stalled_timeout_seconds: float = 30.0,
@@ -60,6 +62,7 @@ class SingleSessionTrackingRuntime:
         self.m_tracker = LiveSessionTracker(
             identity=identity,
             recent_transition_limit=recent_transition_limit,
+            snapshot_history_limit=snapshot_history_limit,
             stability_threshold_seconds=stability_threshold_seconds,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
@@ -102,6 +105,11 @@ class SingleSessionTrackingRuntime:
         """Return bounded recent tracked history."""
 
         return self.m_tracker.history(limit=limit)
+
+    def snapshot_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return bounded recent tracked snapshot history."""
+
+        return self.m_tracker.snapshot_history(limit=limit)
 
     def note_prompt_submission(self, *, message: str) -> HoumaoTerminalStateResponse:
         """Arm explicit-input tracking for one prompt submission."""
