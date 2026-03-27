@@ -111,7 +111,7 @@ For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <friendly-name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, `agents mailbox register` and `agents mailbox unregister` now refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 ## Adopting Existing Sessions With `agents join`
 

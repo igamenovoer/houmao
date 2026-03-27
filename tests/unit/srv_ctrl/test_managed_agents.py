@@ -9,6 +9,7 @@ import pytest
 
 import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -51,6 +52,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_send_keys,
     interrupt_managed_agent,
     list_managed_agents,
+    mail_status,
     mailbox_status,
     managed_agent_detail_payload,
     managed_agent_state_payload,
@@ -261,6 +263,64 @@ def test_late_mailbox_commands_reject_server_backed_targets() -> None:
         )
     with pytest.raises(click.ClickException, match="server-backed"):
         unregister_mailbox_binding(target, mode="deactivate")
+
+
+def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            register_filesystem_mailbox=lambda **kwargs: (
+                _ for _ in ()
+            ).throw(SessionManifestError("expected mailbox failure"))
+        ),
+    )
+
+    with pytest.raises(click.ClickException, match="expected mailbox failure"):
+        register_mailbox_binding(
+            target,
+            mailbox_root=None,
+            principal_id=None,
+            address=None,
+            mode="safe",
+        )
+
+
+def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
+    mailbox = SimpleNamespace(
+        transport="filesystem",
+        principal_id="AGENTSYS-alpha",
+        address="AGENTSYS-alpha@agents.localhost",
+        bindings_version="2026-03-27T00:00:00Z",
+    )
+    controller = SimpleNamespace(
+        launch_plan=SimpleNamespace(mailbox=mailbox),
+        tmux_session_name="test-agent-join",
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=controller,
+    )
+
+    original = managed_agents_module.ensure_mailbox_command_ready
+    managed_agents_module.ensure_mailbox_command_ready = (
+        lambda launch_plan, tmux_session_name=None: mailbox
+    )
+    try:
+        payload = mail_status(target)
+    finally:
+        managed_agents_module.ensure_mailbox_command_ready = original
+
+    assert payload == {
+        "schema_version": 1,
+        "transport": "filesystem",
+        "principal_id": "AGENTSYS-alpha",
+        "address": "AGENTSYS-alpha@agents.localhost",
+        "bindings_version": "2026-03-27T00:00:00Z",
+    }
 
 
 def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdentity:
@@ -624,6 +684,63 @@ def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
     assert client.gateway_notifier_get_calls == ["published-alpha"]
     assert client.gateway_notifier_put_calls == [("published-alpha", 60)]
     assert client.gateway_notifier_delete_calls == ["published-alpha"]
+
+
+def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_posture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = SimpleNamespace(
+        get_mail_notifier=lambda: GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        ),
+        put_mail_notifier=lambda request_model: GatewayMailNotifierStatusV1(
+            enabled=True,
+            interval_seconds=request_model.interval_seconds,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        ),
+        delete_mail_notifier=lambda: GatewayMailNotifierStatusV1(
+            enabled=False,
+            interval_seconds=None,
+            supported=True,
+            support_error=None,
+            last_poll_at_utc=None,
+            last_notification_at_utc=None,
+            last_error=None,
+        ),
+    )
+    controller = SimpleNamespace(
+        agent_launch_authority=SimpleNamespace(session_origin="joined_tmux", posture_kind="unavailable")
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="published-alpha",
+        identity=_managed_identity(transport="tui"),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._require_live_gateway_client_for_controller",
+        lambda resolved_controller: client,
+    )
+
+    status = gateway_mail_notifier_status(target)
+    enabled = gateway_mail_notifier_enable(target, interval_seconds=60)
+    disabled = gateway_mail_notifier_disable(target)
+
+    assert status.supported is True
+    assert enabled.enabled is True
+    assert enabled.interval_seconds == 60
+    assert disabled.enabled is False
 
 
 def test_attach_gateway_prefers_local_authority_for_passive_pair(

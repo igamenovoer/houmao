@@ -32,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         cli.main(args=argv, prog_name="houmao-mgr", standalone_mode=False)
+    except click.ClickException as exc:
+        exc.show()
+        return exc.exit_code
+    except click.Abort:
+        click.echo("Aborted!", err=True)
+        return 1
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else 1

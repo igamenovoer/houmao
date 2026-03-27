@@ -236,7 +236,7 @@ _MAILBOX_LIVE_ENABLED_METADATA_KEY = "mailbox_live_enabled"
 _MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY = "mailbox_live_bindings_version"
 _LOGGER = logging.getLogger(__name__)
 
-MailboxActivationState = Literal["active", "pending_relaunch", "unsupported_joined_session"]
+MailboxActivationState = Literal["active", "pending_relaunch"]
 
 
 class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
@@ -503,9 +503,6 @@ class RuntimeSessionController:
     def mailbox_activation_state(self) -> MailboxActivationState | None:
         """Return the current local mailbox activation state, when meaningful."""
 
-        if _joined_session_mailbox_registration_is_unsupported(self):
-            return "unsupported_joined_session"
-
         mailbox = self.launch_plan.mailbox
         live_state = _mailbox_live_state(self.launch_plan)
         if mailbox is None:
@@ -529,7 +526,6 @@ class RuntimeSessionController:
         """Attach one filesystem mailbox binding to the current session."""
 
         self._reset_operation_warnings()
-        _require_late_mailbox_registration_supported(self)
 
         effective_principal_id = _normalize_optional_mailbox_text(
             principal_id,
@@ -601,7 +597,6 @@ class RuntimeSessionController:
         """Remove one filesystem mailbox binding from the current session."""
 
         self._reset_operation_warnings()
-        _require_late_mailbox_registration_supported(self)
 
         mailbox = self.launch_plan.mailbox
         if mailbox is None:
@@ -2262,32 +2257,6 @@ def _apply_mailbox_live_state_after_mutation(
     del previous_launch_plan, backend
     return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
 
-
-def _joined_session_mailbox_registration_is_unsupported(
-    controller: RuntimeSessionController,
-) -> bool:
-    """Return whether late mailbox mutation is unavailable for one joined session."""
-
-    authority = controller.agent_launch_authority
-    return bool(
-        authority is not None
-        and authority.session_origin == _JOINED_SESSION_ORIGIN
-        and authority.posture_kind == "unavailable"
-    )
-
-
-def _require_late_mailbox_registration_supported(
-    controller: RuntimeSessionController,
-) -> None:
-    """Fail when one joined-session controller cannot relaunch safely."""
-
-    if _joined_session_mailbox_registration_is_unsupported(controller):
-        raise SessionManifestError(
-            "Late mailbox registration is unavailable for this joined session because no "
-            "usable relaunch posture was recorded."
-        )
-
-
 def _mailbox_mutation_activation_state(
     *,
     controller: RuntimeSessionController,
@@ -2295,9 +2264,7 @@ def _mailbox_mutation_activation_state(
 ) -> MailboxActivationState:
     """Return the activation state for one completed mailbox mutation."""
 
-    if _joined_session_mailbox_registration_is_unsupported(controller):
-        return "unsupported_joined_session"
-    del updated_mailbox
+    del controller, updated_mailbox
     return "active"
 
 

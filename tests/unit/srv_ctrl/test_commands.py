@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -19,7 +20,7 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
 )
-from houmao.srv_ctrl.commands.main import cli
+from houmao.srv_ctrl.commands.main import cli, main
 from houmao.srv_ctrl.server_startup import (
     HoumaoDetachedServerStartResult,
     HoumaoServerStartLogPaths,
@@ -61,6 +62,67 @@ def test_bare_invocation_prints_help() -> None:
     assert "mailbox" in result.output
     assert "cao" not in result.output
     assert "\nTraceback" not in result.output
+
+
+def test_main_renders_mailbox_click_exception_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def _raise_mailbox_failure(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise click.ClickException("expected mailbox failure")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mailbox.resolve_managed_agent_target",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mailbox.register_mailbox_binding",
+        _raise_mailbox_failure,
+    )
+
+    exit_code = main(["agents", "mailbox", "register", "--agent-id", "agent-123"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "expected mailbox failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def _raise_notifier_failure(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise click.ClickException("expected notifier failure")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_command_target",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
+        _raise_notifier_failure,
+    )
+
+    exit_code = main(
+        [
+            "agents",
+            "gateway",
+            "mail-notifier",
+            "enable",
+            "--agent-id",
+            "agent-123",
+            "--interval-seconds",
+            "60",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "expected notifier failure" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
