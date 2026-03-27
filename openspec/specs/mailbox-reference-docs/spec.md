@@ -122,7 +122,7 @@ The mailbox internal documentation SHALL explain how the runtime integrates mail
 
 At minimum, that internal coverage SHALL include:
 
-- primary runtime-owned mailbox skill projection and any compatibility-mirror behavior,
+- primary runtime-owned mailbox skill projection under `skills/mailbox/...`,
 - mailbox binding refresh behavior,
 - mailbox-local rules and managed helper interaction points,
 - SQLite responsibility boundaries,
@@ -130,7 +130,7 @@ At minimum, that internal coverage SHALL include:
 
 #### Scenario: Internal docs explain runtime integration
 - **WHEN** a maintainer needs to understand how mailbox support is attached to runtime sessions
-- **THEN** the mailbox internals pages explain the primary discoverable mailbox skill projection, any hidden compatibility mirror behavior, the env binding model, and mailbox command integration points
+- **THEN** the mailbox internals pages explain the primary discoverable mailbox skill projection under `skills/mailbox/...`, the env binding model, and mailbox command integration points
 - **AND THEN** the reader can relate the mailbox reference to the runtime integration code paths
 - **AND THEN** the explanation gives enough plain-language framing that a developer new to the mailbox subsystem can follow the architecture
 
@@ -204,4 +204,3 @@ When this boundary explanation uses summaries or comparison tables, it SHALL pre
 - **WHEN** a reader uses the mailbox reference to understand reply behavior across transports
 - **THEN** the docs explain that `message_ref` is an opaque shared reply target
 - **AND THEN** the docs do not present filesystem-specific identifiers or Stalwart-native identifiers as the universal mailbox reply contract
-
