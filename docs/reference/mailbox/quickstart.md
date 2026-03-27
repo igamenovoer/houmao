@@ -21,7 +21,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` reuses that persisted binding for runtime-owned mailbox work after the agent is launched or joined.
 
-After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface. When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc.
 
 ## Filesystem Quickstart
 

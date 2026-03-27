@@ -8,6 +8,8 @@ The runtime does not lead with the shared registry. It leads with tmux-local dis
 
 That gives the current tmux session environment first say when it is healthy, while still letting the runtime recover sessions that live under different runtime roots.
 
+For live gateway recovery, the registry remains only a locator layer: it helps the runtime recover `runtime.manifest_path`, after which the runtime derives the session root and treats `gateway/run/current-instance.json` as the authoritative local live-gateway record.
+
 ## Name-Based Discovery Order
 
 For name-addressed tmux-backed control such as `send-prompt`, `send-keys`, `mail`, and `stop-session`, the current order is:

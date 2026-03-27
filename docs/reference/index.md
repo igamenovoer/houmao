@@ -7,6 +7,14 @@
 - [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
 
+### Managed-Agent Command Families
+
+- [agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
+- [agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [admin cleanup](cli/admin-cleanup.md): Registry and runtime maintenance commands.
+
 ## Build Phase
 
 - [Brain Builder](build-phase/brain-builder.md): Build a brain home from recipe or direct inputs.

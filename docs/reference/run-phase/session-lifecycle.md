@@ -13,28 +13,43 @@ The session lifecycle covers starting, interacting with, resuming, and stopping 
 ```python
 @classmethod
 def start_runtime_session(
+    *,
     agent_def_dir: Path,
     brain_manifest_path: Path,
-    role_name: str,
-    backend: BackendKind,
-    working_directory: Path,
-    *,
-    auto_attach: bool = False,
+    role_name: str | None,
+    runtime_root: Path | None = None,
+    backend: BackendKind | None = None,
+    working_directory: Path | None = None,
+    api_base_url: str = "http://localhost:9889",
+    cao_profile_store_dir: Path | None = None,
+    agent_identity: str | None = None,
+    agent_name: str | None = None,
+    agent_id: str | None = None,
+    cao_parsing_mode: CaoParsingMode | None = None,
+    mailbox_transport: str | None = None,
+    mailbox_root: Path | None = None,
+    mailbox_principal_id: str | None = None,
+    mailbox_address: str | None = None,
+    mailbox_stalwart_base_url: str | None = None,
+    mailbox_stalwart_jmap_url: str | None = None,
+    mailbox_stalwart_management_url: str | None = None,
+    mailbox_stalwart_login_identity: str | None = None,
+    blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
+    gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
-    mailbox_transport: str | None = None,
     tmux_session_name: str | None = None,
-    registry_launch_authority: str | None = None,
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController
 ```
 
 Starts a new runtime session by:
 
 1. Loading the brain manifest from `brain_manifest_path`.
-2. Resolving the role package from `role_name` within the agent definition directory.
+2. Resolving the role package from `role_name` within the agent definition directory (or using a brain-only placeholder when `role_name` is `None`).
 3. Building a `LaunchPlan` via `build_launch_plan` (see [Launch Plan](launch-plan.md)).
 4. Dispatching the launch plan to the chosen backend.
-5. Persisting a session manifest to the job directory for later resume.
+5. Persisting a session manifest to the session root for later resume.
 
 **Parameters:**
 
@@ -42,15 +57,23 @@ Starts a new runtime session by:
 |---|---|
 | `agent_def_dir` | Path to the agent definition directory containing roles, brains, and blueprints |
 | `brain_manifest_path` | Path to the built brain manifest (JSON) from the build phase |
-| `role_name` | Name of the role to apply (resolved from `roles/<role_name>/system-prompt.md`) |
-| `backend` | Target backend (see [Backends](backends.md)) |
+| `role_name` | Name of the role to apply (resolved from `roles/<role_name>/system-prompt.md`); `None` for brain-only sessions |
+| `runtime_root` | Optional runtime root override; defaults to the standard resolved root |
+| `backend` | Target backend (see [Backends](backends.md)); resolved from manifest if omitted |
 | `working_directory` | Working directory for the agent process |
-| `auto_attach` | Whether to automatically attach a gateway to the session |
-| `gateway_host` | Host for gateway attachment |
-| `gateway_port` | Port for gateway attachment |
+| `api_base_url` | Base URL for `houmao_server_rest` or `cao_rest` backends |
+| `agent_identity` | Legacy agent identity string for session addressing |
+| `agent_name` | Friendly managed-agent name |
+| `agent_id` | Authoritative managed-agent identifier |
 | `mailbox_transport` | Mailbox transport type for inter-agent messaging |
+| `mailbox_root` | Filesystem mailbox root path |
+| `mailbox_principal_id` / `mailbox_address` | Mailbox identity overrides |
+| `mailbox_stalwart_*` | Stalwart JMAP connection parameters |
+| `blueprint_gateway_defaults` | Gateway defaults from the resolved blueprint |
+| `gateway_auto_attach` | Whether to automatically attach a gateway at launch time |
+| `gateway_host` / `gateway_port` | Host and port overrides for gateway attachment (require `gateway_auto_attach`) |
 | `tmux_session_name` | Explicit tmux session name override |
-| `registry_launch_authority` | Authority identifier for agent registry registration |
+| `registry_launch_authority` | Authority identifier for agent registry registration (default: `"runtime"`) |
 
 ### Resuming a session
 
@@ -73,14 +96,14 @@ Resumes a previously started session from its persisted session manifest. The ma
 
 ### Session manifest persistence
 
-Each session writes a manifest to its job directory upon creation. This manifest captures:
+Each session writes a manifest to its session root (`<runtime-root>/sessions/<backend>/<session-id>/`) upon creation. This manifest captures:
 
 - The original launch plan and backend configuration.
 - Session identifiers (tmux session name, backend-specific session IDs).
 - Gateway state and attachment information.
 - Runtime artifacts and metadata.
 
-The job directory serves as the persistent root for all session-related state, including the session manifest, gateway state files, and any runtime artifacts produced during the session.
+The session root serves as the persistent root for all session-related state, including the session manifest, gateway state files, and any runtime artifacts produced during the session. The session root is distinct from the brain runtime home (which holds projected configs and skills) and from any workspace-local job directory.
 
 ## InteractiveSession protocol
 

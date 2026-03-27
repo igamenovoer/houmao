@@ -1,9 +1,4 @@
-# docs-cli-reference Specification
-
-## Purpose
-Define the documentation requirements for Houmao CLI reference content.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: houmao-mgr reference documents all command groups
 
@@ -31,11 +26,6 @@ The CLI reference SHALL make the major nested managed-agent command families dis
 - **THEN** the CLI reference provides a direct path to formal reference coverage for those nested families
 - **AND THEN** the reader does not need to reconstruct those command surfaces only from source code or scattered prose pages
 
-#### Scenario: Reader finds brain management commands
-
-- **WHEN** a reader looks up `houmao-mgr brains`
-- **THEN** they find documented subcommands for load, list, and build operations
-
 ### Requirement: houmao-server reference documents serve and query commands
 
 The CLI reference SHALL include a page for `houmao-server` documenting its commands (`serve`, `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`) derived from `server/commands/` module docstrings and live help output.
@@ -52,21 +42,3 @@ The `serve` reference SHALL describe the implemented startup behavior and the cu
 - **WHEN** a reader looks up `houmao-server` query commands
 - **THEN** they find documented coverage for `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`
 - **AND THEN** the page reflects the current command tree rather than a partial or stale subset
-
-### Requirement: houmao-passive-server reference documents registry-driven model
-
-The CLI reference SHALL include a page for `houmao-passive-server` documenting its registry-driven discovery model, serve command, and API surface derived from `passive_server/` module docstrings. The page SHALL position passive-server as the clean, CAO-free server path.
-
-#### Scenario: Reader understands passive vs active server difference
-
-- **WHEN** a reader compares passive-server and houmao-server pages
-- **THEN** they understand that passive-server is stateless/registry-driven with no CAO dependency, while houmao-server is the CAO-compatible path
-
-### Requirement: Deprecated entrypoints noted briefly
-
-The CLI reference SHALL note that `houmao-cli` and `houmao-cao-server` are deprecated compatibility entrypoints. This SHALL be a brief note (1–2 sentences), not a full page.
-
-#### Scenario: Deprecated CLIs not prominently featured
-
-- **WHEN** a reader scans the CLI reference section
-- **THEN** `houmao-cli` and `houmao-cao-server` appear only as deprecation notes, not as primary documentation

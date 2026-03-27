@@ -53,7 +53,7 @@ flowchart TD
 flowchart LR
     SP["send_prompt"] --> BS["Backend<br/>Session"]
     INT["interrupt"] --> BS
-    TERM["terminate"] --> CL["cleanup"]
+    TERM["stop"] --> CL["cleanup"]
 
     BS --> PM["persist_manifest"]
     PM --> GW["Gateway<br/>sidecar"]
@@ -167,7 +167,7 @@ The `BackendKind` literal type in `src/houmao/agents/realm_controller/models.py`
 
 | Entrypoint | Role |
 |---|---|
-| `houmao-mgr` | **Primary management CLI.** Handles brain building, agent lifecycle (launch, prompt, terminate), and server control. |
+| `houmao-mgr` | **Primary management CLI.** Handles brain building, agent lifecycle (launch, prompt, stop), managed-agent gateway, mailbox, and server control. |
 | `houmao-server` | HTTP server for session management, used by `houmao_server_rest` backend. |
 | `houmao-passive-server` | Registry-driven stateless server with no legacy dependencies. |
 | `houmao-cli` | Deprecated compatibility entrypoint. Use `houmao-mgr` instead. |
