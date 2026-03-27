@@ -7,10 +7,11 @@ Houmao is a framework and CLI toolkit designed to orchestrate teams of loosely-c
 - **Name:** Houmao (猴毛, "monkey hair") — inspired by Sun Wukong's ability to create independent clones.
 - **Core Goal:** Orchestrate agents as first-class CLI citizens while keeping coordination flexible and context-driven.
 - **Key Concepts:**
-    - **Agent Definition Directory:** A folder containing `brains/`, `roles/`, and `blueprints/`.
-    - **Brain Recipe:** A declarative preset selecting tool + skill subset + config profile + credential profile.
+    - **Agent Definition Directory:** A folder containing `tools/`, `roles/`, and `skills/`.
+    - **Preset:** A path-derived declarative definition binding role + tool + setup + skills. Located at `roles/<role>/presets/<tool>/<setup>.yaml`.
     - **Role:** A package defining the system prompt and behavior policy for an agent session.
-    - **Blueprint:** A binding of a brain recipe to a role.
+    - **Setup:** A secret-free tool config bundle under `tools/<tool>/setups/<setup>/`.
+    - **Auth:** A local-only credential bundle under `tools/<tool>/auth/<auth>/`.
 - **Main Technologies:**
     - **Language:** Python (3.11+)
     - **Environment Management:** [Pixi](https://pixi.sh/)
@@ -22,11 +23,11 @@ Houmao is a framework and CLI toolkit designed to orchestrate teams of loosely-c
 
 ### Two-Phase Lifecycle
 1.  **Build Phase (`build-brain`):**
-    - Input: `BrainRecipe` or `Blueprint`.
-    - Process: `BrainBuilder` resolves tool adapters, projects configs, skills, and credentials.
+    - Input: `AgentPreset` (resolved from preset file or CLI flags).
+    - Process: `BrainBuilder` resolves tool adapters, projects setups, skills, and auth credentials.
     - Output: A **Runtime Home** (disk folder) and a `BrainManifest` (JSON).
 2.  **Run Phase (`start-session`):**
-    - Input: `BrainManifest` + `Role` (or `Blueprint`).
+    - Input: `BrainManifest` + `Role`.
     - Process: `RuntimeSessionController` creates a `LaunchPlan` and dispatches it to a backend (`tmux` or `cao_rest`).
     - Interaction: Use `send-prompt` and `stop-session` to manage the lifecycle.
 
@@ -65,14 +66,14 @@ Always prefer `pixi run ...` over direct command execution.
     - **Instance Members:** Prefix with `m_` in stateful service/helper/controller classes (e.g., `self.m_storage`).
     - **Exception:** Do *not* use `m_` prefix for `pydantic` or `attrs` model fields.
 - **Imports:** Absolute imports preferred. Group: Standard lib -> Third-party -> Local.
-- **Credentials:** **NEVER** commit `api-creds/`, `*.env`, `auth.json`, or `credentials.json`.
+- **Credentials:** **NEVER** commit `auth/` bundles, `*.env`, `auth.json`, or `credentials.json`.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## 5. Directory Structure Overview
 
 - `src/houmao/`: Core implementation.
 - `tests/`: Split into `unit/`, `integration/`, and `manual/`.
-- `docs/`: Reference (`agents_brains.md`, `cli.md`) and migration guides.
+- `docs/`: Reference (`cli.md`, getting-started guides) and developer guides.
 - `context/`: Shared context packages (roles, skills, instructions).
 - `openspec/`: Spec-driven change tracking.
 - `scripts/`: Automation and demo scripts.

@@ -2,7 +2,7 @@
 
 Module: `src/houmao/agents/launch_overrides/` — "Shared launch-override models and resolution helpers."
 
-Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → recipe overrides → direct overrides.
+Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → preset overrides → direct overrides.
 
 ### Override Precedence
 
@@ -33,7 +33,7 @@ flowchart TD
 
 ## LaunchOverrides
 
-`LaunchOverrides` is a frozen dataclass used by recipes and direct build requests to customize launch behavior on top of the adapter defaults.
+`LaunchOverrides` is a frozen dataclass used by presets and direct build requests to customize launch behavior on top of the adapter defaults.
 
 | Field | Type | Description |
 |---|---|---|
@@ -57,7 +57,7 @@ Two key functions handle the merge:
 
 ### `merge_launch_intent`
 
-Merges launch overrides from multiple layers (recipe overrides and direct overrides) into a single resolved intent. Later layers take precedence: direct overrides win over recipe overrides.
+Merges launch overrides from multiple layers (preset overrides and direct overrides) into a single resolved intent. Later layers take precedence: direct overrides win over preset overrides.
 
 ### `resolve_launch_behavior`
 

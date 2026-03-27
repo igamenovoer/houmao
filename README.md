@@ -24,13 +24,13 @@ The core idea is to **avoid a hard-coded orchestration model**.
 Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style orchestration), `Houmao` treats a team as a set of **independently runnable CLI agents** and provides lightweight primitives to construct, start, and manage them, while keeping “how the team coordinates” **flexible and context-driven**.
 
 > Note
-> Today, the primary construction paradigm is an **agent definition directory** (brains + roles + optional blueprints).
-> The details of “tool specs vs skills vs roles” are implementation choices that may evolve; the stable goal is **maximum flexibility with real, inspectable CLI agent processes**.
+> Today, the primary construction paradigm is an **agent definition directory** (tools + roles + skills + presets).
+> The details of “tool setups vs skills vs roles” are implementation choices that may evolve; the stable goal is **maximum flexibility with real, inspectable CLI agent processes**.
 
 ### What The Framework Provides
 
 - **Zero-setup adoption**: wrap any running `claude`, `codex`, or `gemini` session with `houmao-mgr agents join` — no configuration, no restart. You keep your familiar coding-agent workflow and gain management, coordination, and team features on top.
-- **Construction** (when you need it): build agent runtimes from tool specs + skills + roles (and optional blueprints) for reproducible, declarative agent setups.
+- **Construction** (when you need it): build agent runtimes from tool setups + skills + roles (and optional presets) for reproducible, declarative agent setups.
 - **Management**: start/resume/prompt/stop agents with `houmao-mgr` (typically tmux-backed so you can attach and interact).
 - **Team communication**: a shared gateway and mailbox plane for groups of agents (built on Houmao's own gateway service).
 
@@ -52,7 +52,7 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 ### How Agents Join Your Workflow
 
 - **Adopt an existing session (recommended):** start your CLI tool (`claude`, `codex`, or `gemini`) in a tmux session the way you normally would, then run `houmao-mgr agents join --agent-name <name>` from inside that session. Houmao wraps the running process with its management envelope — registry, gateway, prompt/interrupt, mailbox — without restarting the tool. Zero agent-definition setup required. This is the recommended starting point because there is nothing new to learn: you keep your familiar coding-agent workflow and layer Houmao management on top.
-- **Managed launch (full control):** for teams that need reproducible, declarative agent setups, construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-mgr agents launch`. This path builds an isolated runtime home with projected configs, skills, and credentials.
+- **Managed launch (full control):** for teams that need reproducible, declarative agent setups, construct from tool setups + skills + roles/presets, then start/resume/prompt/stop via `houmao-mgr agents launch`. This path builds an isolated runtime home with projected configs, skills, and credentials.
 - **Bring-your-own process with launch options:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and then use `agents join` with `--launch-args` and `--launch-env` to record enough state for later `agents relaunch`.
 
 ## Installation
@@ -183,7 +183,7 @@ The only difference: a joined agent has a *placeholder* brain manifest (no skill
 
 ### 2. Create / Choose An Agent Definition Directory
 
-An **agent definition directory** is any folder (name is not hard-coded) that contains `brains/`, `roles/`, and optionally `blueprints/`.
+An **agent definition directory** is any folder (name is not hard-coded) that contains `tools/`, `roles/`, `skills/`, and optionally per-role presets.
 
 Commands that need agent definitions resolve the directory with this precedence:
 
@@ -199,55 +199,63 @@ cp -a tests/fixtures/agents .agentsys/agents
 export AGENTSYS_AGENT_DEF_DIR="$PWD/.agentsys/agents"
 ```
 
-Then replace the credential profiles under `brains/api-creds/` with your own (keep them uncommitted).
+Then replace the auth bundles under `tools/<tool>/auth/` with your own credentials (keep them uncommitted).
 
 ### 3. Prepare The Agent Definition Directory Contents
 
 Top-level purpose summary:
 
-- `brains/`: reusable building blocks for constructing runtime homes.
-- `roles/`: role prompt packages that define agent behavior/policy for a session.
-- `blueprints/`: optional presets that bind a recipe to a role.
+- `tools/`: per-tool build/launch contracts, secret-free setup bundles, and local-only auth bundles.
+- `roles/`: role prompt packages that define agent behavior/policy for a session, plus optional presets.
+- `skills/`: reusable capability modules; each agent selects a subset.
 
-Within `brains/`:
+Within `tools/<tool>/`:
 
-- `tool-adapters/`: per-tool build/launch contract.
-- `skills/`: reusable capabilities; each agent selects a subset.
-- `cli-configs/`: secret-free tool config profiles.
-- `api-creds/`: local-only credential profiles (gitignored).
-- `brain-recipes/`: secret-free presets for tool + skill subset + profiles.
+- `adapter.yaml`: per-tool build/launch contract (executable, env injection, projection rules).
+- `setups/<setup>/`: secret-free config files projected into the runtime home.
+- `auth/<auth>/`: local-only credential bundles (gitignored).
+
+Within `roles/<role>/`:
+
+- `system-prompt.md`: the role prompt package.
+- `presets/<tool>/<setup>.yaml`: path-derived presets that bind a role to a tool + setup + skills.
 
 ```text
 <agent-def-dir>/
-  brains/
-    tool-adapters/                     # REQUIRED: one `<tool>.yaml` per supported tool
-    skills/<skill-name>/SKILL.md       # REQUIRED (per recipe): reusable skill packages
-    cli-configs/<tool>/<profile>/...   # REQUIRED (per recipe): secret-free tool config profiles
-    api-creds/<tool>/<profile>/...     # REQUIRED (per recipe): local-only credential profiles (gitignored)
-    brain-recipes/<tool>/*.yaml        # OPTIONAL: secret-free presets (recommended)
-  roles/<role>/system-prompt.md        # REQUIRED: role prompt packages
-  blueprints/*.yaml                    # OPTIONAL: recipe+role bindings (recommended)
+  tools/
+    <tool>/
+      adapter.yaml                       # REQUIRED: per-tool build & launch contract
+      setups/<setup>/...                  # REQUIRED (per preset): secret-free tool config
+      auth/<auth>/                        # REQUIRED (per preset): local-only credentials (gitignored)
+        env/vars.env
+        files/...
+  roles/
+    <role>/
+      system-prompt.md                   # REQUIRED: role prompt package
+      presets/<tool>/<setup>.yaml         # OPTIONAL: path-derived presets (recommended)
+  skills/
+    <skill>/SKILL.md                     # REQUIRED (per preset): reusable skill packages
 ```
 
-#### `brains/tool-adapters/` (required)
+#### `tools/<tool>/adapter.yaml` (required)
 
 Tool adapters are the per-tool contract between your source tree and the generated runtime home.
 
 - Purpose: define how `build-brain` materializes a runnable home for each tool (`codex`, `claude`, `gemini`).
-- Launch definition: executable, default args, and home selector env var (for example `CODEX_HOME`).
-- Projection rules: where selected `cli-configs/`, `skills/`, and credential files land inside the runtime home.
+- Launch definition: executable, default args, and home selector env var (for example `CLAUDE_CONFIG_DIR`).
+- Projection rules: where selected `setups/`, `skills/`, and credential files land inside the runtime home.
 - Credential env policy: which keys from `env/vars.env` are allowlisted and how they are injected at launch.
 
-For the full adapter model and end-to-end behavior, see [Agents & Brains](docs/reference/agents_brains.md).
+For the full agent definition model, see [Agent Definitions](docs/getting-started/agent-definitions.md).
 
-#### `brains/skills/` (required by recipes)
+#### `skills/` (required by presets)
 
-Skills are reusable capability modules (each with a `SKILL.md` entrypoint) that recipes select from.
+Skills are reusable capability modules (each with a `SKILL.md` entrypoint) that presets select from.
 
 - Purpose: define composable behaviors and workflows that can be mixed per agent.
 - Agent shaping: each agent selects a subset of available skills, and that selected subset is what makes the resulting agent role-specific in practice.
 
-Skill example (`tests/fixtures/agents/brains/skills/openspec-apply-change/SKILL.md`):
+Skill example (`tests/fixtures/agents/skills/openspec-apply-change/SKILL.md`):
 
 ```markdown
 ---
@@ -258,19 +266,19 @@ description: Implement tasks from an OpenSpec change.
 Implement tasks from an OpenSpec change.
 ```
 
-#### `brains/cli-configs/` (required by recipes, secret-free)
+#### `tools/<tool>/setups/<setup>/` (required by presets, secret-free)
 
-Tool-specific config profiles that the builder projects into the constructed runtime home.
+Tool-specific setup bundles that the builder projects into the constructed runtime home.
 
-Codex default profile example (`tests/fixtures/agents/brains/cli-configs/codex/default/config.toml`):
+Codex default setup example (`tests/fixtures/agents/tools/codex/setups/default/config.toml`):
 
 ```toml
-model = "gpt-5.3-codex"
-model_reasoning_effort = "high"
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
 personality = "friendly"
 ```
 
-Claude default profile example (`tests/fixtures/agents/brains/cli-configs/claude/default/settings.json`):
+Claude default setup example (`tests/fixtures/agents/tools/claude/setups/default/settings.json`):
 
 ```json
 {
@@ -278,19 +286,19 @@ Claude default profile example (`tests/fixtures/agents/brains/cli-configs/claude
 }
 ```
 
-#### `brains/api-creds/` (required by recipes, local-only)
+#### `tools/<tool>/auth/<auth>/` (required by presets, local-only)
 
-Credential profiles must stay uncommitted. Use a `files/` directory plus an `env/vars.env` file.
+Auth bundles must stay uncommitted. Use a `files/` directory plus an `env/vars.env` file.
 
 Template layout example:
 
 ```text
-brains/api-creds/codex/personal-a-default/
+tools/codex/auth/personal-a-default/
   files/auth.json
   env/vars.env
 ```
 
-`vars.env` example (`tests/fixtures/agents/brains/api-creds/codex/personal-a-default/env/vars.env`):
+`vars.env` example (`tests/fixtures/agents/tools/codex/auth/personal-a-default/env/vars.env`):
 
 ```bash
 # OPENAI_API_KEY=<unset>
@@ -300,21 +308,19 @@ brains/api-creds/codex/personal-a-default/
 
 Keep real credential files (like `files/auth.json`) local-only and gitignored.
 
-#### `brains/brain-recipes/` (recommended, secret-free)
+#### `roles/<role>/presets/<tool>/<setup>.yaml` (recommended, secret-free)
 
-Recipes are declarative presets selecting tool + skill subset + config profile + credential profile.
+Presets are path-derived: role, tool, and setup identity come from the file path. The preset file only contains data that cannot be derived from its location: skills, optional default auth, optional launch settings, and optional extra metadata.
 
-Example recipe (`tests/fixtures/agents/brains/brain-recipes/codex/gpu-kernel-coder-default.yaml`):
+Example preset (`tests/fixtures/agents/roles/gpu-kernel-coder/presets/claude/default.yaml`):
 
 ```yaml
-schema_version: 1
-name: gpu-kernel-coder-default
-tool: codex
 skills:
-  - openspec-apply-change
-  - openspec-verify-change
-config_profile: default
-credential_profile: personal-a-default
+- openspec-apply-change
+- openspec-verify-change
+auth: personal-a-default
+launch:
+  prompt_mode: unattended
 ```
 
 #### `roles/` (required)
@@ -330,58 +336,36 @@ You are the coding worker in a GPU kernel optimization loop.
 You implement bounded CUDA/C++ changes, run validation, and report reproducible results.
 ```
 
-#### `blueprints/` (recommended, secret-free)
-
-Blueprints bind a brain recipe to a role without embedding credentials.
-
-Example blueprint (`tests/fixtures/agents/blueprints/gpu-kernel-coder.yaml`):
-
-```yaml
-schema_version: 1
-name: gpu-kernel-coder
-brain_recipe: ../brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
-role: gpu-kernel-coder
-```
-
-
 ### 4. Basic Workflow (Local tmux)
 
-Build a brain, start a session, interact, and stop:
+Build a brain and launch a managed agent:
 
 ```bash
-# Build a runtime home from a recipe
-houmao-mgr build-brain \
-  --recipe brains/brain-recipes/codex/gpu-kernel-coder-default.yaml \
-  --runtime-root tmp/agents-runtime
+# Launch a managed agent from a preset (build + start in one command)
+houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code
 
-# Start a managed session (output includes agent-identity)
-houmao-mgr start-session \
-  --brain-manifest <manifest-path-from-build-output> \
-  --role gpu-kernel-coder \
-  --agent-identity my-agent
-
-# Send a prompt and wait for the structured turn result
-houmao-mgr send-prompt \
-  --agent-identity my-agent \
+# Send a prompt
+houmao-mgr agents prompt --agent-name gpu-kernel-coder \
   --prompt "Review the latest commit for security issues"
 
 # Stop and clean up
-houmao-mgr stop-session --agent-identity my-agent
+houmao-mgr agents stop --agent-name gpu-kernel-coder
 ```
 
-The build step outputs JSON with `home_path`, `manifest_path`, and `launch_helper_path`. You can also run the tool manually via `launch_helper_path` inside your own tmux window; managed lifecycle commands require a session started through `houmao-mgr`.
-
-### 5. Blueprint-Driven Preset (Recipe + Role)
+Or build separately and launch:
 
 ```bash
-houmao-mgr build-brain --blueprint blueprints/gpu-kernel-coder.yaml
+# Build a runtime home from a preset
+houmao-mgr brains build \
+  --agent-def-dir tests/fixtures/agents \
+  --preset roles/gpu-kernel-coder/presets/claude/default.yaml
 
-houmao-mgr start-session \
-  --brain-manifest <manifest-path-from-build-output> \
-  --blueprint blueprints/gpu-kernel-coder.yaml
+# The build outputs JSON with home_path, manifest_path, and launch_helper_path.
+# You can run the tool manually via launch_helper_path inside your own tmux window;
+# managed lifecycle commands require a session started through houmao-mgr.
 ```
 
-### 6. Server-Backed Multi-Agent Coordination
+### 5. Server-Backed Multi-Agent Coordination
 
 For multi-agent workflows that need a shared gateway and mailbox, use the `houmao-server` + `houmao-mgr` pair:
 
@@ -403,9 +387,10 @@ See [docs/reference/houmao_server_pair.md](docs/reference/houmao_server_pair.md)
 flowchart TB
     subgraph agentdef ["Agent Definition Directory"]
         adapter["Tool Adapter<br/>(per-tool build & launch rules)"]
-        recipe["Brain Recipe<br/>(tool + skills + profiles)"]
+        preset["Preset<br/>(role + tool + setup + skills)"]
         role["Role<br/>(system prompt package)"]
-        blueprint["Blueprint (optional)<br/>(recipe + role binding)"]
+        setup["Setup Bundle<br/>(secret-free tool config)"]
+        auth["Auth Bundle<br/>(local credentials)"]
     end
 
     subgraph buildphase ["① Build Phase"]
@@ -435,12 +420,12 @@ flowchart TB
     srvpair["houmao-server<br/>(multi-agent coordination)"]
 
     adapter --> builder
-    recipe --> builder
-    blueprint -. "shorthand" .-> builder
+    preset --> builder
+    setup --> builder
+    auth --> builder
 
     artifact --> runtime
     role --> runtime
-    blueprint -. "role ref" .-> runtime
 
     mgrcli --> builder
     mgrcli --> runtime
@@ -462,22 +447,21 @@ sequenceDiagram
     participant Tmux as tmux
     participant Tool as Tool CLI
 
-    Op->>Mgr: build-brain --recipe R
-    Mgr->>Bld: resolve adapter, project<br/>configs, skills, creds
+    Op->>Mgr: agents launch --agents R --provider P
+    Mgr->>Bld: resolve preset, project<br/>setups, skills, auth
     Bld-->>Mgr: manifest_path, home_path
 
-    Op->>Mgr: start-session --brain-manifest M --role R
     Mgr->>Drv: build LaunchPlan
     Drv->>Tmux: create session/window
     Drv->>Tool: exec tool CLI under tmux
 
-    Op->>Mgr: send-prompt --agent-identity A
+    Op->>Mgr: agents prompt --agent-name A
     Mgr->>Drv: submit prompt
     Drv->>Tool: paste prompt into tmux pane
     Tool-->>Drv: (TUI state tracking detects turn completion)
     Drv-->>Mgr: structured turn result
 
-    Op->>Mgr: stop-session --agent-identity A
+    Op->>Mgr: agents stop --agent-name A
     Mgr->>Drv: stop / cleanup
     Drv->>Tmux: kill session
 ```

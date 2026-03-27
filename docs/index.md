@@ -19,8 +19,6 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 
 ### Build Phase
 
-- [Brain Builder](reference/build-phase/brain-builder.md): `BuildRequest` → runtime home → `BuildResult` workflow.
-- [Recipes and Adapters](reference/build-phase/recipes-and-adapters.md): `BrainRecipe` presets and `ToolAdapter` contracts.
 - [Launch Overrides](reference/build-phase/launch-overrides.md): Override system for launch parameters.
 
 ### Run Phase
@@ -43,7 +41,6 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 ### Other Reference
 
 - [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
-- [Brain Builder and Component Library](reference/agents_brains.md): Legacy reference for the component library layout.
 - [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.
 - [Managed Agent API](reference/managed_agent_api.md): Direct agent control API surface.

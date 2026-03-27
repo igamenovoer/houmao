@@ -66,17 +66,17 @@ Required executables:
 Tracked fixture assets:
 
 - role: `scripts/demo/houmao-server-agent-api-demo-pack/agents/roles/server-api-smoke/`
-- recipes and blueprints under `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/brain-recipes/*/server-api-smoke-default.yaml` and `scripts/demo/houmao-server-agent-api-demo-pack/agents/blueprints/server-api-smoke-*.yaml`
+- presets under `scripts/demo/houmao-server-agent-api-demo-pack/agents/roles/server-api-smoke/presets/claude/default.yaml` and `scripts/demo/houmao-server-agent-api-demo-pack/agents/roles/server-api-smoke/presets/codex/default.yaml`
 - copied dummy-project source: `scripts/demo/houmao-server-agent-api-demo-pack/inputs/project-template/`
 
 Credential expectations:
 
-- Claude lanes read the local-only pack profile at `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/api-creds/claude/personal-a-default/env/vars.env` and require `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`.
+- Claude lanes read the local-only auth bundle at `scripts/demo/houmao-server-agent-api-demo-pack/agents/tools/claude/auth/personal-a-default/` and require `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`.
 - Codex lanes run in API-key mode for this suite version and use the tracked `yunwu-openai` fixture pair:
-  `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/cli-configs/codex/yunwu-openai/config.toml`
-  `scripts/demo/houmao-server-agent-api-demo-pack/agents/brains/api-creds/codex/yunwu-openai/env/vars.env`
+  `scripts/demo/houmao-server-agent-api-demo-pack/agents/tools/codex/setups/yunwu-openai/config.toml`
+  `scripts/demo/houmao-server-agent-api-demo-pack/agents/tools/codex/auth/yunwu-openai/env/vars.env`
   The env file must set `OPENAI_API_KEY`. `OPENAI_BASE_URL` and `OPENAI_ORG_ID` remain optional pass-through values when your local profile needs them.
-- The suite injects the selected env vars into the suite-owned `houmao-server` process for TUI lanes and reuses the same local pack credential profiles for headless launch materialization.
+- The suite injects the selected env vars into the suite-owned `houmao-server` process for TUI lanes and reuses the same local pack auth bundles for headless launch materialization.
 
 ## Timeouts
 

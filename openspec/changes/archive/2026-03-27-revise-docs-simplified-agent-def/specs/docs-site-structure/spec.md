@@ -1,9 +1,4 @@
-# docs-site-structure Specification
-
-## Purpose
-Define the documentation requirements for the top-level Houmao docs site structure.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Docs index provides canonical navigation
 
@@ -13,11 +8,6 @@ The `docs/index.md` file SHALL serve as the single entry point for all Houmao do
 
 - **WHEN** a reader opens `docs/index.md`
 - **THEN** they find links to getting-started, reference, and developer sections with one-line descriptions of each subsection
-
-#### Scenario: No CAO or demo references in index
-
-- **WHEN** inspecting `docs/index.md` content
-- **THEN** the file contains zero references to "CAO" as a primary workflow, zero references to `scripts/demo/`, and zero references to migration guides
 
 #### Scenario: No references to deleted pages in index
 

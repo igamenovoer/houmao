@@ -17,8 +17,6 @@
 
 ## Build Phase
 
-- [Brain Builder](build-phase/brain-builder.md): Build a brain home from recipe or direct inputs.
-- [Recipes and Adapters](build-phase/recipes-and-adapters.md): Declarative presets and per-tool contracts.
 - [Launch Overrides](build-phase/launch-overrides.md): Override system for launch parameters.
 
 ## Run Phase
@@ -47,7 +45,7 @@
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
 - [Managed-Agent API](managed_agent_api.md): Direct agent control API surface.
-- [Agents And Brains](agents_brains.md): Component library layout.
+
 - [Realm Controller Send-Keys](realm_controller_send_keys.md): Raw tmux send-keys control.
 - [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md): Server agent API validation.
 
