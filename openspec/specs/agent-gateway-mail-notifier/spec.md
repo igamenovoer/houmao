@@ -28,6 +28,8 @@ The gateway SHALL continue using the manifest as the durable mailbox capability 
 
 For tmux-backed sessions, live mailbox actionability SHALL be evaluated from the current targeted `AGENTSYS_MAILBOX_*` projection published in the owning tmux session environment rather than from the provider process's inherited launch-time env snapshot.
 
+For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable relaunch posture as an additional readiness precondition once durable mailbox capability and live mailbox actionability are both satisfied.
+
 If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
 
 If the manifest exposes durable mailbox capability but the current live mailbox projection is unavailable, incomplete, or fails transport-specific validation for actionable mailbox work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
@@ -57,6 +59,13 @@ If the manifest exposes durable mailbox capability but the current live mailbox 
 - **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
 - **THEN** the gateway treats notifier support as available for that session without requiring provider relaunch solely to refresh inherited process env
 - **AND THEN** notifier enablement may proceed using that durable-plus-live mailbox contract
+
+#### Scenario: Joined tmux session without relaunch posture becomes notifier-ready after late registration
+- **WHEN** a joined tmux-backed managed session has a durable mailbox binding in its manifest
+- **AND WHEN** that joined session's relaunch posture is unavailable
+- **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
+- **THEN** the gateway treats notifier support as available for that joined session
+- **AND THEN** notifier enablement may proceed without requiring joined-session relaunch posture
 
 #### Scenario: Durable mailbox presence without live mailbox actionability rejects notifier enablement
 - **WHEN** a tmux-backed managed session has a durable mailbox binding in its manifest
