@@ -191,7 +191,7 @@ def _mail_prompt_instruction_lines(
     ]
     if prefer_live_gateway:
         lines.append(
-            "Prefer the live gateway mailbox facade exposed through the attached gateway env vars and `/v1/mail/*` routes for shared mailbox operations."
+            "Prefer the live gateway mailbox facade for shared mailbox operations, and obtain the exact `/v1/mail/*` endpoint from the `gateway.base_url` returned by the runtime-owned `resolve-live` helper."
         )
 
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):

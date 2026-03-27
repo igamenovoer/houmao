@@ -12,7 +12,7 @@ from pathlib import Path
 import os
 import re
 import sys
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Mapping, cast
 
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import (
@@ -28,6 +28,22 @@ from houmao.mailbox.stalwart import (
     materialize_stalwart_session_credential,
 )
 from houmao.owned_paths import resolve_mailbox_root
+from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
+from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
+from houmao.agents.realm_controller.gateway_models import (
+    GATEWAY_PROTOCOL_VERSION,
+    GatewayCurrentInstanceV1,
+    GatewayHost,
+    GatewayProtocolVersion,
+)
+from houmao.agents.realm_controller.gateway_storage import (
+    AGENT_GATEWAY_HOST_ENV_VAR,
+    AGENT_GATEWAY_PORT_ENV_VAR,
+    AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    AGENT_GATEWAY_STATE_PATH_ENV_VAR,
+    gateway_paths_from_manifest_path,
+    load_gateway_current_instance,
+)
 
 from .mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
@@ -79,6 +95,42 @@ _MAILBOX_EMAIL_ENV_VARS = (
     "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
 MailboxBindingSource = Literal["tmux_session_env", "process_env"]
+ResolveLiveSource = Literal["auto", "tmux_session_env", "process_env"]
+LiveGatewayBindingSource = Literal[
+    "process_env",
+    "tmux_session_env",
+    "current_instance_record",
+]
+ResolveLiveGatewaySource = Literal[
+    "auto",
+    "process_env",
+    "tmux_session_env",
+    "current_instance_record",
+]
+
+
+@dataclass(frozen=True)
+class LiveGatewayBindingResolution:
+    """Validated live gateway endpoint surfaced through the mailbox resolver."""
+
+    host: GatewayHost
+    port: int
+    base_url: str
+    state_path: Path
+    protocol_version: GatewayProtocolVersion
+    source: LiveGatewayBindingSource
+
+    def payload(self) -> dict[str, Any]:
+        """Return a JSON-safe gateway payload."""
+
+        return {
+            "source": self.source,
+            "host": self.host,
+            "port": self.port,
+            "base_url": self.base_url,
+            "protocol_version": self.protocol_version,
+            "state_path": str(self.state_path.resolve()),
+        }
 
 
 @dataclass(frozen=True)
@@ -88,6 +140,7 @@ class LiveMailboxBindingResolution:
     mailbox: MailboxResolvedConfig
     source: MailboxBindingSource
     env_bindings: dict[str, str]
+    gateway: LiveGatewayBindingResolution | None = None
 
     def payload(self) -> dict[str, Any]:
         """Return a JSON-safe payload for helper and diagnostic surfaces."""
@@ -103,6 +156,7 @@ class LiveMailboxBindingResolution:
             "bindings_version": self.mailbox.bindings_version,
             "mailbox": mailbox_payload,
             "env": dict(self.env_bindings),
+            "gateway": self.gateway.payload() if self.gateway is not None else None,
         }
 
 
@@ -509,38 +563,121 @@ def resolve_live_mailbox_binding(
 def resolve_live_mailbox_binding_from_manifest_path(
     *,
     manifest_path: Path,
-    source: MailboxBindingSource = "tmux_session_env",
-    env_reader: Callable[[str], str | None] | None = None,
+    source: ResolveLiveSource = "auto",
+    process_env_reader: Callable[[str], str | None] | None = None,
+    tmux_env_reader: Callable[[str], str | None] | None = None,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None = None,
+    gateway_source: ResolveLiveGatewaySource | None = None,
 ) -> LiveMailboxBindingResolution:
     """Resolve one live mailbox binding starting from a runtime-owned manifest path."""
-
-    from houmao.agents.realm_controller.manifest import (
-        load_session_manifest,
-        parse_session_manifest_payload,
-    )
-    from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
-
-    handle = load_session_manifest(manifest_path.resolve())
-    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    durable_mailbox = resolved_mailbox_config_from_payload(
-        payload.launch_plan.mailbox,
-        manifest_path=handle.path,
-    )
-    if durable_mailbox is None:
-        raise ValueError(
-            "runtime-owned session manifest launch plan has no mailbox binding; live mailbox "
-            "resolution is unavailable"
-        )
-    authority = resolve_manifest_session_authority(
-        manifest_path=handle.path,
-        payload=payload,
-    )
-    return resolve_live_mailbox_binding(
+    handle, durable_mailbox, tmux_session_name = _load_live_mailbox_manifest_context(manifest_path)
+    mailbox_resolution = _resolve_live_mailbox_binding_with_fallbacks(
         durable_mailbox=durable_mailbox,
-        tmux_session_name=authority.tmux_session_name,
+        tmux_session_name=tmux_session_name,
         source=source,
-        env_reader=env_reader,
+        process_env_reader=process_env_reader,
+        tmux_env_reader=tmux_env_reader,
     )
+    resolved_gateway = resolve_live_gateway_binding_from_manifest_path(
+        manifest_path=handle.path,
+        tmux_session_name=tmux_session_name,
+        source=(
+            gateway_source
+            if gateway_source is not None
+            else cast(ResolveLiveGatewaySource, source)
+        ),
+        process_env_reader=process_env_reader,
+        tmux_env_reader=tmux_env_reader,
+        gateway_client_factory=gateway_client_factory,
+    )
+    return LiveMailboxBindingResolution(
+        mailbox=mailbox_resolution.mailbox,
+        source=mailbox_resolution.source,
+        env_bindings=mailbox_resolution.env_bindings,
+        gateway=resolved_gateway,
+    )
+
+
+def resolve_live_mailbox_binding_from_agent_identity(
+    *,
+    agent_identity: str,
+    source: ResolveLiveSource = "auto",
+    env: Mapping[str, str] | None = None,
+    now: datetime | None = None,
+    process_env_reader: Callable[[str], str | None] | None = None,
+    tmux_env_reader: Callable[[str], str | None] | None = None,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None = None,
+) -> LiveMailboxBindingResolution:
+    """Resolve one live mailbox binding through shared-registry manifest discovery."""
+
+    manifest_path = _resolve_manifest_path_from_agent_identity(
+        agent_identity=agent_identity,
+        env=env,
+        now=now,
+    )
+    return resolve_live_mailbox_binding_from_manifest_path(
+        manifest_path=manifest_path,
+        source=source,
+        process_env_reader=process_env_reader,
+        tmux_env_reader=tmux_env_reader,
+        gateway_client_factory=gateway_client_factory,
+        gateway_source="current_instance_record",
+    )
+
+
+def resolve_live_gateway_binding_from_manifest_path(
+    *,
+    manifest_path: Path,
+    tmux_session_name: str | None,
+    source: ResolveLiveGatewaySource = "auto",
+    process_env_reader: Callable[[str], str | None] | None = None,
+    tmux_env_reader: Callable[[str], str | None] | None = None,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None = None,
+) -> LiveGatewayBindingResolution | None:
+    """Resolve an attached live gateway endpoint from one runtime-owned manifest path."""
+
+    paths = gateway_paths_from_manifest_path(manifest_path.resolve())
+    if paths is None:
+        return None
+    current_instance = _load_optional_gateway_current_instance(paths.current_instance_path)
+    if current_instance is None:
+        return None
+
+    sources: tuple[ResolveLiveGatewaySource, ...]
+    if source == "auto":
+        sources = ("process_env", "tmux_session_env")
+    else:
+        sources = (source,)
+    for candidate_source in sources:
+        if candidate_source == "current_instance_record":
+            return _resolve_gateway_from_current_instance_record(
+                current_instance=current_instance,
+                state_path=paths.state_path,
+                gateway_client_factory=gateway_client_factory,
+            )
+        if candidate_source == "process_env":
+            resolved = _resolve_gateway_from_env_reader(
+                source="process_env",
+                env_reader=process_env_reader or _optional_env,
+                current_instance=current_instance,
+                state_path=paths.state_path,
+                gateway_client_factory=gateway_client_factory,
+            )
+            if resolved is not None:
+                return resolved
+            continue
+        if tmux_session_name is None or not tmux_session_name.strip():
+            continue
+        resolved = _resolve_gateway_from_env_reader(
+            source="tmux_session_env",
+            env_reader=tmux_env_reader or _tmux_mailbox_env_reader(tmux_session_name.strip()),
+            current_instance=current_instance,
+            state_path=paths.state_path,
+            gateway_client_factory=gateway_client_factory,
+        )
+        if resolved is not None:
+            return resolved
+    return None
 
 
 def publish_tmux_live_mailbox_projection(
@@ -769,6 +906,278 @@ def _tmux_mailbox_env_reader(session_name: str) -> Callable[[str], str | None]:
     return _reader
 
 
+def _load_live_mailbox_manifest_context(
+    manifest_path: Path,
+) -> tuple[Any, MailboxResolvedConfig, str | None]:
+    """Load manifest-backed mailbox config and tmux session authority."""
+
+    from houmao.agents.realm_controller.manifest import (
+        load_session_manifest,
+        parse_session_manifest_payload,
+    )
+    from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
+
+    handle = load_session_manifest(manifest_path.resolve())
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    durable_mailbox = resolved_mailbox_config_from_payload(
+        payload.launch_plan.mailbox,
+        manifest_path=handle.path,
+    )
+    if durable_mailbox is None:
+        raise ValueError(
+            "runtime-owned session manifest launch plan has no mailbox binding; live mailbox "
+            "resolution is unavailable"
+        )
+    authority = resolve_manifest_session_authority(
+        manifest_path=handle.path,
+        payload=payload,
+    )
+    return handle, durable_mailbox, authority.tmux_session_name
+
+
+def _resolve_live_mailbox_binding_with_fallbacks(
+    *,
+    durable_mailbox: MailboxResolvedConfig,
+    tmux_session_name: str | None,
+    source: ResolveLiveSource,
+    process_env_reader: Callable[[str], str | None] | None,
+    tmux_env_reader: Callable[[str], str | None] | None,
+) -> LiveMailboxBindingResolution:
+    """Resolve live mailbox bindings with the runtime-owned same-session order."""
+
+    if source == "process_env":
+        return resolve_live_mailbox_binding(
+            durable_mailbox=durable_mailbox,
+            source="process_env",
+            env_reader=process_env_reader or _optional_env,
+        )
+    if source == "tmux_session_env":
+        return resolve_live_mailbox_binding(
+            durable_mailbox=durable_mailbox,
+            tmux_session_name=tmux_session_name,
+            source="tmux_session_env",
+            env_reader=(
+                tmux_env_reader
+                or (
+                    _tmux_mailbox_env_reader(tmux_session_name.strip())
+                    if tmux_session_name is not None and tmux_session_name.strip()
+                    else None
+                )
+            ),
+        )
+
+    process_error: ValueError | None = None
+    try:
+        return resolve_live_mailbox_binding(
+            durable_mailbox=durable_mailbox,
+            source="process_env",
+            env_reader=process_env_reader or _optional_env,
+        )
+    except ValueError as exc:
+        process_error = exc
+
+    try:
+        return resolve_live_mailbox_binding(
+            durable_mailbox=durable_mailbox,
+            tmux_session_name=tmux_session_name,
+            source="tmux_session_env",
+            env_reader=(
+                tmux_env_reader
+                or (
+                    _tmux_mailbox_env_reader(tmux_session_name.strip())
+                    if tmux_session_name is not None and tmux_session_name.strip()
+                    else None
+                )
+            ),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "current live mailbox projection could not be resolved automatically: "
+            f"process_env failed with {process_error}; "
+            f"tmux_session_env failed with {exc}"
+        ) from exc
+
+
+def _load_optional_gateway_current_instance(path: Path) -> GatewayCurrentInstanceV1 | None:
+    """Load the live gateway current-instance record when available."""
+
+    try:
+        return load_gateway_current_instance(path)
+    except SessionManifestError:
+        return None
+
+
+def _resolve_gateway_from_current_instance_record(
+    *,
+    current_instance: GatewayCurrentInstanceV1,
+    state_path: Path,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None,
+) -> LiveGatewayBindingResolution | None:
+    """Resolve and validate the authoritative current-instance gateway record."""
+
+    try:
+        return _validate_live_gateway_binding(
+            source="current_instance_record",
+            host=current_instance.host,
+            port=current_instance.port,
+            protocol_version=current_instance.protocol_version,
+            state_path=state_path,
+            expected_state_path=state_path,
+            current_instance=current_instance,
+            gateway_client_factory=gateway_client_factory,
+        )
+    except ValueError:
+        return None
+
+
+def _resolve_gateway_from_env_reader(
+    *,
+    source: Literal["process_env", "tmux_session_env"],
+    env_reader: Callable[[str], str | None],
+    current_instance: GatewayCurrentInstanceV1,
+    state_path: Path,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None,
+) -> LiveGatewayBindingResolution | None:
+    """Resolve a live gateway endpoint candidate from one env source."""
+
+    env_bindings = _read_optional_gateway_env_bindings(env_reader=env_reader)
+    if env_bindings is None:
+        return None
+    try:
+        return _validate_live_gateway_binding(
+            source=source,
+            host=cast(GatewayHost, env_bindings[AGENT_GATEWAY_HOST_ENV_VAR]),
+            port=int(env_bindings[AGENT_GATEWAY_PORT_ENV_VAR]),
+            protocol_version=cast(
+                GatewayProtocolVersion,
+                env_bindings[AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR],
+            ),
+            state_path=Path(env_bindings[AGENT_GATEWAY_STATE_PATH_ENV_VAR]),
+            expected_state_path=state_path,
+            current_instance=current_instance,
+            gateway_client_factory=gateway_client_factory,
+        )
+    except (ValueError, TypeError):
+        return None
+
+
+def _read_optional_gateway_env_bindings(
+    *,
+    env_reader: Callable[[str], str | None],
+) -> dict[str, str] | None:
+    """Read live gateway env vars when a complete set is available."""
+
+    env_bindings: dict[str, str] = {}
+    for variable_name in (
+        AGENT_GATEWAY_HOST_ENV_VAR,
+        AGENT_GATEWAY_PORT_ENV_VAR,
+        AGENT_GATEWAY_STATE_PATH_ENV_VAR,
+        AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    ):
+        try:
+            raw = env_reader(variable_name)
+        except Exception:  # noqa: BLE001
+            return None
+        value = _normalize_optional_value(raw)
+        if value is None:
+            return None
+        env_bindings[variable_name] = value
+    return env_bindings
+
+
+def _validate_live_gateway_binding(
+    *,
+    source: LiveGatewayBindingSource,
+    host: GatewayHost,
+    port: int,
+    protocol_version: GatewayProtocolVersion,
+    state_path: Path,
+    expected_state_path: Path,
+    current_instance: GatewayCurrentInstanceV1,
+    gateway_client_factory: Callable[[GatewayEndpoint], Any] | None,
+) -> LiveGatewayBindingResolution:
+    """Validate one live gateway endpoint structurally and via `/health`."""
+
+    if host not in {"127.0.0.1", "0.0.0.0"}:
+        raise ValueError(f"unsupported gateway host {host!r}")
+    if port < 1 or port > 65535:
+        raise ValueError(f"unsupported gateway port {port!r}")
+    if protocol_version != GATEWAY_PROTOCOL_VERSION:
+        raise ValueError(
+            f"unsupported gateway protocol {protocol_version!r}; expected {GATEWAY_PROTOCOL_VERSION!r}"
+        )
+    if current_instance.protocol_version != GATEWAY_PROTOCOL_VERSION:
+        raise ValueError(
+            "gateway current-instance record published an incompatible protocol version "
+            f"{current_instance.protocol_version!r}"
+        )
+    if current_instance.host != host or current_instance.port != port:
+        raise ValueError(
+            "gateway binding does not match the authoritative current-instance record"
+        )
+    if not state_path.is_absolute() or state_path.resolve() != expected_state_path.resolve():
+        raise ValueError("gateway state_path does not match the runtime-owned gateway state path")
+
+    endpoint = GatewayEndpoint(host=host, port=port)
+    client = (
+        gateway_client_factory(endpoint)
+        if gateway_client_factory is not None
+        else GatewayClient(endpoint=endpoint)
+    )
+    try:
+        health = client.health()
+    except GatewayHttpError as exc:
+        raise ValueError("gateway health probe failed") from exc
+    if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
+        raise ValueError(
+            f"gateway health reported incompatible protocol {health.protocol_version!r}"
+        )
+    return LiveGatewayBindingResolution(
+        host=host,
+        port=port,
+        base_url=f"http://{host}:{port}",
+        state_path=state_path.resolve(),
+        protocol_version=protocol_version,
+        source=source,
+    )
+
+
+def _resolve_manifest_path_from_agent_identity(
+    *,
+    agent_identity: str,
+    env: Mapping[str, str] | None,
+    now: datetime | None,
+) -> Path:
+    """Resolve a runtime-owned manifest path through the shared live-agent registry."""
+
+    from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+
+    record = resolve_live_agent_record(
+        agent_identity,
+        env=env,
+        now=now,
+    )
+    if record is None:
+        raise ValueError(
+            f"resolve-live could not find a fresh shared-registry record for `{agent_identity}`"
+        )
+    manifest_path = Path(record.runtime.manifest_path).expanduser()
+    if not manifest_path.is_absolute():
+        raise ValueError(
+            f"shared-registry manifest path for `{agent_identity}` is not absolute: {manifest_path}"
+        )
+    return manifest_path.resolve()
+
+
+def _normalize_optional_value(value: str | None) -> str | None:
+    """Normalize env-reader output to stripped non-empty strings."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _read_live_mailbox_env_bindings(
     *,
     durable_mailbox: MailboxResolvedConfig,
@@ -900,23 +1309,34 @@ def _resolve_live_manifest_path(value: str | None) -> Path:
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m houmao.agents.mailbox_runtime_support",
-        description="Resolve runtime-owned live mailbox bindings for the current managed session.",
+        description=(
+            "Resolve runtime-owned live mailbox bindings and the optional attached gateway "
+            "mail-facade endpoint for a managed session."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     resolve_live = subparsers.add_parser(
         "resolve-live",
-        help="Resolve the current live mailbox bindings and print JSON.",
+        help="Resolve current live mailbox bindings and optional gateway endpoint as JSON.",
     )
-    resolve_live.add_argument(
+    target_group = resolve_live.add_mutually_exclusive_group()
+    target_group.add_argument(
         "--manifest-path",
         help="Absolute runtime-owned session manifest path. Defaults to AGENTSYS_MANIFEST_PATH.",
     )
+    target_group.add_argument(
+        "--agent-identity",
+        help="Agent id or unique agent name resolved through the shared live-agent registry.",
+    )
     resolve_live.add_argument(
         "--source",
-        choices=("tmux_session_env", "process_env"),
-        default="tmux_session_env",
-        help="Live mailbox binding source to inspect.",
+        choices=("auto", "tmux_session_env", "process_env"),
+        default="auto",
+        help=(
+            "Mailbox discovery source. `auto` prefers current process env and falls back to "
+            "the owning tmux session env."
+        ),
     )
     return parser
 
@@ -928,10 +1348,16 @@ def _run_cli(argv: list[str] | None = None) -> int:
         parser.error(f"unsupported command: {args.command}")
 
     try:
-        resolution = resolve_live_mailbox_binding_from_manifest_path(
-            manifest_path=_resolve_live_manifest_path(args.manifest_path),
-            source=cast(MailboxBindingSource, args.source),
-        )
+        if args.agent_identity:
+            resolution = resolve_live_mailbox_binding_from_agent_identity(
+                agent_identity=args.agent_identity,
+                source=cast(ResolveLiveSource, args.source),
+            )
+        else:
+            resolution = resolve_live_mailbox_binding_from_manifest_path(
+                manifest_path=_resolve_live_manifest_path(args.manifest_path),
+                source=cast(ResolveLiveSource, args.source),
+            )
     except Exception as exc:  # noqa: BLE001
         print(str(exc), file=sys.stderr)
         return 2

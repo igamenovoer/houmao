@@ -580,6 +580,7 @@ Current rules:
 - same-session mode must never record `tmux_window_index = "0"`
 - for pair-managed `houmao_server_rest`, the recorded tmux handle is the authoritative live gateway surface for attach, detach, cleanup, and auxiliary-window recreation
 - non-zero tmux windows remain non-contractual by convention; callers should rely on the recorded current-instance handle rather than window naming heuristics
+- once the session root is known, `run/current-instance.json` is also the authoritative local live-gateway record used by runtime-owned cross-session endpoint discovery
 
 ## Durable And Ephemeral Gateway Artifacts
 
@@ -629,6 +630,8 @@ That log is the stable tail-watch surface for the running gateway. Request lifec
 - `state.json` exists even before the first live attach.
 - Offline status must omit live `gateway_host` and `gateway_port`.
 - The gateway client connects to `127.0.0.1` even when the published host is `0.0.0.0`, because `0.0.0.0` is a bind address, not a connect address.
+- The session manifest remains stable authority and must not persist live gateway host or port.
+- Shared-registry gateway metadata is locator metadata only; runtime-owned discovery recovers `runtime.manifest_path`, derives the session root, and then validates the live endpoint against `run/current-instance.json` plus `/health`.
 
 ## Source References
 

@@ -12,6 +12,7 @@ The runtime is the authority for mailbox attachment to a session.
 - For tmux-backed managed sessions, the runtime also publishes the targeted `AGENTSYS_MAILBOX_*` keys into tmux session environment as the live mailbox projection for later mailbox work.
 - The runtime projects the mailbox system skill into the built brain home under the visible `skills/mailbox/...` mailbox subtree.
 - Later `mail` commands and projected mailbox skills resolve current mailbox bindings through the runtime-owned helper `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` rather than assuming the provider process's inherited mailbox env snapshot is still current.
+- That same helper is also the runtime-owned discovery path for the attached shared-mailbox gateway facade: when a valid live gateway is attached it returns a `gateway` object with `base_url`, `host`, `port`, `protocol_version`, and `state_path`; otherwise it returns `gateway: null`.
 
 ## Declarative And Resolved Config
 
@@ -73,8 +74,8 @@ Email-transport env vars:
 
 Important rules:
 
-- For tmux-backed managed sessions, treat tmux session environment as the authoritative live mailbox projection and treat inherited process env only as a launch-time snapshot.
-- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work. That helper reads the targeted mailbox keys from the owning tmux session and returns normalized current bindings.
+- For tmux-backed managed sessions, treat the manifest as durable authority, treat tmux session environment as the authoritative live mailbox publication, and treat inherited process env only as a launch-time snapshot unless the runtime-owned resolver validates it as still current.
+- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work. That helper prefers current process env, falls back to the owning tmux session env, and returns normalized current bindings plus optional live gateway endpoint data for attached `/v1/mail/*` work.
 - Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative.
 - `AGENTSYS_MAILBOX_FS_SQLITE_PATH` remains the shared mailbox-root `index.sqlite` catalog.
 - `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` resolves the current mailbox-view directory for the addressed mailbox.
@@ -103,7 +104,7 @@ The runtime projects one transport-specific mailbox skill into the brain home du
 Shared runtime rules:
 
 - require the runtime-owned live mailbox binding resolver for tmux-backed sessions,
-- prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached,
+- prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when the resolver returns a live `gateway.base_url`,
 - treat `message_ref` as the shared reply target contract,
 - keep ordinary attached-session mailbox work on the shared gateway routines for `check`, `send`, `reply`, and `POST /v1/mail/state`,
 - only mark a message read after successful processing.

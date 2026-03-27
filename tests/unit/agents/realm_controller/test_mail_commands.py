@@ -75,12 +75,15 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
         launch_plan=launch_plan,
         operation="check",
         args={"unread_only": True, "limit": 5},
+        prefer_live_gateway=True,
     )
 
     assert prompt_request.operation == "check"
     assert "`email-via-filesystem`" in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
     assert "resolve-live" in prompt_request.prompt
+    assert "gateway.base_url" in prompt_request.prompt
+    assert "attached gateway env vars" not in prompt_request.prompt
     assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
     assert '"operation": "check"' in prompt_request.prompt
 
