@@ -9,7 +9,6 @@ import pytest
 
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.boundary_models import SessionManifestAgentLaunchAuthorityV1
-from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -645,9 +644,11 @@ def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
     )
 
 
-def test_late_mailbox_registration_rejects_joined_sessions_without_relaunch_posture(
+def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="local_interactive",
@@ -662,10 +663,62 @@ def test_late_mailbox_registration_rejects_joined_sessions_without_relaunch_post
         posture_kind="unavailable",
     )
 
-    assert controller.mailbox_activation_state() == "unsupported_joined_session"
-    with pytest.raises(SessionManifestError, match="Late mailbox registration is unavailable"):
-        controller.register_filesystem_mailbox(
-            mailbox_root=tmp_path / "shared-mail",
-            principal_id="AGENTSYS-research",
-            address="AGENTSYS-research@agents.localhost",
-        )
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=tmp_path / "shared-mail",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+    )
+
+    assert result.activation_state == "active"
+    assert controller.mailbox_activation_state() == "active"
+    assert controller.launch_plan.mailbox is not None
+    assert (
+        session_envs["AGENTSYS-research"]["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
+        == controller.launch_plan.mailbox.bindings_version
+    )
+    assert controller.agent_launch_authority is not None
+    assert controller.agent_launch_authority.posture_kind == "unavailable"
+
+
+def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_posture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    existing_mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root=(tmp_path / "shared-mail").resolve(),
+        bindings_version="2026-03-26T00:00:00.000001Z",
+    )
+    bootstrap_filesystem_mailbox(
+        existing_mailbox.filesystem_root,
+        principal=MailboxPrincipal(
+            principal_id=existing_mailbox.principal_id,
+            address=existing_mailbox.address,
+        ),
+    )
+    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
+    session_envs["AGENTSYS-research"] = mailbox_env_bindings(existing_mailbox)
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="local_interactive",
+        mailbox=existing_mailbox,
+    )
+    controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
+        backend="local_interactive",
+        tool="codex",
+        tmux_session_name="AGENTSYS-research",
+        working_directory=str(tmp_path),
+        session_origin="joined_tmux",
+        posture_kind="unavailable",
+    )
+
+    result = controller.unregister_filesystem_mailbox()
+
+    assert result.activation_state == "active"
+    assert controller.launch_plan.mailbox is None
+    assert controller.mailbox_activation_state() is None
+    assert session_envs["AGENTSYS-research"] == {}
+    assert controller.agent_launch_authority is not None
+    assert controller.agent_launch_authority.posture_kind == "unavailable"

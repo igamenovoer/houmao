@@ -661,12 +661,15 @@ def register_mailbox_binding(
     """Register one late filesystem mailbox binding for a local managed agent."""
 
     controller = _require_local_filesystem_mailbox_target(target, operation="register")
-    result = controller.register_filesystem_mailbox(
-        mailbox_root=mailbox_root,
-        principal_id=principal_id,
-        address=address,
-        mode=cast(Any, mode),
-    )
+    try:
+        result = controller.register_filesystem_mailbox(
+            mailbox_root=mailbox_root,
+            principal_id=principal_id,
+            address=address,
+            mode=cast(Any, mode),
+        )
+    except SessionManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
     mailbox = result.mailbox
     assert mailbox is not None
     return {
@@ -701,7 +704,10 @@ def unregister_mailbox_binding(
             "`houmao-mgr agents mailbox ...` only supports filesystem mailbox bindings in v1."
         )
 
-    result = controller.unregister_filesystem_mailbox(mode=cast(Any, mode))
+    try:
+        result = controller.unregister_filesystem_mailbox(mode=cast(Any, mode))
+    except SessionManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
     return {
         "schema_version": 1,
         "tracked_agent_id": target.identity.tracked_agent_id,
@@ -725,12 +731,6 @@ def mail_status(target: ManagedAgentTarget) -> object:
         return pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
 
     assert target.controller is not None
-    activation_state = target.controller.mailbox_activation_state()
-    if activation_state == "unsupported_joined_session":
-        raise click.ClickException(
-            "Target session cannot activate late mailbox support because joined-session relaunch "
-            "authority is unavailable."
-        )
     try:
         mailbox = ensure_mailbox_command_ready(
             target.controller.launch_plan,
@@ -1744,12 +1744,6 @@ def _run_local_mail_prompt(
 ) -> dict[str, Any]:
     """Run one local mailbox operation through the runtime-owned mail prompt path."""
 
-    activation_state = controller.mailbox_activation_state()
-    if activation_state == "unsupported_joined_session":
-        raise click.ClickException(
-            "Target session cannot activate late mailbox support because joined-session relaunch "
-            "authority is unavailable."
-        )
     try:
         mailbox = ensure_mailbox_command_ready(
             controller.launch_plan,
