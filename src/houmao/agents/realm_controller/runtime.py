@@ -95,6 +95,8 @@ from .gateway_models import (
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -839,6 +841,19 @@ class RuntimeSessionController:
                 kind="submit_prompt",
                 payload=GatewayRequestPayloadSubmitPromptV1(prompt=prompt),
             ),
+        )
+
+    def control_prompt_via_gateway(
+        self,
+        prompt: str,
+        *,
+        force: bool = False,
+    ) -> GatewayPromptControlResultV1:
+        """Submit one prompt through the live gateway direct-control path."""
+
+        return _submit_gateway_prompt_control_for_controller(
+            self,
+            GatewayPromptControlRequestV1(prompt=prompt, force=force),
         )
 
     def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:
@@ -2296,6 +2311,7 @@ def _apply_mailbox_live_state_after_mutation(
     del previous_launch_plan, backend
     return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
 
+
 def _mailbox_mutation_activation_state(
     *,
     controller: RuntimeSessionController,
@@ -3551,6 +3567,17 @@ def _submit_gateway_request_for_controller(
     paths = _require_gateway_paths_for_controller(controller)
     client = _validated_gateway_client_for_controller(controller, paths=paths)
     return client.create_request(request_payload)
+
+
+def _submit_gateway_prompt_control_for_controller(
+    controller: RuntimeSessionController,
+    request_payload: GatewayPromptControlRequestV1,
+) -> GatewayPromptControlResultV1:
+    """Submit one direct prompt-control request through the live gateway client."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    client = _validated_gateway_client_for_controller(controller, paths=paths)
+    return client.control_prompt(request_payload)
 
 
 def _validated_gateway_client_for_controller(

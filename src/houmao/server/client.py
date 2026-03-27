@@ -37,6 +37,8 @@ from .models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -426,6 +428,21 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             f"/houmao/agents/{escaped}/gateway/requests",
             HoumaoManagedAgentGatewayRequestAcceptedResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/prompt",
+            HoumaoManagedAgentGatewayPromptControlResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 

@@ -38,6 +38,8 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -262,6 +264,21 @@ class PassiveServerClient(HoumaoServerClient):
             json_body=request_model.model_dump(mode="json"),
         )
 
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Call passive gateway direct prompt control for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/prompt",
+            HoumaoManagedAgentGatewayPromptControlResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
     def send_managed_agent_gateway_control_input(
         self,
         agent_ref: str,
@@ -388,7 +405,9 @@ class PassiveServerClient(HoumaoServerClient):
             "POST",
             f"/houmao/agents/{escaped}/turns",
             PassiveHeadlessTurnAcceptedResponse,
-            json_body=PassiveHeadlessTurnRequest(prompt=request_model.prompt).model_dump(mode="json"),
+            json_body=PassiveHeadlessTurnRequest(prompt=request_model.prompt).model_dump(
+                mode="json"
+            ),
         )
         return HoumaoHeadlessTurnAcceptedResponse(
             success=True,

@@ -26,6 +26,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
 )
@@ -798,6 +800,14 @@ class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
 
 class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):
     """Accepted response for `POST /houmao/agents/{agent_ref}/gateway/requests`."""
+
+
+class HoumaoManagedAgentGatewayPromptControlRequest(GatewayPromptControlRequestV1):
+    """Direct prompt-control request for `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
+
+
+class HoumaoManagedAgentGatewayPromptControlResponse(GatewayPromptControlResultV1):
+    """Success response for `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
 
 
 class HoumaoManagedAgentMailStatusResponse(GatewayMailStatusV1):

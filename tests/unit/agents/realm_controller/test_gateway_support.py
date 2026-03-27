@@ -37,6 +37,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
+    GatewayPromptControlRequestV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -1033,6 +1034,291 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         runtime.shutdown()
 
     assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
+
+
+def test_gateway_service_routes_local_interactive_prompt_through_direct_control_when_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "action": "submit_prompt",
+            "detail": "Prompt dispatched.",
+            "forced": False,
+            "sent": True,
+            "status": "ok",
+        }
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == [("hello", None)]
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
+
+
+def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _busy_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _busy_state)
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == "not_ready"
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == []
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
+
+
+def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _busy_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _busy_state)
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello", force=True).model_dump(mode="json"),
+        )
+        assert response.status_code == 200
+        assert response.json()["forced"] is True
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == [("hello", None)]
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
+
+
+def test_gateway_service_rejects_unsupported_backend_for_direct_prompt_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="AGENTSYS-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "AGENTSYS-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        runtime.m_attach_contract.backend = "codex_app_server"  # type: ignore[assignment]
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 501
+        assert response.json()["detail"]["error_code"] == "unsupported_backend"
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_service_rejects_overlapping_local_headless_direct_prompt_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_headless_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(block_prompt=True)
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda **_kwargs: True,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        first_response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert first_response.status_code == 200
+        assert fake_session.started_event.wait(timeout=2.0)
+
+        second_response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="again").model_dump(mode="json"),
+        )
+        assert second_response.status_code == 409
+        assert second_response.json()["detail"]["error_code"] == "not_ready"
+    finally:
+        fake_session.release_event.set()
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls[0][0] == "hello"
 
 
 def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(

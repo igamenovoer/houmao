@@ -56,6 +56,7 @@ GATEWAY_STATE_SCHEMA_VERSION = 1
 GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
+GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 
@@ -576,6 +577,70 @@ class GatewayControlInputResultV1(_StrictGatewayModel):
     @classmethod
     def _detail_not_blank(cls, value: str) -> str:
         """Validate the successful control-input detail string."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayPromptControlRequestV1(_StrictGatewayModel):
+    """`POST /v1/control/prompt` request body."""
+
+    schema_version: int = Field(default=GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION)
+    prompt: str
+    force: bool = False
+
+    @field_validator("prompt")
+    @classmethod
+    def _prompt_not_blank(cls, value: str) -> str:
+        """Validate the direct-control prompt text."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayPromptControlRequestV1":
+        """Validate the direct prompt-control schema version."""
+
+        if self.schema_version != GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayPromptControlResultV1(_StrictGatewayModel):
+    """Successful direct prompt-control response body."""
+
+    status: Literal["ok"] = "ok"
+    action: Literal["submit_prompt"] = "submit_prompt"
+    sent: Literal[True] = True
+    forced: bool
+    detail: str
+
+    @field_validator("detail")
+    @classmethod
+    def _detail_not_blank(cls, value: str) -> str:
+        """Validate the successful prompt-control detail string."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayPromptControlErrorV1(_StrictGatewayModel):
+    """Structured refusal payload for direct prompt control."""
+
+    status: Literal["error"] = "error"
+    action: Literal["submit_prompt"] = "submit_prompt"
+    sent: Literal[False] = False
+    forced: bool
+    error_code: str
+    detail: str
+
+    @field_validator("error_code", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Validate non-empty prompt-control error fields."""
 
         if not value.strip():
             raise ValueError("must not be empty")

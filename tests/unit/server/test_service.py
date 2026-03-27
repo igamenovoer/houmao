@@ -48,6 +48,7 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoParsedSurface,
@@ -642,6 +643,46 @@ def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Pa
                 kind="submit_prompt",
                 payload={"prompt": "hello"},
             ),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_control_managed_agent_gateway_prompt_requires_live_gateway_when_offline(
+    tmp_path: Path,
+) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    _write_offline_gateway_attach_contract(session_root)
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(HTTPException, match="No live gateway is attached") as exc_info:
+        service.control_managed_agent_gateway_prompt(
+            "cao-gpu",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
         )
 
     assert exc_info.value.status_code == 503

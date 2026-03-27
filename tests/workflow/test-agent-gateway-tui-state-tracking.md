@@ -167,11 +167,11 @@ pixi run houmao-mgr agents gateway prompt \
 
 Expected immediate result:
 
-- the gateway accepts the request
-- the response contains a `request_id`
-- `queue_depth` may briefly increase
+- the gateway sends the prompt immediately because the tracked TUI is submit-ready
+- the CLI prints structured JSON with `sent=true`
+- refusal now exits non-zero and prints a structured JSON error instead of returning a queued `request_id`
 
-The gateway logs should record the request lifecycle:
+The gateway logs should record direct prompt dispatch:
 
 ```bash
 tail -n 50 <session-root>/gateway/logs/gateway.log
@@ -180,11 +180,11 @@ tail -n 50 <session-root>/gateway/events.jsonl
 
 Expected gateway log sequence:
 
-- `accepted public gateway request`
-- `executing gateway request`
-- `completed gateway request`
+- `control_prompt_submitted`
+- for local headless direct control, `control_prompt_completed` after the turn finishes
+- for queued prompt submission through `/v1/requests`, the older `accepted/executing/completed` lifecycle still applies separately
 
-Successful `submit_prompt` execution already records explicit prompt-note evidence on the same gateway-owned tracker. Use `POST /v1/control/tui/note-prompt` only when you need that provenance without routing a prompt through the gateway queue.
+Successful direct prompt control already records explicit prompt-note evidence on the same gateway-owned tracker. Use `POST /v1/control/tui/note-prompt` only when you need that provenance without routing a prompt through either direct control or the gateway queue.
 
 ## Inspect The Live Pane
 

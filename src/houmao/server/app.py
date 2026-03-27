@@ -34,6 +34,8 @@ from .models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -425,6 +427,13 @@ def create_app(
         request_model: HoumaoManagedAgentGatewayRequestCreate,
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         return resolved_service.submit_managed_agent_gateway_request(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/prompt")
+    def control_managed_agent_gateway_prompt(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        return resolved_service.control_managed_agent_gateway_prompt(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/gateway/control/send-keys")
     def send_managed_agent_gateway_control_input(

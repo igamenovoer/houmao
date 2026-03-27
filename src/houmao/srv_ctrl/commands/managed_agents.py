@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from typing import Any, cast
 import uuid
 
 import click
+from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
@@ -36,8 +38,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailAttachmentUploadV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayPromptControlErrorV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestPayloadInterruptV1,
-    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -76,6 +80,7 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHeadlessDetailView,
@@ -123,6 +128,14 @@ class ManagedAgentTarget:
     client: PairAuthorityClientProtocol | None = None
     controller: RuntimeSessionController | None = None
     record: LiveAgentRegistryRecordV2 | None = None
+
+
+class GatewayPromptControlCliError(RuntimeError):
+    """Structured CLI failure raised by gateway direct prompt control."""
+
+    def __init__(self, payload: GatewayPromptControlErrorV1) -> None:
+        self.payload = payload
+        super().__init__(payload.detail)
 
 
 @dataclass(frozen=True)
@@ -590,22 +603,128 @@ def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(target.controller)
 
 
-def gateway_prompt(target: ManagedAgentTarget, *, prompt: str) -> GatewayAcceptedRequestV1:
-    """Submit a gateway prompt for one managed agent."""
+def gateway_prompt(
+    target: ManagedAgentTarget,
+    *,
+    prompt: str,
+    force: bool = False,
+) -> GatewayPromptControlResultV1:
+    """Submit one direct gateway prompt for a managed agent."""
 
     if target.mode == "server":
         assert target.client is not None
-        return pair_request(
-            target.client.submit_managed_agent_gateway_request,
-            target.agent_ref,
-            HoumaoManagedAgentGatewayRequestCreate(
-                kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(prompt=prompt),
-            ),
-        )
+        try:
+            return target.client.control_managed_agent_gateway_prompt(
+                target.agent_ref,
+                HoumaoManagedAgentGatewayPromptControlRequest(
+                    prompt=prompt,
+                    force=force,
+                ),
+            )
+        except CaoApiError as exc:
+            raise GatewayPromptControlCliError(
+                _prompt_control_error_from_cao(exc, forced=force)
+            ) from exc
 
     assert target.controller is not None
-    return target.controller.send_prompt_via_gateway(prompt)
+    try:
+        client = _require_live_gateway_client_for_controller(target.controller)
+        return client.control_prompt(
+            GatewayPromptControlRequestV1(
+                prompt=prompt,
+                force=force,
+            )
+        )
+    except GatewayHttpError as exc:
+        raise GatewayPromptControlCliError(
+            _prompt_control_error_from_gateway_http(exc, forced=force)
+        ) from exc
+    except click.ClickException as exc:
+        raise GatewayPromptControlCliError(
+            GatewayPromptControlErrorV1(
+                forced=force,
+                error_code="unavailable",
+                detail=exc.message or str(exc),
+            )
+        ) from exc
+
+
+def _prompt_control_error_from_cao(
+    exc: CaoApiError,
+    *,
+    forced: bool,
+) -> GatewayPromptControlErrorV1:
+    """Normalize one pair-server prompt-control failure into structured JSON."""
+
+    payload = exc.payload if isinstance(exc.payload, dict) else None
+    detail_payload = payload.get("detail") if isinstance(payload, dict) else None
+    return _coerce_prompt_control_error(
+        payload=detail_payload,
+        forced=forced,
+        status_code=exc.status_code,
+        fallback_detail=exc.detail,
+    )
+
+
+def _prompt_control_error_from_gateway_http(
+    exc: GatewayHttpError,
+    *,
+    forced: bool,
+) -> GatewayPromptControlErrorV1:
+    """Normalize one direct gateway HTTP failure into structured JSON."""
+
+    try:
+        payload = json.loads(exc.detail)
+    except json.JSONDecodeError:
+        payload = None
+    return _coerce_prompt_control_error(
+        payload=payload,
+        forced=forced,
+        status_code=exc.status_code,
+        fallback_detail=exc.detail,
+    )
+
+
+def _coerce_prompt_control_error(
+    *,
+    payload: object,
+    forced: bool,
+    status_code: int | None,
+    fallback_detail: str,
+) -> GatewayPromptControlErrorV1:
+    """Return one strict prompt-control error payload from a best-effort source payload."""
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = None
+    if isinstance(payload, dict):
+        try:
+            return GatewayPromptControlErrorV1.model_validate(payload)
+        except ValidationError:
+            detail_value = payload.get("detail")
+            if isinstance(detail_value, str) and detail_value.strip():
+                fallback_detail = detail_value
+    return GatewayPromptControlErrorV1(
+        forced=forced,
+        error_code=_prompt_control_error_code_from_status(status_code),
+        detail=fallback_detail,
+    )
+
+
+def _prompt_control_error_code_from_status(status_code: int | None) -> str:
+    """Map one HTTP status code to a conservative prompt-control error code."""
+
+    if status_code == 409:
+        return "not_ready"
+    if status_code == 501:
+        return "unsupported_backend"
+    if status_code == 503:
+        return "unavailable"
+    if status_code == 422:
+        return "dispatch_failed"
+    return "dispatch_failed"
 
 
 def gateway_interrupt(target: ManagedAgentTarget) -> GatewayAcceptedRequestV1:

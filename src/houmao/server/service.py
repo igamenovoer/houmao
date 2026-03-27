@@ -115,6 +115,8 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     ManagedAgentAvailability,
@@ -1211,6 +1213,19 @@ class HoumaoServerService:
             )
         )
         return HoumaoManagedAgentGatewayRequestAcceptedResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Proxy one managed-agent direct prompt-control request through a live gateway."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.control_prompt(request_model))
+        return HoumaoManagedAgentGatewayPromptControlResponse.model_validate(
             response.model_dump(mode="json")
         )
 

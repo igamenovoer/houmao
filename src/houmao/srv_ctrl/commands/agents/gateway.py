@@ -46,6 +46,7 @@ from ..common import (
     resolve_prompt_text,
 )
 from ..managed_agents import (
+    GatewayPromptControlCliError,
     ManagedAgentTarget,
     _identity_from_controller,
     attach_gateway,
@@ -167,10 +168,16 @@ def status_gateway_command(
     default=None,
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Send the prompt even when the gateway does not judge the target prompt-ready.",
+)
 @_current_session_option
 @pair_port_option(help_text="Houmao server port override for explicit gateway prompt")
 @managed_agent_selector_options
 def prompt_gateway_command(
+    force: bool,
     current_session: bool,
     port: int | None,
     prompt: str | None,
@@ -186,7 +193,13 @@ def prompt_gateway_command(
         current_session=current_session,
         operation_name="prompt",
     )
-    emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
+    try:
+        emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt), force=force))
+    except GatewayPromptControlCliError as exc:
+        click.echo(
+            json.dumps(exc.payload.model_dump(mode="json"), indent=2, sort_keys=True), err=True
+        )
+        raise SystemExit(1)
 
 
 @gateway_group.command(name="interrupt")

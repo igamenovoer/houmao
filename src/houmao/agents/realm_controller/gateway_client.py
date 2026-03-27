@@ -29,6 +29,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStateRequestV1,
     GatewayMailStateResponseV1,
     GatewayMailStatusV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayStatusV1,
 )
@@ -135,6 +137,19 @@ class GatewayClient:
             "POST",
             "/v1/requests",
             GatewayAcceptedRequestV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def control_prompt(
+        self,
+        payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Call `POST /v1/control/prompt`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/prompt",
+            GatewayPromptControlResultV1,
             body=payload.model_dump(mode="json"),
         )
 

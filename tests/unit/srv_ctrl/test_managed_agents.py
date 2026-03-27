@@ -29,6 +29,7 @@ from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
@@ -51,6 +52,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_mail_notifier_disable,
     gateway_mail_notifier_enable,
     gateway_mail_notifier_status,
+    gateway_prompt,
     gateway_send_keys,
     gateway_tui_history,
     gateway_tui_note_prompt,
@@ -717,6 +719,7 @@ class _FakePassivePairClient:
         self.detail_calls: list[str] = []
         self.turn_calls: list[tuple[str, str]] = []
         self.gateway_control_calls: list[tuple[str, str, bool]] = []
+        self.gateway_prompt_calls: list[tuple[str, str, bool]] = []
         self.gateway_tui_state_calls: list[str] = []
         self.gateway_tui_history_calls: list[str] = []
         self.gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
@@ -769,6 +772,24 @@ class _FakePassivePairClient:
             )
         )
         return GatewayControlInputResultV1(detail="delivered")
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        self.gateway_prompt_calls.append(
+            (
+                agent_ref,
+                getattr(request_model, "prompt"),
+                getattr(request_model, "force"),
+            )
+        )
+        return HoumaoManagedAgentGatewayPromptControlResponse(
+            sent=True,
+            forced=getattr(request_model, "force"),
+            detail="Prompt dispatched.",
+        )
 
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         self.gateway_tui_state_calls.append(agent_ref)
@@ -923,6 +944,22 @@ def test_gateway_send_keys_uses_passive_pair_client() -> None:
 
     assert response.action == "control_input"
     assert client.gateway_control_calls == [("published-alpha", "<[Escape]>", True)]
+
+
+def test_gateway_prompt_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    response = gateway_prompt(target, prompt="hello", force=True)
+
+    assert response.sent is True
+    assert response.forced is True
+    assert client.gateway_prompt_calls == [("published-alpha", "hello", True)]
 
 
 def test_gateway_tui_commands_use_passive_pair_client() -> None:

@@ -24,6 +24,8 @@ from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoHeadlessTurnRequest,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
@@ -467,6 +469,41 @@ def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch)
     assert recorded == {
         "method": "POST",
         "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/requests",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_control_managed_agent_gateway_prompt_posts_typed_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello", force=True)
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "status": "ok",
+        "action": "submit_prompt",
+        "sent": True,
+        "forced": True,
+        "detail": "Prompt dispatched.",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentGatewayPromptControlResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.control_managed_agent_gateway_prompt("AGENTSYS gpu/1", request_model)
+
+    assert response.sent is True
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/prompt",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 

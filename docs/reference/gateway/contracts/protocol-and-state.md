@@ -120,6 +120,7 @@ Current v1 routes:
 
 - `GET /health`
 - `GET /v1/status`
+- `POST /v1/control/prompt`
 - `GET /v1/control/tui/state`
 - `GET /v1/control/tui/history`
 - `POST /v1/control/tui/note-prompt`
@@ -244,7 +245,7 @@ Current public request kinds:
 
 The notifier reminder path does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
-`POST /v1/requests` stays the semantic queued prompt surface. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
+`POST /v1/requests` stays the semantic queued prompt surface. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
 Representative prompt submission:
 
@@ -278,6 +279,56 @@ Observable current error semantics:
 - unavailable managed-agent admission returns HTTP `503`.
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
+
+### `POST /v1/control/prompt`
+
+This route is the direct prompt-control surface for gateway-managed sessions. It returns success only after the prompt has been admitted for immediate live dispatch on the current target, and it refuses by default when the target is not prompt-ready.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "prompt": "hello",
+  "force": false
+}
+```
+
+Representative success response:
+
+```json
+{
+  "status": "ok",
+  "action": "submit_prompt",
+  "sent": true,
+  "forced": false,
+  "detail": "Prompt dispatched."
+}
+```
+
+Representative refusal payload (returned under an HTTP error status):
+
+```json
+{
+  "detail": {
+    "status": "error",
+    "action": "submit_prompt",
+    "sent": false,
+    "forced": false,
+    "error_code": "not_ready",
+    "detail": "Gateway prompt rejected because the TUI is not submit-ready."
+  }
+}
+```
+
+Current behavior:
+
+- TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
+- native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
+- server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
+- `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
+- `codex_app_server` direct gateway prompt control is not implemented
+- successful direct prompt control records gateway-owned prompt-note evidence for TUI-backed sessions
 
 ### `GET /v1/control/tui/state`
 
@@ -337,7 +388,7 @@ Current behavior:
 - the route accepts the same exact `<[key-name]>` grammar as runtime `send-keys`, including optional whole-string literal escaping with `escape_special_keys=true`
 - the route does not enqueue a `submit_prompt` request in `queue.sqlite`
 - the route does not create gateway-owned prompt-tracking notes by itself
-- for attached `local_interactive` sessions, semantic prompt submission still belongs on `POST /v1/requests` with kind `submit_prompt`, while `POST /v1/control/send-keys` remains the operator/debug raw-control path
+- semantic prompt submission remains separate on `POST /v1/control/prompt` for immediate control or `POST /v1/requests` for queued execution, while `POST /v1/control/send-keys` remains the operator/debug raw-control path
 - REST-backed and server-managed headless gateway targets currently reject this route with HTTP `422` because they do not preserve exact tmux key semantics on that path
 
 ### `GET /v1/control/headless/state`

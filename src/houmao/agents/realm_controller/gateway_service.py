@@ -13,7 +13,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, NoReturn, Protocol, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -58,6 +58,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonObject,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayPromptControlErrorV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
@@ -689,6 +692,8 @@ class GatewayServiceRuntime:
         self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
         self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
         self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
+        self.m_direct_prompt_thread: threading.Thread | None = None
+        self.m_direct_prompt_turn_id: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -920,6 +925,65 @@ class GatewayServiceRuntime:
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
 
+    def control_prompt(
+        self,
+        request_payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Dispatch one prompt immediately when the addressed target is ready."""
+
+        tracking: SingleSessionTrackingRuntime | None = None
+        prompt = request_payload.prompt
+        forced = request_payload.force
+
+        with self.m_lock:
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            dispatch_mode = self._prompt_dispatch_mode_locked(forced=forced)
+            self._validate_prompt_control_locked(
+                status=status,
+                forced=forced,
+                dispatch_mode=dispatch_mode,
+            )
+            if not forced:
+                self._require_prompt_ready_locked(
+                    status=status,
+                    dispatch_mode=dispatch_mode,
+                    forced=forced,
+                )
+
+            if dispatch_mode == "local_headless":
+                turn_id = self._next_direct_headless_turn_id_locked()
+                return self._start_direct_headless_prompt_locked(
+                    prompt=prompt,
+                    turn_id=turn_id,
+                    forced=forced,
+                )
+            tracking = self.m_tui_tracking
+
+        try:
+            self.m_adapter.submit_prompt(prompt=prompt)
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            self._raise_prompt_control_http_error(
+                status_code=422,
+                forced=forced,
+                error_code="dispatch_failed",
+                detail=str(exc),
+            )
+
+        if tracking is not None:
+            tracking.note_prompt_submission(message=prompt)
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_prompt_submitted",
+                "forced": forced,
+                "submitted_at_utc": now_utc_iso(),
+            },
+        )
+        return GatewayPromptControlResultV1(
+            forced=forced,
+            detail="Prompt dispatched.",
+        )
+
     def send_control_input(
         self,
         request_payload: GatewayControlInputRequestV1,
@@ -957,6 +1021,226 @@ class GatewayServiceRuntime:
             },
         )
         return GatewayControlInputResultV1(detail=detail)
+
+    def _prompt_dispatch_mode_locked(
+        self,
+        *,
+        forced: bool,
+    ) -> Literal["tui", "local_headless", "server_headless"]:
+        """Return the direct prompt-control execution mode for the attached backend."""
+
+        backend = self.m_attach_contract.backend
+        if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
+            return "tui"
+        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+            if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+                return "server_headless"
+            if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
+                return "local_headless"
+        self._raise_prompt_control_http_error(
+            status_code=501,
+            forced=forced,
+            error_code="unsupported_backend",
+            detail=f"Gateway prompt control is not implemented for backend `{backend}`.",
+        )
+
+    def _validate_prompt_control_locked(
+        self,
+        *,
+        status: GatewayStatusV1,
+        forced: bool,
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+    ) -> None:
+        """Reject prompt control for unavailable or reconciliation-blocked gateway state."""
+
+        del dispatch_mode
+        if status.request_admission == "blocked_reconciliation":
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="blocked_reconciliation",
+                detail="Gateway prompt control is blocked pending managed-agent reconciliation.",
+            )
+        if status.managed_agent_connectivity != "connected":
+            self._raise_prompt_control_http_error(
+                status_code=503,
+                forced=forced,
+                error_code="unavailable",
+                detail="Gateway prompt control is unavailable because the managed agent is detached.",
+            )
+
+    def _require_prompt_ready_locked(
+        self,
+        *,
+        status: GatewayStatusV1,
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+        forced: bool,
+    ) -> None:
+        """Require prompt-ready posture for non-forced direct prompt control."""
+
+        if status.active_execution != "idle" or status.queue_depth > 0:
+            reasons: list[str] = []
+            if status.active_execution != "idle":
+                reasons.append(f"active_execution={status.active_execution!r}")
+            if status.queue_depth > 0:
+                reasons.append(f"queue_depth={status.queue_depth}")
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="not_ready",
+                detail=(
+                    "Gateway prompt rejected because gateway-managed work is already active "
+                    f"({', '.join(reasons)})."
+                ),
+            )
+
+        if dispatch_mode == "tui":
+            self._require_tui_prompt_ready_locked(forced=forced)
+            return
+        if dispatch_mode == "local_headless":
+            active_turn_id = self._active_headless_turn_id_locked()
+            if active_turn_id is not None:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    forced=forced,
+                    error_code="not_ready",
+                    detail=(
+                        "Gateway prompt rejected because a headless turn is already active "
+                        f"(`{active_turn_id}`)."
+                    ),
+                )
+            return
+        if status.terminal_surface_eligibility != "ready":
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="not_ready",
+                detail=(
+                    "Gateway prompt rejected because the managed headless target is not ready "
+                    "to accept a new prompt."
+                ),
+            )
+
+    def _require_tui_prompt_ready_locked(self, *, forced: bool) -> None:
+        """Require a stable prompt-ready TUI posture for direct prompt control."""
+
+        state = self._require_tui_tracking_locked().current_state()
+        reasons: list[str] = []
+        if state.turn.phase != "ready":
+            reasons.append(f"turn.phase={state.turn.phase!r}")
+        if state.surface.accepting_input != "yes":
+            reasons.append(f"surface.accepting_input={state.surface.accepting_input!r}")
+        if state.surface.editing_input != "no":
+            reasons.append(f"surface.editing_input={state.surface.editing_input!r}")
+        if state.surface.ready_posture != "yes":
+            reasons.append(f"surface.ready_posture={state.surface.ready_posture!r}")
+        if not state.stability.stable:
+            reasons.append("stability.stable=false")
+        parsed_surface = state.parsed_surface
+        if parsed_surface is not None:
+            if parsed_surface.business_state != "idle":
+                reasons.append(f"parsed_surface.business_state={parsed_surface.business_state!r}")
+            if parsed_surface.input_mode != "freeform":
+                reasons.append(f"parsed_surface.input_mode={parsed_surface.input_mode!r}")
+        if not reasons:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=409,
+            forced=forced,
+            error_code="not_ready",
+            detail=(
+                "Gateway prompt rejected because the TUI is not submit-ready "
+                f"({', '.join(reasons)})."
+            ),
+        )
+
+    def _next_direct_headless_turn_id_locked(self) -> str:
+        """Return the next direct-control headless turn id."""
+
+        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}"
+        return f"turn-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
+
+    def _start_direct_headless_prompt_locked(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        forced: bool,
+    ) -> GatewayPromptControlResultV1:
+        """Start one native headless prompt in the background and return immediately."""
+
+        self.m_direct_prompt_turn_id = turn_id
+        thread = threading.Thread(
+            target=self._run_direct_headless_prompt,
+            kwargs={"prompt": prompt, "turn_id": turn_id},
+            name=f"gateway-direct-prompt-{turn_id}",
+            daemon=True,
+        )
+        self.m_direct_prompt_thread = thread
+        thread.start()
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_prompt_submitted",
+                "forced": forced,
+                "submitted_at_utc": now_utc_iso(),
+                "turn_id": turn_id,
+            },
+        )
+        self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        return GatewayPromptControlResultV1(
+            forced=forced,
+            detail="Prompt dispatched.",
+        )
+
+    def _run_direct_headless_prompt(self, *, prompt: str, turn_id: str) -> None:
+        """Execute one native headless direct prompt in a background thread."""
+
+        try:
+            self.m_adapter.submit_prompt(prompt=prompt, turn_id=turn_id)
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "control_prompt_failed",
+                    "turn_id": turn_id,
+                    "error_detail": str(exc),
+                    "finished_at_utc": now_utc_iso(),
+                },
+            )
+            self._log(f"direct gateway prompt failed turn_id={turn_id} detail={exc}")
+        else:
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "control_prompt_completed",
+                    "turn_id": turn_id,
+                    "finished_at_utc": now_utc_iso(),
+                },
+            )
+        finally:
+            with self.m_lock:
+                if self.m_direct_prompt_turn_id == turn_id:
+                    self.m_direct_prompt_turn_id = None
+                self.m_direct_prompt_thread = None
+                self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def _raise_prompt_control_http_error(
+        self,
+        *,
+        status_code: int,
+        forced: bool,
+        error_code: str,
+        detail: str,
+    ) -> NoReturn:
+        """Raise one structured HTTP refusal for direct prompt control."""
+
+        payload = GatewayPromptControlErrorV1(
+            forced=forced,
+            error_code=error_code,
+            detail=detail,
+        )
+        raise HTTPException(status_code=status_code, detail=payload.model_dump(mode="json"))
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -1856,6 +2140,9 @@ class GatewayServiceRuntime:
     def _active_execution_state(self) -> GatewayExecutionState:
         """Return whether a queue item is currently running."""
 
+        direct_prompt_thread = self.m_direct_prompt_thread
+        if direct_prompt_thread is not None and direct_prompt_thread.is_alive():
+            return "running"
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             row = connection.execute(
                 """
@@ -1871,6 +2158,13 @@ class GatewayServiceRuntime:
     def _active_headless_turn_id_locked(self) -> str | None:
         """Return the current headless turn id from queued or running prompt work."""
 
+        direct_prompt_thread = self.m_direct_prompt_thread
+        if (
+            direct_prompt_thread is not None
+            and direct_prompt_thread.is_alive()
+            and self.m_direct_prompt_turn_id is not None
+        ):
+            return self.m_direct_prompt_turn_id
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             rows = connection.execute(
                 """
@@ -2074,6 +2368,14 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Deliver raw control input through the dedicated non-queued surface."""
 
         return runtime.send_control_input(request_payload)
+
+    @app.post("/v1/control/prompt", response_model=GatewayPromptControlResultV1)
+    def _control_prompt(
+        request_payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Deliver one readiness-gated prompt through the dedicated direct-control surface."""
+
+        return runtime.control_prompt(request_payload)
 
     @app.get("/v1/control/headless/state", response_model=GatewayHeadlessControlStateV1)
     def _headless_state() -> GatewayHeadlessControlStateV1:

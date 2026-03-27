@@ -51,6 +51,8 @@ from houmao.passive_server.models import (
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoTerminalSnapshotHistoryResponse,
@@ -157,6 +159,16 @@ def create_app(
         agent_ref: str, payload: GatewayRequestCreateV1
     ) -> GatewayAcceptedRequestV1:
         result = resolved_service.gateway_create_request(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/prompt")
+    def gateway_control_prompt(
+        agent_ref: str,
+        payload: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        result = resolved_service.gateway_control_prompt(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

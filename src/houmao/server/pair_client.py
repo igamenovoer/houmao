@@ -24,6 +24,8 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -166,6 +168,13 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentGatewayRequestCreate,
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         """Submit one managed-agent gateway request."""
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Submit one managed-agent gateway direct prompt-control request."""
 
     def send_managed_agent_gateway_control_input(
         self,

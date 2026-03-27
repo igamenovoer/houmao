@@ -24,6 +24,10 @@ from houmao.passive_server.discovery import (
 )
 from houmao.passive_server.models import DiscoveredAgentConflictResponse
 from houmao.passive_server.service import PassiveServerService
+from houmao.server.models import (
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
+)
 from tests.unit.passive_server.test_discovery import _make_record
 
 
@@ -270,6 +274,16 @@ def _control_input_result() -> GatewayControlInputResultV1:
     return GatewayControlInputResultV1(detail="delivered")
 
 
+def _prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlResponse:
+    """Return a valid prompt-control response for passive gateway tests."""
+
+    return HoumaoManagedAgentGatewayPromptControlResponse(
+        sent=True,
+        forced=False,
+        detail="Prompt dispatched.",
+    )
+
+
 def _mail_notifier_status(
     *,
     enabled: bool,
@@ -430,6 +444,73 @@ class TestGatewayControlInput:
         assert isinstance(result, tuple)
         assert result[0] == 502
         assert "Connection refused" in result[1]["detail"]
+
+
+class TestGatewayPromptControl:
+    """gateway_control_prompt() service method."""
+
+    def test_success_returns_result(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _prompt_control_result()
+        with patch.object(GatewayClient, "control_prompt", return_value=expected):
+            result = svc.gateway_control_prompt(
+                "abc123",
+                HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+            )
+        assert result == expected
+
+    def test_agent_not_found_returns_404(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        result = svc.gateway_control_prompt(
+            "missing",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent()])
+        result = svc.gateway_control_prompt(
+            "abc123",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "No gateway" in result[1]["detail"]
+
+    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        with patch.object(
+            GatewayClient,
+            "control_prompt",
+            side_effect=GatewayHttpError(
+                method="POST",
+                url="http://127.0.0.1:9901/v1/control/prompt",
+                status_code=409,
+                detail=json.dumps(
+                    {
+                        "action": "submit_prompt",
+                        "detail": "not ready",
+                        "error_code": "not_ready",
+                        "forced": False,
+                        "sent": False,
+                        "status": "error",
+                    },
+                    sort_keys=True,
+                ),
+            ),
+        ):
+            result = svc.gateway_control_prompt(
+                "abc123",
+                HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+            )
+        assert isinstance(result, tuple)
+        assert result[0] == 409
+        assert isinstance(result[1]["detail"], dict)
+        assert result[1]["detail"]["error_code"] == "not_ready"
 
 
 class TestGatewayMailNotifier:

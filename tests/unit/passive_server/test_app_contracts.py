@@ -28,6 +28,7 @@ from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoTerminalSnapshotHistoryEntry,
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
@@ -358,6 +359,16 @@ def _stub_control_input_result() -> GatewayControlInputResultV1:
     return GatewayControlInputResultV1(detail="delivered")
 
 
+def _stub_prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlResponse:
+    """Create a minimal valid prompt-control response for mocking."""
+
+    return HoumaoManagedAgentGatewayPromptControlResponse(
+        sent=True,
+        forced=False,
+        detail="Prompt dispatched.",
+    )
+
+
 def _stub_mail_status() -> GatewayMailStatusV1:
     """Create a minimal valid GatewayMailStatusV1 for mocking."""
 
@@ -636,6 +647,73 @@ class TestGatewayCreateRequestEndpoint:
                 },
             )
         assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway prompt-control endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayPromptControlEndpoint:
+    """POST /houmao/agents/{agent_ref}/gateway/control/prompt."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient, "control_prompt", return_value=_stub_prompt_control_result()
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": True},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        assert resp.json()["forced"] is False
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 502
+
+    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "control_prompt",
+                side_effect=GatewayHttpError(
+                    method="POST",
+                    url="http://127.0.0.1:9901/v1/control/prompt",
+                    status_code=409,
+                    detail='{"action":"submit_prompt","detail":"not ready","error_code":"not_ready","forced":false,"sent":false,"status":"error"}',
+                ),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error_code"] == "not_ready"
 
 
 # ---------------------------------------------------------------------------

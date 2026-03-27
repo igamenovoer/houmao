@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
+from houmao.agents.realm_controller.gateway_models import GatewayPromptControlErrorV1
 from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
 from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
@@ -20,6 +21,7 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
 )
+from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.srv_ctrl.server_startup import (
     HoumaoDetachedServerStartResult,
@@ -565,6 +567,98 @@ def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
     assert captured["sequence"] == "<[Escape]>"
     assert captured["escape_special_keys"] is True
     assert json.loads(result.output) == {"status": "ok", "detail": "delivered"}
+
+
+def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_prompt",
+        lambda resolved_target, *, prompt, force: (
+            captured.update({"target": resolved_target, "prompt": prompt, "force": force})
+            or {"status": "ok", "sent": True, "forced": force}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "prompt",
+            "--agent-name",
+            "gpu",
+            "--port",
+            "9889",
+            "--prompt",
+            "hello",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": None,
+        "agent_name": "gpu",
+        "port": 9889,
+    }
+    assert captured["target"] is target
+    assert captured["prompt"] == "hello"
+    assert captured["force"] is True
+    assert json.loads(result.output) == {"status": "ok", "sent": True, "forced": True}
+
+
+def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **_kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_prompt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            GatewayPromptControlCliError(
+                GatewayPromptControlErrorV1(
+                    forced=False,
+                    error_code="not_ready",
+                    detail="Gateway prompt rejected because the TUI is not submit-ready.",
+                )
+            )
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "prompt",
+            "--agent-name",
+            "gpu",
+            "--prompt",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.output) == {
+        "action": "submit_prompt",
+        "detail": "Gateway prompt rejected because the TUI is not submit-ready.",
+        "error_code": "not_ready",
+        "forced": False,
+        "sent": False,
+        "status": "error",
+    }
 
 
 def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(

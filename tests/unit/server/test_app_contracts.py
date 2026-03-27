@@ -28,6 +28,8 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryEntry,
@@ -142,6 +144,9 @@ class _AppServiceDouble:
         self.m_gateway_tui_state_calls: list[str] = []
         self.m_gateway_tui_history_calls: list[tuple[str, int]] = []
         self.m_gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
+        self.m_gateway_prompt_control_calls: list[
+            tuple[str, HoumaoManagedAgentGatewayPromptControlRequest]
+        ] = []
         self.m_gateway_request_calls: list[tuple[str, HoumaoManagedAgentGatewayRequestCreate]] = []
         self.m_gateway_control_calls: list[tuple[str, GatewayControlInputRequestV1]] = []
         self.m_gateway_notifier_get_calls: list[str] = []
@@ -562,6 +567,18 @@ class _AppServiceDouble:
             accepted_at_utc="2026-03-24T16:00:00+00:00",
             queue_depth=1,
             managed_agent_instance_epoch=2,
+        )
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        self.m_gateway_prompt_control_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentGatewayPromptControlResponse(
+            sent=True,
+            forced=request_model.force,
+            detail="Prompt dispatched.",
         )
 
     def send_managed_agent_gateway_control_input(
@@ -1118,6 +1135,11 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         "POST",
         app=app,
     )
+    gateway_prompt_control_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/control/prompt",
+        "POST",
+        app=app,
+    )
     gateway_control_route = _route(
         "/houmao/agents/{agent_ref}/gateway/control/send-keys",
         "POST",
@@ -1222,6 +1244,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert gateway_request_response.request_id == "greq-123"
+    gateway_prompt_control_response = gateway_prompt_control_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello", force=True),
+    )
+    assert gateway_prompt_control_response.sent is True
+    assert gateway_prompt_control_response.forced is True
     gateway_control_response = gateway_control_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),
@@ -1259,6 +1287,9 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     )
     assert mail_reply_response.operation == "reply"
     assert len(service.m_gateway_control_calls) == 1
+    assert len(service.m_gateway_prompt_control_calls) == 1
+    assert service.m_gateway_prompt_control_calls[0][0] == "claude-headless-1"
+    assert service.m_gateway_prompt_control_calls[0][1].prompt == "hello"
     assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
     assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
