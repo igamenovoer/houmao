@@ -69,6 +69,15 @@ Rollback strategy:
 - Keep a local backup ref before rewriting so the team can recover pre-rewrite state if the cleanup plan needs adjustment before the force-push.
 - Do not restore the leaked commit to public remote refs once cleanup has started; if the rewrite is flawed, rebuild and force-push a corrected sanitized history instead.
 
+## Collaborator Follow-Up
+
+After the force-push, collaborators with existing clones must resync to the rewritten branch history instead of merging the old and new lineages. The minimum supported recovery paths are:
+
+1. Reclone the repository.
+2. Or run `git fetch origin --prune` followed by `git checkout devel` and `git reset --hard origin/devel` if no local work needs to be preserved on the old branch lineage.
+
+Any local helper branches or backup refs that still contain the leaked commit must remain local-only and must not be pushed back to shared remotes.
+
 ## Open Questions
 
 - Should the sanitized tracked Codex fixture remain as an empty or placeholder `auth.json`, or should the tracked file disappear entirely with only ignored local copies supported?

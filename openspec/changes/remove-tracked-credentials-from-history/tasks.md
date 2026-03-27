@@ -13,10 +13,10 @@
 ## 3. Rewrite reachable history and remote refs
 
 - [x] 3.1 Create a backup ref, rewrite local history to remove the tracked Codex `auth.json` from reachable history, and verify the removed path is absent from the rewritten branch history.
-- [ ] 3.2 Inspect repo-owned branches and tags that new clones may fetch, then delete or move any remaining refs that still expose the leaked credential commit.
-- [ ] 3.3 Force-update the canonical remote branch to the sanitized history and confirm a fresh reachable-history inspection no longer surfaces the removed `auth.json`.
+- [x] 3.2 Inspect repo-owned branches and tags that new clones may fetch, then delete or move any remaining refs that still expose the leaked credential commit.
+- [x] 3.3 Force-update the canonical remote branch to the sanitized history and confirm a fresh reachable-history inspection no longer surfaces the removed `auth.json`.
 
 ## 4. Verify repo credential hygiene
 
-- [ ] 4.1 Re-scan `tests/fixtures/agents/` and other tracked auth fixture trees for live-looking secrets, confirming only placeholders, empty stubs, or bootstrap templates remain tracked.
-- [ ] 4.2 Validate the OpenSpec change and record any collaborator follow-up required after the history rewrite, such as reclone or force-reset instructions.
+- [x] 4.1 Re-scan `tests/fixtures/agents/` and other tracked auth fixture trees for live-looking secrets, confirming only placeholders, empty stubs, or bootstrap templates remain tracked.
+- [x] 4.2 Validate the OpenSpec change and record any collaborator follow-up required after the history rewrite, such as reclone or force-reset instructions.
