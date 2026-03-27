@@ -3,29 +3,38 @@
   "demo_id": "gateway-mail-wakeup-demo-pack",
   "agent_def_dir": "tests/fixtures/agents",
   "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
-  "backend": "houmao_server_rest",
-  "houmao_base_url": "http://127.0.0.1:9889",
-  "shared_mailbox_root_template": "{demo_output_dir}/shared-mailbox",
-  "agent": {
-    "blueprint": "blueprints/mailbox-demo-codex.yaml",
-    "agent_identity": "AGENTSYS-gateway-mailbox-agent",
-    "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent",
-    "mailbox_address": "AGENTSYS-gateway-mailbox-agent@agents.localhost"
-  },
+  "command_timeout_seconds": 180,
   "gateway": {
     "host": "127.0.0.1",
-    "notifier_interval_seconds": 1,
-    "idle_poll_interval_seconds": 3
-  },
-  "delivery": {
-    "sender_principal_id": "AGENTSYS-mail-injector",
-    "sender_address": "AGENTSYS-mail-injector@agents.localhost",
-    "subject": "Gateway wake-up demo",
-    "body_file": "inputs/wake_up_message.md"
+    "notifier_interval_seconds": 1
   },
   "automatic": {
     "idle_timeout_seconds": 180,
     "output_timeout_seconds": 180,
     "output_file_relative_path": "outputs/wakeup-time.txt"
+  },
+  "delivery": {
+    "sender_principal_id": "AGENTSYS-mail-injector",
+    "sender_address": "AGENTSYS-mail-injector@agents.localhost",
+    "subject": "Gateway wake-up demo",
+    "body_file": "scripts/demo/gateway-mail-wakeup-demo-pack/inputs/wake_up_message.md"
+  },
+  "tools": {
+    "claude": {
+      "selector": "gateway-mail-wakeup-demo",
+      "provider": "claude_code",
+      "agent_name_prefix": "gateway-wakeup-claude",
+      "session_name_prefix": "hm-gateway-wakeup-claude",
+      "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent-claude",
+      "mailbox_address": "AGENTSYS-gateway-mailbox-agent-claude@agents.localhost"
+    },
+    "codex": {
+      "selector": "gateway-mail-wakeup-demo",
+      "provider": "codex",
+      "agent_name_prefix": "gateway-wakeup-codex",
+      "session_name_prefix": "hm-gateway-wakeup-codex",
+      "mailbox_principal_id": "AGENTSYS-gateway-mailbox-agent-codex",
+      "mailbox_address": "AGENTSYS-gateway-mailbox-agent-codex@agents.localhost"
+    }
   }
 }
