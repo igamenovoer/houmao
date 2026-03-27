@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
-### Requirement: Canonical component directories
+### Requirement: User-facing source directories
 The system SHALL organize reusable agent-definition sources under a stable on-disk layout rooted at `agents/`.
 
-At minimum, that canonical layout SHALL include:
+At minimum, that source layout SHALL include:
 
 - `agents/skills/<skill>/SKILL.md`
 - `agents/roles/<role>/system-prompt.md`
@@ -14,15 +14,31 @@ At minimum, that canonical layout SHALL include:
 
 User-facing reusable launch metadata SHALL live in role-scoped presets plus tool-scoped setup/auth directories rather than in a separate recipe plus blueprint layer.
 
-#### Scenario: Developer locates canonical sources
+#### Scenario: Developer locates source files
 - **WHEN** a developer needs to add or modify reusable agent-definition sources
 - **THEN** skill packages SHALL live under `agents/skills/`
 - **AND THEN** role prompts SHALL live under `agents/roles/`
 - **AND THEN** launchable preset files SHALL live under `agents/roles/<role>/presets/`
 - **AND THEN** tool-specific setup and auth material SHALL live under `agents/tools/<tool>/`
 
+### Requirement: Source parsing yields a canonical agent catalog
+The system SHALL parse the user-facing `agents/` source tree into a canonical parsed model before selector resolution or brain construction.
+
+That canonical parsed model SHALL capture semantic agent-definition data independently of source-layout-specific field names or file layering.
+
+Downstream selector resolution, brain construction, and launch code SHALL consume only canonical parsed definitions or derived resolved launch/build specifications and SHALL NOT depend directly on raw preset-source mappings, legacy recipe files, or legacy blueprint files.
+
+#### Scenario: Selector resolution uses the parsed catalog
+- **WHEN** a launch selector is resolved
+- **THEN** resolution SHALL operate on the canonical parsed catalog
+- **AND THEN** downstream launch/build code SHALL NOT need to inspect raw source files directly
+
+#### Scenario: Future source-layout revisions preserve downstream contracts
+- **WHEN** a future user-facing source-layout parser is added that preserves the same role, tool, setup, auth, launch, mailbox, and `extra` semantics
+- **THEN** downstream build and launch components SHALL continue to consume the same canonical parsed contract without layout-specific changes
+
 ### Requirement: Brain construction inputs
-The system SHALL support constructing an agent runtime from a resolved preset together with one effective auth selection.
+The system SHALL support constructing an agent runtime from a resolved build specification derived from one parsed preset together with one effective auth selection.
 
 A resolved preset SHALL define or derive:
 1. a target CLI tool,
@@ -38,6 +54,7 @@ Callers MAY override the preset's default auth selection at build or launch time
 - **WHEN** a developer constructs a runtime for an agent run from a preset
 - **THEN** the resolved tool, role, setup, skills, and effective auth SHALL be explicit inputs to the construction process
 - **AND THEN** the effective auth MAY come from the preset default or a caller override
+- **AND THEN** those explicit inputs SHALL come from the canonical parsed model rather than from raw source payloads
 
 ### Requirement: Skill repository format and installation
 Brain skills SHALL be stored as directories under `agents/skills/` in the Agent Skills format, and each skill directory SHALL contain a `SKILL.md`. Constructed brains SHALL install only the selected skills into the runtime tool home.
@@ -77,11 +94,13 @@ Auth file mappings SHALL support an explicit `required` boolean. Missing `requir
 
 ### Requirement: Resolved runtime manifest
 Each constructed runtime home SHALL produce a resolved manifest that records the selected inputs, including tool, preset path, setup identifier, effective auth identifier, selected skills, the output home directory path, and the launch environment contract. The manifest MUST NOT contain secret values.
+The resolved manifest SHALL use `schema_version: 3`.
 
 #### Scenario: Runtime manifest supports audit and reproducibility
 - **WHEN** a brain is constructed successfully
 - **THEN** a resolved manifest SHALL be written for that constructed home
 - **AND THEN** the manifest SHALL identify the preset path, setup, auth, and selected components without including credential secrets
+- **AND THEN** the manifest SHALL record `schema_version: 3`
 
 ## ADDED Requirements
 
@@ -125,9 +144,9 @@ Auth bundles SHALL support local env files containing the values required by CLI
 - **AND THEN** the resolved runtime manifest SHALL NOT include secret values
 
 ### Requirement: Path-derived agent presets
-The system SHALL support declarative agent presets stored under `agents/roles/<role>/presets/<tool>/<setup>.yaml`.
+The system SHALL support declarative source presets stored under `agents/roles/<role>/presets/<tool>/<setup>.yaml`.
 
-Preset identity SHALL be derived from path rather than from duplicated inline identity fields. The preset path SHALL determine role, tool, and setup.
+Preset identity SHALL be derived from path rather than from duplicated inline identity fields. The source preset path SHALL determine role, tool, and setup before the parser emits the canonical parsed preset definition.
 
 #### Scenario: Preset identity comes from path
 - **WHEN** a developer creates `agents/roles/gpu-kernel-coder/presets/claude/default.yaml`
@@ -139,17 +158,31 @@ Agent presets SHALL include only fields required by current behavior: selected s
 
 The system SHALL NOT require build-time `default_agent_name` or other duplicated identity fields in preset files.
 
-Non-core extension data SHALL live under `extra` rather than through pre-allocated unused top-level schema fields.
+If present, preset `launch` SHALL be an object containing optional `prompt_mode` and optional `overrides`. `launch.overrides`, when present, SHALL use the existing launch-overrides shape of optional `args` and optional `tool_params`.
+
+Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL live under `extra` rather than through pre-allocated unused top-level schema fields.
 
 #### Scenario: Minimal preset omits build-time identity fields
 - **WHEN** a developer authors a preset for one role, tool, and setup
 - **THEN** the preset MAY omit `name`, `role`, `tool`, and `default_agent_name`
 - **AND THEN** the system SHALL still resolve the preset successfully from its path and required core fields
 
+#### Scenario: Launch settings use one explicit schema
+- **WHEN** a developer authors preset-owned launch behavior
+- **THEN** `prompt_mode` SHALL appear under `launch.prompt_mode`
+- **AND THEN** any preset-owned launch overrides SHALL appear under `launch.overrides`
+- **AND THEN** `launch.overrides` SHALL use only the supported `args` and `tool_params` sections
+
 #### Scenario: Non-core preset extensions live under extra
 - **WHEN** a consumer needs secret-free subsystem-specific preset metadata outside the core schema
 - **THEN** that metadata SHALL be stored under `extra`
 - **AND THEN** the core preset resolution path SHALL NOT depend on unsupported top-level extension fields
+- **AND THEN** preserved gateway defaults, when needed for migrated blueprint behavior, SHALL live under `extra.gateway`
+
+#### Scenario: Unknown top-level preset field fails validation
+- **WHEN** a preset file declares an unsupported top-level field such as legacy `config_profile`
+- **THEN** preset loading SHALL fail explicitly
+- **AND THEN** the error SHALL direct authors toward the supported core fields and `extra`
 
 ### Requirement: Tracked interactive-demo presets
 The repository SHALL provide tracked, declarative, secret-free presets under `agents/roles/<role>/presets/` for the interactive demo launch variants that the repo documents and verifies.
@@ -170,7 +203,7 @@ Each tracked preset SHALL select skills and optional default auth by identifier 
 ## REMOVED Requirements
 
 ### Requirement: Tool-specific config profiles
-**Reason**: The checked-in runtime input bundle is renamed to `setup` and moved under the per-tool canonical layout so it is no longer one of several unrelated concepts called "config".
+**Reason**: The checked-in runtime input bundle is renamed to `setup` and moved under the per-tool source layout so it is no longer one of several unrelated concepts called "config".
 
 **Migration**: Move `agents/brains/cli-configs/<tool>/<profile>/...` to `agents/tools/<tool>/setups/<setup>/...` and update build-time references from config-profile selection to setup selection.
 
