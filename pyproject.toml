@@ -64,18 +64,13 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/houmao"]
+only-include = ["src/houmao"]
 
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "src/houmao/**",
-  "README.md",
-  "LICENSE",
-  "NOTICE",
-  "pyproject.toml",
-]
+only-include = ["src/houmao", "README.md", "LICENSE", "NOTICE", "pyproject.toml"]
 exclude = [
   "tests/**",
   "scripts/**",

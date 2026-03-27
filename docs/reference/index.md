@@ -42,6 +42,7 @@
 
 ## Other Reference
 
+- [Release Publishing](release-publishing.md): PyPI trusted publishing setup and the GitHub release flow.
 - [Realm Controller](realm_controller.md): Runtime session orchestration.
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
@@ -55,4 +56,3 @@
 - [TUI Parsing](../developer/tui-parsing/index.md): Shadow parser architecture and maintenance.
 - [Terminal Recorder](../developer/terminal-record/index.md): Recording internals.
 - [Houmao Server Internals](../developer/houmao-server/index.md): Server-owned TUI tracking.
-
