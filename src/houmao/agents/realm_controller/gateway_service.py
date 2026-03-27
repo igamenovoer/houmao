@@ -1447,6 +1447,10 @@ class GatewayServiceRuntime:
                 "`POST /v1/mail/state`."
             ),
             (
+                "Use the exact live gateway base URL for this turn: "
+                f"`http://{self.m_host}:{self.m_port}`. Do not guess another host or port."
+            ),
+            (
                 "Do not inspect repo docs or OpenAPI to rediscover those routine request "
                 "shapes during this turn."
             ),
