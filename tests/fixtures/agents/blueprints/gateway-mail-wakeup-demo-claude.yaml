@@ -1,0 +1,5 @@
+schema_version: 1
+name: gateway-mail-wakeup-demo-claude
+brain_recipe: ../brains/brain-recipes/claude/gateway-mail-wakeup-demo-default.yaml
+role: gateway-mail-wakeup-demo
+
