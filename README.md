@@ -7,6 +7,8 @@ Houmao is under active development. The operator-facing workflow is stabilizing 
 
 ## Project Introduction
 
+Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github.io/houmao/)
+
 ### What It Is
 
 `Houmao` is a framework and CLI toolkit designed to orchestrate **teams of loosely-coupled, CLI-based AI agents**.
