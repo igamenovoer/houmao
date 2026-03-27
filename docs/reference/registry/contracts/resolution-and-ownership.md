@@ -38,7 +38,7 @@ Freshness is lease-based, not directory-based.
 - v1 uses a 24-hour soft lease,
 - `lease_expires_at >= now` means the record is fresh,
 - expired records are treated as stale even if the directory still exists,
-- stale directories are expected after crashes and are cleaned later by `cleanup-registry`.
+- stale directories are expected after crashes and are cleaned later by `houmao-mgr admin cleanup registry`.
 
 Timezone matters:
 
@@ -113,7 +113,7 @@ Name-based lookup can therefore report ambiguity when multiple live `agent_id`s 
 Two cleanup paths exist:
 
 - targeted removal during authoritative runtime teardown,
-- stale-directory cleanup through `cleanup-registry`.
+- stale-directory cleanup through `houmao-mgr admin cleanup registry`.
 
 Targeted teardown removal is guarded by `generation_id`:
 

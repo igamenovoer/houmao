@@ -108,6 +108,29 @@ sequenceDiagram
 - Moving an address to a private mailbox directory uses `mailbox_kind=symlink` with `safe`, `force`, or `stash` depending on whether a conflicting registration already exists.
 - Purging a private mailbox registration removes the shared-root registration entry but does not delete canonical message history.
 
+## Cleanup Of Inactive And Stashed Registrations
+
+`houmao-mgr mailbox cleanup` is the local janitor for filesystem mailbox registrations that are no longer active.
+
+- It evaluates only `inactive` and `stashed` registrations.
+- It preserves every `active` registration.
+- It preserves canonical history under `messages/`.
+- `--dry-run` reports cleanup candidates without deleting them.
+- `--inactive-older-than-seconds` and `--stashed-older-than-seconds` let operators keep recently deactivated or stashed registrations around for inspection before cleanup.
+
+Examples:
+
+```bash
+houmao-mgr mailbox cleanup --mailbox-root /abs/path/shared-mail --dry-run
+houmao-mgr mailbox cleanup --mailbox-root /abs/path/shared-mail --inactive-older-than-seconds 3600
+```
+
+Scope boundary:
+
+- `houmao-mgr mailbox cleanup` does not delete canonical messages.
+- It does not remove runtime-owned Stalwart credential files under `<runtime-root>/mailbox-credentials/`; use `houmao-mgr admin cleanup runtime mailbox-credentials` for those.
+- It does not remove one session's local Stalwart secret copy under `<session-root>/mailbox-secrets/`; use `houmao-mgr agents cleanup mailbox` for that scope.
+
 ## Source References
 
 - [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
