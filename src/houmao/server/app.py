@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
+from houmao.version import get_version
 
 from .config import HoumaoServerConfig
 from .models import (
@@ -79,7 +80,7 @@ def create_app(
     app = FastAPI(
         title="houmao-server",
         description="Houmao-owned CAO-compatible HTTP service",
-        version="0.1.0",
+        version=get_version(),
         lifespan=_lifespan,
     )
 

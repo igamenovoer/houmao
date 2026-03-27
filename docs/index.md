@@ -42,6 +42,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 
 ### Other Reference
 
+- [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
 - [Brain Builder and Component Library](reference/agents_brains.md): Legacy reference for the component library layout.
 - [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.
@@ -56,4 +57,3 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 ## Resources
 
 - [TUI State Tracking Resources](resources/tui-state-tracking/README.md)
-

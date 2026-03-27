@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
+from houmao.version import get_version
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
     AgentTuiDetailResponse,
@@ -79,7 +80,7 @@ def create_app(
     app = FastAPI(
         title="houmao-passive-server",
         description="Registry-first passive server for distributed agent coordination",
-        version="0.1.0",
+        version=get_version(),
         lifespan=_lifespan,
     )
 

@@ -610,7 +610,7 @@ packages:
 - pypi: ./
   name: houmao
   version: 0.1.0
-  sha256: 0df1690a34d735ba21bd085855a3c668be1a95f0e40dda252cf8ea0126b6d0bd
+  sha256: cf1ab93006dbd694f941ce9837b164aa4735732dddf918cc01404d0068c99de4
   requires_dist:
   - click>=8.3.1,<9
   - fastapi>=0.135.1,<0.136
