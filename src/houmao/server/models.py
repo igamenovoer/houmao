@@ -349,6 +349,47 @@ class HoumaoTerminalHistoryResponse(_HoumaoModel):
     entries: list[HoumaoRecentTransition]
 
 
+class HoumaoTerminalSnapshotHistoryEntry(_HoumaoModel):
+    """One bounded recent tracked TUI snapshot."""
+
+    recorded_at_utc: str
+    diagnostics: HoumaoTrackedDiagnostics
+    probe_snapshot: HoumaoProbeSnapshot | None = None
+    parsed_surface: HoumaoParsedSurface | None = None
+    surface: HoumaoTrackedSurface
+    turn: HoumaoTrackedTurn
+    last_turn: HoumaoTrackedLastTurn
+    stability: HoumaoStabilityMetadata
+
+    @field_validator("recorded_at_utc")
+    @classmethod
+    def _recorded_at_not_blank(cls, value: str) -> str:
+        """Require a non-empty snapshot timestamp."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class HoumaoTerminalSnapshotHistoryResponse(_HoumaoModel):
+    """Houmao extension route for bounded in-memory tracked snapshot history."""
+
+    terminal_id: str
+    tracked_session_id: str
+    entries: list[HoumaoTerminalSnapshotHistoryEntry] = Field(default_factory=list)
+
+    @field_validator("terminal_id", "tracked_session_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Require non-empty tracked snapshot history identifiers."""
+
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
 class HoumaoRegisterLaunchRequest(_HoumaoModel):
     """Registration request for delegated CLI launches."""
 

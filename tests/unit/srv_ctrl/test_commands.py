@@ -139,7 +139,18 @@ def test_agents_gateway_help_mentions_send_keys_and_mail_notifier() -> None:
 
     assert result.exit_code == 0
     assert "send-keys" in result.output
+    assert "tui" in result.output
     assert "mail-notifier" in result.output
+
+
+def test_agents_gateway_tui_help_mentions_subcommands() -> None:
+    result = CliRunner().invoke(cli, ["agents", "gateway", "tui", "--help"])
+
+    assert result.exit_code == 0
+    assert "state" in result.output
+    assert "history" in result.output
+    assert "watch" in result.output
+    assert "note-prompt" in result.output
 
 
 def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
@@ -239,7 +250,7 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
         attach_managed_agent_gateway=lambda agent_ref: {
             "status": "ok",
             "agent_ref": agent_ref,
-        }
+        },
     )
 
     monkeypatch.setattr(
@@ -485,7 +496,9 @@ def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("explicit resolution should not run")),
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("explicit resolution should not run")
+        ),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_send_keys",
@@ -576,6 +589,138 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     assert captured["target"] is target
     assert captured["interval_seconds"] == 60
     assert json.loads(result.output) == {"enabled": True, "interval_seconds": 60}
+
+
+def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
+        lambda: "join-sess",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_current_session_target",
+        lambda *, session_name=None: (
+            captured.setdefault("session_name", session_name),
+            target,
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("explicit resolution should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_tui_state",
+        lambda resolved_target: (
+            captured.update({"target": resolved_target}) or {"terminal_id": "term-123"}
+        ),
+    )
+
+    result = CliRunner().invoke(cli, ["agents", "gateway", "tui", "state"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["session_name"] == "join-sess"
+    assert captured["target"] is target
+    assert json.loads(result.output) == {"terminal_id": "term-123"}
+
+
+def test_agents_gateway_tui_note_prompt_forwards_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_tui_note_prompt",
+        lambda resolved_target, *, prompt: (
+            captured.update({"target": resolved_target, "prompt": prompt})
+            or {"terminal_id": "term-123"}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "tui",
+            "note-prompt",
+            "--agent-id",
+            "agent-123",
+            "--prompt",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": "agent-123",
+        "agent_name": None,
+        "port": None,
+    }
+    assert captured["target"] is target
+    assert captured["prompt"] == "hello"
+    assert json.loads(result.output) == {"terminal_id": "term-123"}
+
+
+def test_agents_gateway_tui_watch_emits_polled_state_until_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    class _WatchedState:
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            assert mode == "json"
+            return {"terminal_id": "term-123", "turn": {"phase": "ready"}}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_tui_state",
+        lambda resolved_target: captured.update({"target": resolved_target}) or _WatchedState(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.time.sleep",
+        lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "tui",
+            "watch",
+            "--agent-name",
+            "gpu",
+            "--interval-seconds",
+            "0.2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": None,
+        "agent_name": "gpu",
+        "port": None,
+    }
+    assert captured["target"] is target
+    assert json.loads(result.output.strip()) == {
+        "terminal_id": "term-123",
+        "turn": {"phase": "ready"},
+    }
 
 
 def test_agents_relaunch_current_session_uses_manifest_first_runtime(

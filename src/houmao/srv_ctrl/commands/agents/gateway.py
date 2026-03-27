@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import subprocess
+import time
+from typing import Callable, TypeVar
 
 import click
 
@@ -54,8 +57,14 @@ from ..managed_agents import (
     gateway_prompt,
     gateway_send_keys,
     gateway_status,
+    gateway_tui_history,
+    gateway_tui_note_prompt,
+    gateway_tui_state,
     resolve_managed_agent_target,
 )
+
+
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., object])
 
 
 @click.group(name="gateway")
@@ -63,7 +72,7 @@ def gateway_group() -> None:
     """Gateway lifecycle and explicit live-gateway request commands for managed agents."""
 
 
-def _current_session_option(function):
+def _current_session_option(function: _FunctionT) -> _FunctionT:
     """Attach the shared `--current-session` option decorator."""
 
     return click.option(
@@ -242,6 +251,124 @@ def send_keys_gateway_command(
     )
 
 
+@gateway_group.group(name="tui")
+def gateway_tui_group() -> None:
+    """Raw gateway-owned TUI tracking commands."""
+
+
+@gateway_tui_group.command(name="state")
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit gateway TUI state")
+@managed_agent_selector_options
+def state_gateway_tui_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Show raw gateway-owned live TUI state for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="tui state",
+    )
+    emit_json(gateway_tui_state(target))
+
+
+@gateway_tui_group.command(name="history")
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit gateway TUI history")
+@managed_agent_selector_options
+def history_gateway_tui_command(
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Show bounded raw gateway-owned TUI snapshot history for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="tui history",
+    )
+    emit_json(gateway_tui_history(target))
+
+
+@gateway_tui_group.command(name="watch")
+@click.option(
+    "--interval-seconds",
+    default=1.0,
+    type=click.FloatRange(min=0.0, min_open=True),
+    show_default=True,
+    help="Polling interval for repeated raw gateway TUI state inspection.",
+)
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit gateway TUI watch")
+@managed_agent_selector_options
+def watch_gateway_tui_command(
+    interval_seconds: float,
+    current_session: bool,
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Poll raw gateway-owned TUI state repeatedly for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="tui watch",
+    )
+    stdout = click.get_text_stream("stdout")
+    try:
+        while True:
+            state = gateway_tui_state(target)
+            if stdout.isatty():
+                click.clear()
+                emit_json(state)
+            else:
+                click.echo(json.dumps(state.model_dump(mode="json"), sort_keys=True))
+            time.sleep(interval_seconds)
+    except KeyboardInterrupt:
+        return
+
+
+@gateway_tui_group.command(name="note-prompt")
+@click.option(
+    "--prompt",
+    default=None,
+    help="Prompt text to record in the gateway-owned tracker. If omitted, piped stdin is used.",
+)
+@_current_session_option
+@pair_port_option(help_text="Houmao server port override for explicit gateway TUI prompt note")
+@managed_agent_selector_options
+def note_prompt_gateway_tui_command(
+    current_session: bool,
+    port: int | None,
+    prompt: str | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Record prompt-note provenance without submitting a queued gateway request."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        current_session=current_session,
+        operation_name="tui note-prompt",
+    )
+    emit_json(gateway_tui_note_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
+
+
 @gateway_group.group(name="mail-notifier")
 def mail_notifier_gateway_group() -> None:
     """Gateway mail-notifier lifecycle and inspection commands."""
@@ -378,7 +505,9 @@ def _resolve_gateway_command_target(
     return _resolve_gateway_current_session_target(session_name=session_name)
 
 
-def _resolve_gateway_current_session_target(*, session_name: str | None = None) -> ManagedAgentTarget:
+def _resolve_gateway_current_session_target(
+    *, session_name: str | None = None
+) -> ManagedAgentTarget:
     """Resolve one managed-agent target from current-session tmux metadata."""
 
     resolved_session_name = session_name or _require_current_tmux_session_name()

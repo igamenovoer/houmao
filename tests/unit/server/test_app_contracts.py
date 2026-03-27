@@ -52,6 +52,8 @@ from houmao.server.models import (
     HoumaoRegisterLaunchResponse,
     HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryEntry,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedDiagnostics,
     HoumaoTrackedLastTurn,
@@ -137,6 +139,9 @@ class _AppServiceDouble:
         self.m_gateway_status_calls: list[str] = []
         self.m_gateway_attach_calls: list[str] = []
         self.m_gateway_detach_calls: list[str] = []
+        self.m_gateway_tui_state_calls: list[str] = []
+        self.m_gateway_tui_history_calls: list[tuple[str, int]] = []
+        self.m_gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
         self.m_gateway_request_calls: list[tuple[str, HoumaoManagedAgentGatewayRequestCreate]] = []
         self.m_gateway_control_calls: list[tuple[str, GatewayControlInputRequestV1]] = []
         self.m_gateway_notifier_get_calls: list[str] = []
@@ -505,6 +510,44 @@ class _AppServiceDouble:
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         self.m_gateway_detach_calls.append(agent_ref)
         return self.managed_agent_gateway_status(agent_ref)
+
+    def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
+        self.m_gateway_tui_state_calls.append(agent_ref)
+        return self.terminal_state("headless123")
+
+    def get_managed_agent_gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        self.m_gateway_tui_history_calls.append((agent_ref, limit))
+        state = self.terminal_state("headless123")
+        return HoumaoTerminalSnapshotHistoryResponse(
+            terminal_id=state.terminal_id,
+            tracked_session_id=state.tracked_session.tracked_session_id,
+            entries=[
+                HoumaoTerminalSnapshotHistoryEntry(
+                    recorded_at_utc="2026-03-19T10:00:00+00:00",
+                    diagnostics=state.diagnostics,
+                    probe_snapshot=state.probe_snapshot,
+                    parsed_surface=state.parsed_surface,
+                    surface=state.surface,
+                    turn=state.turn,
+                    last_turn=state.last_turn,
+                    stability=state.stability.model_copy(update={"signature": f"history-{limit}"}),
+                )
+            ],
+        )
+
+    def note_managed_agent_gateway_tui_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse:
+        self.m_gateway_tui_note_prompt_calls.append((agent_ref, prompt))
+        return self.terminal_state("headless123")
 
     def submit_managed_agent_gateway_request(
         self,
@@ -1055,6 +1098,21 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     gateway_status_route = _route("/houmao/agents/{agent_ref}/gateway", "GET", app=app)
     gateway_attach_route = _route("/houmao/agents/{agent_ref}/gateway/attach", "POST", app=app)
     gateway_detach_route = _route("/houmao/agents/{agent_ref}/gateway/detach", "POST", app=app)
+    gateway_tui_state_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/tui/state",
+        "GET",
+        app=app,
+    )
+    gateway_tui_history_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/tui/history",
+        "GET",
+        app=app,
+    )
+    gateway_tui_note_prompt_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/tui/note-prompt",
+        "POST",
+        app=app,
+    )
     gateway_request_route = _route(
         "/houmao/agents/{agent_ref}/gateway/requests",
         "POST",
@@ -1141,6 +1199,21 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     )
     assert gateway_attach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
     assert gateway_detach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    assert (
+        gateway_tui_state_route.endpoint(agent_ref="claude-headless-1").terminal_id == "headless123"
+    )
+    gateway_tui_history = gateway_tui_history_route.endpoint(
+        agent_ref="claude-headless-1",
+        limit=7,
+    )
+    assert gateway_tui_history.entries[0].stability.signature == "history-7"
+    assert (
+        gateway_tui_note_prompt_route.endpoint(
+            agent_ref="claude-headless-1",
+            request_model=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+        ).terminal_id
+        == "headless123"
+    )
     gateway_request_response = gateway_request_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=HoumaoManagedAgentGatewayRequestCreate(
@@ -1188,3 +1261,6 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert len(service.m_gateway_control_calls) == 1
     assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
     assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"
+    assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
+    assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
+    assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]

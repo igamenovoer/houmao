@@ -73,8 +73,11 @@ from houmao.passive_server.models import (
 from houmao.passive_server.observation import TuiObservationService
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
+    HoumaoTerminalStateResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -212,6 +215,61 @@ class PassiveServerService:
             return (502, {"detail": "No gateway attached to agent"})
         try:
             return client.status()
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_tui_state(
+        self,
+        agent_ref: str,
+    ) -> HoumaoTerminalStateResponse | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/control/tui/state` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.get_tui_state()
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/control/tui/history` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.get_tui_history(limit=limit)
+        except GatewayHttpError as exc:
+            return (502, {"detail": exc.detail})
+
+    def gateway_tui_note_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/control/tui/note-prompt` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.note_tui_prompt_submission(prompt=prompt)
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 
@@ -757,7 +815,7 @@ class PassiveServerService:
     def _managed_gateway_summary(
         self,
         agent: DiscoveredAgent | None,
-    ):
+    ) -> HoumaoManagedAgentGatewaySummaryView | None:
         """Return optional managed-agent gateway summary when a live gateway is reachable."""
 
         if agent is None:

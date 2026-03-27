@@ -17,6 +17,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 
@@ -49,6 +50,7 @@ from .models import (
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     TerminalId,
 )
@@ -394,6 +396,27 @@ def create_app(
     @app.post("/houmao/agents/{agent_ref}/gateway/detach")
     def detach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
         return resolved_service.detach_managed_agent_gateway(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/tui/state")
+    def get_managed_agent_gateway_tui_state(agent_ref: str) -> HoumaoTerminalStateResponse:
+        return resolved_service.get_managed_agent_gateway_tui_state(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/tui/history")
+    def get_managed_agent_gateway_tui_history(
+        agent_ref: str,
+        limit: int = Query(default=100, ge=0),
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        return resolved_service.get_managed_agent_gateway_tui_history(agent_ref, limit=limit)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/tui/note-prompt")
+    def note_managed_agent_gateway_tui_prompt(
+        agent_ref: str,
+        request_model: GatewayRequestPayloadSubmitPromptV1,
+    ) -> HoumaoTerminalStateResponse:
+        return resolved_service.note_managed_agent_gateway_tui_prompt(
+            agent_ref,
+            prompt=request_model.prompt,
+        )
 
     @app.post("/houmao/agents/{agent_ref}/gateway/requests")
     def submit_managed_agent_gateway_request(
