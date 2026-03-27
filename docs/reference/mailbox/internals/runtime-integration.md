@@ -6,7 +6,7 @@ This page explains how mailbox support is attached to a brain home, a launch pla
 
 Mailbox support spans build time, start time, resume time, and control time.
 
-- Build time projects both runtime-owned mailbox skills into the home, with a visible primary mailbox subtree and a hidden compatibility mirror.
+- Build time projects both runtime-owned mailbox skills into the home under the visible mailbox subtree.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
 - Launch-plan composition injects transport-specific mailbox env vars into the session and, for tmux-backed managed sessions, publishes the targeted mailbox keys into tmux session environment as the live mailbox projection.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
@@ -18,9 +18,8 @@ Mailbox support spans build time, start time, resume time, and control time.
 `build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. For current adapters, that means:
 
 - primary visible skill docs at `skills/mailbox/email-via-filesystem/SKILL.md` and `skills/mailbox/email-via-stalwart/SKILL.md`
-- hidden compatibility mirrors at `skills/.system/mailbox/email-via-filesystem/SKILL.md` and `skills/.system/mailbox/email-via-stalwart/SKILL.md`
 
-That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and Codex-safe prompt construction can point directly at the visible mailbox skill files without depending on hidden-dot discovery.
+That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and Codex-safe prompt construction can point directly at the visible mailbox skill files.
 
 ## Start Time
 

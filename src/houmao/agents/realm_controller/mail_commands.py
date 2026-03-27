@@ -16,7 +16,6 @@ from typing import Any, Callable, Literal
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_compatibility_document_path,
     mailbox_skill_document_path,
     mailbox_skill_name,
     resolve_live_mailbox_binding,
@@ -175,14 +174,9 @@ def _mail_prompt_instruction_lines(
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
     skill_document_path = mailbox_skill_document_path(mailbox)
-    compatibility_document_path = mailbox_skill_compatibility_document_path(mailbox)
     lines = [
         (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
         f"Open the primary mailbox skill document at `{skill_document_path}`.",
-        (
-            "The same mailbox skill may also be mirrored at "
-            f"`{compatibility_document_path}`, but treat that hidden path as compatibility-only."
-        ),
         (
             "Before any direct mailbox access, resolve current mailbox bindings through the "
             "runtime-owned helper "

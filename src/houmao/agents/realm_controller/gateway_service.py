@@ -1438,10 +1438,8 @@ class GatewayServiceRuntime:
             ),
             (
                 "Use the runtime-owned mailbox skill document for the current transport at "
-                f"`{mailbox_skill_document_path(mailbox)}`. "
-                "The same document may also be mirrored under `skills/.system/mailbox/...`, "
-                "but prefer the visible `skills/mailbox/...` path and open it directly instead "
-                "of searching with `rg`, `find`, or slash-skill lookup."
+                f"`{mailbox_skill_document_path(mailbox)}` and open it directly instead of "
+                "searching with `rg`, `find`, or slash-skill lookup."
             ),
             (
                 "Use shared mailbox operations through the live gateway facade for this turn: "
