@@ -10,7 +10,7 @@ The runtime is the authority for mailbox attachment to a session.
 - The runtime resolves that into one `MailboxResolvedConfig`.
 - The session manifest persists that resolved mailbox binding as the durable mailbox authority reused by resume and gateway transport access.
 - For tmux-backed managed sessions, the runtime also publishes the targeted `AGENTSYS_MAILBOX_*` keys into tmux session environment as the live mailbox projection for later mailbox work.
-- The runtime also projects the mailbox system skill into the built brain home, with a visible `skills/mailbox/...` primary surface and a hidden `.system/mailbox/...` compatibility mirror.
+- The runtime projects the mailbox system skill into the built brain home under the visible `skills/mailbox/...` mailbox subtree.
 - Later `mail` commands and projected mailbox skills resolve current mailbox bindings through the runtime-owned helper `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` rather than assuming the provider process's inherited mailbox env snapshot is still current.
 
 ## Declarative And Resolved Config
@@ -99,11 +99,6 @@ The runtime projects one transport-specific mailbox skill into the brain home du
 
 - `skills/mailbox/email-via-filesystem/SKILL.md`
 - `skills/mailbox/email-via-stalwart/SKILL.md`
-
-The runtime also keeps a hidden compatibility mirror for the same content at:
-
-- `skills/.system/mailbox/email-via-filesystem/SKILL.md`
-- `skills/.system/mailbox/email-via-stalwart/SKILL.md`
 
 Shared runtime rules:
 
