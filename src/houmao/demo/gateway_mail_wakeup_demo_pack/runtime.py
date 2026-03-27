@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Iterator, Mapping, Sequence, cast
+
+import click
 
 from houmao.agents.brain_builder import BuildResult
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
@@ -28,12 +31,40 @@ from houmao.owned_paths import (
     AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
     AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
 )
+from houmao.srv_ctrl.commands.managed_agents import (
+    managed_agent_detail_payload,
+    resolve_managed_agent_target,
+)
 
 from .models import CommandResult, DemoPaths, DemoState, write_json
 
 
 class DemoRuntimeError(RuntimeError):
     """Raised when the demo runtime flow cannot continue safely."""
+
+
+@contextmanager
+def _temporary_environment(env: Mapping[str, str]) -> Iterator[None]:
+    """Temporarily apply one mapping of environment overrides."""
+
+    previous: dict[str, str | None] = {}
+    changed_keys: list[str] = []
+    for key, value in env.items():
+        current = os.environ.get(key)
+        if current == value:
+            continue
+        previous[key] = current
+        os.environ[key] = value
+        changed_keys.append(key)
+    try:
+        yield
+    finally:
+        for key in changed_keys:
+            prior = previous[key]
+            if prior is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prior
 
 
 def manager_cli_command(args: list[str]) -> list[str]:
@@ -264,14 +295,20 @@ def query_agent_show(
 ) -> dict[str, Any]:
     """Query one managed-agent detail view and persist the result."""
 
-    payload = run_json_command(
-        manager_cli_command(["agents", "show", "--agent-name", agent_name]),
-        cwd=repo_root,
-        stdout_path=paths.logs_dir / "agent-show.stdout",
-        stderr_path=paths.logs_dir / "agent-show.stderr",
-        env=env,
-        timeout_seconds=timeout_seconds,
-    )
+    del repo_root, timeout_seconds
+    stdout_path = paths.logs_dir / "agent-show.stdout"
+    stderr_path = paths.logs_dir / "agent-show.stderr"
+    try:
+        with _temporary_environment(env):
+            target = resolve_managed_agent_target(agent_id=None, agent_name=agent_name, port=None)
+            payload = managed_agent_detail_payload(target).model_dump(mode="json")
+    except (click.ClickException, RuntimeError, ValueError) as exc:
+        stdout_path.write_text("", encoding="utf-8")
+        stderr_path.write_text(f"{exc}\n", encoding="utf-8")
+        raise DemoRuntimeError(str(exc)) from exc
+
+    stdout_path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
     write_json(paths.agent_show_path, payload)
     return payload
 

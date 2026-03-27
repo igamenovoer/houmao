@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import houmao.demo.gateway_mail_wakeup_demo_pack.driver as demo_driver
+import houmao.demo.gateway_mail_wakeup_demo_pack.runtime as demo_runtime
 from houmao.demo.gateway_mail_wakeup_demo_pack.models import (
     DeliveryState,
     DemoState,
@@ -261,6 +262,73 @@ def test_start_demo_persists_serverless_state_and_pack_local_env(
     assert recorded["selector"] == "gateway-mail-wakeup-demo"
     assert recorded["provider"] == "codex"
     assert (paths.project_dir / "skills" / "mailbox" / "README.md").is_file()
+
+
+def test_query_agent_show_uses_programmatic_detail_helper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detail snapshots should use the preserved helper path, not the removed CLI command."""
+
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.control_dir.mkdir(parents=True, exist_ok=True)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+
+    def fake_resolve_managed_agent_target(**kwargs):
+        captured["resolve_kwargs"] = kwargs
+        return "resolved-target"
+
+    class _FakeDetailPayload:
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            captured["model_dump_mode"] = mode
+            return {
+                "tracked_agent_id": "tracked-codex",
+                "identity": {
+                    "manifest_path": str(tmp_path / "runtime" / "sessions" / "manifest.json"),
+                    "agent_name": "gateway-wakeup-codex-beefcafe",
+                    "agent_id": "agent-codex",
+                    "tmux_session_name": "hm-gateway-wakeup-codex-beefcafe",
+                    "terminal_id": None,
+                },
+                "summary_state": {"availability": "available"},
+                "detail": {"transport": "tui"},
+            }
+
+    def fake_managed_agent_detail_payload(target):
+        captured["detail_target"] = target
+        return _FakeDetailPayload()
+
+    monkeypatch.setattr(
+        demo_runtime,
+        "resolve_managed_agent_target",
+        fake_resolve_managed_agent_target,
+    )
+    monkeypatch.setattr(
+        demo_runtime,
+        "managed_agent_detail_payload",
+        fake_managed_agent_detail_payload,
+    )
+
+    payload = demo_runtime.query_agent_show(
+        repo_root=tmp_path,
+        paths=paths,
+        agent_name="gateway-wakeup-codex-beefcafe",
+        env={"AGENTSYS_AGENT_DEF_DIR": str(tmp_path / "agents")},
+        timeout_seconds=30.0,
+    )
+
+    assert captured["resolve_kwargs"] == {
+        "agent_id": None,
+        "agent_name": "gateway-wakeup-codex-beefcafe",
+        "port": None,
+    }
+    assert captured["detail_target"] == "resolved-target"
+    assert captured["model_dump_mode"] == "json"
+    assert payload["tracked_agent_id"] == "tracked-codex"
+    assert json.loads(paths.agent_show_path.read_text(encoding="utf-8"))["tracked_agent_id"] == "tracked-codex"
+    assert "tracked-codex" in (paths.logs_dir / "agent-show.stdout").read_text(encoding="utf-8")
+    assert (paths.logs_dir / "agent-show.stderr").read_text(encoding="utf-8") == ""
 
 
 def test_verify_builds_the_sanitized_report_contract(tmp_path: Path) -> None:

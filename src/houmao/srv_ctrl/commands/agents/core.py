@@ -47,7 +47,6 @@ from ..common import (
 from ..managed_agents import (
     interrupt_managed_agent,
     list_managed_agents,
-    managed_agent_detail_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
@@ -336,16 +335,6 @@ def list_agents_command(port: int | None) -> None:
     """List managed agents from the shared registry, optionally enriched by the server."""
 
     emit_json(list_managed_agents(port=port))
-
-
-@agents_group.command(name="show")
-@pair_port_option()
-@managed_agent_selector_options
-def show_agent_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
-    """Show the detail-oriented managed-agent view."""
-
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(managed_agent_detail_payload(target))
 
 
 @agents_group.command(name="state")

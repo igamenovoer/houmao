@@ -45,7 +45,7 @@ For dedicated coverage of complex nested command families, see:
 |---|---|
 | `launch` | Start a managed agent. Provisions a runtime home, builds the brain, and launches a live session. |
 | `join` | Adopt an existing tmux-backed TUI or native headless logical session into Houmao managed-agent control. |
-| `list`, `show`, `state` | Inspect locally discovered or pair-backed managed agents. |
+| `list`, `state` | Inspect locally discovered or pair-backed managed agents. |
 | `prompt` | Send a prompt to a running agent session. |
 | `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. |
 | `mail` | Check, send, or reply to inter-agent mail messages. |
@@ -68,7 +68,7 @@ Gateway targeting rules:
 
 Gateway TUI notes:
 
-- `gateway tui state` and `gateway tui watch` read the exact raw gateway-owned tracked state rather than the curated `agents show` payload.
+- `gateway tui state` and `gateway tui watch` read the exact raw gateway-owned tracked state rather than the transport-neutral `agents state` payload.
 - `gateway tui history` returns bounded in-memory snapshot history from the live gateway tracker, not coarse managed-agent `/history`.
 - `gateway tui note-prompt` records explicit prompt provenance on the live gateway tracker without enqueueing a gateway prompt request.
 

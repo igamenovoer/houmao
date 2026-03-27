@@ -119,7 +119,6 @@ During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` an
 houmao-mgr server status --port 9889
 houmao-mgr server status --port 9891
 houmao-mgr agents state --agent-id <agent-id> --port 9891
-houmao-mgr agents show --agent-id <agent-id> --port 9891
 houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
 ```
 

@@ -122,7 +122,7 @@ This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmu
 Use it when:
 
 - the provider TUI is already running and you do not want Houmao to restart it
-- you already have a native headless tmux session and want later `turn submit`, `state`, `show`, or `interrupt` commands to target it through the normal managed-agent flow
+- you already have a native headless tmux session and want later `turn submit`, `state`, or `interrupt` commands to target it through the normal managed-agent flow
 
 V1 assumptions are intentionally narrow:
 
@@ -160,7 +160,7 @@ Operational behavior after a successful join:
 
 - Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and workspace-local `job_dir`
 - the tmux session publishes the same discovery pointers as a native launch: `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR`
-- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents show`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
+- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
 
 Relaunch posture is explicit:
 

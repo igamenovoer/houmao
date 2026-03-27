@@ -182,6 +182,7 @@ def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     assert result.exit_code == 0
     assert "mailbox" in result.output
     assert "relaunch" in result.output
+    assert "\n  show" not in result.output
     assert "cao" not in result.output
 
 
@@ -212,7 +213,7 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
     [
         (
             "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
-            ["agents", "show", "--agent-name", "agent-test"],
+            ["agents", "state", "--agent-name", "agent-test"],
         ),
         (
             "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",

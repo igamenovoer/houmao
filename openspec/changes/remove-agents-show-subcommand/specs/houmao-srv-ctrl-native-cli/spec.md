@@ -154,6 +154,25 @@ For these commands, callers SHALL provide exactly one of those selectors unless 
 - **THEN** `houmao-mgr` fails explicitly
 - **AND THEN** the error directs the operator to retry with `--agent-id`
 
+#### Scenario: Friendly-name miss reports local miss before remote-unavailable fallback
+
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name agent-test`
+- **AND WHEN** no live local managed agent currently uses friendly name `agent-test`
+- **AND WHEN** the default pair authority is unavailable for fallback lookup
+- **THEN** `houmao-mgr` fails explicitly
+- **AND THEN** the error states that no local managed agent matched friendly name `agent-test`
+- **AND THEN** the error also states that remote pair-authority lookup could not complete
+- **AND THEN** the error does not present pair-authority unavailability as the only problem
+
+#### Scenario: Friendly-name selector that matches a tmux/session alias gives a corrective hint
+
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name agent-test`
+- **AND WHEN** no live local managed agent currently uses friendly name `agent-test`
+- **AND WHEN** exactly one live local managed agent uses tmux/session alias `agent-test`
+- **THEN** `houmao-mgr` fails explicitly
+- **AND THEN** the error states that `--agent-name` expects the friendly managed-agent name rather than the tmux/session alias
+- **AND THEN** the error identifies the matching agent's published friendly name or authoritative `agent_id` as the retry target
+
 #### Scenario: Missing selector fails when no current-session contract applies
 
 - **WHEN** an operator runs `houmao-mgr agents stop` without `--agent-id` or `--agent-name`
