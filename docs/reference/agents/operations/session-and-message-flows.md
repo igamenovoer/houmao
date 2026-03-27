@@ -64,7 +64,7 @@ Use for raw control input into resumed sessions. Supported backends include `loc
 
 - Returns after input delivery, not after turn completion.
 - Designed for slash-command menus, arrow navigation, partial typing, `Escape`, and explicit control keys.
-- See [Realm Controller Send-Keys](../realm_controller_send_keys.md) for the full sequence grammar and delivery semantics.
+- See [Realm Controller Send-Keys](../../realm_controller_send_keys.md) for the full sequence grammar and delivery semantics.
 
 ### `mail`
 
