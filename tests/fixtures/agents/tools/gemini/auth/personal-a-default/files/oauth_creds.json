@@ -1,8 +1,0 @@
-{
-  "access_token": "PLACEHOLDER_ACCESS_TOKEN",
-  "scope": "https://www.googleapis.com/auth/cloud-platform openid email profile",
-  "token_type": "Bearer",
-  "id_token": "PLACEHOLDER_ID_TOKEN",
-  "expiry_date": 4102444800000,
-  "refresh_token": "PLACEHOLDER_REFRESH_TOKEN"
-}

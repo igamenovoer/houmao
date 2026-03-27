@@ -301,7 +301,7 @@ def test_inspect_and_build_report_capture_watch_coordinates_and_marker_contract(
                     / "tests/fixtures/agents/tools/codex/auth/personal-a-default/files/auth.json"
                 )
             ],
-            "usable_auth_json": True,
+            "usable_auth_json": False,
         },
         "cao": {
             "managed": True,

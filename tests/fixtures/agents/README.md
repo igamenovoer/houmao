@@ -54,7 +54,7 @@ Use this when:
 - populating local API credentials and auth env files
 - rotating accounts or rate-limit lanes by switching bundle names
 
-Never commit secret material. If a fixture needs to keep an auth-shaped file path in git for structure or tests, keep only a documented empty stub, inert placeholder, or bootstrap template in the tracked file and put any real credentials in ignored local-only files instead.
+Never commit secret material. In this fixture tree, `tools/<tool>/auth/**` is local-only host state and should remain ignored entirely.
 
 ### `roles/<role>/system-prompt.md`
 
@@ -99,6 +99,5 @@ Default runtime root is `tmp/agents-runtime/`.
 
 - Commit: `skills/`, `roles/`, `tools/<tool>/adapter.yaml`, `tools/<tool>/setups/`, tracked preset YAML, and compatibility metadata.
 - Do not commit: secret values under `tools/<tool>/auth/**`.
-- Only track: secret-free placeholders, empty stubs, or documented bootstrap templates under auth bundles.
 - Keep managed-agent identity launch-time only. Presets do not own `default_agent_name`.
 - Keep adapter definitions authoritative for per-tool projection and launch behavior.
