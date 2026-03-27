@@ -26,6 +26,8 @@ MANIFEST
 *.env
 *credentials*
 *api_key*
+!openspec/
+!openspec/**
 
 # Editor / OS
 .DS_Store
@@ -60,6 +62,18 @@ tmp/brains/
 .codex/
 .claude/
 .aws/cli-agent-orchestrator/
+
+# Repo auth bundles: ignore live credential material by default
+**/agents/tools/*/auth/**/env/*.env
+**/agents/tools/*/auth/**/files/auth.json
+**/agents/tools/*/auth/**/files/oauth_creds.json
+**/agents/tools/*/auth/**/files/credentials.json
+**/agents/tools/*/auth/**/files/.claude.json
+**/agents/brains/api-creds/**/env/*.env
+**/agents/brains/api-creds/**/files/auth.json
+**/agents/brains/api-creds/**/files/oauth_creds.json
+**/agents/brains/api-creds/**/files/credentials.json
+**/agents/brains/api-creds/**/files/.claude.json
 
 # Generated docs
 site/

@@ -4,3 +4,12 @@ brains/api-creds/**/files/credentials.json
 brains/api-creds/**/files/auth.json
 brains/api-creds/**/files/oauth_creds.json
 brains/api-creds/**/files/.claude.json
+tools/**/auth/**/env/*.env
+tools/**/auth/**/files/credentials.json
+tools/**/auth/**/files/auth.json
+tools/**/auth/**/files/oauth_creds.json
+tools/**/auth/**/files/.claude.json
+
+# Secret-free tracked placeholders/templates kept for fixture structure
+!tools/codex/auth/personal-a-default/files/auth.json
+!tools/gemini/auth/personal-a-default/files/oauth_creds.json
