@@ -1,131 +1,130 @@
-# How Do I Watch The Gateway Mail Notifier Wake A Live Mailbox-Enabled Session And Inspect Its Durable Audit Trail?
+# How Do I Watch A Serverless Gateway Mail Notifier Wake A Live Filesystem-Mailbox Session?
 
-Default agent-definition directory: `tests/fixtures/agents` (override with `AGENT_DEF_DIR=/path/to/agents`).
+Default agent-definition directory: `tests/fixtures/agents` (override with `AGENTSYS_AGENT_DEF_DIR=/path/to/agents` or `AGENT_DEF_DIR=/path/to/agents`).
 
-This tutorial pack answers one concrete question:
+This demo pack answers one narrow question:
 
-> "How can I start one mailbox-enabled `houmao_server_rest` session through demo-owned `houmao-server`, attach the gateway after launch, inject a wake-up message, and verify the outcome through gateway-owned artifacts instead of guessing from terminal text?"
+> "How can I start one serverless local interactive agent through `houmao-mgr`, register a filesystem mailbox for it, attach a gateway after launch, inject one filesystem message, and prove from durable artifacts that the gateway wake-up completed and the processed mail became read?"
 
-Success means you can run one end-to-end automatic flow, inspect the durable notifier audit history in `queue.sqlite`, confirm the gateway either enqueued or skipped work for an explicit reason, and see the demo-owned output file written by the agent after the wake-up mail lands.
+The rewritten pack keeps all generated state under this demo directory. The default roots are:
 
-## Prerequisites Checklist
+- `scripts/demo/gateway-mail-wakeup-demo-pack/outputs/claude/`
+- `scripts/demo/gateway-mail-wakeup-demo-pack/outputs/codex/`
 
-- [ ] `pixi` is installed.
-- [ ] The repo environment is installed (`pixi install` once).
-- [ ] `tmux` is installed and on `PATH`.
-- [ ] The default Codex credential profile selected by `tests/fixtures/agents/blueprints/mailbox-demo-codex.yaml` is available.
-- [ ] You are running from this repository checkout.
+The pack-local `.gitignore` ignores `outputs/`, including the mailbox root, copied project, runtime, registry, jobs, and autotest artifacts.
 
-The default verified path is demo-owned `houmao-server`. The helper starts or reuses one local server rooted under `<demo-output-dir>/server/`, launches the runtime session with `backend=houmao_server_rest`, attaches the gateway through the server-managed agent route after launch, and stops that same server again during cleanup when the demo owns it.
+## Prerequisites
 
-Override the listener with `HOUMAO_BASE_URL=http://127.0.0.1:<port>` if needed. The selected server must belong to the same demo output root; the helper fails clearly instead of targeting an unrelated external server instance.
+- `pixi` is installed.
+- `tmux` is installed and on `PATH`.
+- The repo environment is installed once with `pixi install`.
+- Claude credentials exist under `tests/fixtures/agents/brains/api-creds/claude/kimi-coding/`.
+- Codex credentials exist under `tests/fixtures/agents/brains/api-creds/codex/yunwu-openai/`.
+
+The tracked live fixtures for this pack are:
+
+- selector: `gateway-mail-wakeup-demo`
+- Claude provider: `claude_code`
+- Codex provider: `codex`
+- role: `gateway-mail-wakeup-demo`
+- copied dummy project: `tests/fixtures/dummy-projects/mailbox-demo-python`
 
 ## Filesystem Layout
 
 ```text
-<demo-output-dir>/
-├── deliveries/                # staged Markdown plus managed delivery payload files
-├── inputs/                    # copied tracked tutorial inputs
-├── outputs/                   # demo-owned wake-up artifact written by the agent
-├── project/                   # copied dummy-project fixture initialized as a fresh git repo
-│   └── skills/mailbox/        # project-local mailbox skill docs mirrored from the runtime home
-├── runtime/                   # built brain outputs and session manifests
-├── server/                    # demo-owned `houmao-server` runtime and process logs
-├── shared-mailbox/            # shared filesystem mailbox root
-├── server_start.json
-├── brain_build.json
-├── session_start.json
-├── gateway_attach.json
-├── notifier_enable.json
-├── inspect.json
-├── report.json
-└── report.sanitized.json
+scripts/demo/gateway-mail-wakeup-demo-pack/outputs/<tool>/
+├── control/                    # persisted state, launch, inspect, report, and verify artifacts
+├── deliveries/                 # staged Markdown plus managed delivery payload JSON
+├── evidence/                   # best-effort tmux pane snapshots for processed deliveries
+├── jobs/                       # run-local job root
+├── logs/                       # stdout/stderr logs from `houmao-mgr`
+├── mailbox/                    # pack-local filesystem mailbox root
+├── outputs/                    # wake-up artifact written by the agent
+├── project/                    # copied dummy project initialized as a fresh git repo
+├── registry/                   # run-local managed-agent registry root
+└── runtime/                    # run-local managed-agent runtime root
 ```
 
-By default, the wrapper uses `tmp/demo/gateway-mail-wakeup-demo-pack`. Override it with `--demo-output-dir <abs-or-rel-path>`. Relative paths resolve from the repository root.
+The mailbox root is always under the selected pack-local output root. This demo does not write mailbox state to repo-global temp roots or operator defaults outside the pack.
 
-Notes:
+## Control Flow
 
-- The default tracked fixture is `tests/fixtures/dummy-projects/mailbox-demo-python`.
-- The default tracked blueprint is `blueprints/mailbox-demo-codex.yaml`.
-- `project/` is provisioned by copying the tracked source-only dummy project into the selected demo root, writing `.houmao-demo-project.json`, and initializing a fresh standalone git repo for that run.
-- This pack is intentionally a narrow mailbox and runtime-contract walkthrough, so it uses the copied dummy-project plus `mailbox-demo` fixture shape instead of a repository worktree plus heavyweight engineering role.
-- Demo roots that still contain the old repository-worktree layout are stale for this pack. Use a fresh `--demo-output-dir` or remove the old demo root before rerunning.
+The live flow is fully serverless:
 
-## Unread-Set Semantics
+1. `houmao-mgr mailbox init --mailbox-root <pack-local-root>/mailbox`
+2. `houmao-mgr agents launch --agents gateway-mail-wakeup-demo --provider <claude_code|codex>`
+3. `houmao-mgr agents mailbox register ...`
+4. `houmao-mgr agents gateway attach ...`
+5. `houmao-mgr agents gateway mail-notifier enable ...`
+6. inject one filesystem message through the managed delivery boundary
+7. wait until the gateway wake-up completes, the output file is written, and the delivered message is observed read
 
-The gateway notifier is unread-set based, not per-message based.
-
-- One poll cycle asks whether unread mail exists and whether the session is eligible for a reminder prompt.
-- A single reminder prompt may summarize multiple unread messages.
-- If the unread set is unchanged, later polls may deduplicate instead of enqueueing another reminder.
-- Burst delivery success means no unread mail was lost, not that one gateway prompt was emitted per message.
-
-That is why this pack treats the durable audit table in `queue.sqlite` as the detailed source of truth. The live notifier-status surface remains a compact snapshot, while `gateway_notifier_audit` records one structured decision row per enabled poll cycle.
+The injected body template is [`inputs/wake_up_message.md`](./inputs/wake_up_message.md). It asks the agent to write the current UTC timestamp to the pack-local output file and to avoid marking the message read until that write succeeds.
 
 ## Automatic Workflow
 
-Run the maintainer-style end-to-end flow:
+Run one canonical end-to-end flow for a single tool:
 
 ```bash
-scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh auto --tool codex
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh auto --tool claude
 ```
 
-What it does:
+Run both tools sequentially with separate tool-scoped artifacts:
 
-1. Provisions `<demo-output-dir>/project` by copying the tracked dummy-project fixture and initializing it as a fresh standalone git repo.
-2. Starts or reuses demo-owned `houmao-server` under `<demo-output-dir>/server/`.
-3. Builds the tracked lightweight mailbox-demo Codex brain, mirrors its runtime mailbox skill docs into `project/skills/mailbox/`, and starts one mailbox-enabled `houmao_server_rest` session.
-4. Resolves the server-managed agent identity for that session, attaches the gateway through the server-managed route, and enables notifier polling with a one-second interval.
-5. Waits for the session to look idle, using server-managed agent readiness first and gateway status as a fallback.
-6. Injects one wake-up mail through the managed mailbox delivery script.
-7. Waits for `<demo-output-dir>/outputs/wakeup-time.txt`.
-8. Builds `report.json`, sanitizes it to `report.sanitized.json`, and compares that sanitized output to `expected_report/report.json`.
+```bash
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh matrix
+```
 
-The tracked mail body lives in [`inputs/wake_up_message.md`](inputs/wake_up_message.md) and uses the `{{OUTPUT_FILE_PATH}}` token so the helper can point the managed agent at the current demo-owned output file.
+`auto` and `matrix` both stop the managed session after verification so repeated unattended runs do not leave stale live sessions behind.
 
 ## Manual Workflow
 
-Start the live session and keep it running:
+Start one live serverless session and keep it running:
 
 ```bash
-scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh start
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh start --tool codex
 ```
 
-If an old demo root already contains a repository worktree or another unmanaged `project/` directory, the command now fails before any live runtime work starts. That failure is intentional; remove the stale demo root or choose a fresh `--demo-output-dir`.
+Inject one message with the tracked body template:
 
-Inject one message from inline text:
+```bash
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh manual-send
+```
+
+Inject one message with explicit body content:
 
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh manual-send \
   --subject "Manual wake-up" \
-  --body-content "Write the current UTC time to /tmp/manual-wakeup.txt"
+  --body-content "Write the current UTC time to scripts/demo/gateway-mail-wakeup-demo-pack/outputs/codex/outputs/manual.txt"
 ```
 
-Inject one message from a Markdown file:
-
-```bash
-scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh manual-send \
-  --subject "Manual wake-up from file" \
-  --body-file scripts/demo/gateway-mail-wakeup-demo-pack/inputs/wake_up_message.md
-```
-
-Inject a burst of messages against the same live session:
+Inject a burst:
 
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh manual-send-many \
   --count 3 \
-  --subject-prefix "Gateway burst" \
-  --body-content "Unread burst message for gateway batching."
+  --subject-prefix "Gateway burst"
 ```
 
-The helper always stages Markdown under `deliveries/staged/`, writes one managed delivery payload under `deliveries/payloads/`, and invokes the projected mailbox script `shared-mailbox/rules/scripts/deliver_message.py`. The pack never mutates mailbox SQLite directly.
-
-Stop the live managed agent and demo-owned server:
+Stop the live managed agent:
 
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh stop
 ```
+
+The pack always stages Markdown and delivery payloads under `deliveries/` and delivers through the managed filesystem contract. It never mutates mailbox SQLite directly.
+
+## Unread-Set Semantics
+
+The gateway notifier is unread-set based, not one-prompt-per-message.
+
+- One prompt may summarize multiple unread messages.
+- The notifier may skip a poll when the session is busy.
+- Valid success means unread work was surfaced and processed, not that each message caused a unique prompt row.
+
+That is why the verification contract focuses on durable notifier audit and queue evidence plus final mailbox read-state, instead of exact per-poll sequencing.
 
 ## Inspect And Verify
 
@@ -135,64 +134,38 @@ Capture a fresh inspection snapshot:
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh inspect
 ```
 
-That snapshot writes `inspect.json` under the demo output directory and includes:
-
-- server lifecycle and managed-agent identity evidence,
-- compact notifier status,
-- durable notifier audit summary plus raw rows,
-- notifier-related queue and event evidence,
-- mailbox-local unread state,
-- output-file evidence.
-
-Rebuild and verify the sanitized report explicitly:
+Rebuild and verify the sanitized golden report:
 
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh verify
 ```
 
-The expected contract intentionally compares summary-shaped evidence rather than exact poll-by-poll sequences. Raw audit rows remain in `inspect.json` for debugging, but `expected_report/report.json` only tracks stable facts such as:
+The raw inspect snapshot keeps the detailed notifier audit rows. The sanitized golden report keeps only stable assertions:
 
-- demo-owned server lifecycle and managed-agent identity,
-- notifier enabled,
-- notifier enqueued at least one wake-up prompt,
-- no poll errors were observed,
-- project-local mailbox skill surface present,
-- mailbox unread state was visible,
-- the output file existed and looked timestamp-like.
+- tool-selected serverless session identity
+- notifier enabled
+- notifier enqueued mail work
+- no notifier poll errors
+- queue recorded and completed a notifier request
+- the canonical delivered message became read
+- final unread count is zero
+- the output file exists, looks like an RFC3339 timestamp, and is newer than the delivery
+- the output root and mailbox root stayed pack-local
 
-## Snapshot Refresh
-
-Refresh the tracked sanitized snapshot after an intentional contract change:
-
-```bash
-scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh --snapshot-report
-```
-
-Or rebuild the report from an already-started demo:
+Refresh the tracked snapshot after an intentional contract change:
 
 ```bash
-scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh verify --snapshot-report
+scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh verify --snapshot
 ```
 
-## Appendix
+## Autotest
 
-Tracked inputs:
+The pack ships a first-class real-agent harness:
 
-- [`inputs/demo_parameters.json`](inputs/demo_parameters.json)
-- [`inputs/wake_up_message.md`](inputs/wake_up_message.md)
+```bash
+scripts/demo/gateway-mail-wakeup-demo-pack/autotest/run_autotest.sh --case real-agent-preflight
+scripts/demo/gateway-mail-wakeup-demo-pack/autotest/run_autotest.sh --case real-agent-both-tools-auto
+```
 
-Pack-local helpers:
+The harness writes machine-readable results under `outputs/autotest/.../control/autotest/` and preserves per-phase logs under `outputs/autotest/.../logs/autotest/`.
 
-- [`scripts/tutorial_pack_helpers.py`](scripts/tutorial_pack_helpers.py)
-- [`scripts/inspect_demo.py`](scripts/inspect_demo.py)
-- [`scripts/sanitize_report.py`](scripts/sanitize_report.py)
-- [`scripts/verify_report.py`](scripts/verify_report.py)
-
-Key output artifacts:
-
-- `server_start.json`: persisted demo-owned `houmao-server` lifecycle state.
-- `shared-mailbox/index.sqlite`: shared mailbox index.
-- `shared-mailbox/mailboxes/<address>/mailbox.sqlite`: mailbox-local unread state.
-- `gateway_root/queue.sqlite`: durable gateway requests plus `gateway_notifier_audit`.
-- `gateway_root/events.jsonl`: request lifecycle evidence.
-- `outputs/wakeup-time.txt`: demo-owned automatic wake-up artifact.

@@ -91,6 +91,7 @@ For managed agents, the public gateway control surface lives on `houmao-mgr agen
 - `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
 - `houmao-mgr agents gateway status|prompt|interrupt|send-keys ...` follow the same target-resolution rules as `attach`
+- `houmao-mgr agents gateway tui state|history|watch|note-prompt ...` expose the raw gateway-owned TUI tracking surface with the same target-resolution rules
 - `houmao-mgr agents gateway mail-notifier status|enable|disable ...` expose the live gateway notifier control surface with the same target-resolution rules
 
 Targeting rules for `houmao-mgr agents gateway ...`:
@@ -106,9 +107,11 @@ When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-m
 
 For pair-managed `houmao_server_rest` sessions, `--foreground` is redundant but valid because those same-session gateways already use the auxiliary-window execution model.
 
-For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, and use `houmao-mgr agents gateway mail-notifier ...` only when you want to inspect or change live unread-mail reminder behavior. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
+For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
-For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr brains build ...` and `houmao-mgr admin cleanup-registry ...`.
+For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox cleanup`.
+
+All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record when needed.
 
 During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` and run `houmao-passive-server` on `9891`. The same `houmao-mgr` surface can then compare both pair authorities directly:
 

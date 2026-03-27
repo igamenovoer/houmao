@@ -75,6 +75,9 @@ Publicly relevant details:
 - Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, and `AGENTSYS_AGENT_DEF_DIR`.
 - `gateway/attach.json` is internal runtime bootstrap state, not part of the supported external discovery contract.
 - Live gateway env vars appear only while a gateway instance is actually attached.
+- For attached shared-mailbox work, the supported runtime-owned discovery path is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+- Inside the managed session, that resolver prefers current process env, falls back to the owning tmux session env, and validates the resulting live gateway binding before returning `gateway.base_url`.
+- Outside the managed session, shared-registry discovery uses `runtime.manifest_path` as a locator and treats `gateway/run/current-instance.json` as the authoritative local live-gateway record once the session root is known.
 
 Pair-managed note:
 

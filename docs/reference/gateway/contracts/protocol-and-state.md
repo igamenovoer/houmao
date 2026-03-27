@@ -112,6 +112,7 @@ Important rules:
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 ## HTTP Surface
 
@@ -294,11 +295,13 @@ For attached runtime-owned `local_interactive` sessions outside `houmao-server`,
 
 ### `GET /v1/control/tui/history`
 
-This route returns the gateway-owned live `HoumaoTerminalHistoryResponse` for the same tracked TUI session.
+This route returns the gateway-owned live `HoumaoTerminalSnapshotHistoryResponse` for the same tracked TUI session.
 
-The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
+It is a bounded in-memory recent snapshot surface rather than the coarse transition-summary history attached to `HoumaoTerminalStateResponse.recent_transitions`. The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
 
-For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route remains a compatibility surface for shared consumers rather than part of the supported repo-owned local/serverless workflow. Local operator guidance should rely on `GET /v1/control/tui/state` plus explicit prompt-note evidence instead.
+The tracker retains at most 1000 recent snapshots per tracked session in memory. That retention cap is internal implementation configuration and is not currently a user-facing knob.
+
+For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route is now part of the supported local inspection workflow together with `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt`.
 
 ### `POST /v1/control/tui/note-prompt`
 
@@ -521,6 +524,7 @@ Support contract rules:
 - The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest as the durable mailbox capability record.
 - For tmux-backed managed sessions, it additionally resolves the current targeted `AGENTSYS_MAILBOX_*` projection from the owning tmux session environment before treating notifier behavior as supported.
+- The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which prefers current process env, falls back to the owning tmux session env, and returns optional `gateway.base_url` data when a valid live gateway is attached.
 - Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current tmux-backed live mailbox projection is unavailable or incomplete for actionable mailbox work.
 - Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
@@ -578,6 +582,7 @@ Current rules:
 - same-session mode must never record `tmux_window_index = "0"`
 - for pair-managed `houmao_server_rest`, the recorded tmux handle is the authoritative live gateway surface for attach, detach, cleanup, and auxiliary-window recreation
 - non-zero tmux windows remain non-contractual by convention; callers should rely on the recorded current-instance handle rather than window naming heuristics
+- once the session root is known, `run/current-instance.json` is also the authoritative local live-gateway record used by runtime-owned cross-session endpoint discovery
 
 ## Durable And Ephemeral Gateway Artifacts
 
@@ -627,6 +632,8 @@ That log is the stable tail-watch surface for the running gateway. Request lifec
 - `state.json` exists even before the first live attach.
 - Offline status must omit live `gateway_host` and `gateway_port`.
 - The gateway client connects to `127.0.0.1` even when the published host is `0.0.0.0`, because `0.0.0.0` is a bind address, not a connect address.
+- The session manifest remains stable authority and must not persist live gateway host or port.
+- Shared-registry gateway metadata is locator metadata only; runtime-owned discovery recovers `runtime.manifest_path`, derives the session root, and then validates the live endpoint against `run/current-instance.json` plus `/health`.
 
 ## Source References
 

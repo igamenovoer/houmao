@@ -13,7 +13,9 @@ sequenceDiagram
     Op->>Mgr: brains build<br/>(recipe, agent-def-dir)
     Mgr->>BB: build_brain_home()
     BB-->>Mgr: BuildResult<br/>(manifest path)
-    Op->>Mgr: agents launch<br/>(manifest, role)
+    Op->>Mgr: agents launch<br/>(selector, agent-name)
+    Mgr->>BB: build_brain_home()
+    BB-->>Mgr: BuildResult
     Mgr->>RT: start_runtime_session()
     RT->>BE: create session
     BE-->>RT: InteractiveSession
@@ -126,83 +128,74 @@ On success, the build emits the path to the generated `BrainManifest` and a laun
 
 ## Step 3: Launch a Session
 
-Launch an interactive agent session using the built brain:
+Launch an interactive managed agent using the selector-based workflow:
 
 ```bash
 pixi run houmao-mgr agents launch \
-  --manifest <path-to-manifest.json> \
-  --role default \
-  --backend local_interactive
+  --agents gpu-kernel-coder \
+  --agent-name research \
+  --provider claude_code
 ```
 
-This starts the agent CLI inside a tmux session. The `local_interactive` backend gives you a fully interactive tmux-backed process.
+This builds the brain and starts the agent CLI inside a tmux-backed session in one step. The `--agents` selector resolves the brain recipe, `--agent-name` gives the session a friendly name for later targeting, and `--provider` selects the underlying CLI tool (defaults to `claude_code`).
 
-For headless (programmatic) use, choose the appropriate backend:
+For headless (detached) use, add `--headless`:
 
 ```bash
-# Claude headless
 pixi run houmao-mgr agents launch \
-  --manifest <path-to-manifest.json> \
-  --role default \
-  --backend claude_headless
-
-# Codex headless
-pixi run houmao-mgr agents launch \
-  --manifest <path-to-manifest.json> \
-  --role default \
-  --backend codex_headless
+  --agents gpu-kernel-coder \
+  --agent-name research \
+  --provider claude_code \
+  --headless
 ```
+
+To skip the workspace trust confirmation prompt, add `--yolo`.
 
 ## Step 4: Send a Prompt
 
-Once a session is running, send prompts to it:
+Once a session is running, send prompts to it by targeting the managed agent by name:
 
 ```bash
 pixi run houmao-mgr agents prompt \
-  --session-id <session-id> \
-  --message "Explain the architecture of this project."
+  --agent-name research \
+  --prompt "Explain the architecture of this project."
 ```
 
-The session ID is returned when you launch the session. For headless backends, the response is returned directly. For interactive backends, the prompt is sent to the tmux session.
+You can also target by agent ID with `--agent-id`. For headless backends, the response is returned directly. For interactive backends, the prompt is sent to the tmux session.
 
 ## Step 5: Stop the Session
 
-Terminate a running session cleanly:
+Stop a running managed agent cleanly:
 
 ```bash
-pixi run houmao-mgr agents terminate --session-id <session-id>
+pixi run houmao-mgr agents stop --agent-name research
 ```
 
 This stops the agent CLI process and cleans up the tmux session (for interactive backends).
 
 ## End-to-End Example
 
-Here is the full workflow for building and running a Claude agent:
+Here is the full managed-agent workflow for building and running a Claude agent:
 
 ```bash
-# 1. Build the brain
+# 1. Build the brain (standalone build phase — optional when using `agents launch`)
 pixi run houmao-mgr brains build \
   --agent-def-dir .agentsys/agents \
   --recipe .agentsys/agents/brains/brain-recipes/claude/default.yaml
 
-# Note the manifest path from the output, e.g.:
-#   Manifest written to: tmp/homes/<home-id>/brain-manifest.json
-
-# 2. Launch an interactive session
+# 2. Launch an interactive managed agent (builds + launches in one step)
 pixi run houmao-mgr agents launch \
-  --manifest tmp/homes/<home-id>/brain-manifest.json \
-  --role default \
-  --backend local_interactive
-
-# Note the session ID from the output
+  --agents gpu-kernel-coder \
+  --agent-name research \
+  --provider claude_code
 
 # 3. Send a prompt
 pixi run houmao-mgr agents prompt \
-  --session-id <session-id> \
-  --message "Hello, what can you help me with?"
+  --agent-name research \
+  --prompt "Hello, what can you help me with?"
 
-# 4. Terminate when done
-pixi run houmao-mgr agents terminate --session-id <session-id>
+# 4. Stop when done
+pixi run houmao-mgr agents stop --agent-name research
 ```
 
 ## What's Next

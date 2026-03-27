@@ -35,6 +35,8 @@ from houmao.server.models import (
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoStabilityMetadata,
+    HoumaoTerminalSnapshotHistoryEntry,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedDiagnostics,
     HoumaoTrackedLastTurn,
@@ -50,6 +52,9 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_mail_notifier_enable,
     gateway_mail_notifier_status,
     gateway_send_keys,
+    gateway_tui_history,
+    gateway_tui_note_prompt,
+    gateway_tui_state,
     interrupt_managed_agent,
     list_managed_agents,
     mail_status,
@@ -271,9 +276,9 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
         agent_ref="local",
         identity=_managed_identity(transport="tui"),
         controller=SimpleNamespace(
-            register_filesystem_mailbox=lambda **kwargs: (
-                _ for _ in ()
-            ).throw(SessionManifestError("expected mailbox failure"))
+            register_filesystem_mailbox=lambda **kwargs: (_ for _ in ()).throw(
+                SessionManifestError("expected mailbox failure")
+            )
         ),
     )
 
@@ -372,6 +377,43 @@ def _managed_detail(state: HoumaoManagedAgentStateResponse) -> HoumaoManagedAgen
             gateway=None,
             diagnostics=[],
         ),
+    )
+
+
+def _gateway_tui_state_response() -> HoumaoTerminalStateResponse:
+    return HoumaoTerminalStateResponse(
+        terminal_id="headless123",
+        tracked_session=HoumaoTrackedSessionIdentity(
+            tracked_session_id="tracked-alpha",
+            session_name="AGENTSYS-alpha",
+            tool="claude",
+            tmux_session_name="AGENTSYS-alpha",
+            terminal_aliases=["headless123"],
+        ),
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="available",
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_error=None,
+            parse_error=None,
+        ),
+        probe_snapshot=None,
+        parsed_surface=None,
+        surface=HoumaoTrackedSurface(
+            accepting_input="yes",
+            editing_input="no",
+            ready_posture="yes",
+        ),
+        turn=HoumaoTrackedTurn(phase="ready"),
+        last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
+        stability=HoumaoStabilityMetadata(
+            signature="ready",
+            stable=True,
+            stable_for_seconds=3.0,
+            stable_since_utc="2026-01-01T00:00:00+00:00",
+        ),
+        recent_transitions=[],
     )
 
 
@@ -502,6 +544,9 @@ class _FakePassivePairClient:
         self.detail_calls: list[str] = []
         self.turn_calls: list[tuple[str, str]] = []
         self.gateway_control_calls: list[tuple[str, str, bool]] = []
+        self.gateway_tui_state_calls: list[str] = []
+        self.gateway_tui_history_calls: list[str] = []
+        self.gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
         self.gateway_notifier_get_calls: list[str] = []
         self.gateway_notifier_put_calls: list[tuple[str, int]] = []
         self.gateway_notifier_delete_calls: list[str] = []
@@ -552,7 +597,47 @@ class _FakePassivePairClient:
         )
         return GatewayControlInputResultV1(detail="delivered")
 
-    def get_managed_agent_gateway_mail_notifier(self, agent_ref: str) -> GatewayMailNotifierStatusV1:
+    def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
+        self.gateway_tui_state_calls.append(agent_ref)
+        return _gateway_tui_state_response()
+
+    def get_managed_agent_gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        self.gateway_tui_history_calls.append(agent_ref)
+        state = _gateway_tui_state_response()
+        return HoumaoTerminalSnapshotHistoryResponse(
+            terminal_id=state.terminal_id,
+            tracked_session_id=state.tracked_session.tracked_session_id,
+            entries=[
+                HoumaoTerminalSnapshotHistoryEntry(
+                    recorded_at_utc="2026-01-01T00:00:00+00:00",
+                    diagnostics=state.diagnostics,
+                    probe_snapshot=state.probe_snapshot,
+                    parsed_surface=state.parsed_surface,
+                    surface=state.surface,
+                    turn=state.turn,
+                    last_turn=state.last_turn,
+                    stability=state.stability.model_copy(update={"signature": f"limit-{limit}"}),
+                )
+            ],
+        )
+
+    def note_managed_agent_gateway_tui_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse:
+        self.gateway_tui_note_prompt_calls.append((agent_ref, prompt))
+        return _gateway_tui_state_response()
+
+    def get_managed_agent_gateway_mail_notifier(
+        self, agent_ref: str
+    ) -> GatewayMailNotifierStatusV1:
         self.gateway_notifier_get_calls.append(agent_ref)
         return GatewayMailNotifierStatusV1(
             enabled=False,
@@ -569,7 +654,9 @@ class _FakePassivePairClient:
         agent_ref: str,
         request_model: object,
     ) -> GatewayMailNotifierStatusV1:
-        self.gateway_notifier_put_calls.append((agent_ref, getattr(request_model, "interval_seconds")))
+        self.gateway_notifier_put_calls.append(
+            (agent_ref, getattr(request_model, "interval_seconds"))
+        )
         return GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=getattr(request_model, "interval_seconds"),
@@ -665,6 +752,27 @@ def test_gateway_send_keys_uses_passive_pair_client() -> None:
     assert client.gateway_control_calls == [("published-alpha", "<[Escape]>", True)]
 
 
+def test_gateway_tui_commands_use_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    state = gateway_tui_state(target)
+    history = gateway_tui_history(target)
+    noted = gateway_tui_note_prompt(target, prompt="hello")
+
+    assert state.terminal_id == "headless123"
+    assert history.entries[0].stability.signature == "limit-100"
+    assert noted.terminal_id == "headless123"
+    assert client.gateway_tui_state_calls == ["published-alpha"]
+    assert client.gateway_tui_history_calls == ["published-alpha"]
+    assert client.gateway_tui_note_prompt_calls == [("published-alpha", "hello")]
+
+
 def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
     client = _FakePassivePairClient()
     target = ManagedAgentTarget(
@@ -719,7 +827,9 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
         ),
     )
     controller = SimpleNamespace(
-        agent_launch_authority=SimpleNamespace(session_origin="joined_tmux", posture_kind="unavailable")
+        agent_launch_authority=SimpleNamespace(
+            session_origin="joined_tmux", posture_kind="unavailable"
+        )
     )
     target = ManagedAgentTarget(
         mode="local",
@@ -1050,9 +1160,9 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
     assert persisted_payload["tmux"]["primary_window_name"] == "manual"
     assert persisted_payload["interactive"]["tmux_window_name"] == "manual"
     assert persisted_payload["backend_state"]["tmux_window_name"] == "manual"
-    assert managed_agents_module._tracked_tui_identity_for_controller(controller).tmux_window_name == (
-        "manual"
-    )
+    assert managed_agents_module._tracked_tui_identity_for_controller(
+        controller
+    ).tmux_window_name == ("manual")
     assert state.identity.tmux_window_name == "manual"
     assert detail.identity.tmux_window_name == "manual"
     assert detail.detail.transport == "tui"

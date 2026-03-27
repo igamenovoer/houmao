@@ -100,7 +100,7 @@ from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
-    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
@@ -795,12 +795,12 @@ class GatewayServiceRuntime:
             tracking = self._require_tui_tracking_locked()
         return tracking.current_state()
 
-    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
-        """Return gateway-owned live tracked TUI history."""
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return gateway-owned live tracked TUI snapshot history."""
 
         with self.m_lock:
             tracking = self._require_tui_tracking_locked()
-        return tracking.history(limit=limit)
+        return tracking.snapshot_history(limit=limit)
 
     def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:
         """Record explicit prompt evidence in the gateway-owned tracker."""
@@ -1433,8 +1433,10 @@ class GatewayServiceRuntime:
             (
                 "Resolve current mailbox bindings through the runtime-owned helper "
                 "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. Do not scrape tmux state directly or trust "
-                "stale inherited process env."
+                "before any direct mailbox access. That helper prefers current process env, "
+                "falls back to the owning tmux session env, and returns the exact attached "
+                "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
+                "directly or trust stale inherited process env."
             ),
             (
                 "Use the runtime-owned mailbox skill document for the current transport at "
@@ -1445,6 +1447,11 @@ class GatewayServiceRuntime:
                 "Use shared mailbox operations through the live gateway facade for this turn: "
                 "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
                 "`POST /v1/mail/state`."
+            ),
+            (
+                "Use the exact live gateway base URL for this turn: "
+                f"`http://{self.m_host}:{self.m_port}`. This matches the resolver's "
+                "`gateway.base_url`; do not guess another host or port."
             ),
             (
                 "Do not inspect repo docs or OpenAPI to rediscover those routine request "
@@ -2046,9 +2053,9 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.get_tui_state()
 
-    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalHistoryResponse)
-    def _tui_history(limit: int = 100) -> HoumaoTerminalHistoryResponse:
-        """Serve gateway-owned tracked TUI history."""
+    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalSnapshotHistoryResponse)
+    def _tui_history(limit: int = 100) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Serve gateway-owned tracked TUI snapshot history."""
 
         return runtime.get_tui_history(limit=limit)
 

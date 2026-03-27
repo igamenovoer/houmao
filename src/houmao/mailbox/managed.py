@@ -449,6 +449,48 @@ class _IndexSnapshot:
     backup_path: Path | None
 
 
+@dataclass(frozen=True)
+class MailboxCleanupRecord:
+    """One mailbox cleanup decision or mutation outcome."""
+
+    outcome: Literal["planned", "removed", "preserved", "blocked"]
+    artifact_kind: str
+    path: Path
+    reason: str
+    address: str | None = None
+    registration_id: str | None = None
+    registration_status: str | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        """Return a JSON-compatible cleanup record payload."""
+
+        payload: dict[str, object] = {
+            "outcome": self.outcome,
+            "artifact_kind": self.artifact_kind,
+            "path": str(self.path),
+            "reason": self.reason,
+        }
+        if self.address is not None:
+            payload["address"] = self.address
+        if self.registration_id is not None:
+            payload["registration_id"] = self.registration_id
+        if self.registration_status is not None:
+            payload["registration_status"] = self.registration_status
+        return payload
+
+
+@dataclass(frozen=True)
+class MailboxCleanupResult:
+    """Structured mailbox cleanup result."""
+
+    mailbox_root: Path
+    dry_run: bool
+    planned: tuple[MailboxCleanupRecord, ...]
+    removed: tuple[MailboxCleanupRecord, ...]
+    preserved: tuple[MailboxCleanupRecord, ...]
+    blocked: tuple[MailboxCleanupRecord, ...]
+
+
 def load_json_payload(path: Path) -> object:
     """Load a JSON payload file for a managed mailbox script."""
 
@@ -594,6 +636,36 @@ def _normalize_managed_timestamp(value: str) -> str:
         raise ValueError(str(exc)) from exc
 
 
+def _coerce_cleanup_now(now: datetime | None) -> datetime:
+    """Return one timezone-aware UTC cleanup timestamp."""
+
+    if now is None:
+        return datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        return now.replace(tzinfo=UTC)
+    return now.astimezone(UTC)
+
+
+def _registration_old_enough(
+    registration: MailboxRegistration,
+    *,
+    older_than_seconds: int,
+    now: datetime,
+) -> bool:
+    """Return whether one inactive or stashed registration is old enough for cleanup."""
+
+    if older_than_seconds <= 0:
+        return True
+    timestamp_value = registration.deactivated_at_utc or registration.created_at_utc
+    try:
+        observed = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        observed = observed.replace(tzinfo=UTC)
+    return (now.astimezone(UTC) - observed.astimezone(UTC)).total_seconds() >= older_than_seconds
+
+
 def ensure_mailbox_local_state(
     mailbox_root: Path,
     *,
@@ -725,6 +797,35 @@ def _load_all_active_registrations(
         """
     ).fetchall()
     return {registration.address: registration for registration in _rows_to_registrations(rows)}
+
+
+def _load_cleanup_candidate_registrations(
+    connection: sqlite3.Connection,
+) -> list[MailboxRegistration]:
+    """Load inactive and stashed registrations ordered for cleanup."""
+
+    rows = connection.execute(
+        """
+        SELECT
+            registration_id,
+            address,
+            owner_principal_id,
+            status,
+            mailbox_kind,
+            mailbox_path,
+            mailbox_entry_path,
+            display_name,
+            manifest_path_hint,
+            role,
+            created_at_utc,
+            deactivated_at_utc,
+            replaced_by_registration_id
+        FROM mailbox_registrations
+        WHERE status IN ('inactive', 'stashed')
+        ORDER BY address, registration_id
+        """
+    ).fetchall()
+    return _rows_to_registrations(rows)
 
 
 def _seed_or_rebuild_local_mailbox_state(
@@ -1602,6 +1703,154 @@ def repair_mailbox_index(
         "staging_artifact_paths": [str(path) for path in staging_results],
         "backed_up_index_path": None if snapshot.backup_path is None else str(snapshot.backup_path),
     }
+
+
+def cleanup_mailbox_registrations(
+    mailbox_root: Path,
+    *,
+    inactive_older_than_seconds: int = 0,
+    stashed_older_than_seconds: int = 0,
+    dry_run: bool = False,
+    now: datetime | None = None,
+    lock_timeout_seconds: float = 5.0,
+) -> MailboxCleanupResult:
+    """Clean inactive or stashed mailbox registrations without touching canonical messages."""
+
+    paths = _resolve_paths(mailbox_root)
+    _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.is_file():
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before cleanup: missing index `{paths.sqlite_path}`"
+        )
+
+    current_time = _coerce_cleanup_now(now)
+    try:
+        with sqlite3.connect(paths.sqlite_path) as seed_connection:
+            seed_connection.execute("PRAGMA foreign_keys = ON")
+            seed_candidates = _load_cleanup_candidate_registrations(seed_connection)
+    except sqlite3.DatabaseError as exc:
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before cleanup: {exc}"
+        ) from exc
+
+    affected_addresses = tuple(sorted({registration.address for registration in seed_candidates}))
+    planned: list[MailboxCleanupRecord] = []
+    removed: list[MailboxCleanupRecord] = []
+    preserved: list[MailboxCleanupRecord] = []
+    blocked: list[MailboxCleanupRecord] = []
+
+    with _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds):
+        try:
+            with sqlite3.connect(paths.sqlite_path) as connection:
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.execute("BEGIN IMMEDIATE")
+
+                active_registrations = _load_all_active_registrations(connection)
+                for registration in sorted(
+                    active_registrations.values(),
+                    key=lambda item: (item.address, item.registration_id),
+                ):
+                    preserved.append(
+                        MailboxCleanupRecord(
+                            outcome="preserved",
+                            artifact_kind="active_registration",
+                            path=registration.mailbox_entry_path,
+                            reason="active mailbox registrations are intentionally outside cleanup scope",
+                            address=registration.address,
+                            registration_id=registration.registration_id,
+                            registration_status=registration.status,
+                        )
+                    )
+
+                candidates = _load_cleanup_candidate_registrations(connection)
+                for registration in candidates:
+                    threshold_seconds = (
+                        inactive_older_than_seconds
+                        if registration.status == "inactive"
+                        else stashed_older_than_seconds
+                    )
+                    if not _registration_old_enough(
+                        registration,
+                        older_than_seconds=threshold_seconds,
+                        now=current_time,
+                    ):
+                        preserved.append(
+                            MailboxCleanupRecord(
+                                outcome="preserved",
+                                artifact_kind="mailbox_registration",
+                                path=registration.mailbox_entry_path,
+                                reason=(
+                                    f"{registration.status} registration is newer than its cleanup threshold"
+                                ),
+                                address=registration.address,
+                                registration_id=registration.registration_id,
+                                registration_status=registration.status,
+                            )
+                        )
+                        continue
+
+                    cleanup_record = MailboxCleanupRecord(
+                        outcome="planned" if dry_run else "removed",
+                        artifact_kind="mailbox_registration",
+                        path=registration.mailbox_entry_path,
+                        reason=(
+                            f"{registration.status} mailbox registration is no longer active and is"
+                            " eligible for cleanup"
+                        ),
+                        address=registration.address,
+                        registration_id=registration.registration_id,
+                        registration_status=registration.status,
+                    )
+                    if dry_run:
+                        planned.append(cleanup_record)
+                        continue
+
+                    try:
+                        _remove_registration_artifact(registration)
+                        _purge_registration_state(connection, registration.registration_id)
+                        connection.execute(
+                            "DELETE FROM mailbox_registrations WHERE registration_id = ?",
+                            (registration.registration_id,),
+                        )
+                    except (OSError, sqlite3.DatabaseError) as exc:
+                        blocked.append(
+                            MailboxCleanupRecord(
+                                outcome="blocked",
+                                artifact_kind="mailbox_registration",
+                                path=registration.mailbox_entry_path,
+                                reason=f"{cleanup_record.reason}; cleanup failed: {exc}",
+                                address=registration.address,
+                                registration_id=registration.registration_id,
+                                registration_status=registration.status,
+                            )
+                        )
+                    else:
+                        removed.append(cleanup_record)
+
+                connection.commit()
+        except sqlite3.DatabaseError as exc:
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before cleanup: {exc}"
+            ) from exc
+
+    if paths.messages_dir.exists():
+        preserved.append(
+            MailboxCleanupRecord(
+                outcome="preserved",
+                artifact_kind="canonical_messages",
+                path=paths.messages_dir,
+                reason="canonical mailbox message history is intentionally preserved during cleanup",
+            )
+        )
+
+    return MailboxCleanupResult(
+        mailbox_root=paths.root,
+        dry_run=dry_run,
+        planned=tuple(planned),
+        removed=tuple(removed),
+        preserved=tuple(preserved),
+        blocked=tuple(blocked),
+    )
 
 
 def _resolve_paths(mailbox_root: Path) -> FilesystemMailboxPaths:

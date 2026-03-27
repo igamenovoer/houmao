@@ -21,7 +21,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` reuses that persisted binding for runtime-owned mailbox work after the agent is launched or joined.
 
-After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface. When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc.
 
 ## Filesystem Quickstart
 
@@ -74,7 +74,7 @@ Typical status output after a successful headless registration:
 }
 ```
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`. That helper prefers current process env, falls back to the owning tmux session env, and returns optional `gateway.base_url` data when an attached shared-mailbox gateway is live.
 
 Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is a scratch area rather than the shared mailbox root and is a good candidate for ignore rules in local repos.
 

@@ -10,6 +10,9 @@ Use this skill when the runtime-selected mailbox transport is `stalwart`.
 
 ## Routine Actions With A Live Gateway Facade
 
+- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before attached shared-mailbox work.
+- Treat the resolver output as the runtime-owned discovery contract for this turn: use `gateway.base_url` for the live attached `/v1/mail/*` facade when that `gateway` object is present.
+- That resolver prefers current process env, falls back to the owning tmux session env, and returns `gateway: null` instead of guessing a localhost endpoint when no valid live gateway is available.
 - When a live loopback gateway exposes the shared `/v1/mail/*` facade for this session, treat that shared gateway surface as the default routine path for ordinary mailbox work.
 - Ordinary attached-session mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
 - Prefer the shared gateway mailbox routes for those routine actions: `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
@@ -34,6 +37,7 @@ Use this skill when the runtime-selected mailbox transport is `stalwart`.
 
 - Read [references/env-vars.md](references/env-vars.md) before using the transport.
 - Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work.
+- When the resolver returns a `gateway` object, treat `gateway.base_url` as the exact live endpoint for the shared `/v1/mail/*` facade instead of rediscovering host or port elsewhere.
 - Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `stalwart`.
 - Re-resolve the current mailbox bindings before each mailbox action. Do not cache session endpoints or credentials across turns.
 - Do not scrape tmux state directly or rely on stale inherited process env snapshots when the runtime-owned resolver is available.

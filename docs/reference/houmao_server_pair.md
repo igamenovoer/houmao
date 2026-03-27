@@ -37,7 +37,8 @@ houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
 houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
-houmao-mgr admin cleanup-registry --grace-seconds 0
+houmao-mgr admin cleanup registry --grace-seconds 0
+houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```
 
 ## Server Startup Controls
@@ -96,11 +97,12 @@ Authority is split intentionally:
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
 - `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
-- `mailbox ...` manages the shared filesystem mailbox root and address lifecycle without `houmao-server`
+- `mailbox ...` manages the shared filesystem mailbox root, address lifecycle, and inactive-registration cleanup without `houmao-server`
 - `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
+- `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets
 - `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
-- `admin cleanup-registry` is local shared-registry maintenance
+- `admin cleanup ...` is local shared-registry and runtime maintenance; `admin cleanup-registry` remains as a compatibility alias for the registry-only command
 
 For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
 
@@ -111,7 +113,7 @@ For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <friendly-name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`. That helper also surfaces optional live `gateway.base_url` data for attached `/v1/mail/*` work instead of requiring ad hoc port rediscovery.
 
 ## Adopting Existing Sessions With `agents join`
 

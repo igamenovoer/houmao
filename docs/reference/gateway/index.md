@@ -44,6 +44,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 
 ## Related References
 
+- [houmao-mgr agents gateway CLI](../cli/agents-gateway.md): Dedicated CLI reference for gateway lifecycle and request commands.
 - [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that the gateway attaches to.
 - [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract that keeps one public route family while switching between direct fallback and gateway-backed projection under the hood.
 - [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.

@@ -39,6 +39,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_ROOT_ENV_VAR,
     GatewayCapabilityPublication,
     ensure_gateway_capability,
+    publish_stable_gateway_env,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayJsonObject
 from houmao.agents.realm_controller.manifest import (
@@ -207,7 +208,7 @@ def materialize_joined_launch(
             )
         )
         write_session_manifest(manifest_path, manifest_payload)
-        ensure_gateway_capability(
+        gateway_paths = ensure_gateway_capability(
             GatewayCapabilityPublication(
                 manifest_path=manifest_path,
                 backend=backend,
@@ -225,7 +226,14 @@ def materialize_joined_launch(
                 agent_def_dir=agent_def_dir,
             )
         )
-        published_gateway_env = True
+        if gateway_paths is not None:
+            publish_stable_gateway_env(
+                session_name=tmux_session_name,
+                attach_path=gateway_paths.attach_path,
+                gateway_root=gateway_paths.gateway_root,
+                set_env=set_tmux_session_environment,
+            )
+            published_gateway_env = True
         set_tmux_session_environment(
             session_name=tmux_session_name,
             env_vars={
@@ -458,7 +466,7 @@ def materialize_delegated_launch(
             AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
         },
     )
-    ensure_gateway_capability(
+    gateway_paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
             backend="houmao_server_rest",
@@ -476,6 +484,13 @@ def materialize_delegated_launch(
             agent_def_dir=agent_def_dir,
         )
     )
+    if gateway_paths is not None:
+        publish_stable_gateway_env(
+            session_name=session_name,
+            attach_path=gateway_paths.attach_path,
+            gateway_root=gateway_paths.gateway_root,
+            set_env=set_tmux_session_environment,
+        )
 
     published_at = datetime.now(UTC)
     publish_live_agent_record(

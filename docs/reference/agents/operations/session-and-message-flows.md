@@ -60,11 +60,11 @@ Use for a normal conversational turn.
 
 ### `send-keys`
 
-Use for raw control input into resumed sessions (currently limited to `cao_rest` backend).
+Use for raw control input into resumed sessions. Supported backends include `local_interactive` and `houmao_server_rest`; legacy `cao_rest` sessions also support this path.
 
 - Returns after input delivery, not after turn completion.
 - Designed for slash-command menus, arrow navigation, partial typing, `Escape`, and explicit control keys.
-- The current implementation keeps this path limited to the legacy `cao_rest` backend.
+- See [Realm Controller Send-Keys](../realm_controller_send_keys.md) for the full sequence grammar and delivery semantics.
 
 ### `mail`
 
@@ -113,39 +113,43 @@ The difference matters:
 
 ## Representative Workflows
 
-Start a tmux-backed session:
+Launch a managed agent with a tmux-backed session:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
-  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
-  --role gpu-kernel-coder \
-  --backend local_interactive \
-  --agent-identity gpu
+pixi run houmao-mgr agents launch \
+  --agents gpu-kernel-coder \
+  --agent-name gpu \
+  --provider claude_code
 ```
 
-Resume by tmux name for a prompt turn:
+Send a prompt to the managed agent:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity AGENTSYS-gpu \
+pixi run houmao-mgr agents prompt \
+  --agent-name gpu \
   --prompt "Continue from the prior answer"
 ```
 
-Send raw control input:
+Send raw control input through a live gateway:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-keys \
-  --agent-identity AGENTSYS-gpu \
+pixi run houmao-mgr agents gateway send-keys \
+  --agent-name gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
 
 Submit queued work through a live gateway:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller gateway-send-prompt \
-  --agent-identity AGENTSYS-gpu \
+pixi run houmao-mgr agents gateway prompt \
+  --agent-name gpu \
   --prompt "Queue this through the gateway"
+```
+
+Stop the managed agent:
+
+```bash
+pixi run houmao-mgr agents stop --agent-name gpu
 ```
 
 ## Current Implementation Notes

@@ -69,11 +69,13 @@ If you intentionally redirect the runtime root or registry root into a repo-loca
 
 | Path family | Safe cleanup stance |
 | --- | --- |
-| `<working-directory>/.houmao/jobs/<session-id>/` | Usually safe to treat as scratch after the session is finished |
-| `<runtime-root>/sessions/<backend>/<session-id>/gateway/run/` and launcher/gateway log files | Ephemeral or log-style cleanup after verified stop is usually fine |
-| `<runtime-root>/homes/<home-id>/` and `<runtime-root>/manifests/<home-id>.yaml` | Safe to delete and rebuild when no live session still depends on them |
-| `<runtime-root>/sessions/<backend>/<session-id>/manifest.json` and stable gateway artifacts | Treat as durable runtime state while the session is active or resumable |
-| `<registry-root>/live_agents/<agent-id>/record.json` | Let the runtime or `cleanup-registry` manage freshness; do not treat fresh live entries as scratch |
+| `<working-directory>/.houmao/jobs/<session-id>/` | Usually safe to treat as scratch after the session is finished; `houmao-mgr agents cleanup session --include-job-dir` or `houmao-mgr admin cleanup runtime sessions --include-job-dir` can remove it together with a stopped session envelope |
+| `<runtime-root>/sessions/<backend>/<session-id>/gateway/run/` and launcher/gateway log files | Ephemeral or log-style cleanup after verified stop is usually fine; use `houmao-mgr agents cleanup logs` or `houmao-mgr admin cleanup runtime logs` and do not treat stable gateway files such as `queue.sqlite`, `state.json`, or `events.jsonl` as log scratch |
+| `<runtime-root>/homes/<home-id>/` and `<runtime-root>/manifests/<home-id>.yaml` | Safe to delete and rebuild when no live session still depends on them; `houmao-mgr admin cleanup runtime builds` enforces that preserved session manifests keep their referenced manifest-home pairs |
+| `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | Treat as durable secret material until no preserved session manifest still references that `credential_ref`; `houmao-mgr admin cleanup runtime mailbox-credentials` handles that classification |
+| `<runtime-root>/sessions/<backend>/<session-id>/manifest.json` and stable gateway artifacts | Treat as durable runtime state while the session is active or resumable; `houmao-mgr agents cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove whole stopped envelopes, while log cleanup intentionally leaves durable gateway state behind |
+| `<runtime-root>/sessions/<backend>/<session-id>/mailbox-secrets/` | Session-local Stalwart secret material is cleanup-sensitive, not scratch; remove it only after the session is stopped, typically through `houmao-mgr agents cleanup mailbox` |
+| `<registry-root>/live_agents/<agent-id>/record.json` | Let the runtime or `houmao-mgr admin cleanup registry` manage freshness; registry cleanup probes tmux-backed records locally by default, so do not treat fresh live entries as scratch |
 | legacy `<registry-root>/live_agents/<agent-key>/` leftovers | Manual cleanup is acceptable after confirming they are pre-cutover leftovers |
 | launcher-selected or explicit CAO home contents | Do not treat as Houmao scratch; CAO owns that state |
 

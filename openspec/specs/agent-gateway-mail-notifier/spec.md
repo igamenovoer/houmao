@@ -28,6 +28,8 @@ The gateway SHALL continue using the manifest as the durable mailbox capability 
 
 For tmux-backed sessions, live mailbox actionability SHALL be evaluated from the current targeted `AGENTSYS_MAILBOX_*` projection published in the owning tmux session environment rather than from the provider process's inherited launch-time env snapshot.
 
+For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable relaunch posture as an additional readiness precondition once durable mailbox capability and live mailbox actionability are both satisfied.
+
 If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
 
 If the manifest exposes durable mailbox capability but the current live mailbox projection is unavailable, incomplete, or fails transport-specific validation for actionable mailbox work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
@@ -57,6 +59,13 @@ If the manifest exposes durable mailbox capability but the current live mailbox 
 - **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
 - **THEN** the gateway treats notifier support as available for that session without requiring provider relaunch solely to refresh inherited process env
 - **AND THEN** notifier enablement may proceed using that durable-plus-live mailbox contract
+
+#### Scenario: Joined tmux session without relaunch posture becomes notifier-ready after late registration
+- **WHEN** a joined tmux-backed managed session has a durable mailbox binding in its manifest
+- **AND WHEN** that joined session's relaunch posture is unavailable
+- **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
+- **THEN** the gateway treats notifier support as available for that joined session
+- **AND THEN** notifier enablement may proceed without requiring joined-session relaunch posture
 
 #### Scenario: Durable mailbox presence without live mailbox actionability rejects notifier enablement
 - **WHEN** a tmux-backed managed session has a durable mailbox binding in its manifest
@@ -119,6 +128,8 @@ The nominated task SHALL be described in shared-mailbox terms and SHALL include 
 
 When the shared gateway mailbox facade is available for the session, the notifier prompt SHALL direct the agent to complete that task through shared mailbox operations rather than by reconstructing direct transport-local delivery or threading details.
 
+For attached tmux-backed sessions, that prompt SHALL provide an actionable path to the exact current live gateway mail-facade endpoint for the current turn. That path SHALL follow the current-session discovery order of current process env first and owning tmux session env second, with validation before use. The prompt MAY inline the exact live `base_url` as bounded redundancy, but it SHALL NOT require the agent to infer localhost defaults or rediscover the port from unrelated process listings in order to use `/v1/mail/*`.
+
 The notifier MAY continue to summarize other unread messages for operator visibility, but it SHALL keep the managed turn bounded to one actionable target at a time.
 
 When multiple unread messages are present, the notifier SHALL nominate the oldest unread message by `created_at_utc`, using a stable tie-breaker when timestamps collide, rather than relying on transport iteration order.
@@ -129,6 +140,12 @@ Notifier deduplication SHALL remain keyed to the full unread set rather than onl
 - **WHEN** the notifier enqueues a wake-up prompt for unread mail on a filesystem mailbox session with a live shared mailbox facade
 - **THEN** the prompt identifies one actionable unread target by opaque `message_ref`
 - **AND THEN** the prompt tells the agent to use shared mailbox operations instead of reconstructing `deliver_message.py` or raw threading payloads
+- **AND THEN** the prompt exposes an actionable runtime-owned path to the exact current live gateway endpoint for that turn
+
+#### Scenario: Attached notifier prompt stays actionable without provider gateway env
+- **WHEN** an attached tmux-backed mailbox session has a live gateway but the provider process env snapshot does not include `AGENTSYS_AGENT_GATEWAY_HOST` or `AGENTSYS_AGENT_GATEWAY_PORT`
+- **THEN** the notifier prompt still provides a way to resolve the exact current live gateway mail-facade endpoint from the owning tmux session env for that session
+- **AND THEN** the agent does not need to guess another host or port
 
 #### Scenario: Multiple unread messages yield one nominated target plus summary
 - **WHEN** the notifier finds multiple unread messages through the shared mailbox facade

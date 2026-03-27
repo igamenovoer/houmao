@@ -178,6 +178,68 @@ When an operator runs one of those commands outside tmux without explicit select
 - **THEN** the command fails explicitly
 - **AND THEN** it does not guess a managed-agent target from cwd or ambient shell state
 
+### Requirement: `houmao-mgr agents gateway tui` exposes raw gateway-owned TUI tracking commands
+`houmao-mgr` SHALL expose a native `agents gateway tui ...` command family for raw gateway-owned TUI tracking on managed agents.
+
+At minimum, that family SHALL include:
+
+- `state`
+- `history`
+- `watch`
+- `note-prompt`
+
+`agents gateway tui state` SHALL read the managed agent's live gateway-owned TUI state path rather than the transport-neutral managed-agent detail view.
+
+`agents gateway tui history` SHALL read the managed agent's live gateway-owned bounded snapshot-history path rather than the coarse managed-agent `/history` surface.
+
+`agents gateway tui note-prompt` SHALL target the managed agent's live gateway prompt-note tracking path rather than the queued gateway request path.
+
+`agents gateway tui watch` SHALL act as an operator-facing repeated inspection surface over the same live gateway-owned TUI state path used by `agents gateway tui state`.
+
+#### Scenario: Operator reads raw gateway-owned TUI state through the native `agents gateway tui` tree
+- **WHEN** an operator runs `houmao-mgr agents gateway tui state --agent-id abc123`
+- **AND WHEN** the addressed managed agent has an eligible live gateway attached
+- **THEN** `houmao-mgr` returns the raw gateway-owned TUI state for that managed agent
+- **AND THEN** the command does not collapse that response to the transport-neutral `agents show` payload
+
+#### Scenario: Operator reads bounded snapshot history through the native `agents gateway tui` tree
+- **WHEN** an operator runs `houmao-mgr agents gateway tui history --agent-id abc123`
+- **AND WHEN** the addressed managed agent has an eligible live gateway attached
+- **THEN** `houmao-mgr` returns the gateway-owned bounded recent TUI snapshot history for that managed agent
+- **AND THEN** the command does not reinterpret that history as coarse managed-agent `/history`
+
+#### Scenario: Operator records explicit prompt provenance without queue submission
+- **WHEN** an operator runs `houmao-mgr agents gateway tui note-prompt --agent-id abc123 --prompt "..."`
+- **AND WHEN** the addressed managed agent has an eligible live gateway attached
+- **THEN** `houmao-mgr` records prompt-note evidence through the live gateway TUI tracking path
+- **AND THEN** the command does not submit a queued gateway prompt request
+
+### Requirement: `houmao-mgr agents gateway tui` supports the same managed-agent targeting contract as the rest of `agents gateway`
+Gateway-targeting `houmao-mgr agents gateway tui ...` commands that operate on one managed agent SHALL support both explicit managed-agent selectors and same-session current-session targeting.
+
+At minimum, this SHALL apply to:
+
+- `state`
+- `history`
+- `watch`
+- `note-prompt`
+
+When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through the same manifest-first current-session discovery contract used by the rest of `agents gateway`.
+
+When an operator runs one of those commands outside tmux without explicit selectors, the command SHALL fail explicitly rather than guessing from cwd, gateway listener bindings, or ambient shell state.
+
+#### Scenario: Same-session gateway TUI state resolves from tmux discovery without explicit selectors
+- **WHEN** an operator runs `houmao-mgr agents gateway tui state` from inside the owning managed tmux session
+- **AND WHEN** that tmux session publishes valid manifest-first discovery metadata
+- **THEN** `houmao-mgr` resolves the current managed session through that tmux-local discovery contract
+- **AND THEN** it reads the live gateway-owned TUI state without requiring `--agent-id` or `--agent-name`
+
+#### Scenario: Outside-tmux gateway TUI watch fails without explicit selectors
+- **WHEN** an operator runs `houmao-mgr agents gateway tui watch` outside tmux
+- **AND WHEN** the command is not given `--agent-id`, `--agent-name`, or `--current-session`
+- **THEN** the command fails explicitly
+- **AND THEN** it does not guess a managed-agent target from cwd or ambient shell state
+
 ### Requirement: Server-backed gateway raw control and notifier commands accept passive server pair authorities
 `houmao-mgr` server-backed `agents gateway send-keys` and `agents gateway mail-notifier ...` command paths SHALL accept `houmao-passive-server` as a supported pair authority whenever those commands operate through an explicit pair authority instead of a resumed local controller.
 
@@ -255,6 +317,35 @@ Those commands SHALL target local managed-agent authority rather than pair-owned
 - **WHEN** an operator runs `houmao-mgr agents mailbox register --agent-name alice --mailbox-root /tmp/shared-mail`
 - **THEN** `houmao-mgr` resolves `alice` through the local managed-agent discovery path
 - **AND THEN** the command uses the local late mailbox registration workflow instead of requiring `houmao-server`
+
+### Requirement: `houmao-mgr` renders expected mailbox-related operator failures without Python tracebacks
+When a native `houmao-mgr` mailbox-management or gateway mail-notifier command hits an expected operator-facing failure, the CLI SHALL render that failure as explicit command-line error output rather than leaking a Python traceback from the top-level wrapper.
+
+This SHALL apply at minimum to:
+
+- `houmao-mgr agents mailbox register`
+- `houmao-mgr agents mailbox unregister`
+- `houmao-mgr agents mailbox status`
+- `houmao-mgr agents mail ...`
+- `houmao-mgr agents gateway mail-notifier status`
+- `houmao-mgr agents gateway mail-notifier enable`
+- `houmao-mgr agents gateway mail-notifier disable`
+
+The wrapper SHALL preserve the command's non-zero exit behavior for those failures.
+This requirement covers expected operator-facing failures such as explicit Click-style usage errors, manifest/runtime readiness errors, and gateway readiness errors that the command path already classifies as normal command failures.
+The CLI SHALL NOT claim success or hide the failure reason; it SHALL surface the explicit operator-facing error text without the Python stack trace.
+
+#### Scenario: Joined mailbox registration failure renders as a clean CLI error
+- **WHEN** an operator runs `houmao-mgr agents mailbox register --agent-name alice --mailbox-root /tmp/shared-mail`
+- **AND WHEN** the command fails with an expected operator-facing mailbox-registration error
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports the failure as clean CLI error text without a Python traceback
+
+#### Scenario: Gateway mail-notifier enable failure renders as a clean CLI error
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-name alice --interval-seconds 60`
+- **AND WHEN** the command fails with an expected operator-facing gateway notifier readiness error
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports the failure as clean CLI error text without a Python traceback
 
 ### Requirement: `houmao-mgr agents turn` exposes managed headless turn commands
 `houmao-mgr` SHALL expose a native `agents turn ...` command family for managed headless turn submission and inspection.
@@ -465,3 +556,59 @@ Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract
 - **WHEN** an operator requests foreground gateway attach for a tmux-backed managed session
 - **THEN** the gateway attaches in a tmux window whose index is `>=1`
 - **AND THEN** tmux window `0` remains the managed agent surface
+
+### Requirement: `houmao-mgr admin cleanup` exposes grouped local cleanup commands
+`houmao-mgr` SHALL expose a native `admin cleanup` command group for local cleanup operations.
+
+At minimum, the documented grouped cleanup tree SHALL include:
+
+- `registry`
+- `runtime sessions`
+- `runtime builds`
+- `runtime logs`
+- `runtime mailbox-credentials`
+
+This grouped cleanup tree SHALL be documented as local maintenance over local Houmao-owned state rather than as a pair-managed server API surface.
+
+Within that grouped tree, `houmao-mgr admin cleanup registry` SHALL perform local tmux liveness probing by default for tmux-backed records and SHALL expose `--no-tmux-check` as the explicit opt-out flag for lease-only behavior.
+
+The compatibility alias `houmao-mgr admin cleanup-registry` SHALL preserve the same registry-cleanup behavior and flag contract.
+
+#### Scenario: Native help surface shows grouped cleanup commands
+- **WHEN** an operator runs `houmao-mgr admin cleanup --help`
+- **THEN** the help output lists `registry` and the `runtime` cleanup family
+- **AND THEN** the grouped cleanup surface is presented as local maintenance rather than a server-backed admin API
+
+#### Scenario: Registry cleanup help shows the opt-out tmux flag
+- **WHEN** an operator runs `houmao-mgr admin cleanup registry --help`
+- **THEN** the help output includes `--no-tmux-check`
+- **AND THEN** the help output does not require `--probe-local-tmux` to enable default tmux probing
+
+#### Scenario: Registry cleanup defaults to tmux probing
+- **WHEN** an operator runs `houmao-mgr admin cleanup registry`
+- **AND WHEN** a lease-fresh tmux-backed registry record points at a tmux session that is absent on the local host
+- **THEN** `houmao-mgr` classifies that record as stale by default
+- **AND THEN** the operator does not need an extra flag to perform local tmux-aware cleanup
+
+### Requirement: `houmao-mgr agents cleanup` exposes local managed-session cleanup commands
+`houmao-mgr` SHALL expose a native `agents cleanup` command family for local managed-session cleanup.
+
+At minimum, that family SHALL include:
+
+- `session`
+- `logs`
+- `mailbox`
+
+These commands SHALL operate through local runtime-owned authority rather than a pair-managed server authority.
+
+When the operator does not pass an explicit cleanup target and runs the command from inside the owning tmux session, the command family SHALL support current-session targeting through manifest-first discovery.
+
+#### Scenario: Native help surface shows agent-scoped cleanup commands
+- **WHEN** an operator runs `houmao-mgr agents cleanup --help`
+- **THEN** the help output lists `session`, `logs`, and `mailbox`
+- **AND THEN** the family is described as local managed-session cleanup rather than as a remote pair-managed request path
+
+#### Scenario: Agent-scoped cleanup can default to current-session authority
+- **WHEN** an operator runs `houmao-mgr agents cleanup logs` from inside the tmux session that hosts the managed agent
+- **THEN** `houmao-mgr` resolves that cleanup target through supported current-session manifest authority
+- **AND THEN** the operator does not need to spell the target session again just to clean its local artifacts

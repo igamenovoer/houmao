@@ -104,6 +104,8 @@ from houmao.server.models import (
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryEntry,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedDiagnostics,
     HoumaoTrackedLastTurn,
@@ -1008,6 +1010,11 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
             state_response.json()["tracked_session"]["tracked_session_id"] == "local-interactive-1"
         )
         assert state_response.json()["tracked_session"]["terminal_aliases"] == []
+
+        history_response = client.get("/v1/control/tui/history?limit=7")
+        assert history_response.status_code == 200
+        assert history_response.json()["tracked_session_id"] == "local-interactive-1"
+        assert history_response.json()["entries"][0]["stability"]["signature"] == "limit-7"
 
         note_response = client.post(
             "/v1/control/tui/note-prompt",
@@ -2350,6 +2357,31 @@ def _sample_gateway_tracked_history(
     )
 
 
+def _sample_gateway_tracked_snapshot_history(
+    identity: HoumaoTrackedSessionIdentity,
+    *,
+    limit: int,
+) -> HoumaoTerminalSnapshotHistoryResponse:
+    terminal_id = _tracked_terminal_id(identity)
+    state = _sample_gateway_tracked_state(identity)
+    return HoumaoTerminalSnapshotHistoryResponse(
+        terminal_id=terminal_id,
+        tracked_session_id=identity.tracked_session_id,
+        entries=[
+            HoumaoTerminalSnapshotHistoryEntry(
+                recorded_at_utc="2026-03-25T18:00:00+00:00",
+                diagnostics=state.diagnostics,
+                probe_snapshot=state.probe_snapshot,
+                parsed_surface=state.parsed_surface,
+                surface=state.surface,
+                turn=state.turn,
+                last_turn=state.last_turn,
+                stability=state.stability.model_copy(update={"signature": f"limit-{limit}"}),
+            )
+        ],
+    )
+
+
 class _FakeGatewayTrackingRuntime:
     m_identities: list[HoumaoTrackedSessionIdentity] = []
     m_started_session_ids: list[str] = []
@@ -2378,6 +2410,9 @@ class _FakeGatewayTrackingRuntime:
 
     def history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
         return _sample_gateway_tracked_history(self.m_identity, limit=limit)
+
+    def snapshot_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+        return _sample_gateway_tracked_snapshot_history(self.m_identity, limit=limit)
 
     def note_prompt_submission(self, *, message: str) -> HoumaoTerminalStateResponse:
         type(self).m_prompt_notes.append(message)
@@ -3443,9 +3478,12 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
         assert "subject: Gateway unread reminder one" in prompt
         assert "Remaining unread after this target: 1." in prompt
         assert "resolve-live" in prompt
+        assert "gateway.base_url" in prompt
+        assert "prefers current process env, falls back to the owning tmux session env" in prompt
         assert "email-via-filesystem" in prompt
         assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt
         assert "Do not inspect repo docs or OpenAPI" in prompt
+        assert "This matches the resolver's `gateway.base_url`" in prompt
         assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
         assert "POST /v1/mail/state" in prompt
         assert "deliver_message.py" not in prompt

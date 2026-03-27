@@ -7,6 +7,14 @@
 - [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
 
+### Managed-Agent Command Families
+
+- [agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
+- [agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [admin cleanup](cli/admin-cleanup.md): Registry and runtime maintenance commands.
+
 ## Build Phase
 
 - [Brain Builder](build-phase/brain-builder.md): Build a brain home from recipe or direct inputs.
@@ -34,6 +42,7 @@
 
 ## Other Reference
 
+- [Release Publishing](release-publishing.md): PyPI trusted publishing setup and the GitHub release flow.
 - [Realm Controller](realm_controller.md): Runtime session orchestration.
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
@@ -47,4 +56,3 @@
 - [TUI Parsing](../developer/tui-parsing/index.md): Shadow parser architecture and maintenance.
 - [Terminal Recorder](../developer/terminal-record/index.md): Recording internals.
 - [Houmao Server Internals](../developer/houmao-server/index.md): Server-owned TUI tracking.
-

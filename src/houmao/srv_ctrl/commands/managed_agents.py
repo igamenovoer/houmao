@@ -91,6 +91,7 @@ from houmao.server.models import (
     ManagedAgentLastTurnResult,
     ManagedAgentTransportKind,
     ManagedAgentTurnStatus,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
@@ -545,6 +546,59 @@ def gateway_send_keys(
     client = _require_live_gateway_client_for_controller(target.controller)
     try:
         return client.send_control_input(request_model)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse:
+    """Return raw gateway-owned TUI state for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.get_managed_agent_gateway_tui_state, target.agent_ref)
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.get_tui_state()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_tui_history(target: ManagedAgentTarget) -> HoumaoTerminalSnapshotHistoryResponse:
+    """Return raw gateway-owned TUI snapshot history for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.get_managed_agent_gateway_tui_history, target.agent_ref)
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.get_tui_history(limit=100)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_tui_note_prompt(
+    target: ManagedAgentTarget,
+    *,
+    prompt: str,
+) -> HoumaoTerminalStateResponse:
+    """Record prompt-note provenance through the live gateway tracker."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.note_managed_agent_gateway_tui_prompt,
+            target.agent_ref,
+            prompt=prompt,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.note_tui_prompt_submission(prompt=prompt)
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 

@@ -209,6 +209,26 @@ Stable attachability metadata SHALL be sufficient for a later attach flow to det
 
 Live gateway bindings such as active host, port, and state-path pointers SHALL describe only the currently running gateway instance and SHALL be treated as ephemeral.
 
+The manifest SHALL remain the durable stable authority for the session and SHALL NOT persist live gateway host, port, or state-path values.
+
+For tmux-backed sessions, the runtime SHALL also expose a runtime-owned discovery path that resolves the current live gateway bindings without requiring callers to infer localhost defaults.
+
+For same-session discovery inside the managed tmux session, that discovery path SHALL:
+
+- prefer complete valid live gateway bindings already present in the current process env,
+- fall back to the owning tmux session's live gateway publication when the current process env lacks the required live gateway values,
+- validate the resolved live binding against manifest-backed session authority and live gateway health before returning it.
+
+For cross-session or out-of-process discovery, that discovery path SHALL:
+
+- use tmux-local manifest discovery when available,
+- otherwise use the shared registry to recover `runtime.manifest_path`,
+- derive the session root from that manifest path,
+- treat `<session-root>/gateway/run/current-instance.json` as the authoritative local live-gateway record for that session,
+- use shared-registry gateway connect metadata only as locator metadata rather than as the sole authoritative live-gateway record.
+
+That runtime-owned discovery path SHALL surface at minimum the current `host`, `port`, `base_url`, `protocol_version`, and `state_path` for the attached gateway instance and SHALL report gateway unavailability explicitly when no valid live gateway binding exists.
+
 #### Scenario: Gateway-capable session exists with no running gateway
 - **WHEN** a tmux-backed session has published attach metadata but no gateway companion is currently running
 - **THEN** the session remains gateway-capable
@@ -218,6 +238,37 @@ Live gateway bindings such as active host, port, and state-path pointers SHALL d
 - **WHEN** an attached gateway companion stops gracefully while the managed tmux session remains live
 - **THEN** the system preserves stable attachability metadata for later re-attach
 - **AND THEN** live gateway host or port bindings are removed or invalidated for that stopped instance
+
+#### Scenario: Current-session attach does not trust `gateway_manifest.json` as stable authority
+- **WHEN** a current-session attach flow resolves a valid manifest through tmux-local discovery or shared-registry fallback
+- **THEN** it uses that manifest as the stable attach authority
+- **AND THEN** any existing `gateway_manifest.json` is treated as derived publication rather than as the authoritative input
+
+#### Scenario: Runtime-owned helper resolves live gateway bindings from manifest-backed authority
+- **WHEN** a tmux-backed session has a live attached gateway and a valid runtime-owned manifest path
+- **THEN** the runtime-owned gateway discovery path resolves the live endpoint from that session's current validated live gateway publication
+- **AND THEN** the returned payload includes the exact current `host`, `port`, `base_url`, `protocol_version`, and `state_path`
+- **AND THEN** the caller does not need to enumerate raw tmux env or infer localhost defaults
+
+#### Scenario: Same-session discovery falls back from process env to the owning tmux session env
+- **WHEN** work is running inside the managed tmux session
+- **AND WHEN** the current process env does not contain a complete valid live gateway binding
+- **AND WHEN** the owning tmux session env does contain the current live gateway binding
+- **THEN** the runtime-owned discovery path resolves the live endpoint from that owning tmux session env
+- **AND THEN** it validates that resolved binding before returning it
+
+#### Scenario: Cross-session discovery uses the shared registry to recover the manifest locator
+- **WHEN** a caller needs live gateway discovery outside the managed session
+- **AND WHEN** tmux-local manifest discovery is unavailable
+- **AND WHEN** the shared registry has a fresh record for that session with `runtime.manifest_path`
+- **THEN** the runtime uses that manifest path to locate the runtime-owned session
+- **AND THEN** it treats the session-owned `gateway/run/current-instance.json` record as the authoritative local live-gateway record
+- **AND THEN** any registry-published gateway connect metadata remains locator metadata rather than the sole authority
+
+#### Scenario: Runtime-owned helper reports gateway unavailable when no valid live binding exists
+- **WHEN** a tmux-backed session is gateway-capable but no attached gateway instance is currently valid
+- **THEN** the runtime-owned gateway discovery path reports gateway unavailability explicitly
+- **AND THEN** the caller does not guess another host or port from stale process env or localhost heuristics
 
 #### Scenario: Current-session attach does not trust `gateway_manifest.json` as stable authority
 - **WHEN** a current-session attach flow resolves a valid manifest through tmux-local discovery or shared-registry fallback
@@ -756,20 +807,44 @@ The gateway SHALL preserve the same durable queueing, serialization, and admissi
 - **THEN** the gateway may continue using the direct REST-backed execution adapter for that session
 - **AND THEN** adding local tmux-backed or server-managed adapters does not require the REST-backed path to change its public request semantics
 
-### Requirement: Gateway-owned TUI tracking routes support attached runtime-owned local interactive sessions
-For an attached runtime-owned `local_interactive` session outside `houmao-server`, the gateway SHALL treat that session as eligible for its gateway-owned live TUI state and explicit prompt-note tracking surface when durable attach metadata identifies the runtime-owned session and the tmux-backed session remains available.
+### Requirement: Gateway-owned TUI history exposes bounded recent tracked snapshots
+For attached TUI-backed sessions whose gateway owns live tracking authority, `GET /v1/control/tui/history` SHALL return recent tracked snapshots from that gateway-owned tracking runtime rather than only coarse transition summaries.
 
-For this path, the gateway SHALL start one gateway-owned continuous tracking runtime for the attached session and SHALL serve `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt` from that runtime rather than returning unsupported-backend semantics.
+That snapshot history SHALL be retained in memory only and SHALL be bounded to the most recent 1000 snapshots per tracked session.
+
+The returned history SHALL be ordered from oldest retained snapshot to newest retained snapshot.
+
+#### Scenario: Gateway TUI history returns tracked snapshots for an attached TUI session
+- **WHEN** a live gateway owns TUI tracking for an attached eligible TUI-backed session
+- **AND WHEN** a caller requests `GET /v1/control/tui/history`
+- **THEN** the response contains recent tracked snapshots from that gateway-owned tracking runtime
+- **AND THEN** the response does not collapse those snapshots to coarse transition summaries only
+
+#### Scenario: Gateway TUI history remains bounded in memory
+- **WHEN** a gateway-owned tracker for one attached TUI-backed session has recorded more than 1000 tracked snapshots
+- **AND WHEN** a caller requests `GET /v1/control/tui/history`
+- **THEN** the response contains at most the most recent 1000 tracked snapshots for that session
+- **AND THEN** older snapshots have been evicted from in-memory history rather than persisted as durable gateway state
+
+### Requirement: Gateway-owned TUI tracking routes support attached runtime-owned local interactive sessions
+For an attached runtime-owned `local_interactive` session outside `houmao-server`, the gateway SHALL treat that session as eligible for its gateway-owned live TUI state, bounded snapshot history, and explicit prompt-note tracking surface when durable attach metadata identifies the runtime-owned session and the tmux-backed session remains available.
+
+For this path, the gateway SHALL start one gateway-owned continuous tracking runtime for the attached session and SHALL serve `GET /v1/control/tui/state`, `GET /v1/control/tui/history`, and `POST /v1/control/tui/note-prompt` from that runtime rather than returning unsupported-backend semantics.
 
 The gateway SHALL derive tracked-session identity from durable attach-contract fields together with optional manifest-backed enrichment and SHALL NOT require a CAO terminal id to expose this tracking surface.
 
-This local runtime-owned tracking contract SHALL NOT require `GET /v1/control/tui/history` to remain part of the supported local/serverless operator workflow.
+For this runtime-owned local-interactive path, `GET /v1/control/tui/history` SHALL be part of the supported gateway operator workflow.
 
 #### Scenario: Gateway-local TUI state succeeds for attached local interactive session
 - **WHEN** a gateway is attached to a runtime-owned `local_interactive` session outside `houmao-server`
 - **AND WHEN** the durable attach metadata identifies the runtime session id, tmux session name, and manifest path for that session
 - **THEN** the gateway starts its gateway-owned tracking runtime for that session
 - **AND THEN** `GET /v1/control/tui/state` succeeds using gateway-owned tracked state rather than returning an unsupported-backend response
+
+#### Scenario: Gateway-local TUI history succeeds for attached local interactive session
+- **WHEN** a gateway-owned tracking runtime is active for an attached runtime-owned `local_interactive` session
+- **THEN** `GET /v1/control/tui/history` succeeds for that session
+- **AND THEN** the returned history contains recent gateway-owned tracked snapshots for that same session
 
 #### Scenario: Gateway-local prompt-note route succeeds for attached local interactive session
 - **WHEN** a gateway-owned tracking runtime is active for an attached runtime-owned `local_interactive` session

@@ -13,6 +13,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 - The filesystem transport stores canonical messages as immutable Markdown documents under `messages/` and keeps mailbox-view state in SQLite.
 - The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
 - For filesystem-backed sessions, sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
+- `houmao-mgr mailbox cleanup` only removes inactive or stashed filesystem registrations and intentionally preserves canonical `messages/` history. Runtime-owned Stalwart credential cleanup lives under `houmao-mgr admin cleanup runtime mailbox-credentials`, and per-session Stalwart secret cleanup lives under `houmao-mgr agents cleanup mailbox`.
 
 ## Key Terms
 
@@ -40,7 +41,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - [Common Workflows](operations/common-workflows.md): Bootstrap, read, send, reply, and when to inspect `rules/` first.
 - [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Prerequisites, first session, secret lifecycle, and the direct-versus-gateway reader path for Stalwart-backed sessions.
-- [Registration Lifecycle](operations/registration-lifecycle.md): `safe`, `force`, `stash`, `deactivate`, and `purge`.
+- [Registration Lifecycle](operations/registration-lifecycle.md): `safe`, `force`, `stash`, `deactivate`, `purge`, and cleanup of inactive or stashed registrations.
 - [Repair And Recovery](operations/repair-recovery.md): What repair rebuilds, what it preserves, and what it cannot recover.
 
 ### Internals
@@ -50,6 +51,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 ## Related References
 
+- [houmao-mgr agents mail CLI](../cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [houmao-mgr agents mailbox CLI](../cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [Gateway Mailbox Facade](../gateway/operations/mailbox-facade.md): Shared `/v1/mail/*` routes, adapter selection, loopback-only availability, and notifier behavior through the gateway.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-owned filesystem placement for manifests, gateway state, and Stalwart credential material.
 

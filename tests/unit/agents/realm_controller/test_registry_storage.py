@@ -174,6 +174,10 @@ def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
 ) -> None:
     registry_root = tmp_path / "registry"
     monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        lambda *, session_name: True,
+    )
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
@@ -280,6 +284,10 @@ def test_cleanup_reports_failed_removals_and_continues(
 ) -> None:
     registry_root = tmp_path / "registry"
     monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        lambda *, session_name: True,
+    )
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
@@ -336,3 +344,155 @@ def test_cleanup_reports_failed_removals_and_continues(
     assert not removable_dir.exists()
     assert fresh_dir.exists()
     assert failed_dir.exists()
+
+
+def test_cleanup_dry_run_reports_candidates_without_deleting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    expired_record = _sample_record(
+        agent_name="AGENTSYS-old",
+        generation_id=new_registry_generation_id(),
+        now=now - timedelta(days=2),
+    )
+    expired_dir = live_agents_dir / expired_record.agent_id
+    expired_dir.mkdir()
+    (expired_dir / "record.json").write_text(
+        json.dumps(expired_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+        dry_run=True,
+    )
+
+    assert result.removed_agent_ids == ()
+    assert result.planned_agent_ids == (expired_record.agent_id,)
+    assert expired_dir.exists()
+    assert result.actions == (result.actions[0],)
+    assert result.actions[0].outcome == "planned"
+
+
+def test_cleanup_default_tmux_probe_marks_fresh_record_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    fresh_record = _sample_record(
+        agent_name="AGENTSYS-fresh",
+        generation_id=new_registry_generation_id(),
+        now=now,
+    )
+    fresh_dir = live_agents_dir / fresh_record.agent_id
+    fresh_dir.mkdir()
+    (fresh_dir / "record.json").write_text(
+        json.dumps(fresh_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        lambda *, session_name: False,
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+        dry_run=True,
+    )
+
+    assert result.planned_agent_ids == (fresh_record.agent_id,)
+    assert result.preserved_agent_ids == ()
+    assert result.actions[0].reason == "local tmux liveness probe found no owning session"
+
+
+def test_cleanup_default_tmux_probe_preserves_live_fresh_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    fresh_record = _sample_record(
+        agent_name="AGENTSYS-fresh",
+        generation_id=new_registry_generation_id(),
+        now=now,
+    )
+    fresh_dir = live_agents_dir / fresh_record.agent_id
+    fresh_dir.mkdir()
+    (fresh_dir / "record.json").write_text(
+        json.dumps(fresh_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        lambda *, session_name: True,
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+        dry_run=True,
+    )
+
+    assert result.planned_agent_ids == ()
+    assert result.preserved_agent_ids == (fresh_record.agent_id,)
+    assert result.actions[0].reason == "local tmux liveness probe confirmed the owning session"
+
+
+def test_cleanup_no_tmux_check_preserves_fresh_record_without_local_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    fresh_record = _sample_record(
+        agent_name="AGENTSYS-fresh",
+        generation_id=new_registry_generation_id(),
+        now=now,
+    )
+    fresh_dir = live_agents_dir / fresh_record.agent_id
+    fresh_dir.mkdir()
+    (fresh_dir / "record.json").write_text(
+        json.dumps(fresh_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    def _unexpected_tmux_probe(*, session_name: str) -> bool:
+        del session_name
+        raise AssertionError("tmux probe should be skipped when --no-tmux-check is used")
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        _unexpected_tmux_probe,
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+        dry_run=True,
+        probe_local_tmux=False,
+    )
+
+    assert result.planned_agent_ids == ()
+    assert result.preserved_agent_ids == (fresh_record.agent_id,)
+    assert result.actions[0].reason == "lease remains fresh and local tmux checking was disabled"

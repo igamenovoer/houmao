@@ -8,11 +8,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 
 from houmao.owned_paths import resolve_registry_root
 from pydantic import ValidationError
 
+from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.agents.realm_controller.errors import SchemaValidationError, SessionManifestError
 from houmao.agents.realm_controller.agent_identity import normalize_managed_agent_id
 from houmao.agents.realm_controller.registry_models import (
@@ -44,6 +45,18 @@ class RegistryCleanupResult:
     removed_agent_ids: tuple[str, ...]
     preserved_agent_ids: tuple[str, ...]
     failed_agent_ids: tuple[str, ...]
+    planned_agent_ids: tuple[str, ...] = ()
+    actions: tuple["RegistryCleanupAction", ...] = ()
+
+
+@dataclass(frozen=True)
+class RegistryCleanupAction:
+    """One registry cleanup decision."""
+
+    agent_id: str
+    path: Path
+    outcome: Literal["planned", "removed", "preserved", "failed"]
+    reason: str
 
 
 def resolve_global_registry_root(*, env: Mapping[str, str] | None = None) -> Path:
@@ -262,6 +275,8 @@ def cleanup_stale_live_agent_records(
     env: Mapping[str, str] | None = None,
     now: datetime | None = None,
     grace_period: timedelta = DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD,
+    dry_run: bool = False,
+    probe_local_tmux: bool = True,
 ) -> RegistryCleanupResult:
     """Remove stale or malformed ``live_agents/`` directories beyond the grace period."""
 
@@ -273,45 +288,105 @@ def cleanup_stale_live_agent_records(
             removed_agent_ids=(),
             preserved_agent_ids=(),
             failed_agent_ids=(),
+            planned_agent_ids=(),
+            actions=(),
         )
 
     removed: list[str] = []
     preserved: list[str] = []
     failed: list[str] = []
+    planned: list[str] = []
+    actions: list[RegistryCleanupAction] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
         if not candidate.is_dir():
             continue
 
         record_path = candidate / "record.json"
-        should_remove = not record_path.is_file()
-        if not should_remove:
+        should_remove = False
+        remove_reason = ""
+        preserve_reason = "lease remains fresh"
+        if not record_path.is_file():
+            should_remove = True
+            remove_reason = "shared-registry record.json is missing"
+        else:
             try:
                 record = _read_live_agent_record(record_path)
             except SessionManifestError:
                 should_remove = True
+                remove_reason = "shared-registry record.json is malformed"
             else:
                 should_remove = _record_expired_beyond_grace(
                     record,
                     now=current_time,
                     grace_period=grace_period,
                 )
+                if should_remove:
+                    remove_reason = "registry lease expired beyond the cleanup grace period"
+                elif (
+                    probe_local_tmux
+                    and record.terminal.kind == "tmux"
+                    and not tmux_session_exists(session_name=record.terminal.session_name)
+                ):
+                    should_remove = True
+                    remove_reason = "local tmux liveness probe found no owning session"
+                elif probe_local_tmux and record.terminal.kind == "tmux":
+                    preserve_reason = "local tmux liveness probe confirmed the owning session"
+                elif not probe_local_tmux:
+                    preserve_reason = "lease remains fresh and local tmux checking was disabled"
 
         if should_remove:
+            if dry_run:
+                planned.append(candidate.name)
+                actions.append(
+                    RegistryCleanupAction(
+                        agent_id=candidate.name,
+                        path=candidate.resolve(),
+                        outcome="planned",
+                        reason=remove_reason,
+                    )
+                )
+                continue
             try:
                 shutil.rmtree(candidate, ignore_errors=False)
-            except OSError:
+            except OSError as exc:
                 failed.append(candidate.name)
+                actions.append(
+                    RegistryCleanupAction(
+                        agent_id=candidate.name,
+                        path=candidate.resolve(),
+                        outcome="failed",
+                        reason=f"{remove_reason}; removal failed: {exc}",
+                    )
+                )
             else:
                 removed.append(candidate.name)
+                actions.append(
+                    RegistryCleanupAction(
+                        agent_id=candidate.name,
+                        path=candidate.resolve(),
+                        outcome="removed",
+                        reason=remove_reason,
+                    )
+                )
             continue
 
         preserved.append(candidate.name)
+        actions.append(
+            RegistryCleanupAction(
+                agent_id=candidate.name,
+                path=candidate.resolve(),
+                outcome="preserved",
+                reason=preserve_reason,
+            )
+        )
 
     return RegistryCleanupResult(
         registry_root=paths.root,
         removed_agent_ids=tuple(removed),
         preserved_agent_ids=tuple(preserved),
         failed_agent_ids=tuple(failed),
+        planned_agent_ids=tuple(planned),
+        actions=tuple(actions),
     )
 
 
