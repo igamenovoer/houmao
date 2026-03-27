@@ -9,6 +9,8 @@ from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
 
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -136,6 +138,7 @@ class _AppServiceDouble:
         self.m_gateway_attach_calls: list[str] = []
         self.m_gateway_detach_calls: list[str] = []
         self.m_gateway_request_calls: list[tuple[str, HoumaoManagedAgentGatewayRequestCreate]] = []
+        self.m_gateway_control_calls: list[tuple[str, GatewayControlInputRequestV1]] = []
         self.m_gateway_notifier_get_calls: list[str] = []
         self.m_gateway_notifier_put_calls: list[tuple[str, GatewayMailNotifierPutV1]] = []
         self.m_gateway_notifier_delete_calls: list[str] = []
@@ -517,6 +520,14 @@ class _AppServiceDouble:
             queue_depth=1,
             managed_agent_instance_epoch=2,
         )
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        self.m_gateway_control_calls.append((agent_ref, request_model))
+        return GatewayControlInputResultV1(detail="control input delivered")
 
     def get_managed_agent_gateway_mail_notifier(
         self,
@@ -1049,6 +1060,11 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         "POST",
         app=app,
     )
+    gateway_control_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/control/send-keys",
+        "POST",
+        app=app,
+    )
     gateway_notifier_get_route = _route(
         "/houmao/agents/{agent_ref}/gateway/mail-notifier",
         "GET",
@@ -1133,6 +1149,11 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert gateway_request_response.request_id == "greq-123"
+    gateway_control_response = gateway_control_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),
+    )
+    assert gateway_control_response.action == "control_input"
     notifier_status = gateway_notifier_get_route.endpoint(agent_ref="claude-headless-1")
     assert notifier_status.enabled is False
     notifier_enabled = gateway_notifier_put_route.endpoint(
@@ -1164,3 +1185,6 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert mail_reply_response.operation == "reply"
+    assert len(service.m_gateway_control_calls) == 1
+    assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
+    assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"

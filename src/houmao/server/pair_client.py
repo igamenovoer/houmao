@@ -7,7 +7,13 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
+    GatewayStatusV1,
+)
 from houmao.cao.models import CaoSuccessResponse
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
@@ -139,6 +145,32 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentGatewayRequestCreate,
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         """Submit one managed-agent gateway request."""
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Send one managed-agent gateway raw control-input request."""
+
+    def get_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        """Return managed-agent gateway mail-notifier status."""
+
+    def put_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+        request_model: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Enable or update managed-agent gateway mail-notifier state."""
+
+    def delete_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        """Disable managed-agent gateway mail-notifier state."""
 
     def get_managed_agent_mail_status(
         self,

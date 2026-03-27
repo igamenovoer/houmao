@@ -43,6 +43,15 @@ Agent lifecycle: launch, terminate, observe, send-prompt, mail, join, gateway op
 | `gateway status` | Show gateway status for a session. |
 | `gateway prompt` | Send a prompt through the gateway. |
 | `gateway interrupt` | Interrupt the current gateway operation. |
+| `gateway send-keys` | Send raw control input through the live gateway. |
+| `gateway mail-notifier status|enable|disable` | Inspect or control live unread-mail reminder behavior on the gateway. |
+
+Gateway targeting rules:
+
+- Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
+- Inside a managed tmux session, omitting the selector resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus shared registry when needed.
+- `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
+- `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
 
 The preferred local serverless mailbox workflow is:
 
