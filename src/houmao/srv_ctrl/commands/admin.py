@@ -35,6 +35,19 @@ def _runtime_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
     )(function)
 
 
+def _registry_tmux_check_option(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Attach the shared registry tmux-check opt-out option."""
+
+    return click.option(
+        "--no-tmux-check",
+        is_flag=True,
+        help=(
+            "Disable local tmux liveness checks for tmux-backed records; by default cleanup "
+            "verifies the owning tmux session locally."
+        ),
+    )(function)
+
+
 @click.group(name="admin")
 def admin_group() -> None:
     """Local maintenance commands; these do not call `houmao-server`."""
@@ -58,16 +71,11 @@ def cleanup_group() -> None:
     is_flag=True,
     help="Preview stale shared-registry records without deleting them.",
 )
-@click.option(
-    "--probe-local-tmux/--no-probe-local-tmux",
-    default=False,
-    show_default=True,
-    help="Classify lease-fresh tmux records as stale when their tmux session is absent locally.",
-)
+@_registry_tmux_check_option
 def cleanup_registry_command(
     grace_seconds: int,
     dry_run: bool,
-    probe_local_tmux: bool,
+    no_tmux_check: bool,
 ) -> None:
     """Clean stale shared-registry live-agent directories on the local host."""
 
@@ -75,7 +83,7 @@ def cleanup_registry_command(
         _registry_cleanup_payload(
             grace_seconds=grace_seconds,
             dry_run=dry_run,
-            probe_local_tmux=probe_local_tmux,
+            probe_local_tmux=(not no_tmux_check),
         )
     )
 
@@ -93,16 +101,11 @@ def cleanup_registry_command(
     is_flag=True,
     help="Preview stale shared-registry records without deleting them.",
 )
-@click.option(
-    "--probe-local-tmux/--no-probe-local-tmux",
-    default=False,
-    show_default=True,
-    help="Classify lease-fresh tmux records as stale when their tmux session is absent locally.",
-)
+@_registry_tmux_check_option
 def cleanup_registry_alias_command(
     grace_seconds: int,
     dry_run: bool,
-    probe_local_tmux: bool,
+    no_tmux_check: bool,
 ) -> None:
     """Compatibility alias for `houmao-mgr admin cleanup registry`."""
 
@@ -110,7 +113,7 @@ def cleanup_registry_alias_command(
         _registry_cleanup_payload(
             grace_seconds=grace_seconds,
             dry_run=dry_run,
-            probe_local_tmux=probe_local_tmux,
+            probe_local_tmux=(not no_tmux_check),
         )
     )
 

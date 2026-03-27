@@ -96,8 +96,10 @@ Default behavior:
 - remove directories whose `record.json` is missing,
 - remove directories whose `record.json` is malformed,
 - remove directories whose record lease expired longer ago than the grace period,
-- optionally classify lease-fresh tmux-backed records as stale when `--probe-local-tmux` is set and the named tmux session is absent on the local host,
-- preserve fresh directories,
+- classify lease-fresh tmux-backed records as stale by default when the named tmux session is absent on the local host,
+- preserve lease-fresh tmux-backed records when the local tmux probe confirms the owning session,
+- accept `--no-tmux-check` when you intentionally want lease-only cleanup for tmux-backed records,
+- preserve other fresh directories,
 - continue past per-directory removal failures and report them separately,
 - report one structured cleanup payload with `scope`, `resolution`, `planned_actions`, `applied_actions`, `blocked_actions`, `preserved_actions`, and summary counters.
 
@@ -106,7 +108,7 @@ Examples:
 ```bash
 pixi run houmao-mgr admin cleanup registry
 pixi run houmao-mgr admin cleanup registry --grace-seconds 0 --dry-run
-pixi run houmao-mgr admin cleanup registry --probe-local-tmux
+pixi run houmao-mgr admin cleanup registry --no-tmux-check
 ```
 
 Representative result:
@@ -115,19 +117,19 @@ Representative result:
 {
   "dry_run": true,
   "grace_seconds": 0,
-  "planned_agent_ids": ["<expired-agent-id>"],
+  "planned_agent_ids": ["<dead-tmux-agent-id>"],
   "planned_actions": [
     {
       "artifact_kind": "registry_live_agent_record",
       "details": {
-        "agent_id": "<expired-agent-id>"
+        "agent_id": "<dead-tmux-agent-id>"
       },
-      "path": "/abs/path/registry/live_agents/<expired-agent-id>",
+      "path": "/abs/path/registry/live_agents/<dead-tmux-agent-id>",
       "proposed_action": "remove",
-      "reason": "record lease expired beyond the cleanup grace period"
+      "reason": "local tmux liveness probe found no owning session"
     }
   ],
-  "preserved_agent_ids": ["<fresh-agent-id>"],
+  "preserved_agent_ids": ["<live-tmux-agent-id>"],
   "probe_local_tmux": true,
   "registry_root": "/abs/path/registry",
   "resolution": {
@@ -179,7 +181,7 @@ sequenceDiagram
 
 ## Current Implementation Notes
 
-- `houmao-mgr admin cleanup registry` does not make currently live records go away just because the directory exists; lease freshness remains the deciding signal unless `--probe-local-tmux` is explicitly enabled and the record points at a missing local tmux session.
+- `houmao-mgr admin cleanup registry` probes tmux-backed records locally by default; use `--no-tmux-check` when you intentionally want lease-only cleanup.
 - A malformed record is treated as stale for lookup and as removable for cleanup.
 - The cleanup command uses the same effective root-resolution logic as publication and lookup, so `AGENTSYS_GLOBAL_REGISTRY_DIR` changes all three paths together.
 - `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for operators or tests that still use the pre-grouped spelling.

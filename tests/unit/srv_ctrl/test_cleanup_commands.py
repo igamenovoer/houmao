@@ -23,6 +23,7 @@ from houmao.mailbox.managed import (
     deregister_mailbox,
     register_mailbox,
 )
+from houmao.agents.realm_controller.registry_storage import RegistryCleanupAction
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -111,6 +112,93 @@ def test_admin_cleanup_runtime_help_mentions_runtime_subcommands() -> None:
     assert "builds" in result.output
     assert "logs" in result.output
     assert "mailbox-credentials" in result.output
+
+
+def test_admin_cleanup_registry_help_mentions_no_tmux_check() -> None:
+    result = CliRunner().invoke(cli, ["admin", "cleanup", "registry", "--help"])
+
+    assert result.exit_code == 0
+    assert "--no-tmux-check" in result.output
+    assert "--probe-local-tmux" not in result.output
+
+
+def test_admin_cleanup_registry_alias_help_mentions_no_tmux_check() -> None:
+    result = CliRunner().invoke(cli, ["admin", "cleanup-registry", "--help"])
+
+    assert result.exit_code == 0
+    assert "--no-tmux-check" in result.output
+    assert "--probe-local-tmux" not in result.output
+
+
+def test_admin_cleanup_registry_probes_tmux_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+    registry_root = (tmp_path / "registry").resolve()
+    expected_action = RegistryCleanupAction(
+        agent_id="live-agent",
+        path=(registry_root / "live_agents" / "live-agent").resolve(),
+        outcome="preserved",
+        reason="local tmux liveness probe confirmed the owning session",
+    )
+
+    def _fake_cleanup(**kwargs: object) -> SimpleNamespace:
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            registry_root=registry_root,
+            removed_agent_ids=(),
+            preserved_agent_ids=("live-agent",),
+            failed_agent_ids=(),
+            planned_agent_ids=(),
+            actions=(expected_action,),
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.admin.cleanup_stale_live_agent_records", _fake_cleanup
+    )
+
+    result = CliRunner().invoke(cli, ["admin", "cleanup", "registry", "--grace-seconds", "0"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_kwargs["probe_local_tmux"] is True
+    payload = json.loads(result.output)
+    assert payload["probe_local_tmux"] is True
+    assert payload["resolution"]["probe_local_tmux"] is True
+
+
+def test_admin_cleanup_registry_alias_no_tmux_check_disables_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+    registry_root = (tmp_path / "registry").resolve()
+
+    def _fake_cleanup(**kwargs: object) -> SimpleNamespace:
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            registry_root=registry_root,
+            removed_agent_ids=(),
+            preserved_agent_ids=("live-agent",),
+            failed_agent_ids=(),
+            planned_agent_ids=(),
+            actions=(),
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.admin.cleanup_stale_live_agent_records", _fake_cleanup
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["admin", "cleanup-registry", "--grace-seconds", "0", "--no-tmux-check"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured_kwargs["probe_local_tmux"] is False
+    payload = json.loads(result.output)
+    assert payload["probe_local_tmux"] is False
+    assert payload["resolution"]["probe_local_tmux"] is False
 
 
 def test_agents_cleanup_help_mentions_session_logs_and_mailbox() -> None:

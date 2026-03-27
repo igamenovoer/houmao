@@ -276,7 +276,7 @@ def cleanup_stale_live_agent_records(
     now: datetime | None = None,
     grace_period: timedelta = DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD,
     dry_run: bool = False,
-    probe_local_tmux: bool = False,
+    probe_local_tmux: bool = True,
 ) -> RegistryCleanupResult:
     """Remove stale or malformed ``live_agents/`` directories beyond the grace period."""
 
@@ -332,9 +332,7 @@ def cleanup_stale_live_agent_records(
                 elif probe_local_tmux and record.terminal.kind == "tmux":
                     preserve_reason = "local tmux liveness probe confirmed the owning session"
                 elif not probe_local_tmux:
-                    preserve_reason = (
-                        "lease remains fresh and local liveness probing was not requested"
-                    )
+                    preserve_reason = "lease remains fresh and local tmux checking was disabled"
 
         if should_remove:
             if dry_run:
