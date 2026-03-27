@@ -9,6 +9,8 @@ from urllib import error, parse, request
 from pydantic import BaseModel, ValidationError
 
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayStatusV1,
@@ -381,6 +383,21 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             f"/houmao/agents/{escaped}/gateway/requests",
             HoumaoManagedAgentGatewayRequestAcceptedResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/control/send-keys`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/send-keys",
+            GatewayControlInputResultV1,
             json_body=request_model.model_dump(mode="json"),
         )
 

@@ -72,6 +72,23 @@ def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
     assert "window index" in result.output
 
 
+def test_agents_gateway_help_mentions_send_keys_and_mail_notifier() -> None:
+    result = CliRunner().invoke(cli, ["agents", "gateway", "--help"])
+
+    assert result.exit_code == 0
+    assert "send-keys" in result.output
+    assert "mail-notifier" in result.output
+
+
+def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
+    result = CliRunner().invoke(cli, ["agents", "gateway", "mail-notifier", "--help"])
+
+    assert result.exit_code == 0
+    assert "status" in result.output
+    assert "enable" in result.output
+    assert "disable" in result.output
+
+
 def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     result = CliRunner().invoke(cli, ["agents", "--help"])
 
@@ -156,12 +173,17 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
         agent_id="agent-123",
     )
     client = SimpleNamespace(
+        pair_authority_kind="houmao-server",
         attach_managed_agent_gateway=lambda agent_ref: {
             "status": "ok",
             "agent_ref": agent_ref,
         }
     )
 
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
+        lambda: "pair-session",
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
         lambda: "pair-session",
@@ -229,6 +251,10 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
+        lambda: "headless-session",
+    )
+    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
         lambda: "headless-session",
     )
@@ -275,6 +301,9 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
         return SimpleNamespace(status="ok", detail="")
 
     controller = SimpleNamespace(
+        agent_id="published-alpha",
+        agent_identity="AGENTSYS-headless",
+        manifest_path=manifest_path,
         attach_gateway=_attach_gateway,
         gateway_status=lambda: {"status": "local-attached"},
     )
@@ -288,14 +317,203 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
         "houmao.srv_ctrl.commands.agents.gateway.resume_runtime_session",
         _resume_runtime_session,
     )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._identity_from_controller",
+        lambda resolved_controller: HoumaoManagedAgentIdentity(
+            tracked_agent_id="tracked-local",
+            transport="headless",
+            tool="claude",
+            session_name=None,
+            terminal_id=None,
+            runtime_session_id="tracked-local",
+            tmux_session_name="headless-session",
+            tmux_window_name="agent",
+            manifest_path=str(manifest_path),
+            session_root=str(tmp_path.resolve()),
+            agent_name="AGENTSYS-headless",
+            agent_id="published-alpha",
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
+        lambda target, *, foreground=False: (
+            captured.update({"target": target, "foreground": foreground})
+            or {"status": "local-attached"}
+        ),
+    )
 
     result = CliRunner().invoke(cli, ["agents", "gateway", "attach", "--foreground"])
 
     assert result.exit_code == 0, result.output
     assert captured["agent_def_dir"] == agent_def_dir
     assert captured["session_manifest_path"] == manifest_path
-    assert captured["execution_mode_override"] == "tmux_auxiliary_window"
+    assert captured["target"].agent_ref == "published-alpha"
+    assert captured["foreground"] is True
     assert json.loads(result.output) == {"status": "local-attached"}
+
+
+def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_send_keys",
+        lambda resolved_target, *, sequence, escape_special_keys: (
+            captured.update(
+                {
+                    "target": resolved_target,
+                    "sequence": sequence,
+                    "escape_special_keys": escape_special_keys,
+                }
+            )
+            or {"status": "ok", "detail": "delivered"}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "send-keys",
+            "--agent-name",
+            "gpu",
+            "--port",
+            "9889",
+            "--sequence",
+            "<[Escape]>",
+            "--escape-special-keys",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": None,
+        "agent_name": "gpu",
+        "port": 9889,
+    }
+    assert captured["target"] is target
+    assert captured["sequence"] == "<[Escape]>"
+    assert captured["escape_special_keys"] is True
+    assert json.loads(result.output) == {"status": "ok", "detail": "delivered"}
+
+
+def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
+        lambda: "join-sess",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_current_session_target",
+        lambda *, session_name=None: (
+            captured.setdefault("session_name", session_name),
+            target,
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("explicit resolution should not run")),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_send_keys",
+        lambda resolved_target, *, sequence, escape_special_keys: (
+            captured.update(
+                {
+                    "target": resolved_target,
+                    "sequence": sequence,
+                    "escape_special_keys": escape_special_keys,
+                }
+            )
+            or {"status": "ok"}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "send-keys",
+            "--sequence",
+            "abc",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["session_name"] == "join-sess"
+    assert captured["target"] is target
+    assert captured["sequence"] == "abc"
+    assert captured["escape_special_keys"] is False
+    assert json.loads(result.output) == {"status": "ok"}
+
+
+def test_agents_gateway_send_keys_without_selector_outside_tmux_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
+        lambda: None,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "gateway", "send-keys", "--sequence", "<[Escape]>"],
+    )
+
+    assert result.exit_code != 0
+    assert "Exactly one of `--agent-id` or `--agent-name` is required" in result.output
+
+
+def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_current_session_target",
+        lambda *, session_name=None: (
+            captured.setdefault("session_name", session_name),
+            target,
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
+        lambda resolved_target, *, interval_seconds: (
+            captured.update({"target": resolved_target, "interval_seconds": interval_seconds})
+            or {"enabled": True, "interval_seconds": interval_seconds}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "mail-notifier",
+            "enable",
+            "--current-session",
+            "--interval-seconds",
+            "60",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["session_name"] is None
+    assert captured["target"] is target
+    assert captured["interval_seconds"] == 60
+    assert json.loads(result.output) == {"enabled": True, "interval_seconds": 60}
 
 
 def test_agents_relaunch_current_session_uses_manifest_first_runtime(

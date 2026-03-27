@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -465,6 +466,42 @@ def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch)
     assert recorded == {
         "method": "POST",
         "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/requests",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_send_managed_agent_gateway_control_input_posts_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = GatewayControlInputRequestV1(
+        sequence="<[Escape]>",
+        escape_special_keys=False,
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "status": "ok",
+        "action": "control_input",
+        "detail": "delivered",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[object],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
+
+    assert response.action == "control_input"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -943,3 +980,77 @@ def test_passive_server_client_normalizes_headless_managed_prompt_submission(
     assert response.headless_turn_id == "turn-0001"
     assert response.headless_turn_index == 1
     assert response.detail == "accepted:hello:published-alpha"
+
+
+def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkeypatch) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: list[dict[str, object]] = []
+    request_model = GatewayControlInputRequestV1(sequence="abc", escape_special_keys=True)
+    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45)
+    control_payload = {
+        "status": "ok",
+        "action": "control_input",
+        "detail": "queued",
+    }
+    notifier_payload = {
+        "schema_version": 1,
+        "enabled": True,
+        "interval_seconds": 45,
+        "supported": True,
+        "support_error": None,
+        "last_poll_at_utc": None,
+        "last_notification_at_utc": None,
+        "last_error": None,
+    }
+    notifier_disabled_payload = {
+        "schema_version": 1,
+        "enabled": False,
+        "interval_seconds": None,
+        "supported": True,
+        "support_error": None,
+        "last_poll_at_utc": None,
+        "last_notification_at_utc": None,
+        "last_error": None,
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if path.endswith("/gateway/control/send-keys"):
+            return model.model_validate(control_payload)
+        if method == "DELETE":
+            return model.model_validate(notifier_disabled_payload)
+        return model.model_validate(notifier_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    control = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
+    notifier_status = client.get_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+    notifier_enabled = client.put_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1", notifier_put)
+    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+
+    assert control.detail == "queued"
+    assert notifier_status.enabled is True
+    assert notifier_enabled.interval_seconds == 45
+    assert notifier_disabled.enabled is False
+    assert recorded == [
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
+            "kwargs": {"json_body": request_model.model_dump(mode="json")},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {},
+        },
+        {
+            "method": "PUT",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {"json_body": notifier_put.model_dump(mode="json")},
+        },
+        {
+            "method": "DELETE",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {},
+        },
+    ]

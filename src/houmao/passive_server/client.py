@@ -5,7 +5,13 @@ from __future__ import annotations
 from urllib import parse
 import uuid
 
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
+    GatewayMailNotifierPutV1,
+    GatewayMailNotifierStatusV1,
+    GatewayStatusV1,
+)
 from houmao.cao.models import CaoSuccessResponse
 from houmao.cao.rest_client import CaoApiError
 from houmao.passive_server.compatibility import managed_identity_from_discovered_summary
@@ -254,6 +260,62 @@ class PassiveServerClient(HoumaoServerClient):
             f"/houmao/agents/{escaped}/gateway/requests",
             HoumaoManagedAgentGatewayRequestAcceptedResponse,
             json_body=request_model.model_dump(mode="json"),
+        )
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Call passive raw gateway control input for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/send-keys",
+            GatewayControlInputResultV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        """Call passive gateway mail-notifier status for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            GatewayMailNotifierStatusV1,
+        )
+
+    def put_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+        request_model: GatewayMailNotifierPutV1,
+    ) -> GatewayMailNotifierStatusV1:
+        """Call passive gateway mail-notifier enable/update for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            GatewayMailNotifierStatusV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def delete_managed_agent_gateway_mail_notifier(
+        self,
+        agent_ref: str,
+    ) -> GatewayMailNotifierStatusV1:
+        """Call passive gateway mail-notifier disable for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "DELETE",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            GatewayMailNotifierStatusV1,
         )
 
     def get_managed_agent_mail_status(

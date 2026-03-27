@@ -24,6 +24,8 @@ from pydantic import BaseModel
 
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -1182,6 +1184,16 @@ class HoumaoServerService:
         return HoumaoManagedAgentGatewayRequestAcceptedResponse.model_validate(
             response.model_dump(mode="json")
         )
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Proxy one managed-agent raw control-input request through a live gateway."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.send_control_input(request_model))
 
     def get_managed_agent_gateway_mail_notifier(
         self, agent_ref: str
