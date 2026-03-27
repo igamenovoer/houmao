@@ -43,6 +43,8 @@ from houmao.server.models import (
     HoumaoStabilityMetadata,
     HoumaoTrackedSurface,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryEntry,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedTurn,
     HoumaoTrackedSessionIdentity,
@@ -89,6 +91,7 @@ class LiveSessionTracker:
         *,
         identity: HoumaoTrackedSessionIdentity,
         recent_transition_limit: int,
+        snapshot_history_limit: int = 1000,
         stability_threshold_seconds: float,
         completion_stability_seconds: float,
         unknown_to_stalled_timeout_seconds: float,
@@ -98,6 +101,7 @@ class LiveSessionTracker:
 
         self.m_identity = identity
         self.m_recent_transition_limit = recent_transition_limit
+        self.m_snapshot_history_limit = snapshot_history_limit
         self.m_stability_threshold_seconds = stability_threshold_seconds
         self.m_completion_stability_seconds = completion_stability_seconds
         self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
@@ -129,6 +133,7 @@ class LiveSessionTracker:
         self.m_last_readiness_snapshot: ReadinessSnapshot | None = None
         self.m_last_completion_snapshot: AnchoredCompletionSnapshot | None = None
         self.m_recent_transitions: list[HoumaoRecentTransition] = []
+        self.m_recent_snapshots: list[HoumaoTerminalSnapshotHistoryEntry] = []
         self.m_last_signature_payload: str | None = None
         self.m_stable_since_monotonic: float | None = None
         self.m_stable_since_utc: str = utc_now_iso()
@@ -231,6 +236,19 @@ class LiveSessionTracker:
                 self.m_recent_transitions[-limit:] if limit > 0 else self.m_recent_transitions
             )
             return HoumaoTerminalHistoryResponse(
+                terminal_id=self.m_last_state.terminal_id,
+                tracked_session_id=self.m_identity.tracked_session_id,
+                entries=entries,
+            )
+
+    def snapshot_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return bounded recent in-memory snapshot history."""
+
+        with self.m_lock:
+            entries = list(
+                self.m_recent_snapshots[-limit:] if limit > 0 else self.m_recent_snapshots
+            )
+            return HoumaoTerminalSnapshotHistoryResponse(
                 terminal_id=self.m_last_state.terminal_id,
                 tracked_session_id=self.m_identity.tracked_session_id,
                 entries=entries,
@@ -384,7 +402,11 @@ class LiveSessionTracker:
                     "lifecycle_authority": lifecycle_authority,
                 }
             )
-            updated = self._publish_state(response=updated, monotonic_ts=monotonic_ts)
+            updated = self._publish_state(
+                response=updated,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
             updated_lifecycle_authority = _require_lifecycle_authority(updated)
             self._emit_debug(
                 stream="tracker-anchor",
@@ -608,7 +630,11 @@ class LiveSessionTracker:
                 stability=stability,
                 recent_transitions=list(self.m_recent_transitions),
             )
-            response = self._publish_state(response=response, monotonic_ts=monotonic_ts)
+            response = self._publish_state(
+                response=response,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
             if self.m_anchor_should_expire_after_publish:
                 self._expire_turn_anchor_after_publish(
                     monotonic_ts=monotonic_ts,
@@ -812,8 +838,9 @@ class LiveSessionTracker:
         *,
         response: HoumaoTerminalStateResponse,
         monotonic_ts: float,
+        observed_at_utc: str,
     ) -> HoumaoTerminalStateResponse:
-        """Store one response as the current state and append visible transitions."""
+        """Store one response as the current state and append recent history."""
 
         transition = _build_transition(previous=self.m_last_state, current=response)
         response_operator_state = _require_operator_state(response)
@@ -857,6 +884,19 @@ class LiveSessionTracker:
                     "completion_authority": response_lifecycle_authority.completion_authority,
                 },
             )
+        self.m_recent_snapshots.append(
+            HoumaoTerminalSnapshotHistoryEntry(
+                recorded_at_utc=observed_at_utc,
+                diagnostics=response.diagnostics,
+                probe_snapshot=response.probe_snapshot,
+                parsed_surface=response.parsed_surface,
+                surface=response.surface,
+                turn=response.turn,
+                last_turn=response.last_turn,
+                stability=response.stability,
+            )
+        )
+        self.m_recent_snapshots = self.m_recent_snapshots[-self.m_snapshot_history_limit :]
         self.m_last_state = response
         return response
 

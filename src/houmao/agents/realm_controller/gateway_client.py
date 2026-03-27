@@ -32,7 +32,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayStatusV1,
 )
-from houmao.server.models import HoumaoTerminalHistoryResponse, HoumaoTerminalStateResponse
+from houmao.server.models import (
+    HoumaoTerminalSnapshotHistoryResponse,
+    HoumaoTerminalStateResponse,
+)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -144,13 +147,13 @@ class GatewayClient:
             HoumaoTerminalStateResponse,
         )
 
-    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
         """Call `GET /v1/control/tui/history?limit=...`."""
 
         return self._request_model(
             "GET",
             f"/v1/control/tui/history?limit={limit}",
-            HoumaoTerminalHistoryResponse,
+            HoumaoTerminalSnapshotHistoryResponse,
         )
 
     def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:

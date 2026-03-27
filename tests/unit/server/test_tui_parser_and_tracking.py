@@ -895,3 +895,42 @@ def test_live_session_tracker_expires_anchor_after_completed_cycle() -> None:
     assert post_expiry_cycle.operator_state.completion_state == "inactive"
     assert post_expiry_cycle.lifecycle_authority.completion_authority == "unanchored_background"
     assert post_expiry_cycle.lifecycle_authority.turn_anchor_state == "absent"
+
+
+def test_live_session_tracker_bounds_snapshot_history_at_internal_cap() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=3,
+        snapshot_history_limit=1000,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    probe_snapshot = HoumaoProbeSnapshot(
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        pane_id="%9",
+        pane_pid=4321,
+        matched_process_names=["codex"],
+    )
+
+    for index in range(1003):
+        _record_cycle(
+            tracker,
+            observed_at_utc=f"2026-03-19T10:{index // 60:02d}:{index % 60:02d}+00:00",
+            monotonic_ts=float(index),
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_snapshot=probe_snapshot,
+            probe_error=None,
+            parse_error=None,
+            parsed_surface=_ready_surface_with_projection(f"ready-{index}"),
+        )
+
+    history = tracker.snapshot_history(limit=0)
+
+    assert len(history.entries) == 1000
+    assert history.entries[0].parsed_surface is not None
+    assert history.entries[0].parsed_surface.normalized_projection_text == "ready-3"
+    assert history.entries[-1].parsed_surface is not None
+    assert history.entries[-1].parsed_surface.normalized_projection_text == "ready-1002"

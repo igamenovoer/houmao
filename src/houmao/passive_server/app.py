@@ -22,6 +22,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
     GatewayRequestCreateV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.passive_server.config import PassiveServerConfig
@@ -51,6 +52,8 @@ from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
+    HoumaoTerminalStateResponse,
 )
 
 
@@ -117,6 +120,33 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/gateway")
     def gateway_status(agent_ref: str) -> GatewayStatusV1:
         result = resolved_service.gateway_status(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/tui/state")
+    def gateway_tui_state(agent_ref: str) -> HoumaoTerminalStateResponse:
+        result = resolved_service.gateway_tui_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/tui/history")
+    def gateway_tui_history(
+        agent_ref: str,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        result = resolved_service.gateway_tui_history(agent_ref, limit=limit)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/tui/note-prompt")
+    def gateway_tui_note_prompt(
+        agent_ref: str,
+        payload: GatewayRequestPayloadSubmitPromptV1,
+    ) -> HoumaoTerminalStateResponse:
+        result = resolved_service.gateway_tui_note_prompt(agent_ref, prompt=payload.prompt)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

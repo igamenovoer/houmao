@@ -47,6 +47,7 @@ Agent lifecycle: launch, terminate, observe, send-prompt, mail, join, gateway op
 | `gateway prompt` | Send a prompt through the gateway. |
 | `gateway interrupt` | Interrupt the current gateway operation. |
 | `gateway send-keys` | Send raw control input through the live gateway. |
+| `gateway tui state|history|watch|note-prompt` | Inspect or annotate the raw gateway-owned TUI tracking surface. |
 | `gateway mail-notifier status|enable|disable` | Inspect or control live unread-mail reminder behavior on the gateway. |
 
 Gateway targeting rules:
@@ -55,6 +56,12 @@ Gateway targeting rules:
 - Inside a managed tmux session, omitting the selector resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus shared registry when needed.
 - `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
 - `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
+
+Gateway TUI notes:
+
+- `gateway tui state` and `gateway tui watch` read the exact raw gateway-owned tracked state rather than the curated `agents show` payload.
+- `gateway tui history` returns bounded in-memory snapshot history from the live gateway tracker, not coarse managed-agent `/history`.
+- `gateway tui note-prompt` records explicit prompt provenance on the live gateway tracker without enqueueing a gateway prompt request.
 
 The preferred local serverless mailbox workflow is:
 

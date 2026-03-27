@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.cao.rest_client import (
@@ -53,6 +54,7 @@ from .models import (
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     WorkingDirectoryResponse,
 )
@@ -369,6 +371,47 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             f"/houmao/agents/{escaped}/gateway/detach",
             GatewayStatusV1,
+        )
+
+    def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/tui/state`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/tui/state",
+            HoumaoTerminalStateResponse,
+        )
+
+    def get_managed_agent_gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/tui/history?limit=...`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/tui/history?limit={limit}",
+            HoumaoTerminalSnapshotHistoryResponse,
+        )
+
+    def note_managed_agent_gateway_tui_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/tui/note-prompt",
+            HoumaoTerminalStateResponse,
+            json_body=GatewayRequestPayloadSubmitPromptV1(prompt=prompt).model_dump(mode="json"),
         )
 
     def submit_managed_agent_gateway_request(

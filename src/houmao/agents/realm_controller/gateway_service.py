@@ -100,7 +100,7 @@ from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
-    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
 )
@@ -795,12 +795,12 @@ class GatewayServiceRuntime:
             tracking = self._require_tui_tracking_locked()
         return tracking.current_state()
 
-    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
-        """Return gateway-owned live tracked TUI history."""
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return gateway-owned live tracked TUI snapshot history."""
 
         with self.m_lock:
             tracking = self._require_tui_tracking_locked()
-        return tracking.history(limit=limit)
+        return tracking.snapshot_history(limit=limit)
 
     def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:
         """Record explicit prompt evidence in the gateway-owned tracker."""
@@ -2050,9 +2050,9 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.get_tui_state()
 
-    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalHistoryResponse)
-    def _tui_history(limit: int = 100) -> HoumaoTerminalHistoryResponse:
-        """Serve gateway-owned tracked TUI history."""
+    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalSnapshotHistoryResponse)
+    def _tui_history(limit: int = 100) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Serve gateway-owned tracked TUI snapshot history."""
 
         return runtime.get_tui_history(limit=limit)
 

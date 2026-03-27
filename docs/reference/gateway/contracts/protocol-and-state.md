@@ -294,11 +294,13 @@ For attached runtime-owned `local_interactive` sessions outside `houmao-server`,
 
 ### `GET /v1/control/tui/history`
 
-This route returns the gateway-owned live `HoumaoTerminalHistoryResponse` for the same tracked TUI session.
+This route returns the gateway-owned live `HoumaoTerminalSnapshotHistoryResponse` for the same tracked TUI session.
 
-The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
+It is a bounded in-memory recent snapshot surface rather than the coarse transition-summary history attached to `HoumaoTerminalStateResponse.recent_transitions`. The `limit` query parameter defaults to `100`. Attached `local_interactive` sessions use the same tracked-session identity and `terminal_id` fallback behavior as `GET /v1/control/tui/state`.
 
-For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route remains a compatibility surface for shared consumers rather than part of the supported repo-owned local/serverless workflow. Local operator guidance should rely on `GET /v1/control/tui/state` plus explicit prompt-note evidence instead.
+The tracker retains at most 1000 recent snapshots per tracked session in memory. That retention cap is internal implementation configuration and is not currently a user-facing knob.
+
+For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route is now part of the supported local inspection workflow together with `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt`.
 
 ### `POST /v1/control/tui/note-prompt`
 

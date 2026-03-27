@@ -145,6 +145,7 @@ from houmao.server.models import (
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
     HoumaoTerminalHistoryResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
 )
 from houmao.server.tracking_debug import TrackingDebugSink
@@ -1168,6 +1169,34 @@ class HoumaoServerService:
             Path(cast(str, gateway_context["session_root"]))
         )
 
+    def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
+        """Return raw gateway-owned TUI state for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.get_tui_state)
+
+    def get_managed_agent_gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return raw gateway-owned TUI snapshot history for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.get_tui_history(limit=limit))
+
+    def note_managed_agent_gateway_tui_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse:
+        """Record prompt-note provenance through one managed agent's live gateway."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.note_tui_prompt_submission(prompt=prompt))
+
     def submit_managed_agent_gateway_request(
         self,
         agent_ref: str,
@@ -1991,13 +2020,17 @@ class HoumaoServerService:
             summary_state=_summary_state,
             detail_response=_detail_response,
             history_response=lambda limit: self._managed_tui_history_response(
-                self._invoke_live_gateway(lambda: client.get_tui_history(limit=limit))
+                self._recent_transition_history_from_state(
+                    self._invoke_live_gateway(client.get_tui_state),
+                    limit=limit,
+                )
             ),
             submit_request=_submit_request,
             gateway_summary=_gateway_summary,
             terminal_state=lambda: self._invoke_live_gateway(client.get_tui_state),
-            terminal_history=lambda limit: self._invoke_live_gateway(
-                lambda: client.get_tui_history(limit=limit)
+            terminal_history=lambda limit: self._recent_transition_history_from_state(
+                self._invoke_live_gateway(client.get_tui_state),
+                limit=limit,
             ),
         )
 
@@ -2482,6 +2515,21 @@ class HoumaoServerService:
                 )
                 for entry in raw_history.entries
             ],
+        )
+
+    def _recent_transition_history_from_state(
+        self,
+        state: HoumaoTerminalStateResponse,
+        *,
+        limit: int,
+    ) -> HoumaoTerminalHistoryResponse:
+        """Project recent transitions from current state into the raw history envelope."""
+
+        entries = list(state.recent_transitions[-limit:] if limit > 0 else state.recent_transitions)
+        return HoumaoTerminalHistoryResponse(
+            terminal_id=state.terminal_id,
+            tracked_session_id=state.tracked_session.tracked_session_id,
+            entries=entries,
         )
 
     def _managed_headless_detail_from_handle(
