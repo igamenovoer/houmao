@@ -38,6 +38,12 @@ The default and recommended backend. Launches agent CLI tools as tmux-backed int
 
 All local backends (codex, claude, gemini headless modes) ultimately use the shared tmux runtime primitives.
 
+## Model Selection (Claude Code)
+
+Claude model selection remains environment-driven. Set `ANTHROPIC_MODEL` for the primary model, and use optional companion variables such as `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, and `ANTHROPIC_DEFAULT_*_MODEL` aliases when your local Claude profile needs explicit pins.
+
+Houmao does not invent a second model-selection layer in the realm controller. The launch plan projects the effective runtime home and allowlisted environment, and Claude reads the selected model configuration from that environment during launch.
+
 ### `codex_headless`
 
 Runs `codex exec --json` for non-interactive, structured prompt–response cycles. Supports resume via `resume <thread_id>`.
@@ -136,7 +142,7 @@ Role injection is backend-specific and handled during launch plan construction i
 
 The role content comes from the role package (`roles/<role>/system-prompt.md`) in the agent definition directory.
 
-## Unattended Startup
+## Versioned Unattended Launch Policy
 
 Unattended startup is a versioned launch policy resolved at launch time against the installed CLI version of the target tool. If the installed version does not match a known launch policy, the session fails closed rather than guessing a bootstrap strategy. This prevents silent behavioral drift when CLI tools update their interfaces.
 
