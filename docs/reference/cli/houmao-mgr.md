@@ -20,6 +20,8 @@ houmao-mgr admin [OPTIONS] COMMAND [ARGS]...
 
 Administrative utilities for the Houmao environment.
 
+For dedicated coverage, see [admin cleanup](admin-cleanup.md).
+
 The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. Registry cleanup probes tmux-backed records locally by default and accepts `--no-tmux-check` for lease-only cleanup. `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for the registry-only command.
 
 ### `agents` — Agent lifecycle
@@ -28,7 +30,14 @@ The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-m
 houmao-mgr agents [OPTIONS] COMMAND [ARGS]...
 ```
 
-Agent lifecycle: launch, terminate, observe, send-prompt, mail, join, gateway operations.
+Agent lifecycle: launch, stop, observe, send-prompt, mail, join, gateway operations.
+
+For dedicated coverage of complex nested command families, see:
+
+- [agents gateway](agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
+- [agents turn](agents-turn.md) — managed headless turn submission and inspection
+- [agents mail](agents-mail.md) — managed-agent mailbox follow-up
+- [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration for local managed agents
 
 #### Subcommands
 

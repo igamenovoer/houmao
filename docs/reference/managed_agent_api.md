@@ -247,6 +247,14 @@ For managed headless agents, durable post-turn inspection stays on the `/turns/*
 
 `/history` remains bounded and coarse even for headless agents. Durable headless detail lives on `/turns/*`, not on `/history`.
 
+## CLI Reference
+
+The managed-agent API routes are also reachable through the `houmao-mgr` CLI:
+
+- [houmao-mgr agents gateway](cli/agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
+- [houmao-mgr agents turn](cli/agents-turn.md) — managed headless turn submission and inspection
+- [houmao-mgr agents mail](cli/agents-mail.md) — managed-agent mailbox follow-up commands
+
 ## Source References
 
 - [`src/houmao/server/app.py`](../../src/houmao/server/app.py)

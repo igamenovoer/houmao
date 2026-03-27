@@ -51,6 +51,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 ## Related References
 
+- [houmao-mgr agents mail CLI](../cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [houmao-mgr agents mailbox CLI](../cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [Gateway Mailbox Facade](../gateway/operations/mailbox-facade.md): Shared `/v1/mail/*` routes, adapter selection, loopback-only availability, and notifier behavior through the gateway.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-owned filesystem placement for manifests, gateway state, and Stalwart credential material.
 

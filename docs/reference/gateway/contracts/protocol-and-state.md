@@ -112,6 +112,7 @@ Important rules:
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 ## HTTP Surface
 
@@ -523,6 +524,7 @@ Support contract rules:
 - The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest as the durable mailbox capability record.
 - For tmux-backed managed sessions, it additionally resolves the current targeted `AGENTSYS_MAILBOX_*` projection from the owning tmux session environment before treating notifier behavior as supported.
+- The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which prefers current process env, falls back to the owning tmux session env, and returns optional `gateway.base_url` data when a valid live gateway is attached.
 - Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current tmux-backed live mailbox projection is unavailable or incomplete for actionable mailbox work.
 - Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.

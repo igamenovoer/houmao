@@ -148,6 +148,13 @@ The realm controller exposes a CLI via `houmao-cli` (the `cli.py` module) with t
 - **`start-session`** — Build a launch plan and start a new session.
 - **`send-prompt`** — Send a prompt to a running session.
 - **`gateway-send-prompt`** — Send a prompt through a gateway-attached session.
-- **`join-tmux`** — Attach to a session’s tmux window for direct interaction.
+- **`send-keys`** — Send raw control input to a resumed session.
+- **`gateway-interrupt`** — Submit an interrupt through an attached live gateway.
+- **`stop-session`** — Stop a session.
+- **`attach-gateway`** — Attach a live gateway to a running session.
+- **`detach-gateway`** — Detach a live gateway without stopping the session.
+- **`gateway-status`** — Read gateway status from the live gateway or stable state artifact.
+- **`cleanup-registry`** — Remove stale shared-registry live-agent directories.
+- **`mail`** — Run mailbox operations against a resumed session.
 
-> **Note:** `houmao-cli` is a deprecated compatibility entrypoint. The preferred CLI surface is **`houmao-mgr`** (`src/houmao/srv_ctrl/cli.py`), which provides the same lifecycle operations along with managed agent and server control.
+> **Note:** `houmao-cli` is a deprecated compatibility entrypoint. The preferred CLI surface is **`houmao-mgr`** (`src/houmao/srv_ctrl/cli.py`), which provides the same lifecycle operations along with managed agent, gateway, mailbox, and server control. See [houmao-mgr CLI reference](cli/houmao-mgr.md).

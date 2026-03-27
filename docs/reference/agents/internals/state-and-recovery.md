@@ -42,6 +42,7 @@ Live gateway pointers, present only while a gateway is attached:
 Important rule:
 
 - tmux env helps the runtime rediscover a session quickly, but the manifest and validated live gateway artifacts remain the durable source of truth.
+- For attached shared-mailbox work, callers should not scrape these gateway vars directly. The runtime-owned helper `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` is the supported surface; it prefers current process env, falls back to the owning tmux session env, and validates the live gateway binding before returning `gateway.base_url`.
 
 ## Manifest Persistence
 

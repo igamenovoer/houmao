@@ -1,9 +1,4 @@
-# docs-getting-started Specification
-
-## Purpose
-Define the documentation requirements for Houmao getting-started documentation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Architecture overview explains two-phase lifecycle
 
@@ -19,15 +14,6 @@ The getting-started section SHALL include an architecture overview document that
 - **WHEN** the architecture overview describes backends and entrypoints
 - **THEN** `local_interactive` is presented as the primary backend, native headless backends are presented as direct CLI alternatives, and CAO-backed backends are described only as legacy or compatibility paths
 - **AND THEN** the overview does not present deprecated or compatibility entrypoints as the primary way to operate Houmao
-
-### Requirement: Agent definition directory layout documented
-
-The getting-started section SHALL include a page documenting the agent definition directory structure (`brains/tool-adapters/`, `brains/skills/`, `brains/cli-configs/`, `brains/api-creds/`, `brains/brain-recipes/`, `roles/`, `blueprints/`) with the purpose of each subdirectory.
-
-#### Scenario: Reader can set up a new agent definition directory
-
-- **WHEN** a reader follows the agent definition directory page
-- **THEN** they understand what goes in each subdirectory and which files are committed vs local-only (api-creds)
 
 ### Requirement: Quickstart guide covers build and launch
 

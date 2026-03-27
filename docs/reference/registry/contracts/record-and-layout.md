@@ -125,6 +125,7 @@ Current implementation scope:
 
 - `host`, `port`, `state_path`, and `protocol_version` appear together as one complete live-binding group when a live gateway is attached.
 - detached sessions omit `gateway` entirely.
+- This field group is locator metadata for fresh discovery and diagnostics. It does not replace the durable manifest authority, and once the session root is known the authoritative local live-gateway record is `<session-root>/gateway/run/current-instance.json`.
 
 ### Mailbox
 
