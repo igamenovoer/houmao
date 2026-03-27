@@ -82,6 +82,7 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
     assert "skills/.system/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
     assert "compatibility-only" in prompt_request.prompt
+    assert "resolve-live" in prompt_request.prompt
     assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
     assert '"operation": "check"' in prompt_request.prompt
 

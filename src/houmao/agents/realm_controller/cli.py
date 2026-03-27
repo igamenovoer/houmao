@@ -832,7 +832,10 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         cao_parsing_mode=args.cao_parsing_mode,
     )
     _reject_deprecated_cao_runtime_controller(controller)
-    mailbox = ensure_mailbox_command_ready(controller.launch_plan)
+    mailbox = ensure_mailbox_command_ready(
+        controller.launch_plan,
+        tmux_session_name=getattr(controller, "tmux_session_name", None),
+    )
     prefer_live_gateway = False
     try:
         gateway_status = controller.gateway_status()
@@ -847,6 +850,7 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         operation=args.mail_command,
         args=_mail_args_from_cli(args, cwd=cwd),
         prefer_live_gateway=prefer_live_gateway,
+        tmux_session_name=getattr(controller, "tmux_session_name", None),
     )
     result = run_mail_prompt(
         send_prompt=controller.send_prompt,

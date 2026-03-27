@@ -51,7 +51,7 @@ The preferred local serverless mailbox workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-For long-lived local interactive TUI sessions, `agents mailbox register` and `agents mailbox unregister` may report `pending_relaunch`; run `houmao-mgr agents relaunch --agent-name <name>` before treating runtime-owned `agents mail ...` commands as active on that live provider process.
+For supported tmux-backed managed sessions, `agents mailbox register` and `agents mailbox unregister` now refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 ### `mailbox` — Local filesystem mailbox administration
 

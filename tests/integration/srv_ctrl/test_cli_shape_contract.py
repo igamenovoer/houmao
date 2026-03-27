@@ -289,6 +289,8 @@ def _install_fake_tmux_runtime(
 ) -> None:
     """Patch runtime backend creation to use fake tmux-backed backends."""
 
+    tmux_envs: dict[str, dict[str, str]] = {}
+
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -308,8 +310,22 @@ def _install_fake_tmux_runtime(
         ),
     )
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda *, session_name: SimpleNamespace(returncode=0 if session_name else 1),
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
-        lambda **kwargs: None,
+        lambda *, session_name, env_vars: tmux_envs.setdefault(session_name, {}).update(env_vars),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda *, session_name, variable_names: [
+            tmux_envs.setdefault(session_name, {}).pop(name, None) for name in variable_names
+        ],
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: tmux_envs.get(session_name, {}).get(variable_name),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.SingleSessionTrackingRuntime",
@@ -743,7 +759,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     assert "not mailbox-enabled" in post_unregister_mail_status.output
 
 
-def test_houmao_mgr_agents_mailbox_register_requires_relaunch_for_local_interactive_sessions(
+def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_projection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -810,8 +826,8 @@ def test_houmao_mgr_agents_mailbox_register_requires_relaunch_for_local_interact
     )
     assert register_result.exit_code == 0, register_result.output
     register_payload = json.loads(register_result.output)
-    assert register_payload["activation_state"] == "pending_relaunch"
-    assert register_payload["relaunch_required"] is True
+    assert register_payload["activation_state"] == "active"
+    assert register_payload["relaunch_required"] is False
 
     mailbox_status_result = runner.invoke(
         cli,
@@ -819,15 +835,8 @@ def test_houmao_mgr_agents_mailbox_register_requires_relaunch_for_local_interact
     )
     assert mailbox_status_result.exit_code == 0, mailbox_status_result.output
     mailbox_status_payload = json.loads(mailbox_status_result.output)
-    assert mailbox_status_payload["activation_state"] == "pending_relaunch"
-    assert mailbox_status_payload["runtime_mailbox_enabled"] is False
-
-    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
-    assert mail_status_result.exit_code != 0
-    assert "pending relaunch" in mail_status_result.output
-
-    relaunch_result = runner.invoke(cli, ["agents", "relaunch", "--agent-name", "gpu"])
-    assert relaunch_result.exit_code == 0, relaunch_result.output
+    assert mailbox_status_payload["activation_state"] == "active"
+    assert mailbox_status_payload["runtime_mailbox_enabled"] is True
 
     mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
     assert mail_status_result.exit_code == 0, mail_status_result.output

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+import argparse
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib import resources
 from importlib.resources.abc import Traversable
+import json
 from pathlib import Path
 import os
 import re
-from typing import Any, cast
+import sys
+from typing import Any, Callable, Literal, cast
 
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import (
@@ -82,6 +85,32 @@ _MAILBOX_EMAIL_ENV_VARS = (
     "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF",
     "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
+MailboxBindingSource = Literal["tmux_session_env", "process_env"]
+
+
+@dataclass(frozen=True)
+class LiveMailboxBindingResolution:
+    """Normalized live mailbox binding resolved through a runtime-owned helper."""
+
+    mailbox: MailboxResolvedConfig
+    source: MailboxBindingSource
+    env_bindings: dict[str, str]
+
+    def payload(self) -> dict[str, Any]:
+        """Return a JSON-safe payload for helper and diagnostic surfaces."""
+
+        mailbox_payload = self.mailbox.redacted_payload()
+        if isinstance(self.mailbox, StalwartMailboxResolvedConfig) and self.mailbox.credential_file:
+            mailbox_payload["credential_file"] = str(self.mailbox.credential_file.resolve())
+        return {
+            "source": self.source,
+            "transport": self.mailbox.transport,
+            "principal_id": self.mailbox.principal_id,
+            "address": self.mailbox.address,
+            "bindings_version": self.mailbox.bindings_version,
+            "mailbox": mailbox_payload,
+            "env": dict(self.env_bindings),
+        }
 
 
 def parse_declarative_mailbox_config(
@@ -450,6 +479,101 @@ def mailbox_env_var_names(config: MailboxResolvedConfig) -> tuple[str, ...]:
     return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_EMAIL_ENV_VARS)
 
 
+def resolve_live_mailbox_binding(
+    *,
+    durable_mailbox: MailboxResolvedConfig,
+    tmux_session_name: str | None = None,
+    source: MailboxBindingSource = "tmux_session_env",
+    env_reader: Callable[[str], str | None] | None = None,
+) -> LiveMailboxBindingResolution:
+    """Resolve one live mailbox projection from the runtime-owned live source."""
+
+    resolved_env_reader = env_reader
+    if resolved_env_reader is None:
+        if source == "process_env":
+            resolved_env_reader = _optional_env
+        else:
+            if tmux_session_name is None or not tmux_session_name.strip():
+                raise ValueError(
+                    "tmux-backed live mailbox resolution requires a non-empty tmux session name"
+                )
+            resolved_env_reader = _tmux_mailbox_env_reader(tmux_session_name.strip())
+    env_bindings = _read_live_mailbox_env_bindings(
+        durable_mailbox=durable_mailbox,
+        env_reader=resolved_env_reader,
+    )
+    mailbox = _mailbox_config_from_live_env_bindings(
+        durable_mailbox=durable_mailbox,
+        env_bindings=env_bindings,
+    )
+    return LiveMailboxBindingResolution(
+        mailbox=mailbox,
+        source=source,
+        env_bindings=env_bindings,
+    )
+
+
+def resolve_live_mailbox_binding_from_manifest_path(
+    *,
+    manifest_path: Path,
+    source: MailboxBindingSource = "tmux_session_env",
+    env_reader: Callable[[str], str | None] | None = None,
+) -> LiveMailboxBindingResolution:
+    """Resolve one live mailbox binding starting from a runtime-owned manifest path."""
+
+    from houmao.agents.realm_controller.manifest import (
+        load_session_manifest,
+        parse_session_manifest_payload,
+    )
+    from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
+
+    handle = load_session_manifest(manifest_path.resolve())
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    durable_mailbox = resolved_mailbox_config_from_payload(
+        payload.launch_plan.mailbox,
+        manifest_path=handle.path,
+    )
+    if durable_mailbox is None:
+        raise ValueError(
+            "runtime-owned session manifest launch plan has no mailbox binding; live mailbox "
+            "resolution is unavailable"
+        )
+    authority = resolve_manifest_session_authority(
+        manifest_path=handle.path,
+        payload=payload,
+    )
+    return resolve_live_mailbox_binding(
+        durable_mailbox=durable_mailbox,
+        tmux_session_name=authority.tmux_session_name,
+        source=source,
+        env_reader=env_reader,
+    )
+
+
+def publish_tmux_live_mailbox_projection(
+    *,
+    session_name: str,
+    previous_mailbox: MailboxResolvedConfig | None,
+    mailbox: MailboxResolvedConfig | None,
+    set_env: Callable[[str, dict[str, str]], None],
+    unset_env: Callable[[str, list[str]], None],
+) -> None:
+    """Refresh targeted mailbox vars in one tmux session environment."""
+
+    if not session_name.strip():
+        raise ValueError("tmux-backed live mailbox projection requires a non-empty session name")
+
+    previous_names = (
+        set(mailbox_env_var_names(previous_mailbox)) if previous_mailbox is not None else set()
+    )
+    next_bindings = mailbox_env_bindings(mailbox) if mailbox is not None else {}
+    if next_bindings:
+        set_env(session_name.strip(), dict(next_bindings))
+    stale_names = sorted(previous_names.difference(next_bindings))
+    if stale_names:
+        unset_env(session_name.strip(), stale_names)
+
+
 def bootstrap_resolved_mailbox(
     config: MailboxResolvedConfig,
     *,
@@ -659,6 +783,201 @@ def _optional_env(name: str) -> str | None:
         return None
     stripped = raw.strip()
     return stripped or None
+
+
+def _tmux_mailbox_env_reader(session_name: str) -> Callable[[str], str | None]:
+    from houmao.agents.realm_controller.backends.tmux_runtime import (
+        read_tmux_session_environment_value,
+    )
+
+    def _reader(variable_name: str) -> str | None:
+        return read_tmux_session_environment_value(
+            session_name=session_name,
+            variable_name=variable_name,
+        )
+
+    return _reader
+
+
+def _read_live_mailbox_env_bindings(
+    *,
+    durable_mailbox: MailboxResolvedConfig,
+    env_reader: Callable[[str], str | None],
+) -> dict[str, str]:
+    env_bindings: dict[str, str] = {}
+    missing_names: list[str] = []
+    for variable_name in mailbox_env_var_names(durable_mailbox):
+        try:
+            value = env_reader(variable_name)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(
+                f"failed to query the live mailbox projection for `{variable_name}`: {exc}"
+            ) from exc
+        if value is None:
+            missing_names.append(variable_name)
+            continue
+        env_bindings[variable_name] = value
+    if missing_names:
+        missing = ", ".join(missing_names)
+        raise ValueError(f"current live mailbox projection is missing required env vars: {missing}")
+    return env_bindings
+
+
+def _mailbox_config_from_live_env_bindings(
+    *,
+    durable_mailbox: MailboxResolvedConfig,
+    env_bindings: dict[str, str],
+) -> MailboxResolvedConfig:
+    transport = env_bindings["AGENTSYS_MAILBOX_TRANSPORT"]
+    if transport != durable_mailbox.transport:
+        raise ValueError(
+            "current live mailbox projection transport "
+            f"{transport!r} does not match durable mailbox transport {durable_mailbox.transport!r}"
+        )
+
+    principal_id = env_bindings["AGENTSYS_MAILBOX_PRINCIPAL_ID"]
+    address = env_bindings["AGENTSYS_MAILBOX_ADDRESS"]
+    bindings_version = env_bindings["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
+    if principal_id != durable_mailbox.principal_id:
+        raise ValueError(
+            "current live mailbox principal_id "
+            f"{principal_id!r} does not match durable mailbox principal_id "
+            f"{durable_mailbox.principal_id!r}"
+        )
+    if address != durable_mailbox.address:
+        raise ValueError(
+            "current live mailbox address "
+            f"{address!r} does not match durable mailbox address {durable_mailbox.address!r}"
+        )
+    if bindings_version != durable_mailbox.bindings_version:
+        raise ValueError(
+            "current live mailbox bindings_version "
+            f"{bindings_version!r} does not match durable mailbox bindings_version "
+            f"{durable_mailbox.bindings_version!r}"
+        )
+
+    if isinstance(durable_mailbox, FilesystemMailboxResolvedConfig):
+        filesystem_root = Path(env_bindings["AGENTSYS_MAILBOX_FS_ROOT"]).resolve()
+        mailbox = FilesystemMailboxResolvedConfig(
+            transport="filesystem",
+            principal_id=principal_id,
+            address=address,
+            filesystem_root=filesystem_root,
+            bindings_version=bindings_version,
+        )
+        expected_bindings = mailbox_env_bindings(mailbox)
+        _validate_live_env_bindings_match_expected(
+            expected_bindings=expected_bindings,
+            actual_bindings=env_bindings,
+        )
+        return mailbox
+
+    credential_file = Path(env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
+    if not credential_file.is_file():
+        raise ValueError(
+            "current live mailbox projection points at a missing Stalwart credential file: "
+            f"{credential_file}"
+        )
+    stalwart_mailbox = StalwartMailboxResolvedConfig(
+        transport="stalwart",
+        principal_id=principal_id,
+        address=address,
+        jmap_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_JMAP_URL"],
+        management_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL"],
+        login_identity=env_bindings["AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY"],
+        credential_ref=env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF"],
+        bindings_version=bindings_version,
+        credential_file=credential_file,
+    )
+    expected_bindings = mailbox_env_bindings(stalwart_mailbox)
+    _validate_live_env_bindings_match_expected(
+        expected_bindings=expected_bindings,
+        actual_bindings=env_bindings,
+    )
+    return stalwart_mailbox
+
+
+def _validate_live_env_bindings_match_expected(
+    *,
+    expected_bindings: dict[str, str],
+    actual_bindings: dict[str, str],
+) -> None:
+    mismatches: list[str] = []
+    for key, expected_value in expected_bindings.items():
+        actual_value = actual_bindings.get(key)
+        if actual_value != expected_value:
+            mismatches.append(f"{key} expected {expected_value!r} but got {actual_value!r}")
+    if mismatches:
+        raise ValueError(
+            "current live mailbox projection is internally inconsistent: " + "; ".join(mismatches)
+        )
+
+
+def _resolve_live_manifest_path(value: str | None) -> Path:
+    from houmao.agents.realm_controller.agent_identity import AGENT_MANIFEST_PATH_ENV_VAR
+
+    manifest_path_value = value or _optional_env(AGENT_MANIFEST_PATH_ENV_VAR)
+    if manifest_path_value is None:
+        raise ValueError(
+            "resolve-live requires --manifest-path or the AGENTSYS_MANIFEST_PATH env var"
+        )
+    manifest_path = Path(manifest_path_value).expanduser()
+    if not manifest_path.is_absolute():
+        raise ValueError("resolve-live requires an absolute runtime-owned manifest path")
+    return manifest_path.resolve()
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m houmao.agents.mailbox_runtime_support",
+        description="Resolve runtime-owned live mailbox bindings for the current managed session.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    resolve_live = subparsers.add_parser(
+        "resolve-live",
+        help="Resolve the current live mailbox bindings and print JSON.",
+    )
+    resolve_live.add_argument(
+        "--manifest-path",
+        help="Absolute runtime-owned session manifest path. Defaults to AGENTSYS_MANIFEST_PATH.",
+    )
+    resolve_live.add_argument(
+        "--source",
+        choices=("tmux_session_env", "process_env"),
+        default="tmux_session_env",
+        help="Live mailbox binding source to inspect.",
+    )
+    return parser
+
+
+def _run_cli(argv: list[str] | None = None) -> int:
+    parser = _build_cli_parser()
+    args = parser.parse_args(argv)
+    if args.command != "resolve-live":
+        parser.error(f"unsupported command: {args.command}")
+
+    try:
+        resolution = resolve_live_mailbox_binding_from_manifest_path(
+            manifest_path=_resolve_live_manifest_path(args.manifest_path),
+            source=cast(MailboxBindingSource, args.source),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(json.dumps(resolution.payload(), indent=2, sort_keys=True))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the lightweight live-mailbox helper CLI."""
+
+    return _run_cli(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 def _derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:

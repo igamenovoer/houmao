@@ -18,6 +18,7 @@ from houmao.agents.mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -64,6 +65,8 @@ from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
     default_manifest_path,
+    load_session_manifest,
+    parse_session_manifest_payload,
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import (
@@ -2449,6 +2452,31 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
     return paths.gateway_root
 
 
+def _install_fake_live_mailbox_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    manifest_path: Path,
+) -> None:
+    """Resolve live mailbox env from the current manifest for notifier tests."""
+
+    def _read_tmux_env(*, session_name: str, variable_name: str) -> str | None:
+        del session_name
+        handle = load_session_manifest(manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        mailbox = resolved_mailbox_config_from_payload(
+            payload.launch_plan.mailbox,
+            manifest_path=handle.path,
+        )
+        if mailbox is None:
+            return None
+        return mailbox_env_bindings(mailbox).get(variable_name)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.read_tmux_session_environment_value",
+        _read_tmux_env,
+    )
+
+
 def _deliver_unread_mailbox_message(
     tmp_path: Path,
     *,
@@ -2801,6 +2829,36 @@ def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
             host="127.0.0.1",
             port=43123,
         )
+
+
+def test_gateway_mail_notifier_rejects_enablement_without_live_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.read_tmux_session_environment_value",
+        lambda **kwargs: None,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    status = runtime.get_mail_notifier()
+    assert status.enabled is False
+    assert status.supported is False
+    assert status.support_error is not None
+    assert "live mailbox projection" in status.support_error
+
+    with pytest.raises(HTTPException, match="live mailbox projection"):
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
 
 
 def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtrip(
@@ -3235,6 +3293,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     message_id = _deliver_unread_mailbox_message(tmp_path)
@@ -3301,6 +3360,8 @@ def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     _deliver_unread_mailbox_message(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
@@ -3339,6 +3400,7 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     first_message_id = _deliver_unread_mailbox_message(
@@ -3380,10 +3442,9 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
         assert "from: AGENTSYS-sender@agents.localhost" in prompt
         assert "subject: Gateway unread reminder one" in prompt
         assert "Remaining unread after this target: 1." in prompt
+        assert "resolve-live" in prompt
         assert "email-via-filesystem" in prompt
-        assert "email-via-stalwart" in prompt
         assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt
-        assert "skills/mailbox/email-via-stalwart/SKILL.md" in prompt
         assert "Do not inspect repo docs or OpenAPI" in prompt
         assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
         assert "POST /v1/mail/state" in prompt
@@ -3408,6 +3469,8 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_cao_gateway_root_with_stalwart_mailbox(tmp_path)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
 
     class _SlowFakeCaoRestClient(_FakeCaoRestClient):
         def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
@@ -3462,7 +3525,6 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         host="127.0.0.1",
         port=43123,
     )
-    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
 
@@ -3508,6 +3570,8 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_cao_gateway_root_with_stalwart_mailbox(tmp_path)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
 
     class _FailingStalwartJmapClient:
         def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
@@ -3541,7 +3605,6 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
         host="127.0.0.1",
         port=43123,
     )
-    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
 
@@ -3576,6 +3639,7 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     message_id = _deliver_unread_mailbox_message(tmp_path)

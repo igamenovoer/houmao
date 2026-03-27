@@ -19,7 +19,11 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
-from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_support import (
+    mailbox_skill_document_path,
+    resolve_live_mailbox_binding,
+    resolved_mailbox_config_from_payload,
+)
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.errors import LaunchPlanError
@@ -1081,7 +1085,7 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             try:
-                self._mailbox_adapter_locked()
+                self._require_live_notifier_mailbox_config_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             record = write_gateway_mail_notifier_record(
@@ -1131,10 +1135,32 @@ class GatewayServiceRuntime:
         """Return whether notifier behavior is currently supported."""
 
         try:
-            self._mailbox_adapter_locked()
+            self._require_live_notifier_mailbox_config_locked()
         except GatewayError as exc:
             return False, str(exc)
         return True, None
+
+    def _require_live_notifier_mailbox_config_locked(self) -> MailboxResolvedConfig:
+        """Return durable mailbox config only when live notifier actionability is present."""
+
+        mailbox = self._load_mailbox_config()
+        tmux_session_name = (self.m_attach_contract.tmux_session_name or "").strip()
+        if not tmux_session_name:
+            raise GatewayError(
+                "Gateway notifier requires a tmux-backed session identity, but the attach "
+                "contract is missing `tmux_session_name`."
+            )
+        try:
+            resolve_live_mailbox_binding(
+                durable_mailbox=mailbox,
+                tmux_session_name=tmux_session_name,
+            )
+        except ValueError as exc:
+            raise GatewayError(
+                "Gateway notifier requires a live mailbox projection in tmux session "
+                f"`{tmux_session_name}`: {exc}"
+            ) from exc
+        return mailbox
 
     def _load_mailbox_config(self) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by mailbox routes."""
@@ -1236,6 +1262,7 @@ class GatewayServiceRuntime:
             poll_time_utc = now_utc_iso()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             try:
+                self._require_live_notifier_mailbox_config_locked()
                 adapter = self._mailbox_adapter_locked()
             except GatewayError as exc:
                 write_gateway_mail_notifier_record(
@@ -1393,6 +1420,7 @@ class GatewayServiceRuntime:
     def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
+        mailbox = self._load_mailbox_config()
         nominated = unread_messages[0]
         remaining_unread_count = len(unread_messages) - 1
         sender_label = (
@@ -1403,20 +1431,17 @@ class GatewayServiceRuntime:
         lines = [
             "You have one bounded shared-mailbox task to process.",
             (
-                "Use the runtime-owned mailbox skill document for this transport: "
-                "`email-via-filesystem` at `skills/mailbox/email-via-filesystem/SKILL.md` "
-                "when `AGENTSYS_MAILBOX_TRANSPORT=filesystem`, or `email-via-stalwart` at "
-                "`skills/mailbox/email-via-stalwart/SKILL.md` when "
-                "`AGENTSYS_MAILBOX_TRANSPORT=stalwart`."
+                "Resolve current mailbox bindings through the runtime-owned helper "
+                "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
+                "before any direct mailbox access. Do not scrape tmux state directly or trust "
+                "stale inherited process env."
             ),
             (
-                "The same documents may also be mirrored under `skills/.system/mailbox/...`, "
-                "but prefer the visible `skills/mailbox/...` paths and open them directly "
-                "instead of searching with `rg`, `find`, or slash-skill lookup. If the project "
-                "worktree truly does not expose those visible paths, fall back to the same "
-                "locations under the runtime home. Treat that mailbox skill as a runtime-owned "
-                "skill document to read and follow, not as a registered slash skill to invoke "
-                "by name."
+                "Use the runtime-owned mailbox skill document for the current transport at "
+                f"`{mailbox_skill_document_path(mailbox)}`. "
+                "The same document may also be mirrored under `skills/.system/mailbox/...`, "
+                "but prefer the visible `skills/mailbox/...` path and open it directly instead "
+                "of searching with `rg`, `find`, or slash-skill lookup."
             ),
             (
                 "Use shared mailbox operations through the live gateway facade for this turn: "
