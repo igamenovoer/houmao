@@ -553,10 +553,7 @@ def _build_kickoff_prompt(
             ),
             (
                 "Open and follow the exact mailbox skill file "
-                "`skills/mailbox/email-via-filesystem/SKILL.md` from the project worktree. "
-                "The same document may also be mirrored at "
-                "`skills/.system/mailbox/email-via-filesystem/SKILL.md`, but prefer the "
-                "visible `skills/mailbox/...` path."
+                "`skills/mailbox/email-via-filesystem/SKILL.md` from the project worktree."
             ),
             ("Do not search for that file with `rg`, `find`, or slash-skill lookup first."),
             ("Treat it as a runtime-owned skill document, not as a registered slash skill."),
