@@ -7,7 +7,6 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 - Use the runtime-owned mailbox skill document `email-via-filesystem` for mailbox actions in this demo.
 - Open the exact mailbox skill file directly from the project worktree: `skills/mailbox/email-via-filesystem/SKILL.md`.
-- The same document may also be mirrored at `skills/.system/mailbox/email-via-filesystem/SKILL.md`, but treat the visible `skills/mailbox/...` path as the primary Codex-friendly location.
 - Do not search for that file with `rg`, `find`, or slash-skill lookup first when the exact path is already known.
 - Treat it as a runtime-owned skill document, not as a registered slash skill.
 - When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.

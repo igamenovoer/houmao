@@ -166,12 +166,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
     visible_mailbox_skill = home / "skills/mailbox/email-via-filesystem/SKILL.md"
-    hidden_mailbox_skill = home / "skills/.system/mailbox/email-via-filesystem/SKILL.md"
     assert visible_mailbox_skill.is_file()
-    assert hidden_mailbox_skill.is_file()
-    assert visible_mailbox_skill.read_text(encoding="utf-8") == hidden_mailbox_skill.read_text(
-        encoding="utf-8"
-    )
+    assert not (home / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
 
     # Credential file projection and env contract setup.
