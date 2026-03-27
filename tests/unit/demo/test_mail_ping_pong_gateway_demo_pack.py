@@ -358,7 +358,7 @@ def _seed_launch_posture_manifests(state: DemoState) -> None:
         participant.brain_manifest_path.write_text(
             "\n".join(
                 [
-                    "schema_version: 2",
+                    "schema_version: 3",
                     "launch_policy:",
                     "  operator_prompt_mode: unattended",
                     "runtime: {}",
@@ -674,8 +674,8 @@ def test_parameters_and_layout_defaults_resolve_from_repo_root() -> None:
     assert parameters.demo_id == "mail-ping-pong-gateway-demo-pack"
     assert parameters.initiator.tool == "claude"
     assert parameters.responder.role_name == "mail-ping-pong-responder"
-    assert parameters.initiator.brain_recipe_path.name == "mail-ping-pong-initiator-default.yaml"
-    assert parameters.responder.brain_recipe_path.name == "mail-ping-pong-responder-default.yaml"
+    assert parameters.initiator.brain_recipe_path.name == "default.yaml"
+    assert parameters.responder.brain_recipe_path.name == "default.yaml"
     assert parameters.wait_defaults.timeout_seconds == 600.0
     assert default_parameters == PACK_DIR / "inputs" / "demo_parameters.json"
     assert layout.output_root == PACK_DIR / "outputs"
@@ -1100,7 +1100,9 @@ def test_expose_runtime_skills_in_project_copies_mailbox_skill_docs(tmp_path: Pa
     project_workdir.mkdir()
     home_path = tmp_path / "home"
     (home_path / "skills/mailbox/email-via-filesystem").mkdir(parents=True)
-    (home_path / "skills/mailbox/email-via-filesystem/SKILL.md").write_text("# mailbox skill\n", encoding="utf-8")
+    (home_path / "skills/mailbox/email-via-filesystem/SKILL.md").write_text(
+        "# mailbox skill\n", encoding="utf-8"
+    )
     build_result = BuildResult(
         home_id="demo-home",
         home_path=home_path,

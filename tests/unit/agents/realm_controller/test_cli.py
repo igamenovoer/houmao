@@ -236,7 +236,7 @@ def test_mail_command_forwards_cao_parsing_mode_override(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.ensure_mailbox_command_ready",
-        lambda launch_plan: object(),
+        lambda launch_plan, tmux_session_name=None: object(),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.prepare_mail_prompt",

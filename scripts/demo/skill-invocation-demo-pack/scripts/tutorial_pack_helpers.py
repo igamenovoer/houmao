@@ -16,8 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from houmao.agents.brain_builder import _load_tool_adapter, load_brain_recipe
-from houmao.agents.realm_controller.loaders import load_blueprint, parse_allowlisted_env
+from houmao.agents.realm_controller.loaders import parse_allowlisted_env
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -27,6 +26,7 @@ from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
+from houmao.demo.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
 
 _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
@@ -323,8 +323,8 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         prompt=_prompt_from_payload(payload.get("prompt")),
         automatic=_automatic_from_payload(payload.get("automatic")),
     )
-    if parameters.backend != "cao_rest":
-        raise ValueError("demo parameters backend must be cao_rest")
+    if normalize_demo_launch_backend(parameters.backend) != "local_interactive":
+        raise ValueError("demo parameters backend must be local_interactive or legacy cao_rest")
     if parameters.parsing_mode != "shadow_only":
         raise ValueError("demo parameters parsing_mode must be shadow_only")
     return parameters
@@ -993,18 +993,23 @@ def preflight_selected_tool(
     """Resolve and validate tracked prerequisites for one selected tool lane."""
 
     lane = _selected_lane(parameters, tool=tool)
-    blueprint_path = (agent_def_dir / lane.blueprint).resolve()
+    blueprint_path = resolve_repo_relative_path(lane.blueprint, repo_root=repo_root)
     if not blueprint_path.is_file():
-        raise DemoSkipError(f"selected blueprint not found: {blueprint_path}")
+        raise DemoSkipError(f"selected preset not found: {blueprint_path}")
 
-    blueprint = load_blueprint(blueprint_path)
-    recipe = load_brain_recipe(blueprint.brain_recipe_path)
-    adapter_path = (agent_def_dir / "brains" / "tool-adapters" / f"{recipe.tool}.yaml").resolve()
-    adapter = _load_tool_adapter(adapter_path)
-    credential_profile_dir = (
-        agent_def_dir / "brains" / "api-creds" / recipe.tool / recipe.credential_profile
-    ).resolve()
-    credential_env_path = (credential_profile_dir / adapter.credential_env_source).resolve()
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=agent_def_dir,
+        preset_path=blueprint_path,
+    )
+    recipe = resolved_launch.preset
+    adapter_path = resolved_launch.adapter_path
+    adapter = resolved_launch.adapter
+    if resolved_launch.auth_path is None or resolved_launch.auth_env_path is None:
+        raise DemoSkipError(
+            f"selected preset does not declare auth-backed launch inputs: {blueprint_path}"
+        )
+    credential_profile_dir = resolved_launch.auth_path
+    credential_env_path = resolved_launch.auth_env_path
     selected_env_keys: tuple[str, ...] = ()
     if credential_env_path.is_file():
         selected_env, selected_names = parse_allowlisted_env(
@@ -1015,16 +1020,8 @@ def preflight_selected_tool(
             name for name in selected_names if selected_env.get(name, "").strip()
         )
 
-    required_paths = tuple(
-        (credential_profile_dir / adapter.credential_files_dir / mapping.source).resolve()
-        for mapping in adapter.credential_file_mappings
-        if mapping.required
-    )
-    optional_paths = tuple(
-        (credential_profile_dir / adapter.credential_files_dir / mapping.source).resolve()
-        for mapping in adapter.credential_file_mappings
-        if not mapping.required
-    )
+    required_paths = resolved_launch.required_auth_paths
+    optional_paths = resolved_launch.optional_auth_paths
     for required_path in required_paths:
         if not required_path.exists():
             raise DemoSkipError(
@@ -1054,8 +1051,8 @@ def preflight_selected_tool(
     return LanePreflight(
         selected_tool=tool,
         blueprint_path=blueprint_path,
-        brain_recipe_path=blueprint.brain_recipe_path.resolve(),
-        role_name=blueprint.role,
+        brain_recipe_path=resolved_launch.preset_path,
+        role_name=resolved_launch.role_name,
         tool_adapter_path=adapter_path,
         launch_executable=launch_executable,
         config_profile=recipe.config_profile,
@@ -1191,8 +1188,8 @@ def start_demo(
             str(agent_def_dir),
             "--runtime-root",
             str(layout.runtime_root),
-            "--blueprint",
-            lane.blueprint,
+            "--preset",
+            str(preflight.brain_recipe_path),
         ],
         stdout_path=layout.brain_build_path,
         env=env,
@@ -1207,10 +1204,10 @@ def start_demo(
             str(layout.runtime_root),
             "--brain-manifest",
             _require_non_empty_string(build_payload.get("manifest_path"), context="manifest_path"),
-            "--blueprint",
-            lane.blueprint,
+            "--role",
+            preflight.role_name,
             "--backend",
-            parameters.backend,
+            normalize_demo_launch_backend(parameters.backend),
             "--cao-base-url",
             _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
             "--cao-profile-store",

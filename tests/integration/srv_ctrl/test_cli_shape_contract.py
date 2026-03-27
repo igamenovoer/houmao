@@ -84,6 +84,27 @@ def _seed_role(agent_def_dir: Path) -> None:
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
 
 
+def _native_launch_target(*, tmp_path: Path, agent_def_dir: Path) -> SimpleNamespace:
+    """Create one preset-backed native launch target double."""
+
+    return SimpleNamespace(
+        tool="claude",
+        agent_def_dir=agent_def_dir.resolve(),
+        role_name="r",
+        preset=SimpleNamespace(
+            tool="claude",
+            skills=[],
+            setup="default",
+            auth="default",
+            launch_overrides=None,
+            operator_prompt_mode=None,
+            mailbox=None,
+            extra={},
+        ),
+        preset_path=(tmp_path / "preset.yaml").resolve(),
+    )
+
+
 def _seed_brain_manifest(tmp_path: Path) -> Path:
     """Create one minimal launchable brain manifest."""
 
@@ -93,11 +114,22 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: claude",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/adapter.yaml",
+                "  preset_path: /tmp/preset.yaml",
+                "launch_policy:",
+                "  operator_prompt_mode: interactive",
                 "runtime:",
                 "  launch_executable: claude",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_home_selector:",
                 "    env_var: CLAUDE_CONFIG_DIR",
                 f"    value: {tmp_path / 'home'}",
@@ -106,11 +138,13 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -431,22 +465,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: SimpleNamespace(
-            tool="claude",
-            agent_def_dir=agent_def_dir.resolve(),
-            role_name="r",
-            recipe=SimpleNamespace(
-                tool="claude",
-                skills=[],
-                config_profile="default",
-                credential_profile="default",
-                launch_overrides=None,
-                operator_prompt_mode=None,
-                mailbox=None,
-                default_agent_name="gpu",
-            ),
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-        ),
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -514,22 +533,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: SimpleNamespace(
-            tool="claude",
-            agent_def_dir=agent_def_dir.resolve(),
-            role_name="r",
-            recipe=SimpleNamespace(
-                tool="claude",
-                skills=[],
-                config_profile="default",
-                credential_profile="default",
-                launch_overrides=None,
-                operator_prompt_mode=None,
-                mailbox=None,
-                default_agent_name="gpu",
-            ),
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-        ),
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -592,22 +596,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: SimpleNamespace(
-            tool="claude",
-            agent_def_dir=agent_def_dir.resolve(),
-            role_name="r",
-            recipe=SimpleNamespace(
-                tool="claude",
-                skills=[],
-                config_profile="default",
-                credential_profile="default",
-                launch_overrides=None,
-                operator_prompt_mode=None,
-                mailbox=None,
-                default_agent_name="gpu",
-            ),
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-        ),
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -659,22 +648,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: SimpleNamespace(
-            tool="claude",
-            agent_def_dir=agent_def_dir.resolve(),
-            role_name="r",
-            recipe=SimpleNamespace(
-                tool="claude",
-                skills=[],
-                config_profile="default",
-                credential_profile="default",
-                launch_overrides=None,
-                operator_prompt_mode=None,
-                mailbox=None,
-                default_agent_name="gpu",
-            ),
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-        ),
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -773,22 +747,7 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
     monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: SimpleNamespace(
-            tool="claude",
-            agent_def_dir=agent_def_dir.resolve(),
-            role_name="r",
-            recipe=SimpleNamespace(
-                tool="claude",
-                skills=[],
-                config_profile="default",
-                credential_profile="default",
-                launch_overrides=None,
-                operator_prompt_mode=None,
-                mailbox=None,
-                default_agent_name="gpu",
-            ),
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-        ),
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -898,6 +857,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         lambda base_url: (
             captured.setdefault("base_url", base_url),
             SimpleNamespace(
+                pair_authority_kind="houmao-server",
                 attach_managed_agent_gateway=lambda agent_ref: (
                     captured.setdefault("agent_ref", agent_ref),
                     {
@@ -916,7 +876,12 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda client, agent_ref: SimpleNamespace(transport="tui", session_name=agent_ref),
+        lambda client, agent_ref: SimpleNamespace(
+            transport="tui",
+            session_name=agent_ref,
+            agent_name="AGENTSYS-pair",
+            agent_id="agent-pair-1",
+        ),
     )
 
     result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])

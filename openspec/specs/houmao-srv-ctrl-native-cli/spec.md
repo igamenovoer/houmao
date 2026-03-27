@@ -52,7 +52,6 @@ At minimum, the `agents` family SHALL include commands for:
 - `launch`
 - `join`
 - `list`
-- `show`
 - `state`
 - `prompt`
 - `interrupt`
@@ -61,8 +60,8 @@ At minimum, the `agents` family SHALL include commands for:
 
 Those commands SHALL target managed-agent identities rather than raw `terminal_id` or raw CAO session names as their normative addressing model.
 Within that family, `join` SHALL adopt an existing tmux-backed agent session into managed-agent control without requiring `houmao-server` or raw tmux attach scripts.
-Within that family, `show` SHALL present the detail-oriented managed-agent view, while `state` SHALL present the operational summary view.
-The native `agents` family SHALL NOT advertise or require a generic `history` command as part of its supported managed-agent inspection contract.
+Within that family, `state` SHALL present the operational summary view for supported managed-agent inspection.
+The native `agents` family SHALL NOT advertise or require a detail-oriented `show` command or a generic `history` command as part of its supported managed-agent inspection contract.
 
 #### Scenario: Operator inspects managed-agent state through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123`
@@ -74,11 +73,6 @@ The native `agents` family SHALL NOT advertise or require a generic `history` co
 - **THEN** `houmao-mgr` adopts the existing tmux-backed session into managed-agent control through the native pair CLI
 - **AND THEN** later `houmao-mgr agents state --agent-name coder` can resolve that managed agent without requiring raw tmux session names or manual manifest-path discovery
 
-#### Scenario: Operator inspects managed-agent detail through the native `agents` tree
-- **WHEN** an operator runs `houmao-mgr agents show --agent-id abc123`
-- **THEN** `houmao-mgr` returns the detail-oriented managed-agent view
-- **AND THEN** the command does not collapse to an identity-only payload when a managed-agent detail view exists
-
 #### Scenario: Operator submits a prompt through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "..." `
 - **THEN** `houmao-mgr` submits that request through registry-first discovery or the pair-managed agent control authority
@@ -89,10 +83,10 @@ The native `agents` family SHALL NOT advertise or require a generic `history` co
 - **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or tmux-local current-session authority
 - **AND THEN** the command relaunches the existing tmux-backed managed session rather than constructing a new launch
 
-#### Scenario: Help output does not advertise a retired history command
+#### Scenario: Help output does not advertise retired inspection commands
 - **WHEN** an operator runs `houmao-mgr agents --help`
-- **THEN** the help output does not list `history`
-- **AND THEN** supported inspection guidance points operators to `state`, `show`, or `agents turn ...` rather than a generic managed-agent history command
+- **THEN** the help output does not list `show` or `history`
+- **AND THEN** supported inspection guidance points operators to `state`, `agents gateway tui ...`, or `agents turn ...` rather than removed managed-agent inspection commands
 
 ### Requirement: `houmao-mgr agents gateway` exposes gateway lifecycle and gateway-mediated request commands
 `houmao-mgr` SHALL expose a native `agents gateway ...` command family for managed-agent gateway operations.
@@ -188,7 +182,7 @@ At minimum, that family SHALL include:
 - `watch`
 - `note-prompt`
 
-`agents gateway tui state` SHALL read the managed agent's live gateway-owned TUI state path rather than the transport-neutral managed-agent detail view.
+`agents gateway tui state` SHALL read the managed agent's live gateway-owned TUI state path rather than the transport-neutral managed-agent summary view.
 
 `agents gateway tui history` SHALL read the managed agent's live gateway-owned bounded snapshot-history path rather than the coarse managed-agent `/history` surface.
 
@@ -200,7 +194,7 @@ At minimum, that family SHALL include:
 - **WHEN** an operator runs `houmao-mgr agents gateway tui state --agent-id abc123`
 - **AND WHEN** the addressed managed agent has an eligible live gateway attached
 - **THEN** `houmao-mgr` returns the raw gateway-owned TUI state for that managed agent
-- **AND THEN** the command does not collapse that response to the transport-neutral `agents show` payload
+- **AND THEN** the command does not collapse that response to the transport-neutral `agents state` payload
 
 #### Scenario: Operator reads bounded snapshot history through the native `agents gateway tui` tree
 - **WHEN** an operator runs `houmao-mgr agents gateway tui history --agent-id abc123`
@@ -382,12 +376,6 @@ This SHALL cover the `agents`, `agents mail`, and `agents turn` families wheneve
 - **THEN** `houmao-mgr` returns the managed-agent summary view for `abc123`
 - **AND THEN** the command does not fail only because the selected pair authority is passive
 
-#### Scenario: Managed-agent detail inspection works for passive-server-managed headless agents
-- **WHEN** an operator runs `houmao-mgr agents show --agent-id abc123 --port 9891`
-- **AND WHEN** `abc123` is a headless agent managed by the passive server
-- **THEN** `houmao-mgr` returns the managed headless detail view
-- **AND THEN** the command does not require the operator to know a turn id first
-
 #### Scenario: Headless turn submission works through a passive server
 - **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --port 9891 --prompt "..." `
 - **AND WHEN** the addressed pair authority identifies `houmao-passive-server`
@@ -457,10 +445,10 @@ Repo-owned documentation for managed-agent inspection SHALL NOT present `houmao-
 - **THEN** that mention appears only in explicit migration, legacy, retirement, or historical guidance
 - **AND THEN** it is not presented as an active default operator path
 
-#### Scenario: Docs do not present retired managed-agent history as a supported native path
+#### Scenario: Docs do not present retired managed-agent inspection commands
 - **WHEN** repo-owned docs under `docs/` explain managed-agent inspection or long-running local/serverless operation
-- **THEN** they use supported surfaces such as `houmao-mgr agents state`, `houmao-mgr agents show`, gateway TUI state, or `houmao-mgr agents turn ...`
-- **AND THEN** they do not present `houmao-mgr agents history` as a supported native inspection command
+- **THEN** they use supported surfaces such as `houmao-mgr agents state`, gateway TUI state, or `houmao-mgr agents turn ...`
+- **AND THEN** they do not present `houmao-mgr agents show` or `houmao-mgr agents history` as supported native inspection commands
 
 ### Requirement: `houmao-mgr agents relaunch` exposes tmux-backed managed-session recovery
 `houmao-mgr` SHALL expose `agents relaunch` as the native managed-session recovery command for tmux-backed managed agents.
@@ -516,7 +504,7 @@ If the supplied `--agent-name` exactly matches one unique live local tmux/sessio
 
 #### Scenario: Friendly-name selector succeeds only when unique
 
-- **WHEN** an operator runs `houmao-mgr agents show --agent-name gpu`
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name gpu`
 - **AND WHEN** exactly one live managed agent currently uses friendly name `gpu`
 - **THEN** `houmao-mgr` targets that managed agent
 - **AND THEN** the command succeeds without requiring the operator to spell the authoritative `agent_id`
@@ -540,7 +528,7 @@ If the supplied `--agent-name` exactly matches one unique live local tmux/sessio
 
 #### Scenario: Friendly-name selector that matches a tmux/session alias gives a corrective hint
 
-- **WHEN** an operator runs `houmao-mgr agents show --agent-name agent-test`
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name agent-test`
 - **AND WHEN** no live local managed agent currently uses friendly name `agent-test`
 - **AND WHEN** exactly one live local managed agent uses tmux/session alias `agent-test`
 - **THEN** `houmao-mgr` fails explicitly

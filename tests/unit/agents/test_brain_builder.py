@@ -24,7 +24,7 @@ def _write(path: Path, content: str) -> None:
 
 def _seed_repo(agent_def_dir: Path) -> None:
     _write(
-        agent_def_dir / "brains/tool-adapters/codex.yaml",
+        agent_def_dir / "tools/codex/adapter.yaml",
         """
 schema_version: 1
 tool: codex
@@ -36,12 +36,12 @@ launch:
   env_injection:
     mode: home_dotenv
     env_file_in_home: .env
-config_projection:
+setup_projection:
   destination: .
 skills_projection:
   destination: skills
   mode: symlink
-credential_projection:
+auth_projection:
   files_dir: files
   file_mappings:
     - source: auth.json
@@ -57,15 +57,15 @@ credential_projection:
         + "\n",
     )
 
-    _write(agent_def_dir / "brains/skills/skill-a/SKILL.md", "# skill-a\n")
-    _write(agent_def_dir / "brains/skills/skill-b/SKILL.md", "# skill-b\n")
-    _write(agent_def_dir / "brains/cli-configs/codex/default/config.toml", "model='x'\n")
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "skills/skill-b/SKILL.md", "# skill-b\n")
+    _write(agent_def_dir / "tools/codex/setups/default/config.toml", "model='x'\n")
     _write(
-        agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json",
+        agent_def_dir / "tools/codex/auth/personal-a/files/auth.json",
         '{"token": "secret"}\n',
     )
     _write(
-        agent_def_dir / "brains/api-creds/codex/personal-a/env/vars.env",
+        agent_def_dir / "tools/codex/auth/personal-a/env/vars.env",
         """
 OPENAI_API_KEY=sk-test-123
 OPENAI_BASE_URL=https://api.example.test
@@ -77,7 +77,7 @@ NOT_ALLOWLISTED=do-not-export
 
 def _seed_claude_repo(agent_def_dir: Path) -> None:
     _write(
-        agent_def_dir / "brains/tool-adapters/claude.yaml",
+        agent_def_dir / "tools/claude/adapter.yaml",
         """
 schema_version: 1
 tool: claude
@@ -97,12 +97,12 @@ launch:
               - --include-partial-messages
   env_injection:
     mode: export_from_env_file
-config_projection:
+setup_projection:
   destination: .
 skills_projection:
   destination: skills
   mode: symlink
-credential_projection:
+auth_projection:
   files_dir: files
   file_mappings:
     - source: claude_state.template.json
@@ -117,17 +117,17 @@ credential_projection:
 """.strip()
         + "\n",
     )
-    _write(agent_def_dir / "brains/skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
     _write(
-        agent_def_dir / "brains/cli-configs/claude/default/settings.json",
+        agent_def_dir / "tools/claude/setups/default/settings.json",
         '{"skipDangerousModePermissionPrompt": true}\n',
     )
     _write(
-        agent_def_dir / "brains/api-creds/claude/personal-a/files/claude_state.template.json",
+        agent_def_dir / "tools/claude/auth/personal-a/files/claude_state.template.json",
         "{}\n",
     )
     _write(
-        agent_def_dir / "brains/api-creds/claude/personal-a/env/vars.env",
+        agent_def_dir / "tools/claude/auth/personal-a/env/vars.env",
         "\n".join(
             [
                 "ANTHROPIC_API_KEY='sk-test'",
@@ -413,7 +413,7 @@ def test_build_brain_home_skips_missing_optional_credential_file(
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
-    (agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json").unlink()
+    (agent_def_dir / "tools/codex/auth/personal-a/files/auth.json").unlink()
 
     result = build_brain_home(
         BuildRequest(
@@ -439,15 +439,15 @@ def test_build_brain_home_still_requires_missing_required_credential_file(
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
 
-    adapter_path = agent_def_dir / "brains/tool-adapters/codex.yaml"
+    adapter_path = agent_def_dir / "tools/codex/adapter.yaml"
     adapter_text = adapter_path.read_text(encoding="utf-8").replace(
         "required: false",
         "required: true",
     )
     adapter_path.write_text(adapter_text, encoding="utf-8")
-    (agent_def_dir / "brains/api-creds/codex/personal-a/files/auth.json").unlink()
+    (agent_def_dir / "tools/codex/auth/personal-a/files/auth.json").unlink()
 
-    with pytest.raises(BuildError, match="Missing credential file"):
+    with pytest.raises(BuildError, match="Missing auth file"):
         build_brain_home(
             BuildRequest(
                 agent_def_dir=agent_def_dir,
@@ -578,7 +578,7 @@ def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
     assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
         "args": {"mode": "replace", "values": []}
     }
@@ -619,14 +619,14 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
         "args": [],
         "tool_params": {},
     }
-    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["recipe"] == {
+    assert manifest["runtime"]["launch_contract"]["requested_overrides"]["preset"] == {
         "args": {"mode": "append", "values": ["--recipe"]},
         "tool_params": {"include_partial_messages": True},
     }
     assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
         "args": {"mode": "replace", "values": ["--direct"]}
     }
-    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["recipe_path"] == str(
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["preset_path"] == str(
         (tmp_path / "recipe.yaml").resolve()
     )
     assert 'exec claude --direct "$@"' in launch_script
@@ -662,12 +662,12 @@ launch:
   env_injection:
     mode: home_dotenv
     env_file_in_home: .env
-config_projection:
+setup_projection:
   destination: .
 skills_projection:
   destination: skills
   mode: symlink
-credential_projection:
+auth_projection:
   files_dir: files
   file_mappings:
     - source: auth.json
@@ -691,8 +691,8 @@ credential_projection:
     [
         ("missing_adapter", "Missing adapter"),
         ("unknown_skill", "Unknown skill"),
-        ("missing_config", "Missing config profile"),
-        ("missing_creds", "Missing credential profile"),
+        ("missing_config", "Missing setup bundle"),
+        ("missing_creds", "Missing auth bundle"),
     ],
 )
 def test_build_brain_home_validation_errors(tmp_path: Path, mutation: str, message: str) -> None:
@@ -701,19 +701,19 @@ def test_build_brain_home_validation_errors(tmp_path: Path, mutation: str, messa
     _seed_repo(agent_def_dir)
 
     if mutation == "missing_adapter":
-        (agent_def_dir / "brains/tool-adapters/codex.yaml").unlink()
+        (agent_def_dir / "tools/codex/adapter.yaml").unlink()
     elif mutation == "unknown_skill":
         requested_skill = "missing-skill"
     else:
         requested_skill = "skill-a"
 
     if mutation == "missing_config":
-        (agent_def_dir / "brains/cli-configs/codex/default").rename(
-            agent_def_dir / "brains/cli-configs/codex/default.bak"
+        (agent_def_dir / "tools/codex/setups/default").rename(
+            agent_def_dir / "tools/codex/setups/default.bak"
         )
     if mutation == "missing_creds":
-        (agent_def_dir / "brains/api-creds/codex/personal-a").rename(
-            agent_def_dir / "brains/api-creds/codex/personal-a.bak"
+        (agent_def_dir / "tools/codex/auth/personal-a").rename(
+            agent_def_dir / "tools/codex/auth/personal-a.bak"
         )
 
     with pytest.raises(BuildError, match=message):

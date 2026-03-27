@@ -180,7 +180,7 @@ def _watch_manifest(
         repo_root="/repo",
         run_root=str(paths.run_root),
         runtime_root=str(paths.runtime_root),
-        recipe_path="/repo/tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml",
+        recipe_path="/repo/tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml",
         brain_home_path=str(paths.runtime_root / "homes" / "claude-home"),
         brain_manifest_path=str(paths.runtime_root / "manifests" / "claude-home.yaml"),
         launch_helper_path=str(paths.runtime_root / "homes" / "claude-home" / "launch.sh"),
@@ -414,8 +414,8 @@ def test_default_tool_runtime_metadata_uses_permissive_launch_posture() -> None:
     assert claude_metadata.operator_prompt_mode == "unattended"
     assert codex_metadata.launch_overrides is None
     assert codex_metadata.operator_prompt_mode is None
-    assert claude_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
-    assert codex_metadata.interactive_watch_recipe_path.name == "interactive-watch-default.yaml"
+    assert claude_metadata.interactive_watch_recipe_path.name == "default.yaml"
+    assert codex_metadata.interactive_watch_recipe_path.name == "default.yaml"
 
 
 def test_default_capture_frequency_sweep_respects_two_hz_floor() -> None:
@@ -1406,11 +1406,11 @@ def test_demo_config_resolution_honors_profile_and_cli_precedence(tmp_path: Path
                 'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
                 "",
                 "[tools.claude]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"',
                 'operator_prompt_mode = "unattended"',
                 "",
                 "[tools.codex]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/codex/default.yaml"',
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",
@@ -1481,10 +1481,10 @@ def test_demo_config_resolution_preserves_runtime_interval_fallback_after_profil
                 'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
                 "",
                 "[tools.claude]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"',
                 "",
                 "[tools.codex]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/codex/default.yaml"',
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",
@@ -1556,11 +1556,11 @@ def test_resolve_demo_config_rejects_missing_required_section(tmp_path: Path) ->
                 'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
                 "",
                 "[tools.claude]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"',
                 'operator_prompt_mode = "unattended"',
                 "",
                 "[tools.codex]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/codex/default.yaml"',
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",
@@ -2301,11 +2301,11 @@ def test_run_recorded_sweep_supports_required_sequence_contract(tmp_path: Path) 
                 'sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"',
                 "",
                 "[tools.claude]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"',
                 'operator_prompt_mode = "unattended"',
                 "",
                 "[tools.codex]",
-                'recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"',
+                'recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/codex/default.yaml"',
                 "",
                 "[evidence]",
                 "sample_interval_seconds = 0.2",

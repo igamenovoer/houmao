@@ -57,7 +57,7 @@ def test_tracked_demo_parameters_expose_stalwart_only_accounts() -> None:
 
     parameters = HELPERS.load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
 
-    assert parameters.backend == "cao_rest"
+    assert parameters.backend == "local_interactive"
     assert parameters.gateway.host == "127.0.0.1"
     assert parameters.participants["alice"].mailbox_address == "alice@example.test"
     assert parameters.participants["alice"].login_identity == "alice"

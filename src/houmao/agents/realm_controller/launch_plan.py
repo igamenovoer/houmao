@@ -32,7 +32,7 @@ from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 
-_BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 2
+_BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 3
 _CAO_PARSING_MODE_DEFAULT_BY_TOOL: Final[dict[str, CaoParsingMode]] = {
     "claude": "shadow_only",
     "codex": "shadow_only",
@@ -116,7 +116,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
     metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
         adapter_defaults=_parse_adapter_defaults(launch_contract),
-        recipe_overrides=_parse_requested_launch_overrides(launch_contract, layer="recipe"),
+        recipe_overrides=_parse_requested_launch_overrides(launch_contract, layer="preset"),
         direct_overrides=_parse_requested_launch_overrides(launch_contract, layer="direct"),
         construction_provenance=_optional_mapping(
             launch_contract.get("construction_provenance"),
@@ -343,7 +343,7 @@ def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
 
 
 def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
-    """Require schema-version-2 brain manifests."""
+    """Require schema-version-3 brain manifests."""
 
     schema_version = manifest.get("schema_version")
     if schema_version == _BRAIN_MANIFEST_SCHEMA_VERSION:
@@ -351,7 +351,7 @@ def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
     if schema_version == 1:
         raise LaunchPlanError(
             "Brain manifest uses legacy schema_version=1. Rebuild the affected brain home "
-            "with the current builder to get schema_version=2 launch-overrides support."
+            "with the current builder to get schema_version=3 preset support."
         )
     raise LaunchPlanError(
         f"Brain manifest must use schema_version={_BRAIN_MANIFEST_SCHEMA_VERSION}, "
@@ -630,7 +630,7 @@ def _resolve_launch_behavior_from_contract(
             adapter_defaults=_parse_adapter_defaults(launch_contract),
             recipe_overrides=_parse_requested_launch_overrides(
                 launch_contract,
-                layer="recipe",
+                layer="preset",
             ),
             direct_overrides=_parse_requested_launch_overrides(
                 launch_contract,

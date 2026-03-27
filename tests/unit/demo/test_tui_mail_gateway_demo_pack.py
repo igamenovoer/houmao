@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -101,8 +102,12 @@ def test_tracked_parameters_and_default_output_roots_match_the_documented_contra
     parameters = load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
 
     assert parameters.project_fixture == Path("tests/fixtures/dummy-projects/mailbox-demo-python")
-    assert parameters.tools["claude"].blueprint == Path("blueprints/mailbox-demo-claude.yaml")
-    assert parameters.tools["codex"].blueprint == Path("blueprints/mailbox-demo-codex.yaml")
+    assert parameters.tools["claude"].blueprint == Path(
+        "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml"
+    )
+    assert parameters.tools["codex"].blueprint == Path(
+        "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml"
+    )
     assert parameters.drive.cadence_seconds == 5
     assert parameters.drive.turn_limit == 3
     assert (
@@ -135,6 +140,11 @@ def test_start_demo_persists_selected_tool_and_output_root_containment(
             "healthy": True,
         },
     )
+    monkeypatch.setattr(
+        demo_driver,
+        "resolve_demo_preset_launch",
+        lambda *, agent_def_dir, preset_path: SimpleNamespace(role_name="mailbox-demo"),
+    )
 
     def fake_build_brain(*, repo_root, paths, agent_def_dir, blueprint_path, env, timeout_seconds):
         recorded["agent_def_dir"] = agent_def_dir
@@ -162,7 +172,7 @@ def test_start_demo_persists_selected_tool_and_output_root_containment(
         lambda **kwargs: {
             "session_manifest": str(paths.runtime_root / "sessions" / "demo" / "manifest.json"),
             "tool": "codex",
-            "backend": "cao_rest",
+            "backend": "local_interactive",
         },
     )
     monkeypatch.setattr(
@@ -199,7 +209,7 @@ def test_start_demo_persists_selected_tool_and_output_root_containment(
     assert state.selected_tool == "codex"
     assert loaded.selected_tool == "codex"
     assert loaded.agent_def_dir == override_agent_def_dir.resolve()
-    assert str(recorded["blueprint_path"]).endswith("mailbox-demo-codex.yaml")
+    assert str(recorded["blueprint_path"]).endswith("roles/mailbox-demo/presets/codex/default.yaml")
     env = recorded["env"]
     assert env["AGENTSYS_GLOBAL_RUNTIME_DIR"] == str(paths.runtime_root)
     assert env["AGENTSYS_GLOBAL_REGISTRY_DIR"] == str(paths.registry_root)

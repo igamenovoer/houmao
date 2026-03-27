@@ -114,7 +114,9 @@ def test_autotest_harness_preflight_dispatches_and_writes_result(tmp_path: Path)
     """The pack-local autotest harness should dispatch the preflight case contract."""
 
     repo_root = Path(__file__).resolve().parents[3]
-    pack_dir = (repo_root / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack").resolve()
+    pack_dir = (
+        repo_root / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack"
+    ).resolve()
     harness_path = (pack_dir / "autotest" / "run_autotest.sh").resolve()
     fake_bin_dir = (tmp_path / "fake-bin").resolve()
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
@@ -167,7 +169,9 @@ def test_autotest_harness_auto_dispatches_and_writes_result(tmp_path: Path) -> N
     """The pack-local autotest harness should dispatch the full auto case contract."""
 
     repo_root = Path(__file__).resolve().parents[3]
-    pack_dir = (repo_root / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack").resolve()
+    pack_dir = (
+        repo_root / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack"
+    ).resolve()
     harness_path = (pack_dir / "autotest" / "run_autotest.sh").resolve()
     fake_bin_dir = (tmp_path / "fake-bin").resolve()
     fake_bin_dir.mkdir(parents=True, exist_ok=True)
@@ -204,7 +208,9 @@ def test_autotest_harness_auto_dispatches_and_writes_result(tmp_path: Path) -> N
     )
 
     assert case_result["status"] == "passed"
-    assert case_result["artifact_refs"]["report_path"] == str((demo_output_dir / "report.json").resolve())
+    assert case_result["artifact_refs"]["report_path"] == str(
+        (demo_output_dir / "report.json").resolve()
+    )
     assert json.loads(stdout_path.read_text(encoding="utf-8"))["mode"] == "fake-auto"
     command_log = command_log_path.read_text(encoding="utf-8").splitlines()
     helper_script = str(pack_dir / "scripts" / "demo_pack_helpers.py")
@@ -260,7 +266,9 @@ def _seed_pack_fixture_tree(
     gateway_prompt_path = pack_dir / "inputs" / "gateway_prompt.txt"
     headless_prompt_path = pack_dir / "inputs" / "headless_prompt.txt"
 
-    (agent_def_dir / "roles" / "server-api-smoke").mkdir(parents=True, exist_ok=True)
+    (agent_def_dir / "roles" / "server-api-smoke" / "presets" / tool).mkdir(
+        parents=True, exist_ok=True
+    )
     (agent_def_dir / "blueprints").mkdir(parents=True, exist_ok=True)
     (agent_def_dir / "brains" / "brain-recipes" / tool).mkdir(parents=True, exist_ok=True)
     (agent_def_dir / "brains" / "api-creds" / tool / credential_profile / "env").mkdir(
@@ -268,6 +276,18 @@ def _seed_pack_fixture_tree(
         exist_ok=True,
     )
     (agent_def_dir / "brains" / "cli-configs" / tool / config_profile).mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "env").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "files").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "setups" / config_profile).mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -299,17 +319,65 @@ def _seed_pack_fixture_tree(
         encoding="utf-8",
     )
     (
+        agent_def_dir / "roles" / "server-api-smoke" / "presets" / tool / f"{config_profile}.yaml"
+    ).write_text(
+        (f"skills: []\nauth: {credential_profile}\nlaunch:\n  prompt_mode: unattended\n"),
+        encoding="utf-8",
+    )
+    (agent_def_dir / "tools" / tool / "adapter.yaml").write_text(
+        (
+            "schema_version: 1\n"
+            f"tool: {tool}\n"
+            "home_selector:\n"
+            f"  env_var: {'CLAUDE_CONFIG_DIR' if tool == 'claude' else 'CODEX_HOME'}\n"
+            "launch:\n"
+            f"  executable: {tool}\n"
+            "  args: []\n"
+            "  default_tool_params: {}\n"
+            "  metadata:\n"
+            "    tool_params: {}\n"
+            "  env_injection:\n"
+            f"    mode: {'export_from_env_file' if tool == 'claude' else 'home_dotenv'}\n"
+            + ("    env_file_in_home: .env\n" if tool == "codex" else "")
+            + "setup_projection:\n"
+            "  destination: .\n"
+            "skills_projection:\n"
+            "  destination: skills\n"
+            "  mode: symlink\n"
+            "auth_projection:\n"
+            "  files_dir: files\n"
+            "  file_mappings: []\n"
+            "  env:\n"
+            "    source: env/vars.env\n"
+            + (
+                "    allowlist:\n      - ANTHROPIC_API_KEY\n      - ANTHROPIC_AUTH_TOKEN\n"
+                if tool == "claude"
+                else "    allowlist:\n      - OPENAI_API_KEY\n      - OPENAI_BASE_URL\n"
+            )
+        ),
+        encoding="utf-8",
+    )
+    (
         agent_def_dir / "brains" / "api-creds" / tool / credential_profile / "env" / "vars.env"
     ).write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "env" / "vars.env").write_text(
+        "\n".join(env_lines) + "\n", encoding="utf-8"
+    )
 
     if tool == "claude":
         (
             agent_def_dir / "brains" / "cli-configs" / "claude" / config_profile / "settings.json"
         ).write_text('{"skipDangerousModePermissionPrompt": true}\n', encoding="utf-8")
+        (
+            agent_def_dir / "tools" / "claude" / "setups" / config_profile / "settings.json"
+        ).write_text('{"skipDangerousModePermissionPrompt": true}\n', encoding="utf-8")
     else:
         (
             agent_def_dir / "brains" / "cli-configs" / "codex" / config_profile / "config.toml"
         ).write_text('[model_providers.openai]\nname = "fixture"\n', encoding="utf-8")
+        (agent_def_dir / "tools" / "codex" / "setups" / config_profile / "config.toml").write_text(
+            '[model_providers.openai]\nname = "fixture"\n', encoding="utf-8"
+        )
 
     project_template_dir.joinpath("README.txt").write_text("fixture\n", encoding="utf-8")
     shared_prompt_path.write_text("shared prompt\n", encoding="utf-8")
@@ -335,7 +403,9 @@ def _canonical_sanitized_report(tmp_path: Path) -> dict[str, object]:
     state_payload = {
         "active": False,
         "repo_root": str(root / "repo"),
-        "pack_dir": str(root / "repo" / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack"),
+        "pack_dir": str(
+            root / "repo" / "scripts" / "demo" / "passive-server-parallel-validation-demo-pack"
+        ),
         "run_root": str(root / "run"),
         "provider": "claude_code",
         "tool": "claude",

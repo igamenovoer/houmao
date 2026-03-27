@@ -8,11 +8,11 @@ live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"
 sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
 
 [tools.claude]
-recipe_path = "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
+recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"
 operator_prompt_mode = "unattended"
 
 [tools.codex]
-recipe_path = "tests/fixtures/agents/brains/brain-recipes/codex/interactive-watch-default.yaml"
+recipe_path = "tests/fixtures/agents/roles/interactive-watch/presets/codex/default.yaml"
 
 [evidence]
 sample_interval_seconds = 0.2

@@ -5,7 +5,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
-- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — brains, roles, and blueprints.
+- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, presets, and skills.
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
 
 ## Reference

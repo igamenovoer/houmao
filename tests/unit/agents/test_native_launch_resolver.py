@@ -36,19 +36,20 @@ def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role
     tmp_path: Path,
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
-    recipe_path = (
-        agent_def_dir / "brains" / "brain-recipes" / "claude" / "gpu-kernel-coder-default.yaml"
+    preset_path = (
+        agent_def_dir
+        / "roles"
+        / "gpu-kernel-coder"
+        / "presets"
+        / "claude"
+        / "default.yaml"
     )
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text(
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
         "\n".join(
             [
-                "schema_version: 1",
-                "name: gpu-kernel-coder-default",
-                "tool: claude",
                 "skills: []",
-                "config_profile: default",
-                "credential_profile: demo-default",
+                "auth: demo-default",
                 "",
             ]
         ),
@@ -66,30 +67,31 @@ def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role
     )
 
     assert target.tool == "claude"
-    assert target.recipe_path == recipe_path.resolve()
+    assert target.recipe_path == preset_path.resolve()
     assert target.role_name == "gpu-kernel-coder"
     assert target.role_prompt == "Demo role prompt"
     assert target.role_prompt_path == role_prompt_path.resolve()
 
 
-def test_resolve_native_launch_target_treats_missing_role_as_brain_only(
+def test_resolve_native_launch_target_requires_role_prompt_for_preset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
-    recipe_path = (
-        agent_def_dir / "brains" / "brain-recipes" / "codex" / "gpu-kernel-coder-default.yaml"
+    preset_path = (
+        agent_def_dir
+        / "roles"
+        / "gpu-kernel-coder"
+        / "presets"
+        / "codex"
+        / "default.yaml"
     )
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text(
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
         "\n".join(
             [
-                "schema_version: 1",
-                "name: gpu-kernel-coder-default",
-                "tool: codex",
                 "skills: []",
-                "config_profile: default",
-                "credential_profile: demo-default",
+                "auth: demo-default",
                 "",
             ]
         ),
@@ -97,13 +99,9 @@ def test_resolve_native_launch_target_treats_missing_role_as_brain_only(
     )
     monkeypatch.setenv(AGENT_DEF_DIR_ENV_VAR, str(agent_def_dir))
 
-    target = resolve_native_launch_target(
-        selector="gpu-kernel-coder",
-        provider="codex",
-        working_directory=(tmp_path / "workdir").resolve(),
-    )
-
-    assert target.recipe_path == recipe_path.resolve()
-    assert target.role_name is None
-    assert target.role_prompt == ""
-    assert target.role_prompt_path is None
+    with pytest.raises(FileNotFoundError, match="Missing role prompt"):
+        resolve_native_launch_target(
+            selector="gpu-kernel-coder",
+            provider="codex",
+            working_directory=(tmp_path / "workdir").resolve(),
+        )

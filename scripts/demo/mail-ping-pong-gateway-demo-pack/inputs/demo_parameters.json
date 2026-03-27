@@ -22,14 +22,14 @@
   "initiator": {
     "tool": "claude",
     "role_name": "mail-ping-pong-initiator",
-    "brain_recipe_path": "tests/fixtures/agents/brains/brain-recipes/claude/mail-ping-pong-initiator-default.yaml",
+    "brain_recipe_path": "tests/fixtures/agents/roles/mail-ping-pong-initiator/presets/claude/default.yaml",
     "mailbox_principal_id": "AGENTSYS-mail-ping-pong-initiator",
     "mailbox_address": "AGENTSYS-mail-ping-pong-initiator@agents.localhost"
   },
   "responder": {
     "tool": "codex",
     "role_name": "mail-ping-pong-responder",
-    "brain_recipe_path": "tests/fixtures/agents/brains/brain-recipes/codex/mail-ping-pong-responder-default.yaml",
+    "brain_recipe_path": "tests/fixtures/agents/roles/mail-ping-pong-responder/presets/codex/default.yaml",
     "mailbox_principal_id": "AGENTSYS-mail-ping-pong-responder",
     "mailbox_address": "AGENTSYS-mail-ping-pong-responder@agents.localhost"
   }

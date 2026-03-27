@@ -3,16 +3,16 @@
   "demo_id": "skill-invocation-demo-pack",
   "agent_def_dir": "tests/fixtures/agents",
   "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
-  "backend": "cao_rest",
+  "backend": "local_interactive",
   "cao_base_url": "http://localhost:9889",
   "parsing_mode": "shadow_only",
   "tool_lanes": {
     "claude": {
-      "blueprint": "blueprints/skill-invocation-demo-claude.yaml",
+      "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml",
       "agent_identity": "AGENTSYS-skill-invocation-demo-claude"
     },
     "codex": {
-      "blueprint": "blueprints/skill-invocation-demo-codex.yaml",
+      "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml",
       "agent_identity": "AGENTSYS-skill-invocation-demo-codex"
     }
   },

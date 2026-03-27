@@ -62,6 +62,37 @@ _ACTIONABLE_SELECTOR_ERROR = "\n".join(
 )
 
 
+def _make_native_launch_target(
+    *,
+    working_directory: Path,
+    tool: str,
+    role_name: str,
+    operator_prompt_mode: str | None,
+    auth: str = "default",
+    setup: str = "default",
+) -> SimpleNamespace:
+    """Build one preset-backed native launch target test double."""
+
+    preset = SimpleNamespace(
+        tool=tool,
+        skills=[],
+        setup=setup,
+        auth=auth,
+        launch_overrides=None,
+        operator_prompt_mode=operator_prompt_mode,
+        mailbox=None,
+        extra={},
+    )
+    preset_path = (working_directory / "preset.yaml").resolve()
+    return SimpleNamespace(
+        tool=tool,
+        agent_def_dir=working_directory / "agents",
+        role_name=role_name,
+        preset=preset,
+        preset_path=preset_path,
+    )
+
+
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
     assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "server"}
 
@@ -1033,21 +1064,11 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
     build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = SimpleNamespace(
+    target = _make_native_launch_target(
+        working_directory=working_directory,
         tool="codex",
-        agent_def_dir=working_directory / "agents",
         role_name="gpu-kernel-coder",
-        recipe=SimpleNamespace(
-            tool="codex",
-            skills=[],
-            config_profile="default",
-            credential_profile="default",
-            launch_overrides=None,
-            operator_prompt_mode="unattended",
-            mailbox=None,
-            default_agent_name="AGENTSYS-gpu",
-        ),
-        recipe_path=working_directory / "recipe.yaml",
+        operator_prompt_mode="unattended",
     )
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
@@ -1118,21 +1139,11 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
     build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = SimpleNamespace(
+    target = _make_native_launch_target(
+        working_directory=working_directory,
         tool="claude",
-        agent_def_dir=working_directory / "agents",
         role_name="gpu-kernel-coder",
-        recipe=SimpleNamespace(
-            tool="claude",
-            skills=[],
-            config_profile="default",
-            credential_profile="default",
-            launch_overrides=None,
-            operator_prompt_mode="unattended",
-            mailbox=None,
-            default_agent_name="AGENTSYS-gpu",
-        ),
-        recipe_path=working_directory / "recipe.yaml",
+        operator_prompt_mode="unattended",
     )
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
@@ -1186,6 +1197,125 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
     assert "attach_command=tmux attach-session -t gpu-session" in result.output
 
 
+def test_agents_launch_auth_override_wins_over_preset_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = _make_native_launch_target(
+        working_directory=working_directory,
+        tool="claude",
+        role_name="gpu-kernel-coder",
+        operator_prompt_mode=None,
+        auth="default",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (captured.setdefault("build_request", request), build_result)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: controller,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: False,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "claude_code",
+            "--auth",
+            "kimi-coding",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["build_request"].auth == "kimi-coding"
+
+
+def test_agents_launch_allows_missing_agent_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = _make_native_launch_target(
+        working_directory=working_directory,
+        tool="claude",
+        role_name="gpu-kernel-coder",
+        operator_prompt_mode=None,
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="AGENTSYS-claude-gpu-kernel-coder",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (captured.setdefault("build_request", request), build_result)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: False,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "claude_code",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "agent_name=AGENTSYS-claude-gpu-kernel-coder" in result.output
+    assert captured["build_request"].agent_name is None
+    assert captured["start_kwargs"]["agent_name"] is None
+
+
 def test_agents_launch_headless_keeps_native_headless_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1195,21 +1325,11 @@ def test_agents_launch_headless_keeps_native_headless_backend(
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
     build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = SimpleNamespace(
+    target = _make_native_launch_target(
+        working_directory=working_directory,
         tool="claude",
-        agent_def_dir=working_directory / "agents",
         role_name="researcher",
-        recipe=SimpleNamespace(
-            tool="claude",
-            skills=[],
-            config_profile="default",
-            credential_profile="default",
-            launch_overrides=None,
-            operator_prompt_mode=None,
-            mailbox=None,
-            default_agent_name="AGENTSYS-claude",
-        ),
-        recipe_path=working_directory / "recipe.yaml",
+        operator_prompt_mode=None,
     )
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
@@ -1264,21 +1384,11 @@ def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
     build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = SimpleNamespace(
+    target = _make_native_launch_target(
+        working_directory=working_directory,
         tool="claude",
-        agent_def_dir=working_directory / "agents",
         role_name="researcher",
-        recipe=SimpleNamespace(
-            tool="claude",
-            skills=[],
-            config_profile="default",
-            credential_profile="default",
-            launch_overrides=None,
-            operator_prompt_mode="unattended",
-            mailbox=None,
-            default_agent_name="AGENTSYS-claude",
-        ),
-        recipe_path=working_directory / "recipe.yaml",
+        operator_prompt_mode="unattended",
     )
 
     monkeypatch.chdir(working_directory)
@@ -1338,21 +1448,11 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
     manifest_path = working_directory / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
     build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = SimpleNamespace(
+    target = _make_native_launch_target(
+        working_directory=working_directory,
         tool="claude",
-        agent_def_dir=working_directory / "agents",
         role_name="researcher",
-        recipe=SimpleNamespace(
-            tool="claude",
-            skills=[],
-            config_profile="default",
-            credential_profile="default",
-            launch_overrides=None,
-            operator_prompt_mode="unattended",
-            mailbox=None,
-            default_agent_name="AGENTSYS-claude",
-        ),
-        recipe_path=working_directory / "recipe.yaml",
+        operator_prompt_mode="unattended",
     )
 
     monkeypatch.chdir(working_directory)

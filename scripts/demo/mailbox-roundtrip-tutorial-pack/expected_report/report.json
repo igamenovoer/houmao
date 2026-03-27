@@ -84,7 +84,7 @@
   },
   "parameters": {
     "agent_def_dir": "<AGENT_DEF_DIR>",
-    "backend": "cao_rest",
+    "backend": "local_interactive",
     "cao_base_url": "http://localhost:9889",
     "demo_id": "mailbox-roundtrip-tutorial-pack",
     "message": {
@@ -95,14 +95,14 @@
     "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
     "receiver": {
       "agent_identity": "AGENTSYS-mailbox-receiver",
-      "blueprint": "blueprints/mailbox-demo-codex.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
       "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-receiver"
     },
     "schema_version": 1,
     "sender": {
       "agent_identity": "AGENTSYS-mailbox-sender",
-      "blueprint": "blueprints/mailbox-demo-claude.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml",
       "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-sender"
     },
@@ -148,7 +148,7 @@
     "receiver_start": {
       "agent_identity": "AGENTSYS-mailbox-receiver",
       "agent_name": "AGENTSYS-mailbox-receiver",
-      "backend": "cao_rest",
+      "backend": "local_interactive",
       "job_dir": "<JOB_DIR>",
       "mailbox": {
         "address": "AGENTSYS-mailbox-receiver@agents.localhost",
@@ -178,7 +178,7 @@
     "sender_start": {
       "agent_identity": "AGENTSYS-mailbox-sender",
       "agent_name": "AGENTSYS-mailbox-sender",
-      "backend": "cao_rest",
+      "backend": "local_interactive",
       "job_dir": "<JOB_DIR>",
       "mailbox": {
         "address": "AGENTSYS-mailbox-sender@agents.localhost",

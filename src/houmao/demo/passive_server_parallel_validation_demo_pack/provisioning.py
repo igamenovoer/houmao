@@ -16,7 +16,7 @@ import subprocess
 import time
 from typing import Any
 
-from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -29,6 +29,7 @@ from houmao.agents.realm_controller.loaders import parse_env_file
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, start_runtime_session
+from houmao.demo.launch_support import resolve_demo_preset_launch
 from houmao.demo.passive_server_parallel_validation_demo_pack.models import (
     DEFAULT_AGENT_PROFILE,
     DEFAULT_COMPAT_CODEX_WARMUP_SECONDS,
@@ -311,7 +312,9 @@ def run_preflight(
         "pixi": shutil.which("pixi"),
         "git": shutil.which("git"),
         "tmux": shutil.which("tmux"),
-        executable_for_provider(config.provider): shutil.which(executable_for_provider(config.provider)),
+        executable_for_provider(config.provider): shutil.which(
+            executable_for_provider(config.provider)
+        ),
     }
     for executable_name, resolved_path in executables.items():
         if resolved_path is None:
@@ -657,7 +660,9 @@ def capture_inspect_phase(
             last_error = str(exc)
             time.sleep(request_poll_interval_seconds)
             continue
-        if _list_contains_agent(old_list, agent_ref) and _list_contains_agent(passive_list, agent_ref):
+        if _list_contains_agent(old_list, agent_ref) and _list_contains_agent(
+            passive_list, agent_ref
+        ):
             break
         last_error = f"shared agent `{agent_ref}` missing from one authority list response"
         time.sleep(request_poll_interval_seconds)
@@ -703,7 +708,8 @@ def capture_inspect_phase(
     result = {
         "ok": all(comparison_summary.values()),
         "agent_ref": agent_ref,
-        "list_ok": _list_contains_agent(old_list, agent_ref) and _list_contains_agent(passive_list, agent_ref),
+        "list_ok": _list_contains_agent(old_list, agent_ref)
+        and _list_contains_agent(passive_list, agent_ref),
         "resolve_ok": True,
         "comparison_summary": comparison_summary,
         "comparisons": comparisons,
@@ -738,7 +744,9 @@ def capture_gateway_phase(
     baseline_old_state = old_client.get_managed_agent_state(agent_ref)
     baseline_old_history = old_client.get_managed_agent_history(agent_ref, limit=history_limit)
     baseline_passive_state = passive_client.get_managed_agent_state(agent_ref)
-    baseline_passive_history = passive_client.get_managed_agent_history(agent_ref, limit=history_limit)
+    baseline_passive_history = passive_client.get_managed_agent_history(
+        agent_ref, limit=history_limit
+    )
 
     accepted = passive_client.submit_managed_agent_gateway_request(
         agent_ref,
@@ -930,9 +938,7 @@ def capture_stop_phase(
         registry_absent = (
             resolve_live_agent_record_by_agent_id(str(shared_agent.get("agent_id"))) is None
         )
-    tmux_absent = not tmux_session_exists(
-        session_name=str(shared_agent.get("tmux_session_name"))
-    )
+    tmux_absent = not tmux_session_exists(session_name=str(shared_agent.get("tmux_session_name")))
 
     headless_cleanup: dict[str, Any] | None = None
     if headless_agent is not None:
@@ -985,32 +991,24 @@ def _provider_fixture_report(
 ) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Build one provider-specific fixture report and collect missing prerequisites."""
 
-    blueprint_path = (fixtures.agent_def_dir / "blueprints" / fixture.blueprint_name).resolve()
-    recipe_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "brain-recipes"
-        / fixture.tool
-        / "server-api-smoke-default.yaml"
-    ).resolve()
-    role_path = (fixtures.agent_def_dir / "roles" / DEFAULT_ROLE_NAME / "system-prompt.md").resolve()
-    credential_env_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "api-creds"
-        / fixture.tool
-        / fixture.credential_profile
-        / "env"
-        / "vars.env"
-    ).resolve()
-    config_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "cli-configs"
-        / fixture.tool
-        / fixture.config_profile
-        / ("settings.json" if fixture.tool == "claude" else "config.toml")
-    ).resolve()
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=fixtures.agent_def_dir,
+        preset_path=(
+            fixtures.agent_def_dir
+            / "roles"
+            / DEFAULT_ROLE_NAME
+            / "presets"
+            / fixture.tool
+            / f"{fixture.config_profile}.yaml"
+        ),
+    )
+    blueprint_path = resolved_launch.preset_path
+    recipe_path = resolved_launch.preset_path
+    role_path = resolved_launch.role_prompt_path
+    credential_env_path = resolved_launch.auth_env_path
+    config_path = resolved_launch.setup_path / (
+        "settings.json" if fixture.tool == "claude" else "config.toml"
+    )
 
     missing: list[str] = []
     for label, path in {
@@ -1020,23 +1018,25 @@ def _provider_fixture_report(
         "credential_env_path": credential_env_path,
         "config_path": config_path,
     }.items():
-        if not path.exists():
+        if path is None or not path.exists():
             missing.append(f"missing provider fixture `{fixture.provider}` {label}: {path}")
 
-    recipe_operator_prompt_mode: str | None = None
-    if recipe_path.is_file():
-        recipe = load_brain_recipe(recipe_path)
-        recipe_operator_prompt_mode = recipe.operator_prompt_mode
-        if recipe.tool != fixture.tool:
-            missing.append(
-                f"fixture recipe tool mismatch for `{fixture.provider}`: expected `{fixture.tool}`, got `{recipe.tool}`."
-            )
-        if recipe.operator_prompt_mode != "unattended":
-            missing.append(
-                f"fixture recipe `{recipe_path}` must set `launch_policy.operator_prompt_mode: unattended`."
-            )
+    recipe = resolved_launch.preset
+    recipe_operator_prompt_mode: str | None = recipe.operator_prompt_mode
+    if recipe.tool != fixture.tool:
+        missing.append(
+            f"fixture recipe tool mismatch for `{fixture.provider}`: expected `{fixture.tool}`, got `{recipe.tool}`."
+        )
+    if recipe.operator_prompt_mode != "unattended":
+        missing.append(
+            f"fixture recipe `{recipe_path}` must set `launch.operator_prompt_mode: unattended`."
+        )
 
-    env_values = parse_env_file(credential_env_path) if credential_env_path.is_file() else {}
+    env_values = (
+        parse_env_file(credential_env_path)
+        if credential_env_path is not None and credential_env_path.is_file()
+        else {}
+    )
     required_key_names: list[str]
     if fixture.tool == "codex":
         required_key_names = ["OPENAI_API_KEY"]
@@ -1090,7 +1090,10 @@ def _wait_for_pair_health(
             last_error = str(exc)
             time.sleep(0.25)
             continue
-        if resolution.health.status == "ok" and resolution.health.houmao_service == expected_service:
+        if (
+            resolution.health.status == "ok"
+            and resolution.health.houmao_service == expected_service
+        ):
             return resolution
         last_error = resolution.health.model_dump_json()
         time.sleep(0.25)
@@ -1135,7 +1138,9 @@ def _shared_environment_from_state(state: Mapping[str, Any]) -> dict[str, str]:
 
     config = _mapping(dict(state.get("config", {})).get("roots", {}), context="state.config.roots")
     return {
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(Path(str(config["shared_runtime_root"])).resolve()),
+        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(
+            Path(str(config["shared_runtime_root"])).resolve()
+        ),
         AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(str(config["registry_root"])).resolve()),
         AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(Path(str(config["jobs_root"])).resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(Path(str(state["agent_def_dir"])).resolve()),
@@ -1275,7 +1280,9 @@ def _list_contains_agent(response: Any, agent_ref: str) -> bool:
     return False
 
 
-def _comparison_result(old_payload: dict[str, Any], passive_payload: dict[str, Any]) -> dict[str, Any]:
+def _comparison_result(
+    old_payload: dict[str, Any], passive_payload: dict[str, Any]
+) -> dict[str, Any]:
     """Build one explicit parity-comparison result payload."""
 
     return {
@@ -1373,16 +1380,22 @@ def _config_from_state(state: Mapping[str, Any]) -> ParallelConfig:
         provider=str(config_payload["provider"]),
         pack_dir=Path(str(state["pack_dir"])),
         output_root=Path(str(state["run_root"])),
-        old_server_port=int(_mapping(config_payload.get("ports", {}), context="state.config.ports")["old_server"]),
+        old_server_port=int(
+            _mapping(config_payload.get("ports", {}), context="state.config.ports")["old_server"]
+        ),
         passive_server_port=int(
-            _mapping(config_payload.get("ports", {}), context="state.config.ports")["passive_server"]
+            _mapping(config_payload.get("ports", {}), context="state.config.ports")[
+                "passive_server"
+            ]
         ),
         health_timeout_seconds=float(config_payload["health_timeout_seconds"]),
         discovery_timeout_seconds=float(config_payload["discovery_timeout_seconds"]),
         request_timeout_seconds=float(config_payload["request_timeout_seconds"]),
         request_poll_interval_seconds=float(config_payload["request_poll_interval_seconds"]),
         history_limit=int(config_payload["history_limit"]),
-        compat_shell_ready_timeout_seconds=float(config_payload["compat_shell_ready_timeout_seconds"]),
+        compat_shell_ready_timeout_seconds=float(
+            config_payload["compat_shell_ready_timeout_seconds"]
+        ),
         compat_provider_ready_timeout_seconds=float(
             config_payload["compat_provider_ready_timeout_seconds"]
         ),

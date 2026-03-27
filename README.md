@@ -158,7 +158,7 @@ claude                          # or: codex, gemini
 houmao-mgr agents join --agent-name my-agent
 
 # 3. Now you can use the full management surface:
-houmao-mgr agents state   --agent-name my-agent   # registry + gateway status
+houmao-mgr agents state   --agent-name my-agent   # transport-neutral summary state
 houmao-mgr agents prompt  --agent-name my-agent --prompt "explain this repo"
 houmao-mgr agents stop    --agent-name my-agent   # graceful shutdown
 ```
@@ -171,7 +171,8 @@ Once `agents join` completes, the adopted session has the same management capabi
 
 | Capability | Command |
 |---|---|
-| Query registry & gateway state | `houmao-mgr agents state --agent-name <name>` |
+| Query transport-neutral summary state | `houmao-mgr agents state --agent-name <name>` |
+| Inspect raw gateway-owned TUI tracking (when attached) | `houmao-mgr agents gateway tui state --agent-name <name>` |
 | Send a semantic prompt | `houmao-mgr agents prompt --agent-name <name> --prompt "…"` |
 | Interrupt a running turn | `houmao-mgr agents interrupt --agent-name <name>` |
 | Attach to a gateway | `houmao-mgr agents gateway attach --agent-name <name>` |

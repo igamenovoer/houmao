@@ -1,204 +1,131 @@
 # Quickstart
 
-This guide walks you through building an agent brain and running an interactive session using `houmao-mgr`. By the end, you will have a working agent you can send prompts to and terminate cleanly.
+This guide walks through the preset-backed workflow:
 
-```mermaid
-sequenceDiagram
-    participant Op as Operator
-    participant Mgr as houmao-mgr
-    participant BB as BrainBuilder
-    participant RT as RuntimeSession<br/>Controller
-    participant BE as Backend<br/>(tmux)
-
-    Op->>Mgr: brains build<br/>(recipe, agent-def-dir)
-    Mgr->>BB: build_brain_home()
-    BB-->>Mgr: BuildResult<br/>(manifest path)
-    Op->>Mgr: agents launch<br/>(selector, agent-name)
-    Mgr->>BB: build_brain_home()
-    BB-->>Mgr: BuildResult
-    Mgr->>RT: start_runtime_session()
-    RT->>BE: create session
-    BE-->>RT: InteractiveSession
-    RT-->>Mgr: controller ready
-    Op->>Mgr: agents prompt<br/>("write tests")
-    Mgr->>RT: send_prompt()
-    RT->>BE: paste into tmux
-    BE-->>RT: session events
-    RT-->>Mgr: prompt accepted
-    Op->>Mgr: agents stop
-    Mgr->>RT: terminate()
-    RT->>BE: kill tmux session
-    RT-->>Mgr: stopped
-```
+1. copy an `agents/` source tree
+2. add local auth bundles
+3. optionally build a runtime home
+4. launch a managed agent
 
 ## Prerequisites
 
 - Python 3.11+
-- [Pixi](https://pixi.sh/) installed
+- [Pixi](https://pixi.sh/)
 - A supported CLI tool installed (`claude`, `codex`, or `gemini`)
-- API credentials for your chosen tool
-
-Install Houmao and enter the dev shell:
+- Local auth material for the tool you want to use
 
 ```bash
 pixi install && pixi shell
 ```
 
-## Step 1: Set Up the Agent Definition Directory
-
-The agent definition directory contains everything Houmao needs to build and run agent brains — tool adapters, skills, configs, credentials, recipes, and roles.
-
-Copy the template from the test fixtures:
+## Step 1: Set Up `.agentsys/agents`
 
 ```bash
 mkdir -p .agentsys
 cp -r tests/fixtures/agents/ .agentsys/agents/
 ```
 
-This gives you a working directory structure with example tool adapters, skills, config profiles, recipes, and roles. See [Agent Definition Directory](agent-definitions.md) for a detailed breakdown of each component.
+The canonical layout is now:
 
-### Add Your Credentials
+- `skills/<skill>/`
+- `roles/<role>/system-prompt.md`
+- `roles/<role>/presets/<tool>/<setup>.yaml`
+- `tools/<tool>/adapter.yaml`
+- `tools/<tool>/setups/<setup>/`
+- `tools/<tool>/auth/<auth>/`
 
-Credentials are local-only and never committed. Create the credential profile for your tool:
+## Step 2: Add Your Local Auth Bundle
 
 ```bash
-# For Claude
-mkdir -p .agentsys/agents/brains/api-creds/claude/default/env
-cat > .agentsys/agents/brains/api-creds/claude/default/env/vars.env << 'EOF'
-ANTHROPIC_API_KEY=your-api-key-here
-EOF
+# Claude
+mkdir -p .agentsys/agents/tools/claude/auth/default/env
+printf 'ANTHROPIC_API_KEY=your-api-key-here\n' > .agentsys/agents/tools/claude/auth/default/env/vars.env
 
-# For Codex
-mkdir -p .agentsys/agents/brains/api-creds/codex/default/env
-cat > .agentsys/agents/brains/api-creds/codex/default/env/vars.env << 'EOF'
-OPENAI_API_KEY=your-api-key-here
-EOF
-
-# For Gemini
-mkdir -p .agentsys/agents/brains/api-creds/gemini/default/env
-cat > .agentsys/agents/brains/api-creds/gemini/default/env/vars.env << 'EOF'
-GEMINI_API_KEY=your-api-key-here
-EOF
+# Codex
+mkdir -p .agentsys/agents/tools/codex/auth/default/env
+printf 'OPENAI_API_KEY=your-api-key-here\n' > .agentsys/agents/tools/codex/auth/default/env/vars.env
 ```
 
-## Step 2: Build a Brain
+## Step 3: Build A Brain Home
 
-The build phase resolves a recipe against the agent definition directory and produces a runtime home with projected configs, skills, and credentials.
-
-### Using a Recipe (Recommended)
+Using a preset:
 
 ```bash
 pixi run houmao-mgr brains build \
   --agent-def-dir .agentsys/agents \
-  --recipe .agentsys/agents/brains/brain-recipes/claude/default.yaml
+  --preset .agentsys/agents/roles/gpu-kernel-coder/presets/claude/default.yaml
 ```
 
-### Using Explicit Parameters
-
-If you prefer to specify each component individually instead of using a recipe:
+Using explicit inputs:
 
 ```bash
 pixi run houmao-mgr brains build \
   --agent-def-dir .agentsys/agents \
   --tool claude \
-  --skill code-review \
-  --skill testing \
-  --config-profile default \
-  --cred-profile default
+  --setup default \
+  --auth default \
+  --skill openspec-apply-change \
+  --skill openspec-verify-change
 ```
 
-### Build Options Reference
+Key options:
 
 | Option | Description |
 |---|---|
-| `--agent-def-dir` | Path to the agent definition directory |
-| `--recipe` | Path to a brain recipe YAML file |
-| `--tool` | CLI tool name (e.g., `claude`, `codex`, `gemini`) |
-| `--skill` | Skill name to include (repeatable) |
-| `--config-profile` | Secret-free config profile name |
-| `--cred-profile` | Local credential profile name |
-| `--runtime-root` | Where to create the runtime home (default: `tmp/`) |
-| `--home-id` | Explicit home ID (auto-generated if omitted) |
-| `--reuse-home` | Reuse an existing runtime home instead of creating a new one |
-| `--launch-overrides` | JSON string of additional launch arguments |
-| `--agent-name` | Human-readable agent name |
-| `--agent-id` | Unique agent identifier |
+| `--preset` | Path to a preset YAML file |
+| `--tool` | CLI tool name |
+| `--setup` | Checked-in setup bundle |
+| `--auth` | Local auth bundle |
+| `--skill` | Skill name to include |
+| `--runtime-root` | Optional runtime root |
+| `--home-id` | Optional fixed runtime-home id |
+| `--reuse-home` | Allow reuse of an existing home id |
 
-On success, the build emits the path to the generated `BrainManifest` and a launch helper script. Note the manifest path — you will need it for the next step.
+## Step 4: Launch A Managed Agent
 
-## Step 3: Launch a Session
-
-Launch an interactive managed agent using the selector-based workflow:
+Launch from a bare role selector:
 
 ```bash
 pixi run houmao-mgr agents launch \
   --agents gpu-kernel-coder \
-  --agent-name research \
-  --provider claude_code
-```
-
-This builds the brain and starts the agent CLI inside a tmux-backed session in one step. The `--agents` selector resolves the brain recipe, `--agent-name` gives the session a friendly name for later targeting, and `--provider` selects the underlying CLI tool (defaults to `claude_code`).
-
-For headless (detached) use, add `--headless`:
-
-```bash
-pixi run houmao-mgr agents launch \
-  --agents gpu-kernel-coder \
-  --agent-name research \
   --provider claude_code \
-  --headless
+  --agent-name research
 ```
 
-To skip the workspace trust confirmation prompt, add `--yolo`.
+The bare selector plus provider resolves:
 
-## Step 4: Send a Prompt
+- `gpu-kernel-coder` + `claude_code`
+- to `roles/gpu-kernel-coder/presets/claude/default.yaml`
 
-Once a session is running, send prompts to it by targeting the managed agent by name:
+Launch a non-default setup by passing the preset path directly:
+
+```bash
+pixi run houmao-mgr agents launch \
+  --agents .agentsys/agents/roles/gpu-kernel-coder/presets/codex/yunwu-openai.yaml \
+  --provider codex \
+  --agent-name research-codex
+```
+
+Override auth at launch time when needed:
+
+```bash
+pixi run houmao-mgr agents launch \
+  --agents gpu-kernel-coder \
+  --provider claude_code \
+  --auth kimi-coding
+```
+
+## Step 5: Prompt And Stop
 
 ```bash
 pixi run houmao-mgr agents prompt \
   --agent-name research \
   --prompt "Explain the architecture of this project."
-```
 
-You can also target by agent ID with `--agent-id`. For headless backends, the response is returned directly. For interactive backends, the prompt is sent to the tmux session.
-
-## Step 5: Stop the Session
-
-Stop a running managed agent cleanly:
-
-```bash
 pixi run houmao-mgr agents stop --agent-name research
 ```
 
-This stops the agent CLI process and cleans up the tmux session (for interactive backends).
+## Next
 
-## End-to-End Example
-
-Here is the full managed-agent workflow for building and running a Claude agent:
-
-```bash
-# 1. Build the brain (standalone build phase — optional when using `agents launch`)
-pixi run houmao-mgr brains build \
-  --agent-def-dir .agentsys/agents \
-  --recipe .agentsys/agents/brains/brain-recipes/claude/default.yaml
-
-# 2. Launch an interactive managed agent (builds + launches in one step)
-pixi run houmao-mgr agents launch \
-  --agents gpu-kernel-coder \
-  --agent-name research \
-  --provider claude_code
-
-# 3. Send a prompt
-pixi run houmao-mgr agents prompt \
-  --agent-name research \
-  --prompt "Hello, what can you help me with?"
-
-# 4. Stop when done
-pixi run houmao-mgr agents stop --agent-name research
-```
-
-## What's Next
-
-- **[Architecture Overview](overview.md)** — Understand the two-phase lifecycle, backend model, and system architecture.
-- **[Agent Definition Directory](agent-definitions.md)** — Deep dive into the directory layout, what each component does, and how they connect.
+- [Architecture Overview](overview.md)
+- [Agent Definition Directory](agent-definitions.md)

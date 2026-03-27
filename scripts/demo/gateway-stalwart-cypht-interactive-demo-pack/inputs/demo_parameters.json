@@ -3,7 +3,7 @@
   "demo_id": "gateway-stalwart-cypht-interactive-demo-pack",
   "agent_def_dir": "tests/fixtures/agents",
   "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
-  "backend": "cao_rest",
+  "backend": "local_interactive",
   "cao_base_url": "http://127.0.0.1:9889",
   "stack": {
     "env_file": "dockers/email-system/.env"
@@ -15,7 +15,7 @@
   },
   "participants": {
     "alice": {
-      "blueprint": "blueprints/mailbox-demo-codex.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
       "agent_identity": "AGENTSYS-alice",
       "mailbox_principal_id": "alice",
       "mailbox_address": "alice@example.test",
@@ -24,7 +24,7 @@
       "cypht_password": "admin"
     },
     "bob": {
-      "blueprint": "blueprints/mailbox-demo-codex.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
       "agent_identity": "AGENTSYS-bob",
       "mailbox_principal_id": "bob",
       "mailbox_address": "bob@example.test",

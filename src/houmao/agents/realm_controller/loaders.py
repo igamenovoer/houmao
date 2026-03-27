@@ -103,13 +103,18 @@ def load_brain_manifest(path: Path) -> dict[str, Any]:
 
     payload = _load_mapping_file(path)
     schema_version = payload.get("schema_version")
-    if schema_version != 2:
+    if schema_version != 3:
         if schema_version == 1:
             raise LaunchPlanError(
                 f"{path}: brain manifest uses legacy schema_version=1. Rebuild the brain "
-                "home with the current builder to get schema_version=2 launch-overrides support."
+                "home with the current builder to get schema_version=3 preset support."
             )
-        raise LaunchPlanError(f"{path}: brain manifest must use schema_version=2")
+        if schema_version == 2:
+            raise LaunchPlanError(
+                f"{path}: brain manifest uses schema_version=2. Rebuild the brain home with the "
+                "current builder to get schema_version=3 preset support."
+            )
+        raise LaunchPlanError(f"{path}: brain manifest must use schema_version=3")
     if not isinstance(payload.get("runtime"), dict):
         raise LaunchPlanError(f"Manifest missing `runtime` mapping: {path}")
     if not isinstance(payload.get("credentials"), dict):

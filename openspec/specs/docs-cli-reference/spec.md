@@ -11,7 +11,7 @@ The CLI reference SHALL include a page for `houmao-mgr` documenting its active c
 
 The CLI reference SHALL make the major nested managed-agent command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
-- `agents launch`, `join`, `list`, `show`, `state`, `prompt`, `stop`, `interrupt`, and `relaunch`,
+- `agents launch`, `join`, `list`, `state`, `prompt`, `stop`, `interrupt`, and `relaunch`,
 - `agents turn`,
 - `agents gateway`,
 - `agents mail`,
@@ -22,7 +22,7 @@ The CLI reference SHALL make the major nested managed-agent command families dis
 #### Scenario: Reader finds current agent lifecycle commands
 
 - **WHEN** a reader looks up `houmao-mgr agents`
-- **THEN** they find documented subcommands for launch, join, list or show or state, prompt, stop, interrupt, relaunch, turn, mail, mailbox, cleanup, and gateway operations
+- **THEN** they find documented subcommands for launch, join, list, state, prompt, stop, interrupt, relaunch, turn, mail, mailbox, cleanup, and gateway operations
 - **AND THEN** the CLI reference does not present removed or outdated group names such as `passthrough` as active command groups
 
 #### Scenario: Reader can discover nested managed-agent command families

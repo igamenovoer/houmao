@@ -1,160 +1,103 @@
 # Agents Directory
 
-This directory follows a brain-first + role-first composition model.
-
-## Canonical Layout
+This fixture tree now publishes the simplified `agents/` source layout as the canonical shape:
 
 ```text
-tests/fixtures/
-  dummy-projects/                    # Small tracked source-only workdir fixtures
-agents/
-  brains/                           # Reusable brain components
-    tool-adapters/                  # Per-tool home layout and launch rules
-    cli-configs/<tool>/<profile>/   # Secret-free tool config profiles
-    skills/<skill>/SKILL.md         # Agent Skills format
-    brain-recipes/<tool>/*.yaml     # Secret-free recipe presets
-    api-creds/<tool>/<profile>/...  # Local-only credentials (gitignored)
-  roles/
-    <role>/system-prompt.md         # Brain-agnostic role packages
-  blueprints/
-    <agent>.yaml                    # Optional {brain recipe + role} bindings
+tests/fixtures/agents/
+  skills/<skill>/SKILL.md
+  roles/<role>/system-prompt.md
+  roles/<role>/presets/<tool>/<setup>.yaml
+  tools/<tool>/adapter.yaml
+  tools/<tool>/setups/<setup>/...
+  tools/<tool>/auth/<auth>/...
+  compatibility-profiles/
 ```
+
+The legacy `brains/` and `blueprints/` subtrees remain only as migration-era compatibility fixtures. New examples, docs, and tests should prefer `skills/`, `tools/`, and role-scoped `presets/`.
 
 ## How To Use Each Part
 
-## Fixture Selection
+### `skills/`
 
-Choose `tests/fixtures/dummy-projects/` plus a lightweight role such as `mailbox-demo` when:
+Reusable Agent Skills packages. Each skill directory must contain `SKILL.md`.
 
-- the scenario is a narrow mailbox/runtime-contract turn
-- the launched workdir should stay small and deterministic
-- you want the demo or test to copy a tracked source tree into its own isolated output directory
+Use this when:
 
-Choose `tests/fixtures/dummy-projects/` plus `skill-invocation-demo` and the `skill-invocation-demo-*` blueprints when:
+- adding or editing reusable task instructions
+- defining narrow probe skills such as `skill-invocation-probe`
 
-- the question under test is whether an installed skill triggers from narrow prompt wording
-- verification should rely on a deterministic side effect instead of assistant prose
-- the launched workdir should stay small, copied, and demo-owned
+### `tools/<tool>/adapter.yaml`
 
-Choose a repo worktree plus a heavyweight role such as `gpu-kernel-coder` when:
-
-- the workflow intentionally exercises broad repository discovery
-- the agent should inspect real repository context before acting
-- the scenario is about repo-scale engineering behavior rather than one bounded mailbox action
-
-Quick decision tree:
-
-1. Does the agent need the real repository checkout as its workdir?
-   If `yes`, use a repo worktree.
-   If `no`, use a copied dummy project.
-2. Is the task a narrow mailbox/demo/runtime-contract action?
-   If `yes`, prefer `mailbox-demo`.
-   If `no`, continue.
-3. Is the task a narrow installed-skill invocation check?
-   If `yes`, prefer `skill-invocation-demo` plus the recipe-owned `skill-invocation-demo-*` fixture family.
-   If `no`, select the role family that matches the broader workflow.
-
-### `agents/brains/tool-adapters/`
-
-Defines per-tool home layout and launch contracts.
+Per-tool runtime-home projection and launch contract.
 
 Use this when:
 
 - adding a new CLI tool
-- changing where config/skills/credentials are projected
-- changing which env vars are allowlisted for launch
+- changing where setup files, skills, or auth files project into the runtime home
+- changing the auth env allowlist or tool-specific launch metadata
 
-### `agents/brains/cli-configs/<tool>/<profile>/`
+### `tools/<tool>/setups/<setup>/`
 
-Stores secret-free config profiles for a specific tool.
+Secret-free checked-in setup bundles for one tool.
 
 Use this when:
 
-- you want different defaults for different workloads (for example `default`, `research`, `strict`)
+- you want different tracked tool defaults such as `default` vs `yunwu-openai`
 - you need to update non-secret tool config files
 
-### `agents/brains/skills/<skill>/SKILL.md`
+### `tools/<tool>/auth/<auth>/`
 
-Stores reusable skills in Agent Skills format.
-
-Use this when:
-
-- adding/editing reusable task instructions that can be installed into runtime homes
-- defining a reusable narrow probe contract such as `skill-invocation-probe`
-
-### `agents/brains/brain-recipes/<tool>/*.yaml`
-
-Stores declarative, secret-free brain presets.
+Local-only auth bundles for one tool.
 
 Use this when:
 
-- you want a reusable preset for `{tool, skills, config profile, credential profile-name}`
-- you want recipes to own the selected probe skill together with the tool/config/credential inputs for the skill-invocation demo flow
+- populating local API credentials and auth env files
+- rotating accounts or rate-limit lanes by switching bundle names
 
-### `agents/brains/api-creds/<tool>/<profile>/`
+Never commit secret material.
 
-Local-only credential profiles (gitignored).
+### `roles/<role>/system-prompt.md`
 
-Use this when:
-
-- setting up account credentials and env files locally
-- rotating account usage by creating a new profile directory name
-
-Never commit credential material.
-
-### `agents/roles/<role>/system-prompt.md`
-
-Stores brain-agnostic role packages.
+Role prompt and behavior package, independent of tool/runtime layout.
 
 Use this when:
 
-- defining behavior/policy for an agent independent of tool/runtime layout
-- biasing a copied dummy-project session toward one narrow flow such as `mailbox-demo` or `skill-invocation-demo`
+- defining the agent's behavior and policy
+- reusing the same role across multiple tools or setup variants
 
-### `agents/blueprints/<agent>.yaml`
+### `roles/<role>/presets/<tool>/<setup>.yaml`
 
-Optional binding between a brain recipe and a role.
+Minimal declarative launch preset for one role/tool/setup combination.
 
 Use this when:
 
-- you want one named, shareable agent definition without embedding secrets
-- you want CLI entrypoints such as `build-brain --blueprint ...` or `start-session --blueprint ...` to resolve the role and the recipe-selected tool/config/credential inputs together
+- you want a tracked reusable launch variant
+- you need to select skills, default auth, or preset-owned launch/mailbox settings
 
-Remember the fixture-model boundary:
+Preset identity is path-derived. The file path determines `role`, `tool`, and `setup`, so the YAML only contains `skills` plus optional `auth`, `launch`, `mailbox`, and `extra`.
 
-- recipes own tool, skills, config profile, and credential profile
-- blueprints bind one recipe to one role without restating secrets or skill lists
+## Runtime Outputs
 
-## Runtime Outputs (Generated)
+Generated runtime state still lives outside the source tree:
 
-The builder writes generated runtime state outside source-of-truth components:
-
-- `<runtime_root>/homes/<tool>/<home-id>/`
-- `<runtime_root>/manifests/<tool>/<home-id>.yaml`
+- `<runtime_root>/homes/<home-id>/`
+- `<runtime_root>/manifests/<home-id>.yaml`
 
 Default runtime root is `tmp/agents-runtime/`.
 
-## Brain-First Workflow
+## Recommended Workflow
 
-1. Select tool + skill set + config profile + credential profile.
-2. Build a fresh runtime home from a recipe:
-   - `pixi run python scripts/agents/build_brain_home.py --recipe agents/brains/brain-recipes/codex/gpu-kernel-coder-default.yaml`
-3. Or build from explicit inputs:
-   - `pixi run python scripts/agents/build_brain_home.py --tool codex --skill openspec-apply-change --config-profile default --cred-profile personal-a-default`
-4. Launch the tool via the generated helper:
-   - `<runtime_root>/homes/<tool>/<home-id>/launch.sh`
-5. Apply a role from `agents/roles/<role>/system-prompt.md`.
+1. Select a role preset such as `roles/gpu-kernel-coder/presets/claude/default.yaml`.
+2. Build explicitly from that preset:
+   - `pixi run houmao-mgr brains build --agent-def-dir tests/fixtures/agents --preset tests/fixtures/agents/roles/gpu-kernel-coder/presets/claude/default.yaml`
+3. Or launch directly from a bare role selector:
+   - `pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code`
+4. Override auth at launch time when needed:
+   - `pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code --auth personal-a-default`
 
 ## Source-Of-Truth Rules
 
-- Commit: adapters, config profiles, skills, recipes, roles, blueprints.
-- Do not commit: `agents/brains/api-creds/**` contents or secret values anywhere.
-- Let recipes own credential-profile selection; blueprints stay secret-free and inherit that selection through their bound recipe.
-- Concurrent active sessions may reuse the same provider credentials when the provider/tool allows it. If you hit provider-side rate or session limits, rotate one recipe or blueprint to a different credential profile.
+- Commit: `skills/`, `roles/`, `tools/<tool>/adapter.yaml`, `tools/<tool>/setups/`, tracked preset YAML, and compatibility metadata.
+- Do not commit: secret values under `tools/<tool>/auth/**`.
+- Keep managed-agent identity launch-time only. Presets do not own `default_agent_name`.
 - Keep adapter definitions authoritative for per-tool projection and launch behavior.
-
-## Migration Status
-
-Legacy profile folders under `agents/gpu_*` have been removed after migration to the brain-first flow.
-
-Reference notes are documented in `agents/MIGRATION.md`.

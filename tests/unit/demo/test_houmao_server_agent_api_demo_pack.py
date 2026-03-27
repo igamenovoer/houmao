@@ -378,7 +378,9 @@ def _seed_pack_fixture_tree(
     agent_def_dir = pack_dir / "agents"
     dummy_project_fixture = pack_dir / "inputs" / "project-template"
 
-    (agent_def_dir / "roles" / "server-api-smoke").mkdir(parents=True, exist_ok=True)
+    (agent_def_dir / "roles" / "server-api-smoke" / "presets" / tool).mkdir(
+        parents=True, exist_ok=True
+    )
     (agent_def_dir / "blueprints").mkdir(parents=True, exist_ok=True)
     (agent_def_dir / "brains" / "brain-recipes" / tool).mkdir(parents=True, exist_ok=True)
     (agent_def_dir / "brains" / "api-creds" / tool / credential_profile / "env").mkdir(
@@ -386,6 +388,18 @@ def _seed_pack_fixture_tree(
         exist_ok=True,
     )
     (agent_def_dir / "brains" / "cli-configs" / tool / config_profile).mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "env").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "files").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (agent_def_dir / "tools" / tool / "setups" / config_profile).mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -415,8 +429,58 @@ def _seed_pack_fixture_tree(
         encoding="utf-8",
     )
     (
+        agent_def_dir / "roles" / "server-api-smoke" / "presets" / tool / f"{config_profile}.yaml"
+    ).write_text(
+        (f"skills: []\nauth: {credential_profile}\nlaunch:\n  prompt_mode: unattended\n"),
+        encoding="utf-8",
+    )
+    (agent_def_dir / "tools" / tool / "adapter.yaml").write_text(
+        (
+            "schema_version: 1\n"
+            f"tool: {tool}\n"
+            "home_selector:\n"
+            f"  env_var: {'CLAUDE_CONFIG_DIR' if tool == 'claude' else 'CODEX_HOME'}\n"
+            "launch:\n"
+            f"  executable: {tool}\n"
+            "  args: []\n"
+            "  default_tool_params: {}\n"
+            "  metadata:\n"
+            "    tool_params: {}\n"
+            "  env_injection:\n"
+            f"    mode: {'export_from_env_file' if tool == 'claude' else 'home_dotenv'}\n"
+            + ("    env_file_in_home: .env\n" if tool == "codex" else "")
+            + "setup_projection:\n"
+            "  destination: .\n"
+            "skills_projection:\n"
+            "  destination: skills\n"
+            "  mode: symlink\n"
+            "auth_projection:\n"
+            "  files_dir: files\n"
+            "  file_mappings:\n"
+            + (
+                "    - source: claude_state.template.json\n"
+                "      destination: claude_state.template.json\n"
+                "      mode: copy\n"
+                "      required: false\n"
+                if tool == "claude"
+                else "    - source: auth.json\n      destination: auth.json\n      mode: symlink\n      required: false\n"
+            )
+            + "  env:\n"
+            "    source: env/vars.env\n"
+            + (
+                "    allowlist:\n      - ANTHROPIC_API_KEY\n      - ANTHROPIC_AUTH_TOKEN\n"
+                if tool == "claude"
+                else "    allowlist:\n      - OPENAI_API_KEY\n      - OPENAI_BASE_URL\n      - OPENAI_ORG_ID\n"
+            )
+        ),
+        encoding="utf-8",
+    )
+    (
         agent_def_dir / "brains" / "api-creds" / tool / credential_profile / "env" / "vars.env"
     ).write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    (agent_def_dir / "tools" / tool / "auth" / credential_profile / "env" / "vars.env").write_text(
+        "\n".join(env_lines) + "\n", encoding="utf-8"
+    )
 
     if tool == "claude":
         (agent_def_dir / "brains" / "api-creds" / "claude" / credential_profile / "files").mkdir(
@@ -432,7 +496,22 @@ def _seed_pack_fixture_tree(
             / "claude_state.template.json"
         ).write_text("{}\n", encoding="utf-8")
         (
+            agent_def_dir
+            / "tools"
+            / "claude"
+            / "auth"
+            / credential_profile
+            / "files"
+            / "claude_state.template.json"
+        ).write_text("{}\n", encoding="utf-8")
+        (
             agent_def_dir / "brains" / "cli-configs" / "claude" / config_profile / "settings.json"
+        ).write_text(
+            '{"skipDangerousModePermissionPrompt": true}\n',
+            encoding="utf-8",
+        )
+        (
+            agent_def_dir / "tools" / "claude" / "setups" / config_profile / "settings.json"
         ).write_text(
             '{"skipDangerousModePermissionPrompt": true}\n',
             encoding="utf-8",
@@ -441,6 +520,10 @@ def _seed_pack_fixture_tree(
         (
             agent_def_dir / "brains" / "cli-configs" / "codex" / config_profile / "config.toml"
         ).write_text(
+            '[model_providers.openai]\nname = "fixture"\n',
+            encoding="utf-8",
+        )
+        (agent_def_dir / "tools" / "codex" / "setups" / config_profile / "config.toml").write_text(
             '[model_providers.openai]\nname = "fixture"\n',
             encoding="utf-8",
         )

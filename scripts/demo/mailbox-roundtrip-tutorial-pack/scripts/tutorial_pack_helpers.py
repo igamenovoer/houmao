@@ -19,14 +19,13 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from houmao.agents.brain_builder import _load_tool_adapter, load_brain_recipe
-from houmao.agents.realm_controller.loaders import load_blueprint
 from houmao.cao.no_proxy import is_supported_loopback_cao_base_url
 from houmao.cao.rest_client import CaoRestClient
 from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
+from houmao.demo.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
 from houmao.demo.cao_interactive_demo.models import (
     DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
     DEFAULT_TERMINAL_LOG_RELATIVE_DIR,
@@ -443,8 +442,8 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         receiver=_participant_from_payload(payload.get("receiver"), context="receiver"),
         message=_message_from_payload(payload.get("message")),
     )
-    if parameters.backend != "cao_rest":
-        raise ValueError("demo parameters backend must be cao_rest")
+    if normalize_demo_launch_backend(parameters.backend) != "local_interactive":
+        raise ValueError("demo parameters backend must be local_interactive or legacy cao_rest")
     if "{demo_output_dir}" not in parameters.shared_mailbox_root_template and (
         "{workspace_dir}" not in parameters.shared_mailbox_root_template
     ):
@@ -562,42 +561,30 @@ def _resolve_autotest_participant_requirement(
 ) -> AutotestParticipantRequirement:
     """Resolve the concrete real-agent prerequisite paths for one participant."""
 
-    blueprint_path = (agent_def_dir / participant.blueprint).resolve()
-    blueprint = load_blueprint(blueprint_path)
-    recipe = load_brain_recipe(blueprint.brain_recipe_path)
-    tool_adapter_path = (
-        agent_def_dir / "brains" / "tool-adapters" / f"{recipe.tool}.yaml"
-    ).resolve()
-    adapter = _load_tool_adapter(tool_adapter_path)
-    credential_profile_dir = (
-        agent_def_dir / "brains" / "api-creds" / recipe.tool / recipe.credential_profile
-    ).resolve()
-    config_profile_dir = (
-        agent_def_dir / "brains" / "cli-configs" / recipe.tool / recipe.config_profile
-    ).resolve()
-    credential_files_dir = (credential_profile_dir / adapter.credential_files_dir).resolve()
-    required_credential_paths: list[Path] = []
-    optional_credential_paths: list[Path] = []
-    for mapping in adapter.credential_file_mappings:
-        source_path = (credential_files_dir / mapping.source).resolve()
-        if mapping.required:
-            required_credential_paths.append(source_path)
-        else:
-            optional_credential_paths.append(source_path)
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=agent_def_dir,
+        preset_path=participant.blueprint,
+    )
+    blueprint_path = resolved_launch.preset_path
+    recipe = resolved_launch.preset
+    if resolved_launch.auth_path is None or resolved_launch.auth_env_path is None:
+        raise ValueError(
+            f"participant preset must declare auth-backed launch inputs: {blueprint_path}"
+        )
     return AutotestParticipantRequirement(
         role=role,
         blueprint_path=blueprint_path,
-        brain_recipe_path=blueprint.brain_recipe_path.resolve(),
-        tool_adapter_path=tool_adapter_path,
+        brain_recipe_path=resolved_launch.preset_path,
+        tool_adapter_path=resolved_launch.adapter_path,
         tool=recipe.tool,
-        launch_executable=adapter.launch_executable,
+        launch_executable=resolved_launch.adapter.launch_executable,
         config_profile=recipe.config_profile,
-        config_profile_dir=config_profile_dir,
+        config_profile_dir=resolved_launch.setup_path,
         credential_profile=recipe.credential_profile,
-        credential_profile_dir=credential_profile_dir,
-        credential_env_path=(credential_profile_dir / adapter.credential_env_source).resolve(),
-        required_credential_paths=tuple(required_credential_paths),
-        optional_credential_paths=tuple(optional_credential_paths),
+        credential_profile_dir=resolved_launch.auth_path,
+        credential_env_path=resolved_launch.auth_env_path,
+        required_credential_paths=resolved_launch.required_auth_paths,
+        optional_credential_paths=resolved_launch.optional_auth_paths,
     )
 
 
@@ -2097,21 +2084,30 @@ def _record_participant_inspect_state(
         _read_json(session_manifest_path),
         context=str(session_manifest_path),
     )
-    cao_payload = _require_mapping(
-        manifest_payload.get("cao"),
-        context=f"{session_manifest_path}.cao",
-    )
-    terminal_id = _require_non_empty_string(
-        cao_payload.get("terminal_id"),
-        context=f"{session_manifest_path}.cao.terminal_id",
-    )
-    cao_home_dir = Path(
-        _require_non_empty_string(cao_context.get("home_dir"), context="cao.home_dir")
-    ).resolve()
+    raw_cao_payload = manifest_payload.get("cao")
+    terminal_id: str | None = None
+    terminal_log_path: str | None = None
     session_name = _require_non_empty_string(
-        cao_payload.get("session_name"),
-        context=f"{session_manifest_path}.cao.session_name",
+        start_payload.get("tmux_session_name"),
+        context="start.tmux_session_name",
     )
+    if isinstance(raw_cao_payload, dict):
+        cao_payload = _require_mapping(raw_cao_payload, context=f"{session_manifest_path}.cao")
+        terminal_id = _require_non_empty_string(
+            cao_payload.get("terminal_id"),
+            context=f"{session_manifest_path}.cao.terminal_id",
+        )
+        cao_home_dir = Path(
+            _require_non_empty_string(cao_context.get("home_dir"), context="cao.home_dir")
+        ).resolve()
+        session_name = _require_non_empty_string(
+            cao_payload.get("session_name"),
+            context=f"{session_manifest_path}.cao.session_name",
+        )
+        terminal_log_path = _terminal_log_path_for_cao_home(
+            cao_home_dir=cao_home_dir,
+            terminal_id=terminal_id,
+        )
     participant_state["inspect"] = {
         "agent_identity": _require_non_empty_string(
             start_payload.get("agent_identity"),
@@ -2121,10 +2117,7 @@ def _record_participant_inspect_state(
         "session_name": session_name,
         "tmux_target": session_name,
         "terminal_id": terminal_id,
-        "terminal_log_path": _terminal_log_path_for_cao_home(
-            cao_home_dir=cao_home_dir,
-            terminal_id=terminal_id,
-        ),
+        "terminal_log_path": terminal_log_path,
         "session_manifest": str(session_manifest_path),
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
@@ -2267,6 +2260,15 @@ def start_demo(
 
         env = _command_environment(jobs_dir=jobs_dir)
         sender_state = _require_state_mapping(state, "sender")
+        sender_launch = resolve_demo_preset_launch(
+            agent_def_dir=agent_def_dir,
+            preset_path=resolve_repo_relative_path(
+                _require_non_empty_string(
+                    sender_state.get("blueprint"), context="sender.blueprint"
+                ),
+                repo_root=repo_root,
+            ),
+        )
         sender_build = _run_realm_controller_json(
             repo_root=repo_root,
             args=[
@@ -2275,10 +2277,8 @@ def start_demo(
                 str(agent_def_dir),
                 "--runtime-root",
                 str(layout.runtime_root),
-                "--blueprint",
-                _require_non_empty_string(
-                    sender_state.get("blueprint"), context="sender.blueprint"
-                ),
+                "--preset",
+                str(sender_launch.preset_path),
             ],
             stdout_path=_artifact_path(layout, "sender_build"),
             env=env,
@@ -2287,6 +2287,16 @@ def start_demo(
         _write_state(layout.state_path, state)
 
         receiver_state = _require_state_mapping(state, "receiver")
+        receiver_launch = resolve_demo_preset_launch(
+            agent_def_dir=agent_def_dir,
+            preset_path=resolve_repo_relative_path(
+                _require_non_empty_string(
+                    receiver_state.get("blueprint"),
+                    context="receiver.blueprint",
+                ),
+                repo_root=repo_root,
+            ),
+        )
         receiver_build = _run_realm_controller_json(
             repo_root=repo_root,
             args=[
@@ -2295,11 +2305,8 @@ def start_demo(
                 str(agent_def_dir),
                 "--runtime-root",
                 str(layout.runtime_root),
-                "--blueprint",
-                _require_non_empty_string(
-                    receiver_state.get("blueprint"),
-                    context="receiver.blueprint",
-                ),
+                "--preset",
+                str(receiver_launch.preset_path),
             ],
             stdout_path=_artifact_path(layout, "receiver_build"),
             env=env,
@@ -2320,12 +2327,10 @@ def start_demo(
                     sender_build.get("manifest_path"),
                     context="sender_build.manifest_path",
                 ),
-                "--blueprint",
-                _require_non_empty_string(
-                    sender_state.get("blueprint"), context="sender.blueprint"
-                ),
+                "--role",
+                sender_launch.role_name,
                 "--backend",
-                parameters.backend,
+                normalize_demo_launch_backend(parameters.backend),
                 "--cao-base-url",
                 _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
                 "--cao-profile-store",
@@ -2384,13 +2389,10 @@ def start_demo(
                     receiver_build.get("manifest_path"),
                     context="receiver_build.manifest_path",
                 ),
-                "--blueprint",
-                _require_non_empty_string(
-                    receiver_state.get("blueprint"),
-                    context="receiver.blueprint",
-                ),
+                "--role",
+                receiver_launch.role_name,
                 "--backend",
-                parameters.backend,
+                normalize_demo_launch_backend(parameters.backend),
                 "--cao-base-url",
                 _require_non_empty_string(cao_context.get("base_url"), context="cao.base_url"),
                 "--cao-profile-store",

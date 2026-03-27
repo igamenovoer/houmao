@@ -55,12 +55,16 @@ def test_tracked_demo_parameters_parse_and_render_marker_paths() -> None:
     parameters = HELPERS.load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
     layout = HELPERS.build_demo_layout(demo_output_dir=Path("/tmp/skill-demo"))
 
-    assert parameters.backend == "cao_rest"
+    assert parameters.backend == "local_interactive"
     assert parameters.project_fixture == "tests/fixtures/dummy-projects/mailbox-demo-python"
     assert (
-        parameters.tool_lanes["claude"].blueprint == "blueprints/skill-invocation-demo-claude.yaml"
+        parameters.tool_lanes["claude"].blueprint
+        == "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml"
     )
-    assert parameters.tool_lanes["codex"].blueprint == "blueprints/skill-invocation-demo-codex.yaml"
+    assert (
+        parameters.tool_lanes["codex"].blueprint
+        == "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
+    )
     assert parameters.prompt.trigger_phrase == "workspace probe handshake"
     assert HELPERS.render_prompt_path(parameters, layout=layout) == Path(
         "/tmp/skill-demo/inputs/trigger_prompt.md"
@@ -170,7 +174,7 @@ def test_start_demo_uses_selected_lane_and_shadow_only(
                     tmp_path / "demo-output" / "runtime" / "sessions" / "agent.json"
                 ),
                 "agent_identity": "AGENTSYS-skill-invocation-demo-codex",
-                "backend": "cao_rest",
+                "backend": "local_interactive",
                 "tool": "codex",
                 "tmux_session_name": "tmux-skill-demo-codex",
                 "job_dir": str(tmp_path / "jobs" / "AGENTSYS-skill-invocation-demo-codex"),
@@ -197,15 +201,12 @@ def test_start_demo_uses_selected_lane_and_shadow_only(
     assert state["selected_tool"] == "codex"
     assert state["preflight"]["selected_tool"] == "codex"
     assert (project_workdir / ".houmao-demo-project.json").is_file()
-    assert "--blueprint" in build_args
-    assert (
-        build_args[build_args.index("--blueprint") + 1]
-        == "blueprints/skill-invocation-demo-codex.yaml"
+    assert "--preset" in build_args
+    assert build_args[build_args.index("--preset") + 1] == str(
+        tmp_path / "agent-defs" / "recipes" / "codex.yaml"
     )
-    assert (
-        start_args[start_args.index("--blueprint") + 1]
-        == "blueprints/skill-invocation-demo-codex.yaml"
-    )
+    assert start_args[start_args.index("--role") + 1] == "skill-invocation-demo"
+    assert start_args[start_args.index("--backend") + 1] == "local_interactive"
     assert start_args[start_args.index("--cao-parsing-mode") + 1] == "shadow_only"
     assert (
         start_args[start_args.index("--agent-identity") + 1]
@@ -265,38 +266,39 @@ def test_inspect_and_build_report_capture_watch_coordinates_and_marker_contract(
         "jobs_dir": None,
         "selected_tool": "codex",
         "selected_lane": {
-            "blueprint": "blueprints/skill-invocation-demo-codex.yaml",
+            "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml",
             "agent_identity": "AGENTSYS-skill-invocation-demo-codex",
         },
         "preflight": {
             "selected_tool": "codex",
             "blueprint_path": str(
-                _repo_root() / "tests/fixtures/agents/blueprints/skill-invocation-demo-codex.yaml"
+                _repo_root()
+                / "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
             ),
             "brain_recipe_path": str(
                 _repo_root()
-                / "tests/fixtures/agents/brains/brain-recipes/codex/skill-invocation-demo-default.yaml"
+                / "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
             ),
             "role_name": "skill-invocation-demo",
             "tool_adapter_path": str(
-                _repo_root() / "tests/fixtures/agents/brains/tool-adapters/codex.yaml"
+                _repo_root() / "tests/fixtures/agents/tools/codex/adapter.yaml"
             ),
             "launch_executable": "/usr/bin/codex",
             "config_profile": "default",
             "credential_profile": "personal-a-default",
             "credential_profile_dir": str(
-                _repo_root() / "tests/fixtures/agents/brains/api-creds/codex/personal-a-default"
+                _repo_root() / "tests/fixtures/agents/tools/codex/auth/personal-a-default"
             ),
             "credential_env_path": str(
                 _repo_root()
-                / "tests/fixtures/agents/brains/api-creds/codex/personal-a-default/env/vars.env"
+                / "tests/fixtures/agents/tools/codex/auth/personal-a-default/env/vars.env"
             ),
             "selected_allowlisted_env_keys": ["OPENAI_API_KEY"],
             "required_credential_paths": [],
             "optional_credential_paths": [
                 str(
                     _repo_root()
-                    / "tests/fixtures/agents/brains/api-creds/codex/personal-a-default/files/auth.json"
+                    / "tests/fixtures/agents/tools/codex/auth/personal-a-default/files/auth.json"
                 )
             ],
             "usable_auth_json": True,

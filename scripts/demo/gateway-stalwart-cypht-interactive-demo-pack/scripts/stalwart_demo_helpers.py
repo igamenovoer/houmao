@@ -31,6 +31,7 @@ from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
+from houmao.demo.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
 from houmao.mailbox.stalwart import build_stalwart_credential_ref, runtime_stalwart_credential_path
 
 _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/gateway-stalwart-cypht-interactive-demo-pack")
@@ -1008,8 +1009,8 @@ def load_demo_parameters(path: Path) -> DemoParameters:
         ),
         participants=participants,
     )
-    if parameters.backend != "cao_rest":
-        raise ValueError("demo parameters backend must be `cao_rest`")
+    if normalize_demo_launch_backend(parameters.backend) != "local_interactive":
+        raise ValueError("demo parameters backend must be `local_interactive` or legacy `cao_rest`")
     if parameters.gateway.host != "127.0.0.1":
         raise ValueError("the interactive demo pack requires loopback-only gateway host")
     if parameters.gateway.notifier_interval_seconds < 1:
@@ -1087,6 +1088,10 @@ def start_demo(
         for name, participant in parameters.participants.items():
             participant_dir = _participant_dir(layout, name)
             participant_dir.mkdir(parents=True, exist_ok=True)
+            resolved_launch = resolve_demo_preset_launch(
+                agent_def_dir=agent_def_dir,
+                preset_path=(repo_root / participant.blueprint).resolve(),
+            )
 
             build_payload = _run_realm_controller_json(
                 repo_root=repo_root,
@@ -1096,8 +1101,8 @@ def start_demo(
                     str(agent_def_dir),
                     "--runtime-root",
                     str(layout.runtime_root),
-                    "--blueprint",
-                    participant.blueprint,
+                    "--preset",
+                    str(resolved_launch.preset_path),
                 ],
                 stdout_path=_participant_artifact_path(layout, name, "brain_build"),
                 env=base_env,
@@ -1115,10 +1120,10 @@ def start_demo(
                         build_payload.get("manifest_path"),
                         context=f"{name}.build.manifest_path",
                     ),
-                    "--blueprint",
-                    participant.blueprint,
+                    "--role",
+                    resolved_launch.role_name,
                     "--backend",
-                    parameters.backend,
+                    normalize_demo_launch_backend(parameters.backend),
                     "--cao-base-url",
                     _require_non_empty_string(
                         cao_context.get("base_url"),

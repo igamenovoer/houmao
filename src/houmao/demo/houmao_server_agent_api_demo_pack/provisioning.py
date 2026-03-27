@@ -27,13 +27,13 @@ from houmao.agents.realm_controller.backends.claude_bootstrap import (
     ensure_claude_home_bootstrap,
 )
 from houmao.agents.realm_controller.backends.codex_bootstrap import ensure_codex_home_bootstrap
-from houmao.agents.brain_builder import load_brain_recipe
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     derive_agent_id_from_name,
     normalize_agent_identity_name,
 )
 from houmao.agents.realm_controller.loaders import parse_env_file
+from houmao.demo.launch_support import resolve_demo_preset_launch
 from houmao.owned_paths import (
     AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
     AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
@@ -521,36 +521,24 @@ def _lane_fixture_report(
 ) -> tuple[dict[str, Any], list[str], dict[str, str], list[str]]:
     """Build one lane-specific fixture report and collect missing prerequisites."""
 
-    recipe_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "brain-recipes"
-        / lane.tool
-        / f"{_FIXTURE_AGENT_PROFILE}-default.yaml"
-    ).resolve()
-    blueprint_path = (
-        fixtures.agent_def_dir / "blueprints" / f"{_FIXTURE_AGENT_PROFILE}-{lane.tool}.yaml"
-    ).resolve()
-    role_path = (
-        fixtures.agent_def_dir / "roles" / _FIXTURE_ROLE_NAME / "system-prompt.md"
-    ).resolve()
-    credential_env_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "api-creds"
-        / lane.tool
-        / lane.credential_profile
-        / "env"
-        / "vars.env"
-    ).resolve()
-    config_path = (
-        fixtures.agent_def_dir
-        / "brains"
-        / "cli-configs"
-        / lane.tool
-        / lane.config_profile
-        / ("settings.json" if lane.tool == "claude" else "config.toml")
-    ).resolve()
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=fixtures.agent_def_dir,
+        preset_path=(
+            fixtures.agent_def_dir
+            / "roles"
+            / _FIXTURE_ROLE_NAME
+            / "presets"
+            / lane.tool
+            / f"{lane.config_profile}.yaml"
+        ),
+    )
+    recipe_path = resolved_launch.preset_path
+    blueprint_path = resolved_launch.preset_path
+    role_path = resolved_launch.role_prompt_path
+    credential_env_path = resolved_launch.auth_env_path
+    config_path = resolved_launch.setup_path / (
+        "settings.json" if lane.tool == "claude" else "config.toml"
+    )
     missing: list[str] = []
     for label, path in {
         "recipe_path": recipe_path,
@@ -559,43 +547,39 @@ def _lane_fixture_report(
         "credential_env_path": credential_env_path,
         "config_path": config_path,
     }.items():
-        if not path.exists():
+        if path is None or not path.exists():
             missing.append(f"missing lane fixture `{lane.lane_id}` {label}: {path}")
 
-    recipe_operator_prompt_mode: str | None = None
-    if recipe_path.is_file():
-        recipe = load_brain_recipe(recipe_path)
-        recipe_operator_prompt_mode = recipe.operator_prompt_mode
-        if recipe.tool != lane.tool:
-            missing.append(
-                f"lane fixture `{lane.lane_id}` recipe tool mismatch: "
-                f"expected `{lane.tool}`, got `{recipe.tool}`."
-            )
-        if recipe.config_profile != lane.config_profile:
-            missing.append(
-                f"lane fixture `{lane.lane_id}` recipe config_profile mismatch: "
-                f"expected `{lane.config_profile}`, got `{recipe.config_profile}`."
-            )
-        if recipe.credential_profile != lane.credential_profile:
-            missing.append(
-                f"lane fixture `{lane.lane_id}` recipe credential_profile mismatch: "
-                f"expected `{lane.credential_profile}`, got `{recipe.credential_profile}`."
-            )
-        if lane.transport == "tui" and recipe.operator_prompt_mode != "unattended":
-            missing.append(
-                f"lane fixture `{lane.lane_id}` recipe `{recipe_path}` must set "
-                "`launch_policy.operator_prompt_mode: unattended` for no-prompt TUI startup."
-            )
+    recipe = resolved_launch.preset
+    recipe_operator_prompt_mode: str | None = recipe.operator_prompt_mode
+    if recipe.tool != lane.tool:
+        missing.append(
+            f"lane fixture `{lane.lane_id}` recipe tool mismatch: "
+            f"expected `{lane.tool}`, got `{recipe.tool}`."
+        )
+    if recipe.config_profile != lane.config_profile:
+        missing.append(
+            f"lane fixture `{lane.lane_id}` recipe config_profile mismatch: "
+            f"expected `{lane.config_profile}`, got `{recipe.config_profile}`."
+        )
+    if recipe.credential_profile != lane.credential_profile:
+        missing.append(
+            f"lane fixture `{lane.lane_id}` recipe credential_profile mismatch: "
+            f"expected `{lane.credential_profile}`, got `{recipe.credential_profile}`."
+        )
+    if lane.transport == "tui" and recipe.operator_prompt_mode != "unattended":
+        missing.append(
+            f"lane fixture `{lane.lane_id}` recipe `{recipe_path}` must set "
+            "`launch.operator_prompt_mode: unattended` for no-prompt TUI startup."
+        )
 
     extra_fixture_checks: dict[str, str] = {}
     if lane.tool == "claude":
+        if resolved_launch.auth_path is None:
+            raise SuiteError(f"Lane fixture `{lane.lane_id}` must declare one auth bundle.")
         claude_template_path = (
-            fixtures.agent_def_dir
-            / "brains"
-            / "api-creds"
-            / "claude"
-            / lane.credential_profile
-            / "files"
+            resolved_launch.auth_path
+            / resolved_launch.adapter.auth_files_dir
             / "claude_state.template.json"
         ).resolve()
         extra_fixture_checks["claude_state_template_path"] = str(claude_template_path)
@@ -605,7 +589,11 @@ def _lane_fixture_report(
                 f"`{lane.lane_id}`: {claude_template_path}"
             )
 
-    env_values = parse_env_file(credential_env_path) if credential_env_path.is_file() else {}
+    env_values = (
+        parse_env_file(credential_env_path)
+        if credential_env_path is not None and credential_env_path.is_file()
+        else {}
+    )
     env_names: list[str]
     required_key_names: list[str]
     if lane.tool == "codex":

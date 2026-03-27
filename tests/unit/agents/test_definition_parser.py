@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from houmao.agents.definition_parser import (
+    load_agent_catalog,
+    parse_agent_preset,
+    resolve_agent_preset,
+)
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _seed_agent_defs(agent_def_dir: Path) -> None:
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "skills/skill-b/SKILL.md", "# skill-b\n")
+    _write(agent_def_dir / "roles/gpu-kernel-coder/system-prompt.md", "Prompt\n")
+    _write(
+        agent_def_dir / "tools/claude/adapter.yaml",
+        """
+schema_version: 1
+tool: claude
+home_selector:
+  env_var: CLAUDE_CONFIG_DIR
+launch:
+  executable: claude
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings: []
+  env:
+    source: env/vars.env
+    allowlist:
+      - ANTHROPIC_API_KEY
+""".strip()
+        + "\n",
+    )
+    _write(agent_def_dir / "tools/claude/setups/default/settings.json", "{}\n")
+    _write(agent_def_dir / "tools/claude/setups/research/settings.json", "{}\n")
+    _write(agent_def_dir / "tools/claude/auth/default/env/vars.env", "ANTHROPIC_API_KEY=demo\n")
+    _write(agent_def_dir / "tools/claude/auth/kimi-coding/env/vars.env", "ANTHROPIC_API_KEY=demo\n")
+    _write(
+        agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml",
+        """
+skills:
+  - skill-a
+auth: default
+launch:
+  prompt_mode: unattended
+""".strip()
+        + "\n",
+    )
+    _write(
+        agent_def_dir / "roles/gpu-kernel-coder/presets/claude/research.yaml",
+        """
+skills:
+  - skill-a
+  - skill-b
+auth: kimi-coding
+""".strip()
+        + "\n",
+    )
+
+
+def test_load_agent_catalog_tracks_setup_and_auth_namespaces(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "agents"
+    _seed_agent_defs(agent_def_dir)
+
+    catalog = load_agent_catalog(agent_def_dir)
+
+    assert sorted(catalog.setups["claude"]) == ["default", "research"]
+    assert sorted(catalog.auths["claude"]) == ["default", "kimi-coding"]
+    assert catalog.tool_adapters["claude"].setup_destination == "."
+
+    default_preset = catalog.presets[
+        (agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml").resolve()
+    ]
+    assert default_preset.role_name == "gpu-kernel-coder"
+    assert default_preset.tool == "claude"
+    assert default_preset.setup == "default"
+
+
+def test_parse_agent_preset_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
+    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    _write(
+        preset_path,
+        """
+skills: []
+config_profile: default
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="unsupported top-level field"):
+        parse_agent_preset(preset_path)
+
+
+def test_parse_agent_preset_accepts_gateway_defaults_under_extra(tmp_path: Path) -> None:
+    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    _write(
+        preset_path,
+        """
+skills:
+  - skill-a
+extra:
+  gateway:
+    host: 127.0.0.1
+    port: 43123
+""".strip()
+        + "\n",
+    )
+
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.extra["gateway"] == {"host": "127.0.0.1", "port": 43123}
+    assert preset.gateway_defaults is not None
+    assert preset.gateway_defaults.host == "127.0.0.1"
+    assert preset.gateway_defaults.port == 43123
+
+
+def test_parse_agent_preset_rejects_invalid_gateway_defaults_under_extra(tmp_path: Path) -> None:
+    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    _write(
+        preset_path,
+        """
+skills:
+  - skill-a
+extra:
+  gateway:
+    host: 127.0.0.1
+    token: nope
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="invalid extra.gateway"):
+        parse_agent_preset(preset_path)
+
+
+def test_resolve_agent_preset_uses_default_setup_for_bare_role(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "agents"
+    _seed_agent_defs(agent_def_dir)
+    catalog = load_agent_catalog(agent_def_dir)
+
+    preset = resolve_agent_preset(catalog=catalog, selector="gpu-kernel-coder", tool="claude")
+
+    assert preset.path == (agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml").resolve()
+    assert preset.auth == "default"
+
+
+def test_resolve_agent_preset_accepts_explicit_preset_path_selector(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "agents"
+    _seed_agent_defs(agent_def_dir)
+    catalog = load_agent_catalog(agent_def_dir)
+
+    preset = resolve_agent_preset(
+        catalog=catalog,
+        selector="roles/gpu-kernel-coder/presets/claude/research.yaml",
+        tool="claude",
+    )
+
+    assert preset.setup == "research"
+    assert preset.auth == "kimi-coding"
+    assert preset.skills == ["skill-a", "skill-b"]
+
+
+def test_resolve_agent_preset_rejects_role_setup_shorthand(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "agents"
+    _seed_agent_defs(agent_def_dir)
+    catalog = load_agent_catalog(agent_def_dir)
+
+    with pytest.raises(FileNotFoundError, match="Could not resolve preset path"):
+        resolve_agent_preset(
+            catalog=catalog,
+            selector="gpu-kernel-coder/research",
+            tool="claude",
+        )

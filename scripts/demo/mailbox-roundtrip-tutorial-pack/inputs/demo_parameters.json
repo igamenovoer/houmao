@@ -3,17 +3,17 @@
   "demo_id": "mailbox-roundtrip-tutorial-pack",
   "agent_def_dir": "tests/fixtures/agents",
   "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
-  "backend": "cao_rest",
+  "backend": "local_interactive",
   "cao_base_url": "http://localhost:9889",
   "shared_mailbox_root_template": "{demo_output_dir}/mailbox",
   "sender": {
-    "blueprint": "blueprints/mailbox-demo-claude.yaml",
+    "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml",
     "agent_identity": "AGENTSYS-mailbox-sender",
     "mailbox_principal_id": "AGENTSYS-mailbox-sender",
     "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost"
   },
   "receiver": {
-    "blueprint": "blueprints/mailbox-demo-codex.yaml",
+    "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
     "agent_identity": "AGENTSYS-mailbox-receiver",
     "mailbox_principal_id": "AGENTSYS-mailbox-receiver",
     "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost"

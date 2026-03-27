@@ -23,6 +23,7 @@ from .mailbox import (
     gateway_can_accept_work,
     observe_unread_delivery,
 )
+from houmao.demo.launch_support import resolve_demo_preset_launch
 from .models import (
     DEFAULT_EXPECTED_REPORT_RELATIVE,
     DEFAULT_PARAMETERS_RELATIVE,
@@ -269,6 +270,10 @@ def _start_demo(
     project_fixture = resolve_repo_relative_path(parameters.project_fixture, repo_root=repo_root)
     tool_parameters = parameters.tool_parameters(tool=tool)
     blueprint_path = resolve_repo_relative_path(tool_parameters.blueprint, repo_root=repo_root)
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=agent_def_dir,
+        preset_path=blueprint_path,
+    )
     env = build_demo_environment(paths=paths)
 
     start_cao_service(
@@ -298,6 +303,7 @@ def _start_demo(
         build_result=build_result,
         project_workdir=project_workdir,
         tool_parameters=tool_parameters.model_copy(update={"blueprint": blueprint_path}),
+        role_name=resolved_launch.role_name,
         cao_base_url=parameters.cao_base_url,
         env=env,
         timeout_seconds=parameters.command_timeout_seconds,

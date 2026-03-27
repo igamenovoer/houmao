@@ -77,10 +77,11 @@ def default_tool_runtime_metadata(
             / "tests"
             / "fixtures"
             / "agents"
-            / "brains"
-            / "brain-recipes"
+            / "roles"
+            / "interactive-watch"
+            / "presets"
             / tool
-            / "interactive-watch-default.yaml"
+            / "default.yaml"
         ).resolve()
         if tool == "claude":
             launch_overrides = None

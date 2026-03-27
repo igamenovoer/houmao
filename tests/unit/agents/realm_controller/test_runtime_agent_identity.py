@@ -68,10 +68,19 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: codex",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_executable: codex",
                 "  launch_home_selector:",
                 "    env_var: CODEX_HOME",
@@ -81,11 +90,18 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -291,6 +307,10 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"AGENTSYS-gpu-270b87"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
@@ -429,6 +449,10 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"AGENTSYS-gpu-270b87"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
@@ -516,6 +540,10 @@ def test_resolve_agent_identity_name_fails_when_multiple_suffixed_sessions_match
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"AGENTSYS-gpu-270b87", "AGENTSYS-gpu-270b873"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     with pytest.raises(SessionManifestError, match="matched multiple tmux sessions"):

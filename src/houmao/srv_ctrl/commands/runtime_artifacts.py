@@ -361,7 +361,7 @@ def materialize_delegated_launch(
     brain_manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "inputs": {"tool": tool},
                 "runtime": {
                     "launch_executable": "cao",
@@ -375,14 +375,14 @@ def materialize_delegated_launch(
                             "tool_params": {},
                         },
                         "requested_overrides": {
-                            "recipe": None,
+                            "preset": None,
                             "direct": None,
                         },
                         "tool_metadata": {"tool_params": {}},
                         "construction_provenance": {
                             "adapter_path": None,
-                            "recipe_path": None,
-                            "recipe_overrides_present": False,
+                            "preset_path": None,
+                            "preset_overrides_present": False,
                             "direct_overrides_present": False,
                         },
                     },
@@ -554,14 +554,15 @@ def materialize_headless_launch_request(
         BuildRequest(
             agent_def_dir=target.agent_def_dir,
             runtime_root=runtime_root,
-            tool=target.recipe.tool,
-            skills=target.recipe.skills,
-            config_profile=target.recipe.config_profile,
-            credential_profile=target.recipe.credential_profile,
-            recipe_path=target.recipe_path,
-            recipe_launch_overrides=target.recipe.launch_overrides,
-            mailbox=target.recipe.mailbox,
-            agent_name=target.recipe.default_agent_name,
+            tool=target.preset.tool,
+            skills=target.preset.skills,
+            setup=target.preset.setup,
+            auth=target.preset.auth,
+            preset_path=target.preset_path,
+            preset_launch_overrides=target.preset.launch_overrides,
+            operator_prompt_mode=target.preset.operator_prompt_mode,
+            mailbox=target.preset.mailbox,
+            extra=target.preset.extra,
         )
     )
     return HoumaoHeadlessLaunchRequest(
@@ -570,7 +571,7 @@ def materialize_headless_launch_request(
         agent_def_dir=str(target.agent_def_dir),
         brain_manifest_path=str(build_result.manifest_path.resolve()),
         role_name=target.role_name,
-        agent_name=target.recipe.default_agent_name,
+        agent_name=None,
         agent_id=None,
     )
 
@@ -618,7 +619,7 @@ def _materialize_join_placeholder_files(
     brain_manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "inputs": {"tool": tool},
                 "runtime": {
                     "launch_executable": executable,
@@ -628,7 +629,7 @@ def _materialize_join_placeholder_files(
                     },
                     "launch_contract": {
                         "adapter_defaults": {"args": [], "tool_params": {}},
-                        "requested_overrides": {"recipe": None, "direct": None},
+                        "requested_overrides": {"preset": None, "direct": None},
                         "tool_metadata": {"tool_params": {}},
                     },
                 },

@@ -958,6 +958,10 @@ def start_runtime_session(
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
+    resolved_gateway_defaults = blueprint_gateway_defaults or _gateway_defaults_from_brain_manifest(
+        manifest,
+        source=str(brain_manifest_path),
+    )
     resolved_role_name = role_name.strip() if role_name is not None and role_name.strip() else None
     if resolved_role_name is None:
         role_package = RolePackage(
@@ -1122,7 +1126,7 @@ def start_runtime_session(
     )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
-        blueprint_gateway_defaults=blueprint_gateway_defaults,
+        blueprint_gateway_defaults=resolved_gateway_defaults,
     )
     if gateway_auto_attach:
         attach_result = controller.attach_gateway(
@@ -2142,6 +2146,41 @@ def _declared_mailbox_from_manifest(
         )
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
+
+
+def _gateway_defaults_from_brain_manifest(
+    manifest: dict[str, object],
+    *,
+    source: str,
+) -> BlueprintGatewayDefaults | None:
+    """Return optional gateway defaults from manifest `inputs.extra.gateway`."""
+
+    inputs = manifest.get("inputs")
+    if inputs is None:
+        return None
+    if not isinstance(inputs, dict):
+        raise SessionManifestError(f"{source}: brain manifest `inputs` must be a mapping")
+
+    extra = inputs.get("extra")
+    if extra is None:
+        return None
+    if not isinstance(extra, dict):
+        raise SessionManifestError(f"{source}: brain manifest `inputs.extra` must be a mapping")
+
+    raw_gateway = extra.get("gateway")
+    if raw_gateway is None:
+        return None
+    if not isinstance(raw_gateway, dict):
+        raise SessionManifestError(
+            f"{source}: brain manifest `inputs.extra.gateway` must be a mapping"
+        )
+
+    try:
+        return BlueprintGatewayDefaults.model_validate(raw_gateway)
+    except Exception as exc:
+        raise SessionManifestError(
+            f"{source}: invalid brain manifest `inputs.extra.gateway`: {exc}"
+        ) from exc
 
 
 def _resolved_mailbox_from_manifest_payload(

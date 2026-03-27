@@ -43,7 +43,12 @@ def _manifest(
     direct_overrides: dict[str, Any] | None = None,
     tool_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    adapter_path = "/tmp/tool-adapter.yaml"
     runtime: dict[str, Any] = {
+        "runtime_root": str(home_path.parent),
+        "home_id": "test-home",
+        "home_path": str(home_path),
+        "launch_helper": str(home_path / "launch.sh"),
         "launch_executable": executable,
         "launch_home_selector": {
             "env_var": home_env_var,
@@ -55,14 +60,14 @@ def _manifest(
                 "tool_params": {},
             },
             "requested_overrides": {
-                "recipe": recipe_overrides,
+                "preset": recipe_overrides,
                 "direct": direct_overrides,
             },
             "tool_metadata": tool_metadata or {"tool_params": {}},
             "construction_provenance": {
-                "adapter_path": "/tmp/tool-adapter.yaml",
-                "recipe_path": None,
-                "recipe_overrides_present": recipe_overrides is not None,
+                "adapter_path": adapter_path,
+                "preset_path": None,
+                "preset_overrides_present": recipe_overrides is not None,
                 "direct_overrides_present": direct_overrides is not None,
             },
         },
@@ -71,10 +76,19 @@ def _manifest(
         runtime.update(runtime_extra)
 
     manifest: dict[str, Any] = {
-        "schema_version": 2,
-        "inputs": {"tool": tool},
+        "schema_version": 3,
+        "inputs": {
+            "tool": tool,
+            "skills": [],
+            "setup": "default",
+            "auth": "default",
+            "adapter_path": adapter_path,
+            "preset_path": None,
+        },
         "runtime": runtime,
         "credentials": {
+            "auth_path": str(home_path.parent / "auth"),
+            "projected_files": [],
             "env_contract": {
                 "source_file": str(env_file),
                 "allowlisted_env_vars": allowlisted_env_vars,

@@ -111,9 +111,10 @@ def agents_group() -> None:
 
 
 @agents_group.command(name="launch")
-@click.option("--agents", required=True, help="Native launch selector to resolve the brain recipe.")
-@click.option("--agent-name", required=True, help="Friendly managed-agent name.")
+@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
+@click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
+@click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
@@ -125,8 +126,9 @@ def agents_group() -> None:
 @click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
 def launch_agents_command(
     agents: str,
-    agent_name: str,
+    agent_name: str | None,
     agent_id: str | None,
+    auth: str | None,
     session_name: str | None,
     headless: bool,
     provider: str,
@@ -161,14 +163,15 @@ def launch_agents_command(
             BuildRequest(
                 agent_def_dir=target.agent_def_dir,
                 runtime_root=None,
-                tool=target.recipe.tool,
-                skills=target.recipe.skills,
-                config_profile=target.recipe.config_profile,
-                credential_profile=target.recipe.credential_profile,
-                recipe_path=target.recipe_path,
-                recipe_launch_overrides=target.recipe.launch_overrides,
-                operator_prompt_mode=target.recipe.operator_prompt_mode,
-                mailbox=target.recipe.mailbox,
+                tool=target.preset.tool,
+                skills=target.preset.skills,
+                setup=target.preset.setup,
+                auth=auth or target.preset.auth,
+                preset_path=target.preset_path,
+                preset_launch_overrides=target.preset.launch_overrides,
+                operator_prompt_mode=target.preset.operator_prompt_mode,
+                mailbox=target.preset.mailbox,
+                extra=target.preset.extra,
                 agent_name=agent_name,
                 agent_id=agent_id,
             )

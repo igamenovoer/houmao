@@ -26,13 +26,13 @@
   },
   "tools": {
     "claude": {
-      "blueprint": "blueprints/mailbox-demo-claude.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml",
       "agent_identity": "AGENTSYS-tui-mail-gateway-claude",
       "mailbox_principal_id": "AGENTSYS-tui-mail-gateway-claude",
       "mailbox_address": "AGENTSYS-tui-mail-gateway-claude@agents.localhost"
     },
     "codex": {
-      "blueprint": "blueprints/mailbox-demo-codex.yaml",
+      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
       "agent_identity": "AGENTSYS-tui-mail-gateway-codex",
       "mailbox_principal_id": "AGENTSYS-tui-mail-gateway-codex",
       "mailbox_address": "AGENTSYS-tui-mail-gateway-codex@agents.localhost"

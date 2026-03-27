@@ -20,7 +20,6 @@ from typing import Any
 from houmao.agents.brain_builder import (
     BuildRequest,
     BuildResult,
-    _load_tool_adapter,
     build_brain_home,
     load_brain_recipe,
 )
@@ -33,7 +32,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     tmux_error_detail,
 )
-from houmao.agents.realm_controller.loaders import load_blueprint, parse_allowlisted_env
+from houmao.agents.realm_controller.loaders import parse_allowlisted_env
 from houmao.agents.realm_controller.manifest import default_manifest_path, load_session_manifest
 from houmao.owned_paths import (
     AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
@@ -43,6 +42,7 @@ from houmao.owned_paths import (
 from houmao.server.client import HoumaoServerClient
 from houmao.cao.models import CaoSessionDetail
 from houmao.cao.rest_client import CaoApiError
+from houmao.demo.launch_support import resolve_demo_preset_launch
 
 from houmao.demo.houmao_server_dual_shadow_watch.models import (
     DEFAULT_COMPLETION_STABILITY_SECONDS,
@@ -838,35 +838,26 @@ def _resolve_lane_preflight(*, repo_root: Path, agent_def_dir: Path, slot: str) 
     del repo_root
     tool = slot
     provider = _PROVIDER_BY_SLOT[slot]
-    blueprint_path = (agent_def_dir / "blueprints" / f"projection-demo-{tool}.yaml").resolve()
-    if not blueprint_path.is_file():
-        raise HoumaoServerDualShadowWatchError(f"selected blueprint not found: {blueprint_path}")
-
-    blueprint = load_blueprint(blueprint_path)
-    recipe = load_brain_recipe(blueprint.brain_recipe_path)
-    adapter_path = (agent_def_dir / "brains" / "tool-adapters" / f"{recipe.tool}.yaml").resolve()
-    adapter = _load_tool_adapter(adapter_path)
-    config_profile_dir = (
-        agent_def_dir / "brains" / "cli-configs" / recipe.tool / recipe.config_profile
-    ).resolve()
-    credential_profile_dir = (
-        agent_def_dir / "brains" / "api-creds" / recipe.tool / recipe.credential_profile
-    ).resolve()
-    credential_env_path = (credential_profile_dir / adapter.credential_env_source).resolve()
+    resolved_launch = resolve_demo_preset_launch(
+        agent_def_dir=agent_def_dir,
+        preset_path=agent_def_dir / "roles" / "projection-demo" / "presets" / tool / "default.yaml",
+    )
+    blueprint_path = resolved_launch.preset_path
+    recipe = resolved_launch.preset
+    adapter = resolved_launch.adapter
+    config_profile_dir = resolved_launch.setup_path
+    if resolved_launch.auth_path is None or resolved_launch.auth_env_path is None:
+        raise HoumaoServerDualShadowWatchError(
+            f"selected preset does not declare auth-backed launch inputs: {resolved_launch.preset_path}"
+        )
+    credential_profile_dir = resolved_launch.auth_path
+    credential_env_path = resolved_launch.auth_env_path
     selected_env, selected_env_names = parse_allowlisted_env(
         credential_env_path,
         adapter.credential_env_allowlist,
     )
-    required_paths = tuple(
-        (credential_profile_dir / adapter.credential_files_dir / mapping.source).resolve()
-        for mapping in adapter.credential_file_mappings
-        if mapping.required
-    )
-    optional_paths = tuple(
-        (credential_profile_dir / adapter.credential_files_dir / mapping.source).resolve()
-        for mapping in adapter.credential_file_mappings
-        if not mapping.required
-    )
+    required_paths = resolved_launch.required_auth_paths
+    optional_paths = resolved_launch.optional_auth_paths
     launch_executable = shutil.which(adapter.launch_executable)
     if launch_executable is None:
         raise HoumaoServerDualShadowWatchError(
@@ -878,8 +869,8 @@ def _resolve_lane_preflight(*, repo_root: Path, agent_def_dir: Path, slot: str) 
         tool=recipe.tool,
         provider=provider,
         blueprint_path=blueprint_path,
-        brain_recipe_path=blueprint.brain_recipe_path.resolve(),
-        role_name=blueprint.role,
+        brain_recipe_path=resolved_launch.preset_path,
+        role_name=resolved_launch.role_name,
         config_profile=recipe.config_profile,
         credential_profile=recipe.credential_profile,
         config_profile_dir=config_profile_dir,

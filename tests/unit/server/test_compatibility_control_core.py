@@ -188,7 +188,7 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
     ]
 
 
-def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
+def test_prepare_native_launch_projection_uses_resolved_role_package(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -206,21 +206,30 @@ def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
             tool="codex",
             working_directory=tmp_path,
             agent_def_dir=(tmp_path / "agents").resolve(),
-            recipe_path=(
-                tmp_path / "agents" / "brains" / "brain-recipes" / "codex" / "x.yaml"
+            preset_path=(
+                tmp_path
+                / "agents"
+                / "roles"
+                / "gpu-kernel-coder"
+                / "presets"
+                / "codex"
+                / "default.yaml"
             ).resolve(),
-            recipe=SimpleNamespace(
+            preset=SimpleNamespace(
                 tool="codex",
                 skills=[],
-                config_profile="default",
-                credential_profile="demo-default",
+                setup="default",
+                auth="demo-default",
                 launch_overrides=None,
+                operator_prompt_mode=None,
                 mailbox=None,
-                default_agent_name="cao-codex-demo",
+                extra={},
             ),
-            role_name=None,
+            role_name="gpu-kernel-coder",
             role_prompt="",
-            role_prompt_path=None,
+            role_prompt_path=(
+                tmp_path / "agents" / "roles" / "gpu-kernel-coder" / "system-prompt.md"
+            ).resolve(),
         ),
     )
     monkeypatch.setattr(
@@ -250,7 +259,7 @@ def test_prepare_native_launch_projection_accepts_missing_role_as_brain_only(
     assert prepared.profile.system_prompt == ""
     assert prepared.profile.provider == "codex"
     request = capture["request"]
-    assert getattr(request, "role_package").role_name == "brain-only"
+    assert getattr(request, "role_package").role_name == "gpu-kernel-coder"
     assert getattr(request, "role_package").system_prompt == ""
 
 

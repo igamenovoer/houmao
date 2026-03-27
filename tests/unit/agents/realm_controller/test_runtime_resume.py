@@ -56,10 +56,19 @@ def _seed_manifest(
 
     manifest_path = tmp_path / "brain.yaml"
     runtime_lines = [
-        "schema_version: 2",
+        "schema_version: 3",
         "inputs:",
         f"  tool: {tool}",
+        "  skills: []",
+        "  setup: default",
+        "  auth: default",
+        "  adapter_path: /tmp/tool-adapter.yaml",
+        "  preset_path: null",
         "runtime:",
+        f"  runtime_root: {tmp_path}",
+        "  home_id: test-home",
+        f"  home_path: {tmp_path / 'home'}",
+        f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
         f"  launch_executable: {tool}",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
@@ -69,16 +78,23 @@ def _seed_manifest(
         "      args: []",
         "      tool_params: {}",
         "    requested_overrides:",
-        "      recipe: null",
+        "      preset: null",
         "      direct: null",
         "    tool_metadata:",
         "      tool_params: {}",
+        "    construction_provenance:",
+        "      adapter_path: /tmp/tool-adapter.yaml",
+        "      preset_path: null",
+        "      preset_overrides_present: false",
+        "      direct_overrides_present: false",
     ]
     if cao_parsing_mode is not None:
         runtime_lines.append(f"  cao_parsing_mode: {cao_parsing_mode}")
     runtime_lines.extend(
         [
             "credentials:",
+            f"  auth_path: {tmp_path / 'auth'}",
+            "  projected_files: []",
             "  env_contract:",
             f"    source_file: {env_file}",
             "    allowlisted_env_vars:",

@@ -55,7 +55,7 @@
     "automatic": {
       "marker_timeout_seconds": 180
     },
-    "backend": "cao_rest",
+    "backend": "local_interactive",
     "cao_base_url": "<CAO_BASE_URL>",
     "demo_id": "skill-invocation-demo-pack",
     "parsing_mode": "shadow_only",
@@ -75,11 +75,11 @@
     "tool_lanes": {
       "claude": {
         "agent_identity": "<AGENT_IDENTITY>",
-        "blueprint": "blueprints/skill-invocation-demo-claude.yaml"
+        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml"
       },
       "codex": {
         "agent_identity": "<AGENT_IDENTITY>",
-        "blueprint": "blueprints/skill-invocation-demo-codex.yaml"
+        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
       }
     }
   },

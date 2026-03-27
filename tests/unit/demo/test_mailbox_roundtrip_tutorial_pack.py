@@ -167,10 +167,16 @@ def test_tracked_demo_parameters_parse_and_render_demo_output_mailbox_root() -> 
 
     parameters = HELPERS.load_demo_parameters(PACK_DIR / "inputs" / "demo_parameters.json")
 
-    assert parameters.backend == "cao_rest"
+    assert parameters.backend == "local_interactive"
     assert parameters.project_fixture == "tests/fixtures/dummy-projects/mailbox-demo-python"
-    assert parameters.sender.blueprint == "blueprints/mailbox-demo-claude.yaml"
-    assert parameters.receiver.blueprint == "blueprints/mailbox-demo-codex.yaml"
+    assert (
+        parameters.sender.blueprint
+        == "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml"
+    )
+    assert (
+        parameters.receiver.blueprint
+        == "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml"
+    )
     assert parameters.message.initial_body_file == "inputs/initial_message.md"
     assert parameters.message.reply_instructions_file == "inputs/reply_instructions.md"
     assert HELPERS.render_mailbox_root(
@@ -683,7 +689,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         },
         "sender_start": {
             "session_manifest": str(runtime_root / "sessions" / "sender.json"),
-            "backend": "cao_rest",
+            "backend": "local_interactive",
             "tool": "claude",
             "agent_identity": "AGENTSYS-mailbox-sender",
             "tmux_session_name": "AGENTSYS-mailbox-sender",
@@ -698,7 +704,7 @@ def test_build_report_and_sanitize_report_mask_nondeterministic_fields(tmp_path:
         },
         "receiver_start": {
             "session_manifest": str(runtime_root / "sessions" / "receiver.json"),
-            "backend": "cao_rest",
+            "backend": "local_interactive",
             "tool": "codex",
             "agent_identity": "AGENTSYS-mailbox-receiver",
             "tmux_session_name": "AGENTSYS-mailbox-receiver",

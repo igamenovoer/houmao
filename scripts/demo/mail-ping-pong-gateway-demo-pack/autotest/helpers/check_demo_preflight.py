@@ -7,7 +7,7 @@ import argparse
 import os
 from pathlib import Path
 
-from houmao.agents.brain_builder import load_brain_recipe
+from houmao.demo.launch_support import resolve_demo_preset_launch
 from houmao.demo.mail_ping_pong_gateway_demo_pack.models import (
     load_demo_parameters,
     resolve_repo_relative_path,
@@ -52,10 +52,15 @@ def main(argv: list[str] | None = None) -> int:
     for role, participant in participants.items():
         recipe_path = resolve_repo_relative_path(participant.brain_recipe_path, repo_root=repo_root)
         _existing_file(recipe_path, description=f"{role} recipe")
-        recipe = load_brain_recipe(recipe_path)
-        config_dir = agent_def_dir / "brains" / "cli-configs" / recipe.tool / recipe.config_profile
-        creds_dir = agent_def_dir / "brains" / "api-creds" / recipe.tool / recipe.credential_profile
+        resolved_launch = resolve_demo_preset_launch(
+            agent_def_dir=agent_def_dir,
+            preset_path=recipe_path,
+        )
+        config_dir = resolved_launch.setup_path
+        creds_dir = resolved_launch.auth_path
         _existing_dir(config_dir, description=f"{role} config profile")
+        if creds_dir is None:
+            raise SystemExit(f"missing {role} credential profile: preset does not declare auth")
         _existing_dir(creds_dir, description=f"{role} credential profile")
 
     print("preflight ok")

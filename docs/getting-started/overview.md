@@ -1,70 +1,23 @@
 # Architecture Overview
 
-Houmao orchestrates teams of CLI-based AI agents (Codex, Claude, Gemini) as real tmux-backed processes, each with its own isolated disk state and native CLI experience. The system follows a strict **two-phase lifecycle**: first build an agent's brain (configuration + capabilities), then run it as a live session.
+Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases, but the reusable source model is now `preset + setup + auth` rather than `recipe + config-profile + credential-profile`.
 
 ## Two-Phase Lifecycle
 
-### System Architecture
-
 ```mermaid
 flowchart TD
-    Op["Operator"] --> BR["BuildRequest<br/>(tool, skills, config_profile,<br/>credential_profile)"]
-
-    subgraph Build["Build Phase"]
-        BR --> BB["BrainBuilder"]
-        BB --> TA["ToolAdapter"]
-        TA --> PC["Project Config"]
-        TA --> PS["Project Skills"]
-        TA --> CRED["Project Credentials"]
-        PC --> BRES["BuildResult<br/>(runtime home +<br/>BrainManifest)"]
-        PS --> BRES
-        CRED --> BRES
-    end
-
-    BRES --> LPR["LaunchPlanRequest<br/>(manifest + role)"]
-
-    subgraph Run["Run Phase"]
-        LPR --> BLP["build_launch_plan()"]
-        BLP --> ENV["Env Resolution"]
-        BLP --> RI["Role Injection"]
-        BLP --> POL["Launch Policy"]
-        ENV --> LP["LaunchPlan"]
-        RI --> LP
-        POL --> LP
-        LP --> BD{"Backend Dispatch"}
-        BD --> LI["local_interactive"]
-        BD --> CH["claude_headless"]
-        BD --> CXH["codex_headless"]
-        BD --> GH["gemini_headless"]
-    end
-
-    LI --> LS["Live Session<br/>(tmux-backed)"]
-    CH --> LS
-    CXH --> LS
-    GH --> LS
-
-    style Build fill:#f7efe6,stroke:#d66a4f,color:#222
-    style Run fill:#eef5fb,stroke:#5b8db8,color:#222
-```
-
-### Runtime Control Loop
-
-```mermaid
-flowchart LR
-    SP["send_prompt"] --> BS["Backend<br/>Session"]
-    INT["interrupt"] --> BS
-    TERM["stop"] --> CL["cleanup"]
-
-    BS --> PM["persist_manifest"]
-    PM --> GW["Gateway<br/>sidecar"]
-    PM --> TUI["TUI<br/>Tracking"]
-
-    CL --> DONE["done"]
+    Op["Operator"] --> SRC["Source Tree<br/>(roles + presets + tools + skills)"]
+    SRC --> CAT["Canonical Parsed Catalog"]
+    CAT --> RLS["Resolved Launch Spec<br/>(tool, role, setup,<br/>skills, auth)"]
+    RLS --> BB["BrainBuilder"]
+    BB --> BM["Brain Manifest<br/>(schema_version=3)"]
+    BM --> LP["LaunchPlanRequest<br/>(manifest + role)"]
+    LP --> RT["Runtime Session<br/>Controller"]
 ```
 
 ## Build Phase
 
-The build phase is driven by `BrainBuilder` in `src/houmao/agents/brain_builder.py`. It takes a `BuildRequest` — either an explicit set of parameters or a reference to a `BrainRecipe` — resolves everything against an **agent definition directory**, and produces a `BuildResult` containing a disposable runtime home on disk.
+`src/houmao/agents/brain_builder.py` materializes a disposable runtime home from explicit inputs or one resolved preset.
 
 ### Key Types
 
@@ -72,116 +25,67 @@ The build phase is driven by `BrainBuilder` in `src/houmao/agents/brain_builder.
 
 | Field | Description |
 |---|---|
-| `agent_def_dir` | Path to the agent definition directory |
-| `tool` | Which CLI tool to target (e.g., `claude`, `codex`, `gemini`) |
-| `skills` | List of skill names to include |
-| `config_profile` | Secret-free config profile name |
-| `credential_profile` | Local-only credential profile name |
-| `recipe_path` | Path to a `BrainRecipe` YAML (alternative to explicit fields) |
+| `agent_def_dir` | Agent definition root |
+| `tool` | CLI tool name |
+| `skills` | Selected skill names |
+| `setup` | Selected checked-in setup bundle |
+| `auth` | Effective auth bundle |
+| `preset_path` | Optional resolved preset path for provenance |
 | `runtime_root` | Where to create the runtime home |
-| `mailbox` | Optional mailbox binding for inter-agent messaging |
-| `agent_name` / `agent_id` / `home_id` | Identity metadata |
+| `mailbox` | Optional mailbox binding |
+| `agent_name` / `agent_id` / `home_id` | Launch-time identity metadata |
 
 **`BuildResult`** captures what was built:
 
 | Field | Description |
 |---|---|
-| `home_id` | Unique identifier for this runtime home |
-| `home_path` | Filesystem path to the materialized runtime home |
-| `manifest_path` | Path to the emitted `BrainManifest` JSON |
-| `launch_helper_path` | Path to the generated launch helper script |
-| `launch_preview` | Human-readable preview of the launch command |
-| `manifest` | The full manifest as a dictionary |
+| `home_id` | Unique runtime-home id |
+| `home_path` | Materialized runtime home |
+| `manifest_path` | Emitted brain manifest path |
+| `launch_helper_path` | Generated launch helper |
+| `launch_preview` | Human-readable launch command |
+| `manifest` | Full manifest payload |
 
-**`BrainRecipe`** is a declarative preset that bundles `tool` + `skills` + `config_profile` + `credential_profile` + optional `launch_overrides` into a single YAML file. Recipes live in `brains/brain-recipes/<tool>/` within the agent definition directory.
+**`AgentPreset`** is the parsed declarative preset stored at `roles/<role>/presets/<tool>/<setup>.yaml`.
 
-**`ToolAdapter`** defines the per-tool build and launch contract — the launch executable path, environment variable injection mode, and credential file mappings. Adapters live in `brains/tool-adapters/<tool>.yaml`.
-
-### What the Build Phase Produces
-
-The `BrainBuilder` materializes a **runtime home** — a disposable directory containing:
-
-- Projected (secret-free) CLI configuration files
-- Selected skill documents
-- Local credential files (copied from the agent definition directory)
-- A `BrainManifest` JSON describing everything the run phase needs
-- A launch helper script for direct manual invocation
-
-The runtime home is intentionally ephemeral. It can be recreated from the same inputs at any time.
+**`ToolAdapter`** is the per-tool projection and launch contract stored at `tools/<tool>/adapter.yaml`.
 
 ## Run Phase
 
-The run phase is owned by `RuntimeSessionController` in `src/houmao/agents/realm_controller/`. It takes the `BrainManifest` from the build phase, pairs it with a **role package** (system prompt + behavior policy), and produces a `LaunchPlan` tailored to the chosen backend.
+`src/houmao/agents/realm_controller/` reads the built manifest, pairs it with a role package, and resolves a backend-specific `LaunchPlan`.
 
 ### Key Types
 
-**`LaunchPlanRequest`** combines a built brain with runtime parameters:
+**`LaunchPlanRequest`**
 
 | Field | Description |
 |---|---|
-| `brain_manifest` | The manifest from the build phase |
-| `role_package` | Role name and system prompt content |
-| `backend` | Which `BackendKind` to target |
-| `working_directory` | Working directory for the agent session |
+| `brain_manifest` | Built manifest from the build phase |
+| `role_package` | Role name and system prompt |
+| `backend` | Target backend kind |
+| `working_directory` | Session working directory |
 
-**`LaunchPlan`** is the fully resolved execution plan:
+**`LaunchPlan`**
 
 | Field | Description |
 |---|---|
 | `backend` | Target backend kind |
 | `tool` | CLI tool name |
-| `executable` | Full path to the CLI executable |
-| `args` | Command-line arguments |
+| `executable` | Tool executable |
+| `args` | Final launch args |
 | `working_directory` | Session working directory |
-| `home_env_var` / `home_path` | Environment variable and path for the runtime home |
-| `env` | Full environment variable map |
-| `role_injection` | A `RoleInjectionPlan` describing how the role prompt is applied |
-| `mailbox` | Optional mailbox configuration |
-
-**`RoleInjectionPlan`** describes the backend-specific strategy for applying the role prompt:
-
-| Field | Description |
-|---|---|
-| `method` | Injection strategy (e.g., native instructions, bootstrap message) |
-| `role_name` | Name of the role being applied |
-| `prompt` | The system prompt content |
-| `bootstrap_message` | Optional first-turn message to prime the agent |
-
-Role injection is backend-specific: Codex backends use native developer instructions, Claude headless uses appended system prompt plus a bootstrap message, and Gemini headless uses a bootstrap message.
-
-## Backend Model
-
-The `BackendKind` literal type in `src/houmao/agents/realm_controller/models.py` is the authoritative list of supported backends. Adding a new backend requires wiring both `launch_plan.py` and the related runtime/control surfaces.
-
-| Backend | Description |
-|---|---|
-| `local_interactive` | **Primary.** Launches the agent CLI inside a tmux session for full interactive use. |
-| `codex_headless` | Runs Codex CLI in headless mode (`codex exec --json`) for programmatic interaction. |
-| `claude_headless` | Runs Claude CLI in headless mode (`claude -p`) for programmatic interaction. |
-| `gemini_headless` | Runs Gemini CLI in headless mode (`gemini -p`) for programmatic interaction. |
-| `codex_app_server` | Runs Codex in app-server mode for UI integration. |
-| `cao_rest` | Legacy backend delegating to an external CAO server. Planned for removal. |
-| `houmao_server_rest` | Legacy backend delegating to `houmao-server`. |
-
-## CLI Surfaces
-
-| Entrypoint | Role |
-|---|---|
-| `houmao-mgr` | **Primary management CLI.** Handles brain building, agent lifecycle (launch, prompt, stop), managed-agent gateway, mailbox, and server control. |
-| `houmao-server` | HTTP server for session management, used by `houmao_server_rest` backend. |
-| `houmao-passive-server` | Registry-driven stateless server with no legacy dependencies. |
-| `houmao-cli` | Deprecated compatibility entrypoint. Use `houmao-mgr` instead. |
-| `houmao-cao-server` | Deprecated compatibility launcher. Use `houmao-server` with `houmao-mgr` instead. |
+| `home_env_var` / `home_path` | Runtime-home selector |
+| `env` | Final environment map |
+| `role_injection` | Backend-specific prompt injection plan |
+| `mailbox` | Optional resolved mailbox config |
 
 ## Source Layout
 
 | Path | Responsibility |
 |---|---|
-| `src/houmao/agents/brain_builder.py` | Build phase: `BuildRequest` → `BuildResult` |
-| `src/houmao/agents/realm_controller/` | Run phase: session management, backends |
-| `src/houmao/agents/realm_controller/launch_plan.py` | Bridge between build-time and run-time |
-| `src/houmao/agents/realm_controller/models.py` | Canonical backend and session contracts |
-| `src/houmao/agents/realm_controller/backends/` | Per-backend implementations |
-| `src/houmao/cao/` | CAO REST client and server launcher |
-| `src/houmao/srv_ctrl/cli.py` | `houmao-mgr` entrypoint |
-| `src/houmao/server/cli.py` | `houmao-server` entrypoint |
+| `src/houmao/agents/definition_parser.py` | Parse `agents/` source tree into the canonical catalog |
+| `src/houmao/agents/native_launch_resolver.py` | Resolve `--agents` selectors onto presets |
+| `src/houmao/agents/brain_builder.py` | Build phase: resolved inputs -> runtime home + manifest |
+| `src/houmao/agents/realm_controller/launch_plan.py` | Manifest + role -> backend launch plan |
+| `src/houmao/agents/realm_controller/backends/` | Backend implementations |
+| `src/houmao/srv_ctrl/commands/agents/core.py` | `houmao-mgr agents launch` preset-backed flow |

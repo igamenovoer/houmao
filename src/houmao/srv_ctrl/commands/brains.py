@@ -29,9 +29,12 @@ def brains_group() -> None:
 @click.option("--agent-def-dir", default=None, help="Agent-definition root to build from.")
 @click.option("--tool", default=None, help="Tool identifier used by the selected adapter.")
 @click.option("--skill", "skills", multiple=True, help="Skill path or name to project.")
-@click.option("--config-profile", default=None, help="Config profile to materialize.")
-@click.option("--cred-profile", default=None, help="Credential profile to project.")
-@click.option("--recipe", default=None, help="Brain recipe path resolved from the agent root.")
+@click.option("--setup", default=None, help="Setup bundle to materialize.")
+@click.option("--config-profile", "setup", default=None, hidden=True)
+@click.option("--auth", default=None, help="Auth bundle to project.")
+@click.option("--cred-profile", "auth", default=None, hidden=True)
+@click.option("--preset", default=None, help="Preset path resolved from the agent root.")
+@click.option("--recipe", "preset", default=None, hidden=True)
 @click.option(
     "--runtime-root",
     default=None,
@@ -62,9 +65,9 @@ def build_brain_command(
     agent_def_dir: str | None,
     tool: str | None,
     skills: tuple[str, ...],
-    config_profile: str | None,
-    cred_profile: str | None,
-    recipe: str | None,
+    setup: str | None,
+    auth: str | None,
+    preset: str | None,
     runtime_root: str | None,
     home_id: str | None,
     reuse_home: bool,
@@ -76,11 +79,11 @@ def build_brain_command(
 
     cwd = Path.cwd().resolve()
     resolved_agent_def_dir = _resolve_agent_def_dir(agent_def_dir, cwd=cwd)
-    recipe_path: Path | None = None
-    recipe_payload = None
-    if recipe is not None:
-        recipe_path = _resolve_path(recipe, base=resolved_agent_def_dir)
-        recipe_payload = load_brain_recipe(recipe_path)
+    preset_path: Path | None = None
+    preset_payload = None
+    if preset is not None:
+        preset_path = _resolve_path(preset, base=resolved_agent_def_dir)
+        preset_payload = load_brain_recipe(preset_path)
 
     direct_launch_overrides = (
         load_launch_overrides_input(
@@ -92,15 +95,15 @@ def build_brain_command(
         else None
     )
 
-    resolved_tool = tool or (recipe_payload.tool if recipe_payload is not None else None)
+    resolved_tool = tool or (preset_payload.tool if preset_payload is not None else None)
     resolved_skills = (
-        list(skills) if skills else (recipe_payload.skills if recipe_payload is not None else [])
+        list(skills) if skills else (preset_payload.skills if preset_payload is not None else [])
     )
-    resolved_config_profile = config_profile or (
-        recipe_payload.config_profile if recipe_payload is not None else None
+    resolved_setup = setup or (
+        preset_payload.setup if preset_payload is not None else None
     )
-    resolved_cred_profile = cred_profile or (
-        recipe_payload.credential_profile if recipe_payload is not None else None
+    resolved_auth = auth or (
+        preset_payload.auth if preset_payload is not None else None
     )
 
     missing: list[str] = []
@@ -108,15 +111,15 @@ def build_brain_command(
         missing.append("--tool")
     if not resolved_skills:
         missing.append("--skill")
-    if resolved_config_profile is None:
-        missing.append("--config-profile")
-    if resolved_cred_profile is None:
-        missing.append("--cred-profile")
+    if resolved_setup is None:
+        missing.append("--setup")
+    if resolved_auth is None:
+        missing.append("--auth")
     if missing:
         raise click.ClickException(f"Missing required build inputs: {', '.join(missing)}")
     assert resolved_tool is not None
-    assert resolved_config_profile is not None
-    assert resolved_cred_profile is not None
+    assert resolved_setup is not None
+    assert resolved_auth is not None
 
     try:
         result = build_brain_home(
@@ -124,22 +127,22 @@ def build_brain_command(
                 agent_def_dir=resolved_agent_def_dir,
                 tool=resolved_tool,
                 skills=[str(item) for item in resolved_skills],
-                config_profile=resolved_config_profile,
-                credential_profile=resolved_cred_profile,
-                recipe_path=recipe_path,
-                recipe_launch_overrides=(
-                    recipe_payload.launch_overrides if recipe_payload is not None else None
+                setup=resolved_setup,
+                auth=resolved_auth,
+                preset_path=preset_path,
+                preset_launch_overrides=(
+                    preset_payload.launch_overrides if preset_payload is not None else None
                 ),
                 runtime_root=_optional_path(runtime_root, base=cwd),
-                mailbox=recipe_payload.mailbox if recipe_payload is not None else None,
-                agent_name=agent_name
-                or (recipe_payload.default_agent_name if recipe_payload is not None else None),
+                mailbox=preset_payload.mailbox if preset_payload is not None else None,
+                extra=preset_payload.extra if preset_payload is not None else None,
+                agent_name=agent_name,
                 agent_id=agent_id,
                 home_id=home_id,
                 reuse_home=reuse_home,
                 launch_overrides=direct_launch_overrides,
                 operator_prompt_mode=(
-                    recipe_payload.operator_prompt_mode if recipe_payload is not None else None
+                    preset_payload.operator_prompt_mode if preset_payload is not None else None
                 ),
             )
         )
