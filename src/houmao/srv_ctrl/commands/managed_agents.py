@@ -126,6 +126,14 @@ class ManagedAgentTarget:
 
 
 @dataclass(frozen=True)
+class _LocalManagedAgentSelectorMiss:
+    """One preserved local friendly-name selector miss."""
+
+    agent_name: str
+    alias_match: LiveAgentRegistryRecordV2 | None = None
+
+
+@dataclass(frozen=True)
 class _LocalHeadlessTurnSnapshot:
     """One local headless-turn snapshot derived from runtime artifacts."""
 
@@ -189,7 +197,7 @@ def resolve_managed_agent_target(
             client=client,
         )
 
-    record = _resolve_local_managed_agent_record(
+    record, miss_context = _resolve_local_managed_agent_record_with_miss_context(
         agent_id=normalized_agent_id,
         agent_name=normalized_agent_name,
     )
@@ -214,6 +222,12 @@ def resolve_managed_agent_target(
             record=record,
         )
 
+    if miss_context is not None:
+        return _resolve_default_pair_target_with_local_miss(
+            agent_ref=normalized_ref,
+            miss_context=miss_context,
+        )
+
     client = require_supported_houmao_pair(base_url=resolve_server_base_url())
     identity = resolve_managed_agent_identity(client, agent_ref=normalized_ref)
     return ManagedAgentTarget(
@@ -231,8 +245,22 @@ def _resolve_local_managed_agent_record(
 ) -> LiveAgentRegistryRecordV2 | None:
     """Resolve one local registry-backed managed-agent record."""
 
+    record, _ = _resolve_local_managed_agent_record_with_miss_context(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    return record
+
+
+def _resolve_local_managed_agent_record_with_miss_context(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> tuple[LiveAgentRegistryRecordV2 | None, _LocalManagedAgentSelectorMiss | None]:
+    """Resolve one local record and preserve friendly-name miss diagnostics."""
+
     if agent_id is not None:
-        return resolve_live_agent_record_by_agent_id(agent_id)
+        return resolve_live_agent_record_by_agent_id(agent_id), None
 
     assert agent_name is not None
     name_matches = resolve_live_agent_records_by_name(agent_name)
@@ -246,8 +274,84 @@ def _resolve_local_managed_agent_record(
             )
         )
     if len(name_matches) == 1:
-        return name_matches[0]
+        return name_matches[0], None
+    return (
+        None,
+        _LocalManagedAgentSelectorMiss(
+            agent_name=agent_name,
+            alias_match=_resolve_local_managed_agent_alias_hint(agent_name),
+        ),
+    )
+
+
+def _resolve_local_managed_agent_alias_hint(
+    agent_name: str,
+) -> LiveAgentRegistryRecordV2 | None:
+    """Return one exact unique tmux/session alias hint for a missed friendly name."""
+
+    alias_matches = [
+        record for record in _list_registry_records() if record.terminal.session_name == agent_name
+    ]
+    if len(alias_matches) == 1:
+        return alias_matches[0]
     return None
+
+
+def _resolve_default_pair_target_with_local_miss(
+    *,
+    agent_ref: str,
+    miss_context: _LocalManagedAgentSelectorMiss,
+) -> ManagedAgentTarget:
+    """Resolve default pair fallback while preserving one local friendly-name miss."""
+
+    try:
+        client = require_supported_houmao_pair(base_url=resolve_server_base_url())
+        identity = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    except click.ClickException as exc:
+        raise click.ClickException(
+            _format_local_managed_agent_selector_failure(
+                miss_context=miss_context,
+                remote_detail=str(exc),
+            )
+        ) from exc
+    return ManagedAgentTarget(
+        mode="server",
+        agent_ref=agent_ref,
+        identity=identity,
+        client=client,
+    )
+
+
+def _format_local_managed_agent_selector_failure(
+    *,
+    miss_context: _LocalManagedAgentSelectorMiss,
+    remote_detail: str,
+) -> str:
+    """Format one local friendly-name miss with one failed default pair fallback."""
+
+    lines = [
+        f"No local managed agent matched friendly name `{miss_context.agent_name}`.",
+    ]
+    if miss_context.alias_match is not None:
+        lines.append(
+            "`--agent-name` expects the published friendly managed-agent name. "
+            f"`{miss_context.agent_name}` matches the live local tmux/session alias for "
+            f"agent_name `{miss_context.alias_match.agent_name}` "
+            f"(agent_id `{miss_context.alias_match.agent_id}`)."
+        )
+        retry_guidance = (
+            f"Retry with `--agent-name {miss_context.alias_match.agent_name}`, "
+            f"`--agent-id {miss_context.alias_match.agent_id}`, "
+            "or inspect `houmao-mgr agents list`."
+        )
+    else:
+        retry_guidance = (
+            "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+            "or `--agent-id <id>`."
+        )
+    lines.append(f"Fallback lookup through the default pair authority also failed: {remote_detail}")
+    lines.append(retry_guidance)
+    return "\n".join(lines)
 
 
 def resolve_live_agent_record(agent_identity: str) -> LiveAgentRegistryRecordV2 | None:

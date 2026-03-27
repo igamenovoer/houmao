@@ -35,11 +35,21 @@ The getting-started section SHALL include a quickstart page showing how to build
 
 The quickstart SHALL:
 
+- present the `houmao-mgr agents join` adoption workflow as the simplest entry point before the build-and-launch workflow,
 - use `houmao-mgr brains build` when teaching build-phase concepts,
 - use `houmao-mgr agents launch --agents <selector> --agent-name <name>` for the primary managed launch path,
 - show follow-up control targeted by `--agent-name` or `--agent-id`,
 - use `houmao-mgr agents stop` for shutdown,
 - avoid presenting `--manifest`, `--session-id`, or `agents terminate` as the primary `houmao-mgr` workflow.
+
+The quickstart section covering `agents join` SHALL include a Mermaid sequence diagram illustrating the join pipeline: operator starts a provider TUI in tmux, runs `agents join`, and Houmao wraps the session with manifest, gateway, and registry artifacts.
+
+#### Scenario: Quickstart presents agents join as the simplest entry point
+
+- **WHEN** a reader opens the quickstart section in `README.md`
+- **THEN** the first workflow shown is `houmao-mgr agents join` adopting an existing tmux-backed provider session
+- **AND THEN** the join workflow appears before the build-and-launch workflow
+- **AND THEN** the join section includes a Mermaid sequence diagram showing the adoption flow
 
 #### Scenario: Quickstart uses current managed-agent selectors
 
@@ -52,3 +62,26 @@ The quickstart SHALL:
 - **WHEN** a reader reaches the shutdown step
 - **THEN** the page documents `houmao-mgr agents stop`
 - **AND THEN** the page does not describe `houmao-mgr agents terminate` as the supported shutdown command
+
+### Requirement: README documents agents join as a first-class adoption path
+
+The project `README.md` SHALL describe `houmao-mgr agents join` as a working, first-class adoption path for bringing an already-running provider TUI into Houmao control. The README SHALL NOT describe bring-your-own-process adoption as a future design goal or claim that management commands assume the session was launched by `houmao-mgr`.
+
+The README SHALL include at minimum:
+
+- a "Quick Start: Adopt an Existing Session" section before the build-based workflow,
+- concrete command examples for TUI join (minimal), TUI join with relaunch options, and headless join,
+- a Mermaid sequence diagram showing the join pipeline (operator → tmux → provider → agents join → managed agent envelope),
+- a brief explanation of what the operator gets after joining: registry discovery, gateway capability, prompt/interrupt commands, mailbox support.
+
+#### Scenario: New user finds the join workflow in README before build-based workflow
+
+- **WHEN** a new user reads the README from top to bottom
+- **THEN** they encounter the `agents join` adoption workflow before the build-brain / start-session workflow
+- **AND THEN** the join section shows concrete commands they can run immediately if they already have a provider TUI in tmux
+
+#### Scenario: README no longer claims adoption is a future design goal
+
+- **WHEN** a reader reads the "How Agents Join Your Workflow" paragraph
+- **THEN** the paragraph describes both managed launch and `agents join` as working paths
+- **AND THEN** the paragraph does not contain language like "today, the management commands assume the session was launched by `houmao-mgr`"

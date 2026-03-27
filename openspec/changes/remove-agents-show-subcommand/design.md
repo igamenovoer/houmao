@@ -14,22 +14,31 @@ The repository is already willing to take breaking CLI simplifications, and this
 
 **Goals:**
 - Remove `houmao-mgr agents show` from the supported native CLI.
+- Update the active OpenSpec capability specs that still reference `agents show` so the spec corpus describes one coherent native inspection surface.
 - Align help text, reference docs, workflows, and tests with the smaller inspection surface.
 - Keep the rest of the `agents` command family stable, especially `state`, `prompt`, `interrupt`, `relaunch`, and gateway-specific inspection commands.
 
 **Non-Goals:**
 - Removing the managed-agent detail HTTP route or internal detail payload builders.
+- Migrating demo or helper consumers that still call the preserved detail payload builder chain directly.
 - Changing `houmao-mgr agents state` semantics.
 - Refactoring gateway, passive-server, or server-managed inspection APIs beyond references to the removed CLI command.
 
 ## Decisions
 
 ### Remove only the native CLI subcommand
-The change removes the `agents show` command registration and related help/docs references, but does not remove the underlying managed-agent detail route or transport-specific detail models.
+The change removes the `agents show` command registration, its CLI import/wiring, and related help/docs references, but does not remove the underlying managed-agent detail route or transport-specific detail models.
 
 This keeps the change narrowly scoped to the user-facing CLI surface the user wants gone, avoids unnecessary churn in pair APIs, and leaves room for non-CLI consumers to keep using detail payloads where they still add value.
 
 Alternative considered: keep `show` as a deprecated alias for one release. Rejected because the repository explicitly allows breaking changes and the requested outcome is to remove the subcommand rather than stretch out a compatibility window.
+
+### Preserve the detail helper chain for non-CLI callers
+The change keeps `managed_agent_detail_payload()` and its local detail helper chain in place for non-CLI callers even though the native `agents show` command goes away.
+
+That choice avoids widening this change into demo migration, pair-client refactors, or unrelated unit-test churn. The implementation work is therefore limited to removing the CLI entrypoint and any now-unused CLI import/wiring in `src/houmao/srv_ctrl/commands/agents/core.py`, while leaving the detail payload builder as a still-supported programmatic helper.
+
+Alternative considered: remove the helper chain as CLI dead code. Rejected because the current change request is to remove the native CLI command, not to retire every non-CLI detail consumer in the repository.
 
 ### Keep `state` as the sole transport-neutral inspection command
 After this change, the native `agents` tree will have one supported transport-neutral inspection command: `state`.
@@ -39,19 +48,20 @@ Operators who need richer live tracking or raw terminal-oriented inspection shou
 Alternative considered: redirect `show` to `state`. Rejected because it preserves the extra command name and keeps the documentation and test matrix larger than necessary.
 
 ### Treat docs and workflow references as part of the removal
-Removing the command cleanly requires updating command tables, help expectations, and workflow docs that currently instruct operators to run `agents show`.
+Removing the command cleanly requires updating command tables, help expectations, workflow docs, and active OpenSpec capability specs that currently instruct operators to run `agents show`.
 
 Alternative considered: remove only the Python command and leave doc cleanup for later. Rejected because dangling references would make the breaking change look like a regression rather than an intentional CLI simplification.
 
 ## Risks / Trade-offs
 
 - [Breaking scripts or operator muscle memory] → Update help text and docs to point to `agents state`, `agents gateway tui ...`, and other supported inspection paths; make the change explicit in the proposal and tasks.
-- [Leaving hidden references behind] → Use a repository-wide grep sweep for `agents show`, CLI help expectations, and workflow examples as part of implementation.
+- [Leaving hidden references behind] → Update the affected capability specs and use a repository-wide grep sweep for `agents show`, CLI help expectations, and workflow examples as part of implementation.
 - [Future callers still wanting detail-rich CLI inspection] → Preserve the underlying managed-agent detail route and internal detail payload code so a future CLI surface could be reintroduced deliberately if needed.
 
 ## Migration Plan
 
 - Remove the CLI subcommand implementation and its help exposure.
+- Update the affected delta specs so `houmao-srv-ctrl-native-cli`, `houmao-mgr-agents-join`, and `houmao-mgr-registry-discovery` stop requiring `agents show`.
 - Update docs and workflow artifacts that advertise `agents show`.
 - Update CLI shape tests and any related fixtures to stop expecting the removed subcommand.
 - Preserve server and passive-server detail APIs so non-CLI callers remain unaffected.

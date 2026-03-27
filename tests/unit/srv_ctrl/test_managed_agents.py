@@ -95,8 +95,8 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
-        lambda **kwargs: record,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -135,8 +135,8 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (None, None),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
@@ -181,6 +181,179 @@ def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
         )
         is None
     )
+
+
+def test_resolve_managed_agent_target_reports_local_name_miss_before_default_pair_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "Fallback lookup through the default pair authority also failed:" in message
+    assert (
+        "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused"
+    ) in message
+    assert (
+        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "or `--agent-id <id>`."
+    ) in message
+
+
+def test_resolve_managed_agent_target_reports_exact_tmux_alias_hint_on_local_name_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alias_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-1234",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [alias_record],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "`--agent-name` expects the published friendly managed-agent name." in message
+    assert (
+        "`agent-test` matches the live local tmux/session alias for agent_name `gpu` "
+        "(agent_id `agent-1234`)."
+    ) in message
+    assert (
+        "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
+        "or inspect `houmao-mgr agents list`."
+    ) in message
+
+
+def test_resolve_managed_agent_target_omits_alias_hint_when_alias_match_is_not_unique(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_record = SimpleNamespace(
+        agent_name="gpu-a",
+        agent_id="agent-a",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    second_record = SimpleNamespace(
+        agent_name="gpu-b",
+        agent_id="agent-b",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [first_record, second_record],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "tmux/session alias" not in message
+    assert (
+        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "or `--agent-id <id>`."
+    ) in message
+
+
+def test_resolve_managed_agent_target_preserves_agent_id_fallback_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_record_by_agent_id",
+        lambda _agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException("Failed to reach a Houmao pair authority at http://127.0.0.1:9889")
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id="agent-1234", agent_name=None, port=None)
+
+    message = str(exc_info.value)
+    assert message == "Failed to reach a Houmao pair authority at http://127.0.0.1:9889"
+    assert "No local managed agent matched friendly name" not in message
+
+
+def test_resolve_managed_agent_target_preserves_local_name_ambiguity_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-a",
+        terminal=SimpleNamespace(session_name="gpu-a"),
+    )
+    second_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-b",
+        terminal=SimpleNamespace(session_name="gpu-b"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (first_record, second_record),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "Local managed-agent resolution is ambiguous for --agent-name `gpu`" in message
+    assert "Retry with `--agent-id <id>`." in message
 
 
 def test_list_managed_agents_merges_registry_and_server_results(

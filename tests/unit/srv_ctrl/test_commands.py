@@ -48,6 +48,20 @@ class _FakePairClient:
         return SimpleNamespace(success=True)
 
 
+_ACTIONABLE_SELECTOR_ERROR = "\n".join(
+    (
+        "No local managed agent matched friendly name `agent-test`.",
+        "`--agent-name` expects the published friendly managed-agent name. "
+        "`agent-test` matches the live local tmux/session alias for agent_name `gpu` "
+        "(agent_id `agent-1234`).",
+        "Fallback lookup through the default pair authority also failed: "
+        "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused",
+        "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
+        "or inspect `houmao-mgr agents list`.",
+    )
+)
+
+
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
     assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "server"}
 
@@ -191,6 +205,50 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
     assert "status" in result.output
     assert "register" in result.output
     assert "unregister" in result.output
+
+
+@pytest.mark.parametrize(
+    ("resolve_target", "argv"),
+    [
+        (
+            "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+            ["agents", "show", "--agent-name", "agent-test"],
+        ),
+        (
+            "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+            ["agents", "prompt", "--agent-name", "agent-test", "--prompt", "hello"],
+        ),
+        (
+            "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+            ["agents", "gateway", "tui", "state", "--agent-name", "agent-test"],
+        ),
+        (
+            "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_target",
+            ["agents", "mail", "status", "--agent-name", "agent-test"],
+        ),
+        (
+            "houmao.srv_ctrl.commands.agents.turn.resolve_managed_agent_target",
+            ["agents", "turn", "status", "--agent-name", "agent-test", "turn-123"],
+        ),
+    ],
+)
+def test_managed_agent_commands_surface_actionable_selector_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    resolve_target: str,
+    argv: list[str],
+) -> None:
+    monkeypatch.setattr(
+        resolve_target,
+        lambda **kwargs: (_ for _ in ()).throw(click.ClickException(_ACTIONABLE_SELECTOR_ERROR)),
+    )
+
+    result = CliRunner().invoke(cli, argv)
+
+    assert result.exit_code == 1
+    assert "No local managed agent matched friendly name `agent-test`." in result.output
+    assert "`--agent-name` expects the published friendly managed-agent name." in result.output
+    assert "Fallback lookup through the default pair authority also failed:" in result.output
+    assert "Retry with `--agent-name gpu`, `--agent-id agent-1234`" in result.output
 
 
 def test_agents_gateway_attach_forwards_foreground_flag(
