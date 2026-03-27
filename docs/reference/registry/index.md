@@ -20,6 +20,12 @@ Think of it as a per-user phonebook for live sessions:
 - it tells the runtime where to look,
 - it does not become the source of truth for the session itself.
 
+For live gateway recovery, that means:
+
+- the registry points callers at `runtime.manifest_path`,
+- the manifest remains the durable stable authority,
+- `<session-root>/gateway/run/current-instance.json` is the authoritative local live-gateway record once the session root is known.
+
 ## Key Terms
 
 - `shared registry`: The per-user filesystem tree rooted at `~/.houmao/registry` by default, or at `AGENTSYS_GLOBAL_REGISTRY_DIR` when that override is set.

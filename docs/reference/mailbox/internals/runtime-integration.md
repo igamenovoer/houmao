@@ -95,9 +95,9 @@ The runtime does not expose direct mailbox RPCs to the operator. Instead:
 
 In practice, the session-facing path is:
 
-1. prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached,
-2. otherwise resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`,
-3. then use those resolved bindings with the transport-specific runtime-owned mailbox skill.
+1. resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`,
+2. when the resolver returns `gateway.base_url`, prefer that live gateway `/v1/mail/*` facade for shared mailbox operations,
+3. otherwise use the resolved mailbox bindings with the transport-specific runtime-owned mailbox skill.
 
 This design keeps mailbox control inside the same runtime session model as ordinary prompt turns, while still enforcing a stronger response contract and preserving one operator-facing mailbox UX across both transports.
 

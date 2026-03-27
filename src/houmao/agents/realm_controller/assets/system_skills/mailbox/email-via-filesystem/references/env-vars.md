@@ -1,6 +1,6 @@
 # Filesystem Mailbox Env Vars
 
-Resolve the current binding set through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work. For tmux-backed managed sessions, that runtime-owned helper reads the targeted mailbox keys from the owning tmux session environment and returns the current mailbox projection. Do not scrape tmux state directly when this helper is available.
+Resolve the current binding set through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work. For managed sessions, that runtime-owned helper prefers current process env, falls back to the owning tmux session environment, and returns the current mailbox projection. When a valid attached gateway is live, the same resolver also returns a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade. Do not scrape tmux state directly when this helper is available.
 
 ## Common mailbox bindings
 
@@ -49,6 +49,7 @@ Resolve the current binding set through `pixi run python -m houmao.agents.mailbo
 ## Usage rules
 
 - Require all common bindings plus all filesystem-specific bindings before mailbox work.
+- When the resolver returns `gateway.base_url`, treat that value as the exact live shared-mailbox endpoint instead of guessing another loopback URL.
 - Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative for mailbox content location; do not reconstruct it from the runtime root unless the runtime has already chosen that as the default.
 - Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog and `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the authoritative mailbox-view state store for the current mailbox.
 - Resolve and re-read these bindings before each mailbox action.

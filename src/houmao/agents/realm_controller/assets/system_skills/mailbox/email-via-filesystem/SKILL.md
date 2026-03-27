@@ -16,6 +16,9 @@ Use this skill to work with the filesystem mailbox transport where canonical mes
 
 ## Routine Actions With A Live Gateway Facade
 
+- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before attached shared-mailbox work.
+- Treat the resolver output as the runtime-owned discovery contract for this turn: use `gateway.base_url` for the live attached `/v1/mail/*` facade when that `gateway` object is present.
+- That resolver prefers current process env, falls back to the owning tmux session env, and returns `gateway: null` instead of guessing a localhost endpoint when no valid live gateway is available.
 - When a live loopback gateway exposes the shared `/v1/mail/*` facade for this session, treat that gateway surface as the default routine path for ordinary mailbox work.
 - Ordinary attached-session mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
 - Prefer the shared gateway mailbox routes for those routine actions: `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
@@ -40,6 +43,7 @@ Use this skill to work with the filesystem mailbox transport where canonical mes
 
 - Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work.
 - Require the common and filesystem-specific mailbox binding keys defined in [references/env-vars.md](references/env-vars.md) from that resolver output.
+- When the resolver returns a `gateway` object, treat `gateway.base_url` as the exact live endpoint for the shared `/v1/mail/*` facade instead of re-discovering host or port through docs, tmux scraping, or localhost guesses.
 - Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
 - Do not cache paths or addresses across turns. Re-resolve the current mailbox bindings before each mailbox action that uses direct filesystem access.
 - If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and resolve the current bindings again before continuing.
