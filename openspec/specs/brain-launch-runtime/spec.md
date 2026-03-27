@@ -264,6 +264,8 @@ That live projection SHALL coexist with the persisted manifest mailbox payload r
 
 When runtime-owned mailbox mutation changes the effective mailbox binding for a tmux-backed managed session, the runtime SHALL update or unset the targeted mailbox env vars in that tmux session without requiring provider relaunch solely for mailbox binding refresh.
 
+For joined tmux-backed sessions, that rule SHALL continue to apply even when the joined relaunch posture is unavailable, provided the runtime still has the local managed authority needed to update durable mailbox state and the owning tmux session environment.
+
 When the selected transport requires session-local materialization before direct mailbox work is actionable, the runtime SHALL complete that materialization before publishing the refreshed live mailbox projection.
 
 #### Scenario: Late filesystem mailbox registration refreshes live mailbox projection without relaunch
@@ -271,6 +273,13 @@ When the selected transport requires session-local materialization before direct
 - **THEN** it persists the mailbox binding into the session manifest
 - **AND THEN** it publishes the current common and filesystem-specific `AGENTSYS_MAILBOX_*` values plus the refreshed `AGENTSYS_MAILBOX_BINDINGS_VERSION` into the owning tmux session environment
 - **AND THEN** subsequent mailbox-related work for that managed session can resolve the refreshed mailbox binding without requiring provider relaunch solely for mailbox env refresh
+
+#### Scenario: Joined tmux session without relaunch posture still refreshes the live mailbox projection
+- **WHEN** the runtime late-registers a filesystem mailbox binding for a joined tmux-backed managed session whose relaunch posture is unavailable
+- **AND WHEN** the owning tmux session remains reachable and local controller authority is intact
+- **THEN** it persists the mailbox binding into the session manifest
+- **AND THEN** it publishes the refreshed targeted `AGENTSYS_MAILBOX_*` projection into the owning tmux session environment
+- **AND THEN** subsequent mailbox-related work for that joined session can resolve the refreshed mailbox binding without requiring joined-session relaunch posture
 
 #### Scenario: Late mailbox unregistration clears the live tmux mailbox projection
 - **WHEN** the runtime late-unregisters mailbox support from a tmux-backed managed session
