@@ -59,6 +59,22 @@ pixi install
 pixi shell
 ```
 
+## Documentation
+
+The repository docs under `docs/` are built with MkDocs and are intended for GitHub Pages publishing.
+
+Build the site locally:
+
+```bash
+pixi run docs-build
+```
+
+Serve the site locally with live reload:
+
+```bash
+pixi run docs-serve
+```
+
 Optional Postgres + pgvector environment (for future context hosting):
 
 - Intended future use: manage persistent agent context such as RAG knowledge bases, dialog history, and work artifacts.

@@ -4,11 +4,11 @@ This directory holds binary and supporting assets referenced by documentation in
 
 Current contents:
 
-- [`tui-state-tracking/`](./tui-state-tracking/): screen recordings that show live TUI state-tracking behavior for supported tools.
+- [`tui-state-tracking/`](./tui-state-tracking/README.md): screen recordings that show live TUI state-tracking behavior for supported tools.
 
 ## TUI State Tracking Assets
 
-The recordings under [`tui-state-tracking/`](./tui-state-tracking/) are intended as visual references for documentation, review, and implementation discussion around terminal state tracking.
+The recordings under [`tui-state-tracking/`](./tui-state-tracking/README.md) are intended as visual references for documentation, review, and implementation discussion around terminal state tracking.
 
 Current recordings:
 

@@ -2,7 +2,7 @@
 
 The terminal recorder captures an already-running tmux-backed agent session for later parser and lifecycle testing. It lives under [`tools/terminal_record`](/data1/huangzhe/code/houmao/tools/terminal_record) and is implemented by [`houmao.terminal_record`](/data1/huangzhe/code/houmao/src/houmao/terminal_record).
 
-For maintainer-oriented design notes and change guidance, see the [Terminal Recorder Developer Guide](../developer/terminal-record/index.md).
+For maintainer-oriented design notes and change guidance, see the [Terminal Recorder Developer Guide](../../developer/terminal-record/index.md).
 
 Use the repo-managed Python environment when invoking it:
 
