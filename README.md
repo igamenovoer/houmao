@@ -27,12 +27,14 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 ### What The Framework Provides
 
-- **Construction**: build agent runtimes from tool specs + skills + roles (and optional blueprints).
+- **Zero-setup adoption**: wrap any running `claude`, `codex`, or `gemini` session with `houmao-mgr agents join` — no configuration, no restart. You keep your familiar coding-agent workflow and gain management, coordination, and team features on top.
+- **Construction** (when you need it): build agent runtimes from tool specs + skills + roles (and optional blueprints) for reproducible, declarative agent setups.
 - **Management**: start/resume/prompt/stop agents with `houmao-mgr` (typically tmux-backed so you can attach and interact).
 - **Team communication**: a shared gateway and mailbox plane for groups of agents (built on Houmao's own gateway service).
 
 ### Why This Is Useful (Benefits)
 
+- **Near-zero learning curve**: `agents join` lets you start with what you already know — your familiar coding agent in a terminal — and add Houmao's management layer only when you need it.
 - **Low barrier to composition**: assemble new agent teams from human-like instruction packages (skills + roles) and tool profiles, without designing rigid contracts up front.
 - **Flexible team contracts**: coordination choices can change with context because the framework does not impose a fixed graph or flow.
 - **Transparent per-agent UX**: each agent is a real CLI process; you can attach to its tmux window/session to see what it’s doing and interact with its native TUI when needed.
@@ -47,8 +49,9 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 ### How Agents Join Your Workflow
 
-- **Managed launch (recommended):** construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-mgr`.
-- **Bring-your-own process:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and still participate in the same “agent team” workflow. First-class adoption/attach of an already-running tmux session is a design goal; today, the management commands assume the session was launched by `houmao-mgr`.
+- **Adopt an existing session (recommended):** start your CLI tool (`claude`, `codex`, or `gemini`) in a tmux session the way you normally would, then run `houmao-mgr agents join --agent-name <name>` from inside that session. Houmao wraps the running process with its management envelope — registry, gateway, prompt/interrupt, mailbox — without restarting the tool. Zero agent-definition setup required. This is the recommended starting point because there is nothing new to learn: you keep your familiar coding-agent workflow and layer Houmao management on top.
+- **Managed launch (full control):** for teams that need reproducible, declarative agent setups, construct from tool specs + skills + roles/blueprints, then start/resume/prompt/stop via `houmao-mgr agents launch`. This path builds an isolated runtime home with projected configs, skills, and credentials.
+- **Bring-your-own process with launch options:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and then use `agents join` with `--launch-args` and `--launch-env` to record enough state for later `agents relaunch`.
 
 ## Installation
 
@@ -101,6 +104,8 @@ command -v tmux
 
 ## Usage Guide
 
+> **Recommended starting point:** if you already use a coding agent (`claude`, `codex`, or `gemini`) in a terminal, jump to [Section 1 — Quick Start: `agents join`](#1-quick-start-adopt-an-existing-session-agents-join). It takes about 30 seconds and requires no agent-definition setup.
+
 ### CLI Entry Points
 
 | Entrypoint | Purpose | Status |
@@ -116,7 +121,64 @@ houmao-mgr --help
 houmao-server --help
 ```
 
-### 1. Create / Choose An Agent Definition Directory
+### 1. Quick Start: Adopt an Existing Session (`agents join`)
+
+The fastest way to bring an agent under Houmao management. No agent-definition directory, no brain build, no config projection — just wrap a running CLI tool with the full management envelope.
+
+```mermaid
+sequenceDiagram
+    participant U as You (terminal)
+    participant T as tmux session
+    participant P as Provider CLI<br/>(claude / codex / gemini)
+    participant H as houmao-mgr
+
+    U->>T: tmux new-session -s my-agent
+    U->>P: claude (or codex / gemini)
+    Note over P: Provider TUI is running<br/>in window 0, pane 0
+    U->>H: houmao-mgr agents join<br/>--agent-name my-agent
+    H->>T: Detect provider from<br/>pane 0 process tree
+    H-->>H: Create placeholder manifest,<br/>attach gateway,<br/>publish to registry
+    H-->>U: ✓ Joined as "my-agent"
+    Note over U,H: Full management now available
+    U->>H: houmao-mgr agents prompt<br/>--agent-name my-agent<br/>--prompt "explain this file"
+    U->>H: houmao-mgr agents state<br/>--agent-name my-agent
+    U->>H: houmao-mgr agents stop<br/>--agent-name my-agent
+```
+
+**Step-by-step:**
+
+```bash
+# 1. Create a tmux session and start your CLI tool normally
+tmux new-session -s my-agent
+claude                          # or: codex, gemini
+
+# 2. From a second terminal pane (inside the SAME tmux session), join
+houmao-mgr agents join --agent-name my-agent
+
+# 3. Now you can use the full management surface:
+houmao-mgr agents state   --agent-name my-agent   # registry + gateway status
+houmao-mgr agents prompt  --agent-name my-agent --prompt "explain this repo"
+houmao-mgr agents stop    --agent-name my-agent   # graceful shutdown
+```
+
+> **Tip:** `agents join` auto-detects the provider (`claude_code`, `codex`, or `gemini_cli`) from the process tree in window 0 / pane 0. If detection fails, pass `--provider <name>` explicitly.
+
+#### What You Get After Joining
+
+Once `agents join` completes, the adopted session has the same management capabilities as a fully managed `agents launch` session:
+
+| Capability | Command |
+|---|---|
+| Query registry & gateway state | `houmao-mgr agents state --agent-name <name>` |
+| Send a semantic prompt | `houmao-mgr agents prompt --agent-name <name> --prompt "…"` |
+| Interrupt a running turn | `houmao-mgr agents interrupt --agent-name <name>` |
+| Attach to a gateway | `houmao-mgr agents gateway attach --agent-name <name>` |
+| Send / receive mailbox messages | `houmao-mgr agents mail send --agent-name <name>` |
+| Stop the agent | `houmao-mgr agents stop --agent-name <name>` |
+
+The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
+
+### 2. Create / Choose An Agent Definition Directory
 
 An **agent definition directory** is any folder (name is not hard-coded) that contains `brains/`, `roles/`, and optionally `blueprints/`.
 
@@ -136,7 +198,7 @@ export AGENTSYS_AGENT_DEF_DIR="$PWD/.agentsys/agents"
 
 Then replace the credential profiles under `brains/api-creds/` with your own (keep them uncommitted).
 
-### 2. Prepare The Agent Definition Directory Contents
+### 3. Prepare The Agent Definition Directory Contents
 
 Top-level purpose summary:
 
@@ -278,7 +340,8 @@ brain_recipe: ../brains/brain-recipes/codex/gpu-kernel-coder-default.yaml
 role: gpu-kernel-coder
 ```
 
-### 3. Basic Workflow (Local tmux)
+
+### 4. Basic Workflow (Local tmux)
 
 Build a brain, start a session, interact, and stop:
 
@@ -305,7 +368,7 @@ houmao-mgr stop-session --agent-identity my-agent
 
 The build step outputs JSON with `home_path`, `manifest_path`, and `launch_helper_path`. You can also run the tool manually via `launch_helper_path` inside your own tmux window; managed lifecycle commands require a session started through `houmao-mgr`.
 
-### 4. Blueprint-Driven Preset (Recipe + Role)
+### 5. Blueprint-Driven Preset (Recipe + Role)
 
 ```bash
 houmao-mgr build-brain --blueprint blueprints/gpu-kernel-coder.yaml
@@ -315,7 +378,7 @@ houmao-mgr start-session \
   --blueprint blueprints/gpu-kernel-coder.yaml
 ```
 
-### 5. Server-Backed Multi-Agent Coordination
+### 6. Server-Backed Multi-Agent Coordination
 
 For multi-agent workflows that need a shared gateway and mailbox, use the `houmao-server` + `houmao-mgr` pair:
 
@@ -359,7 +422,13 @@ flowchart TB
         runtime --> local & headless --> toolcli
     end
 
-    mgrcli["houmao-mgr<br/>(build · launch · prompt · stop)"]
+    subgraph joinphase ["③ Join Phase (no build required)"]
+        existingtui["Existing Provider TUI<br/>(claude / codex / gemini<br/>running in tmux)"]
+        joincmd["agents join<br/>(detect provider,<br/>create placeholder manifest,<br/>attach gateway)"]
+        existingtui --> joincmd
+    end
+
+    mgrcli["houmao-mgr<br/>(build · launch · join · prompt · stop)"]
     srvpair["houmao-server<br/>(multi-agent coordination)"]
 
     adapter --> builder
@@ -372,6 +441,8 @@ flowchart TB
 
     mgrcli --> builder
     mgrcli --> runtime
+    mgrcli --> joincmd
+    joincmd -. "registry +<br/>gateway" .-> runtime
     mgrcli -. "server control" .-> srvpair
     srvpair -. "gateway + mailbox" .-> runtime
 ```
