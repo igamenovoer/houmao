@@ -27,6 +27,17 @@ from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
+from houmao.server.models import (
+    HoumaoTerminalSnapshotHistoryEntry,
+    HoumaoTerminalSnapshotHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedDiagnostics,
+    HoumaoTrackedLastTurn,
+    HoumaoTrackedSessionIdentity,
+    HoumaoTrackedSurface,
+    HoumaoTrackedTurn,
+    HoumaoStabilityMetadata,
+)
 from tests.unit.passive_server.test_discovery import _make_record
 from tests.unit.passive_server.test_headless_service import (
     _FakeHeadlessBackendSession,
@@ -408,6 +419,67 @@ def _stub_mail_notifier_status(
     )
 
 
+def _stub_tui_state() -> HoumaoTerminalStateResponse:
+    """Create a minimal valid HoumaoTerminalStateResponse for gateway TUI mocks."""
+
+    return HoumaoTerminalStateResponse(
+        terminal_id="term-123",
+        tracked_session=HoumaoTrackedSessionIdentity(
+            tracked_session_id="tracked-123",
+            session_name="AGENTSYS-alpha-abc123",
+            tool="claude",
+            tmux_session_name="AGENTSYS-alpha-abc123",
+            terminal_aliases=["term-123"],
+        ),
+        diagnostics=HoumaoTrackedDiagnostics(
+            availability="available",
+            transport_state="tmux_up",
+            process_state="tui_up",
+            parse_status="parsed",
+            probe_error=None,
+            parse_error=None,
+        ),
+        probe_snapshot=None,
+        parsed_surface=None,
+        surface=HoumaoTrackedSurface(
+            accepting_input="yes",
+            editing_input="no",
+            ready_posture="yes",
+        ),
+        turn=HoumaoTrackedTurn(phase="ready"),
+        last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
+        stability=HoumaoStabilityMetadata(
+            signature="stable",
+            stable=True,
+            stable_for_seconds=3.0,
+            stable_since_utc="2026-03-27T00:00:00+00:00",
+        ),
+        recent_transitions=[],
+    )
+
+
+def _stub_tui_history(limit: int) -> HoumaoTerminalSnapshotHistoryResponse:
+    """Create a minimal valid snapshot history response for gateway TUI mocks."""
+
+    state = _stub_tui_state()
+    return HoumaoTerminalSnapshotHistoryResponse(
+        terminal_id=state.terminal_id,
+        tracked_session_id=state.tracked_session.tracked_session_id,
+        entries=[
+            HoumaoTerminalSnapshotHistoryEntry(
+                recorded_at_utc="2026-03-27T00:00:00+00:00",
+                diagnostics=state.diagnostics,
+                probe_snapshot=None,
+                parsed_surface=None,
+                surface=state.surface,
+                turn=state.turn,
+                last_turn=state.last_turn,
+                stability=state.stability.model_copy(update={"signature": f"history-{limit}"}),
+            )
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Gateway status endpoint
 # ---------------------------------------------------------------------------
@@ -457,6 +529,60 @@ class TestGatewayStatusEndpoint:
             ),
         ):
             resp = client.get("/houmao/agents/abc123/gateway")
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway TUI endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayTuiEndpoint:
+    """GET|POST /houmao/agents/{agent_ref}/gateway/tui/*."""
+
+    def test_state_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(GatewayClient, "get_tui_state", return_value=_stub_tui_state()):
+            resp = client.get("/houmao/agents/abc123/gateway/tui/state")
+        assert resp.status_code == 200
+
+    def test_history_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "get_tui_history",
+                side_effect=lambda *, limit: _stub_tui_history(limit),
+            ),
+        ):
+            resp = client.get("/houmao/agents/abc123/gateway/tui/history?limit=7")
+        assert resp.status_code == 200
+        assert resp.json()["entries"][0]["stability"]["signature"] == "history-7"
+
+    def test_note_prompt_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "note_tui_prompt_submission",
+                return_value=_stub_tui_state(),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/tui/note-prompt",
+                json={"prompt": "hello"},
+            )
+        assert resp.status_code == 200
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/gateway/tui/state")
         assert resp.status_code == 502
 
 
@@ -1170,7 +1296,9 @@ class TestManagedCompatibilityRoutes:
         self,
         tmp_path: object,
     ) -> None:
-        client = _make_agent_client(tmp_path, [_agent(agent_id="abc123", backend="claude_headless")])
+        client = _make_agent_client(
+            tmp_path, [_agent(agent_id="abc123", backend="claude_headless")]
+        )
 
         with client:
             resp = client.get("/houmao/agents/abc123/managed-state/detail")

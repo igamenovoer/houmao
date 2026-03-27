@@ -38,6 +38,7 @@ from houmao.server.models import (
     HoumaoManagedAgentStateResponse,
     HoumaoRegisterLaunchRequest,
     HoumaoRegisterLaunchResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
 )
 
@@ -1025,7 +1026,9 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
 
     control = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
     notifier_status = client.get_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
-    notifier_enabled = client.put_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1", notifier_put)
+    notifier_enabled = client.put_managed_agent_gateway_mail_notifier(
+        "AGENTSYS gpu/1", notifier_put
+    )
     notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
 
     assert control.detail == "queued"
@@ -1052,5 +1055,97 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
             "method": "DELETE",
             "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
             "kwargs": {},
+        },
+    ]
+
+
+def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: list[dict[str, object]] = []
+    state_payload = {
+        "terminal_id": "headless123",
+        "tracked_session": {
+            "tracked_session_id": "tracked-agent",
+            "session_name": "tracked-agent",
+            "tool": "codex",
+            "tmux_session_name": "AGENTSYS-gpu",
+            "terminal_aliases": ["headless123"],
+        },
+        "diagnostics": {
+            "availability": "available",
+            "transport_state": "tmux_up",
+            "process_state": "tui_up",
+            "parse_status": "parsed",
+            "probe_error": None,
+            "parse_error": None,
+        },
+        "probe_snapshot": None,
+        "parsed_surface": None,
+        "surface": {
+            "accepting_input": "yes",
+            "editing_input": "no",
+            "ready_posture": "yes",
+        },
+        "turn": {"phase": "ready"},
+        "last_turn": {"result": "none", "source": "none", "updated_at_utc": None},
+        "stability": {
+            "signature": "sig-1",
+            "stable": True,
+            "stable_for_seconds": 3.0,
+            "stable_since_utc": "2026-03-27T00:00:00+00:00",
+        },
+        "recent_transitions": [],
+    }
+    history_payload = {
+        "terminal_id": "headless123",
+        "tracked_session_id": "tracked-agent",
+        "entries": [
+            {
+                "recorded_at_utc": "2026-03-27T00:00:00+00:00",
+                "diagnostics": state_payload["diagnostics"],
+                "probe_snapshot": None,
+                "parsed_surface": None,
+                "surface": state_payload["surface"],
+                "turn": state_payload["turn"],
+                "last_turn": state_payload["last_turn"],
+                "stability": state_payload["stability"],
+            }
+        ],
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if path.endswith("/gateway/tui/history?limit=7"):
+            return model.model_validate(history_payload)
+        return model.model_validate(state_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    state = client.get_managed_agent_gateway_tui_state("AGENTSYS gpu/1")
+    history = client.get_managed_agent_gateway_tui_history("AGENTSYS gpu/1", limit=7)
+    noted = client.note_managed_agent_gateway_tui_prompt("AGENTSYS gpu/1", prompt="hello")
+
+    assert isinstance(state, HoumaoTerminalStateResponse)
+    assert isinstance(history, HoumaoTerminalSnapshotHistoryResponse)
+    assert noted.terminal_id == "headless123"
+    assert recorded == [
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/state",
+            "kwargs": {},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/history?limit=7",
+            "kwargs": {},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/note-prompt",
+            "kwargs": {
+                "json_body": GatewayRequestPayloadSubmitPromptV1(prompt="hello").model_dump(
+                    mode="json"
+                )
+            },
         },
     ]

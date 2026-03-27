@@ -38,6 +38,8 @@ from houmao.server.models import (
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
     HoumaoManagedAgentStateResponse,
+    HoumaoTerminalSnapshotHistoryResponse,
+    HoumaoTerminalStateResponse,
 )
 
 
@@ -138,6 +140,25 @@ class PairAuthorityClientProtocol(Protocol):
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         """Detach a managed-agent gateway."""
+
+    def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
+        """Return raw gateway-owned TUI state for one managed agent."""
+
+    def get_managed_agent_gateway_tui_history(
+        self,
+        agent_ref: str,
+        *,
+        limit: int = 100,
+    ) -> HoumaoTerminalSnapshotHistoryResponse:
+        """Return raw gateway-owned TUI snapshot history for one managed agent."""
+
+    def note_managed_agent_gateway_tui_prompt(
+        self,
+        agent_ref: str,
+        *,
+        prompt: str,
+    ) -> HoumaoTerminalStateResponse:
+        """Record prompt-note provenance through the managed-agent gateway TUI surface."""
 
     def submit_managed_agent_gateway_request(
         self,
