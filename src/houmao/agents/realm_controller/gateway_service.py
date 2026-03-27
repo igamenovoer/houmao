@@ -1433,8 +1433,10 @@ class GatewayServiceRuntime:
             (
                 "Resolve current mailbox bindings through the runtime-owned helper "
                 "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. Do not scrape tmux state directly or trust "
-                "stale inherited process env."
+                "before any direct mailbox access. That helper prefers current process env, "
+                "falls back to the owning tmux session env, and returns the exact attached "
+                "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
+                "directly or trust stale inherited process env."
             ),
             (
                 "Use the runtime-owned mailbox skill document for the current transport at "
@@ -1448,7 +1450,8 @@ class GatewayServiceRuntime:
             ),
             (
                 "Use the exact live gateway base URL for this turn: "
-                f"`http://{self.m_host}:{self.m_port}`. Do not guess another host or port."
+                f"`http://{self.m_host}:{self.m_port}`. This matches the resolver's "
+                "`gateway.base_url`; do not guess another host or port."
             ),
             (
                 "Do not inspect repo docs or OpenAPI to rediscover those routine request "

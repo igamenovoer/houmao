@@ -6,13 +6,29 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.mailbox_runtime_support import (
+    mailbox_env_bindings,
+    main as mailbox_runtime_main,
+)
 from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
+from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
+from houmao.agents.realm_controller.gateway_storage import (
+    AGENT_GATEWAY_HOST_ENV_VAR,
+    AGENT_GATEWAY_PORT_ENV_VAR,
+    AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    AGENT_GATEWAY_STATE_PATH_ENV_VAR,
+    gateway_paths_from_manifest_path,
+    write_gateway_current_instance,
+)
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
+    default_manifest_path,
+    write_session_manifest,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
@@ -27,7 +43,6 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
 )
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.cao.models import (
     CaoHealthResponse,
@@ -496,3 +511,74 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
     assert '"message_ref": "filesystem:msg-20260318T130000Z-integration"' in output
     assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
+
+
+def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    launch_plan = _mailbox_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+    manifest_path = default_manifest_path(tmp_path, "codex_headless", "codex-headless-1")
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=launch_plan,
+            role_name="r",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="research",
+            agent_id=derive_agent_id_from_name("research"),
+            tmux_session_name="AGENTSYS-research",
+            backend_state={
+                "session_id": "sess-1",
+                "turn_index": 1,
+                "role_bootstrap_applied": True,
+                "working_directory": str(tmp_path),
+                "tmux_session_name": "AGENTSYS-research",
+            },
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    write_gateway_current_instance(
+        paths.current_instance_path,
+        GatewayCurrentInstanceV1(
+            pid=4242,
+            host="127.0.0.1",
+            port=43123,
+            managed_agent_instance_epoch=1,
+        ),
+    )
+    tmux_env = {
+        **mailbox_env_bindings(mailbox),
+        AGENT_GATEWAY_HOST_ENV_VAR: "127.0.0.1",
+        AGENT_GATEWAY_PORT_ENV_VAR: "43123",
+        AGENT_GATEWAY_STATE_PATH_ENV_VAR: str(paths.state_path),
+        AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR: "v1",
+    }
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: tmux_env.get(variable_name),
+    )
+
+    class _FakeGatewayClient:
+        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
+            del timeout_seconds
+            self.m_endpoint = endpoint
+
+        def health(self):
+            return SimpleNamespace(protocol_version="v1", status="ok")
+
+    monkeypatch.setattr("houmao.agents.mailbox_runtime_support.GatewayClient", _FakeGatewayClient)
+
+    exit_code = mailbox_runtime_main(["resolve-live", "--manifest-path", str(manifest_path)])
+    captured = capsys.readouterr()
+    resolved = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert resolved["mailbox"]["transport"] == "filesystem"
+    assert resolved["gateway"]["source"] == "tmux_session_env"
+    assert resolved["gateway"]["base_url"] == "http://127.0.0.1:43123"
+    assert resolved["gateway"]["state_path"] == str(paths.state_path)
