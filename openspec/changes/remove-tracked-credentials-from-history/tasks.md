@@ -12,7 +12,7 @@
 
 ## 3. Rewrite reachable history and remote refs
 
-- [ ] 3.1 Create a backup ref, rewrite local history to remove the tracked Codex `auth.json` from reachable history, and verify the removed path is absent from the rewritten branch history.
+- [x] 3.1 Create a backup ref, rewrite local history to remove the tracked Codex `auth.json` from reachable history, and verify the removed path is absent from the rewritten branch history.
 - [ ] 3.2 Inspect repo-owned branches and tags that new clones may fetch, then delete or move any remaining refs that still expose the leaked credential commit.
 - [ ] 3.3 Force-update the canonical remote branch to the sanitized history and confirm a fresh reachable-history inspection no longer surfaces the removed `auth.json`.
 
