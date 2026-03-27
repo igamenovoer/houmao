@@ -20,7 +20,7 @@ houmao-mgr admin [OPTIONS] COMMAND [ARGS]...
 
 Administrative utilities for the Houmao environment.
 
-The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for the registry-only command.
+The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. Registry cleanup probes tmux-backed records locally by default and accepts `--no-tmux-check` for lease-only cleanup. `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for the registry-only command.
 
 ### `agents` — Agent lifecycle
 
