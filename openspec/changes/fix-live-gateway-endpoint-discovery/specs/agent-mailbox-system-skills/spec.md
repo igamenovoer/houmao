@@ -10,7 +10,9 @@ That live resolver SHALL:
 - surface the current `AGENTSYS_MAILBOX_BINDINGS_VERSION` for mailbox refresh detection,
 - avoid requiring the agent to parse raw manifest JSON or enumerate unrelated tmux env vars manually.
 
-When the session also has a live attached gateway that exposes the shared `/v1/mail/*` facade, that same runtime-owned live resolver SHALL surface the current validated gateway mail-facade binding for the session. That gateway binding SHALL include the exact current `base_url` needed for attached shared-mailbox work and SHALL come from runtime-owned discovery rather than from provider-process env assumptions or tmux scraping performed by the agent.
+When the resolver runs inside the managed tmux session, it SHALL prefer complete valid live bindings already present in the current process env and SHALL fall back to the owning tmux session env when the needed live values are missing or incomplete.
+
+When the session also has a live attached gateway that exposes the shared `/v1/mail/*` facade, that same runtime-owned live resolver SHALL surface the current validated gateway mail-facade binding for the session. That gateway binding SHALL include the exact current `base_url` needed for attached shared-mailbox work and SHALL come from the runtime-owned discovery order for the current session rather than from port guessing or manifest-persisted live gateway fields.
 
 The existing mailbox env naming contract remains unchanged, but for tmux-backed sessions those bindings SHALL be treated as live mailbox projection data resolved through the runtime-owned resolver rather than as launch-time process env that is assumed immutable.
 
@@ -19,6 +21,13 @@ The existing mailbox env naming contract remains unchanged, but for tmux-backed 
 - **THEN** the projected mailbox system skill resolves the current mailbox binding through the runtime-owned live resolver
 - **AND THEN** the skill observes the refreshed filesystem mailbox root, mailbox directory, and mailbox-local SQLite path without requiring provider relaunch solely to refresh inherited process env
 - **AND THEN** the agent does not need to reconstruct mailbox paths heuristically from stale launch-time bindings
+
+#### Scenario: Current-session mailbox work falls back from process env to the owning tmux session env
+- **WHEN** attached mailbox work runs inside the managed tmux session
+- **AND WHEN** the current process env lacks the complete live gateway binding needed for `/v1/mail/*`
+- **AND WHEN** the owning tmux session env contains the current live gateway binding
+- **THEN** the runtime-owned live resolver obtains that gateway binding from the owning tmux session env
+- **AND THEN** the projected mailbox system skill can continue attached mailbox work without guessing another host or port
 
 #### Scenario: Attached mailbox skill resolves the live gateway mail facade through the same resolver
 - **WHEN** a tmux-backed mailbox-enabled session has a live attached gateway exposing `/v1/mail/*`
