@@ -43,8 +43,8 @@ flowchart TD
     CXH --> LS
     GH --> LS
 
-    style Build fill:#1a1a2e,stroke:#e94560,color:#eee
-    style Run fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Build fill:#f7efe6,stroke:#d66a4f,color:#222
+    style Run fill:#eef5fb,stroke:#5b8db8,color:#222
 ```
 
 ### Runtime Control Loop
