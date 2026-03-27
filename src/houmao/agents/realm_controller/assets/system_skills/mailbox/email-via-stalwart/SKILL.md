@@ -33,13 +33,15 @@ Use this skill when the runtime-selected mailbox transport is `stalwart`.
 ## Binding Checks
 
 - Read [references/env-vars.md](references/env-vars.md) before using the transport.
-- Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `stalwart`.
-- Re-read the mailbox env vars before each mailbox action. Do not cache session endpoints or credentials across turns.
+- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work.
+- Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `stalwart`.
+- Re-resolve the current mailbox bindings before each mailbox action. Do not cache session endpoints or credentials across turns.
+- Do not scrape tmux state directly or rely on stale inherited process env snapshots when the runtime-owned resolver is available.
 
 ## Direct Stalwart Fallback Actions
 
 - Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
-- Use the runtime-managed `AGENTSYS_MAILBOX_EMAIL_*` env vars for direct Stalwart-backed mailbox access.
+- Use the current `AGENTSYS_MAILBOX_EMAIL_*` bindings returned by the runtime-owned live resolver for direct Stalwart-backed mailbox access.
 - Treat `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
 - Use `AGENTSYS_MAILBOX_EMAIL_JMAP_URL` as the JMAP session endpoint.
 - Use `AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY` as the mailbox login identity.

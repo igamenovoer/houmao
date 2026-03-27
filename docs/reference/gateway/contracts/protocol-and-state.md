@@ -519,8 +519,9 @@ Representative status response:
 Support contract rules:
 
 - The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
-- It inspects `payload.launch_plan.mailbox` in that manifest to determine whether notifier behavior is supported.
-- Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest or when the manifest launch plan has no mailbox binding.
+- It inspects `payload.launch_plan.mailbox` in that manifest as the durable mailbox capability record.
+- For tmux-backed managed sessions, it additionally resolves the current targeted `AGENTSYS_MAILBOX_*` projection from the owning tmux session environment before treating notifier behavior as supported.
+- Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current tmux-backed live mailbox projection is unavailable or incomplete for actionable mailbox work.
 - Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
 - Wake-up prompts nominate exactly one actionable unread target using the oldest unread message by `created_at_utc` with a stable tie-breaker.

@@ -23,7 +23,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     tmux_session_exists,
 )
-from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    GatewayHttpError,
+    MailboxCommandError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -633,27 +637,28 @@ def mail_status(target: ManagedAgentTarget) -> object:
 
     assert target.controller is not None
     activation_state = target.controller.mailbox_activation_state()
-    mailbox_summary = _local_mailbox_summary(target.controller)
-    if mailbox_summary is None:
-        raise click.ClickException("Target session is not mailbox-enabled.")
-    if activation_state == "pending_relaunch":
-        raise click.ClickException(
-            "Target session has a persisted mailbox binding, but runtime-owned mail commands "
-            "remain pending relaunch."
-        )
     if activation_state == "unsupported_joined_session":
         raise click.ClickException(
             "Target session cannot activate late mailbox support because joined-session relaunch "
             "authority is unavailable."
         )
+    try:
+        mailbox = ensure_mailbox_command_ready(
+            target.controller.launch_plan,
+            tmux_session_name=target.controller.tmux_session_name,
+        )
+    except MailboxCommandError as exc:
+        if target.controller.launch_plan.mailbox is None:
+            raise click.ClickException("Target session is not mailbox-enabled.") from exc
+        raise click.ClickException(str(exc)) from exc
+    if mailbox is None:
+        raise click.ClickException("Target session is not mailbox-enabled.")
     return {
         "schema_version": 1,
-        "transport": mailbox_summary.transport,
-        "principal_id": mailbox_summary.principal_id,
-        "address": mailbox_summary.address,
-        "bindings_version": getattr(
-            target.controller.launch_plan.mailbox, "bindings_version", "v1"
-        ),
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "bindings_version": mailbox.bindings_version,
     }
 
 
@@ -1637,23 +1642,25 @@ def _run_local_mail_prompt(
     """Run one local mailbox operation through the runtime-owned mail prompt path."""
 
     activation_state = controller.mailbox_activation_state()
-    mailbox = ensure_mailbox_command_ready(controller.launch_plan)
-    if activation_state == "pending_relaunch":
-        raise click.ClickException(
-            "Target session has a persisted mailbox binding, but runtime-owned mail commands "
-            "remain pending relaunch."
-        )
     if activation_state == "unsupported_joined_session":
         raise click.ClickException(
             "Target session cannot activate late mailbox support because joined-session relaunch "
             "authority is unavailable."
         )
+    try:
+        mailbox = ensure_mailbox_command_ready(
+            controller.launch_plan,
+            tmux_session_name=controller.tmux_session_name,
+        )
+    except MailboxCommandError as exc:
+        raise click.ClickException(str(exc)) from exc
     prefer_live_gateway = _live_gateway_client_for_controller(controller) is not None
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
         operation=cast(Any, operation),
         args=args,
         prefer_live_gateway=prefer_live_gateway,
+        tmux_session_name=controller.tmux_session_name,
     )
     return run_mail_prompt(
         send_prompt=controller.send_prompt,

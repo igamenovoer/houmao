@@ -1,5 +1,7 @@
 # Stalwart Mailbox Env Vars
 
+Resolve the current binding set through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work. For tmux-backed managed sessions, that runtime-owned helper reads the targeted mailbox keys from the owning tmux session environment and returns the current mailbox projection. Do not scrape tmux state directly when this helper is available.
+
 Common mailbox bindings:
 
 - `AGENTSYS_MAILBOX_TRANSPORT`
@@ -23,3 +25,4 @@ Stalwart-specific bindings:
 Gateway-related preference:
 
 - When live gateway env bindings are present, prefer the gateway `/v1/mail/*` facade for shared mailbox operations before falling back to direct Stalwart access.
+- When direct Stalwart access is required, use the current `AGENTSYS_MAILBOX_EMAIL_*` values returned by the runtime-owned live resolver rather than trusting stale inherited process env snapshots.

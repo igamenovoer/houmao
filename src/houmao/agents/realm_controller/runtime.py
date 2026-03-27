@@ -144,6 +144,7 @@ from houmao.agents.mailbox_runtime_support import (
     mailbox_env_var_names,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
+    publish_tmux_live_mailbox_projection,
     refresh_filesystem_mailbox_config,
     resolve_effective_mailbox_config,
     resolved_mailbox_config_from_payload,
@@ -490,9 +491,10 @@ class RuntimeSessionController:
             updated_launch_plan=updated_launch_plan,
             backend=self.launch_plan.backend,
         )
-        _refresh_backend_launch_plan(
-            backend_session=self.backend_session,
-            launch_plan=updated_launch_plan,
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
         )
         self.launch_plan = updated_launch_plan
         self.persist_manifest()
@@ -537,10 +539,13 @@ class RuntimeSessionController:
             role_name=self.role_name,
             agent_identity=self.agent_identity,
         )
-        effective_address = _normalize_optional_mailbox_text(
-            address,
-            field_name="address",
-        ) or f"{effective_principal_id}@agents.localhost"
+        effective_address = (
+            _normalize_optional_mailbox_text(
+                address,
+                field_name="address",
+            )
+            or f"{effective_principal_id}@agents.localhost"
+        )
         effective_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
 
         bootstrap_filesystem_mailbox(effective_mailbox_root)
@@ -572,9 +577,10 @@ class RuntimeSessionController:
             updated_launch_plan=updated_launch_plan,
             backend=self.launch_plan.backend,
         )
-        _refresh_backend_launch_plan(
-            backend_session=self.backend_session,
-            launch_plan=updated_launch_plan,
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
         )
         self.launch_plan = updated_launch_plan
         self.persist_manifest()
@@ -615,9 +621,10 @@ class RuntimeSessionController:
             updated_launch_plan=updated_launch_plan,
             backend=self.launch_plan.backend,
         )
-        _refresh_backend_launch_plan(
-            backend_session=self.backend_session,
-            launch_plan=updated_launch_plan,
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
         )
         self.launch_plan = updated_launch_plan
         self.persist_manifest()
@@ -2252,13 +2259,7 @@ def _apply_mailbox_live_state_after_mutation(
 ) -> LaunchPlan:
     """Persist live-mailbox posture after one late mailbox mutation."""
 
-    if backend == "local_interactive":
-        previous_live_state = _mailbox_live_state(previous_launch_plan)
-        return _launch_plan_with_mailbox_live_state(
-            updated_launch_plan,
-            live_enabled=previous_live_state.enabled,
-            bindings_version=previous_live_state.bindings_version,
-        )
+    del previous_launch_plan, backend
     return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
 
 
@@ -2296,10 +2297,96 @@ def _mailbox_mutation_activation_state(
 
     if _joined_session_mailbox_registration_is_unsupported(controller):
         return "unsupported_joined_session"
-    if controller.launch_plan.backend == "local_interactive":
-        return "pending_relaunch"
     del updated_mailbox
     return "active"
+
+
+def _refresh_mailbox_projection_and_backend_launch_plan(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Refresh live mailbox projection and backend launch plan as one mutation step."""
+
+    projection_refreshed = False
+    try:
+        _refresh_tmux_live_mailbox_projection_for_controller(
+            controller=controller,
+            previous_launch_plan=previous_launch_plan,
+            updated_launch_plan=updated_launch_plan,
+        )
+        projection_refreshed = True
+        _refresh_backend_launch_plan(
+            backend_session=controller.backend_session,
+            launch_plan=updated_launch_plan,
+        )
+    except Exception:
+        if projection_refreshed:
+            _best_effort_restore_tmux_live_mailbox_projection_for_controller(
+                controller=controller,
+                previous_launch_plan=previous_launch_plan,
+                updated_launch_plan=updated_launch_plan,
+            )
+        raise
+
+
+def _refresh_tmux_live_mailbox_projection_for_controller(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Refresh the targeted mailbox projection for one tmux-backed live session."""
+
+    if updated_launch_plan.backend not in _TMUX_BACKED_BACKENDS:
+        return
+    session_name = controller._require_tmux_session_name()
+    if has_tmux_session_shared(session_name=session_name).returncode != 0:
+        raise SessionManifestError(
+            f"Cannot refresh live mailbox projection because tmux session `{session_name}` is unavailable."
+        )
+    try:
+        publish_tmux_live_mailbox_projection(
+            session_name=session_name,
+            previous_mailbox=previous_launch_plan.mailbox,
+            mailbox=updated_launch_plan.mailbox,
+            set_env=lambda current_session_name, env_vars: set_tmux_session_environment_shared(
+                session_name=current_session_name,
+                env_vars=env_vars,
+            ),
+            unset_env=lambda current_session_name, variable_names: (
+                unset_tmux_session_environment_shared(
+                    session_name=current_session_name,
+                    variable_names=variable_names,
+                )
+            ),
+        )
+    except (TmuxCommandError, ValueError) as exc:
+        raise SessionManifestError(
+            f"Failed to refresh tmux live mailbox projection: {exc}"
+        ) from exc
+
+
+def _best_effort_restore_tmux_live_mailbox_projection_for_controller(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Best-effort rollback for mailbox projection updates after a later failure."""
+
+    try:
+        _refresh_tmux_live_mailbox_projection_for_controller(
+            controller=controller,
+            previous_launch_plan=updated_launch_plan,
+            updated_launch_plan=previous_launch_plan,
+        )
+    except SessionManifestError as exc:
+        controller._record_registry_warning(
+            "Mailbox projection rollback failed after launch-plan refresh error",
+            exc,
+        )
 
 
 def _normalize_optional_mailbox_text(value: str | None, *, field_name: str) -> str | None:

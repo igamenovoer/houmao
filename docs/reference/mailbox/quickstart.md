@@ -21,7 +21,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` reuses that persisted binding for runtime-owned mailbox work after the agent is launched or joined.
 
-After registration, the runtime projects the transport-specific mailbox skill and env vars into the managed session so later `agents mail ...` commands can reuse the same binding. The visible `skills/mailbox/...` subtree is the primary mailbox skill surface, and `skills/.system/mailbox/...` remains a compatibility mirror.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the primary mailbox skill surface, and `skills/.system/mailbox/...` remains a compatibility mirror.
 
 ## Filesystem Quickstart
 
@@ -74,7 +74,7 @@ Typical status output after a successful headless registration:
 }
 ```
 
-For long-lived local interactive TUI sessions, `agents mailbox register` or `agents mailbox unregister` may report `pending_relaunch`. In that case, run `pixi run houmao-mgr agents relaunch --agent-name <name>` before treating `agents mail ...` as active on the live provider process.
+For supported tmux-backed managed sessions, late mailbox registration now refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is a scratch area rather than the shared mailbox root and is a good candidate for ignore rules in local repos.
 
