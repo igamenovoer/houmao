@@ -85,6 +85,30 @@ Generated runtime state still lives outside the source tree:
 
 Default runtime root is `tmp/agents-runtime/`.
 
+## Encrypted Tools Archive
+
+The checked-in [tools.tar.gz.enc](/data1/huangzhe/code/houmao/tests/fixtures/agents/tools.tar.gz.enc) archive is the encrypted snapshot of `tests/fixtures/agents/tools/`, including local-only auth bundles that are ignored in plaintext on this host.
+
+To verify and decrypt it:
+
+1. Load `AGENT_CREDENTIAL_COMPRESS_PASSWORD` from the repo-local `.env`.
+2. Verify the archive checksum:
+   - `sha256sum -c tests/fixtures/agents/tools.tar.gz.enc.sha256`
+3. Decrypt and unpack:
+
+```bash
+set -a
+. ./.env
+set +a
+
+openssl enc -d -aes-256-cbc -pbkdf2 -salt \
+  -pass env:AGENT_CREDENTIAL_COMPRESS_PASSWORD \
+  -in tests/fixtures/agents/tools.tar.gz.enc \
+| tar -C tests/fixtures/agents -xzf -
+```
+
+This restores `tests/fixtures/agents/tools/` in place. Keep the extracted `tools/<tool>/auth/**` contents local-only and do not commit them in plaintext.
+
 ## Recommended Workflow
 
 1. Select a role preset such as `roles/gpu-kernel-coder/presets/claude/default.yaml`.
