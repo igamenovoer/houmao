@@ -20,6 +20,8 @@ houmao-mgr admin [OPTIONS] COMMAND [ARGS]...
 
 Administrative utilities for the Houmao environment.
 
+The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for the registry-only command.
+
 ### `agents` — Agent lifecycle
 
 ```
@@ -39,6 +41,7 @@ Agent lifecycle: launch, terminate, observe, send-prompt, mail, join, gateway op
 | `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. |
 | `mail` | Check, send, or reply to inter-agent mail messages. |
 | `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
+| `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material without calling `houmao-server`. |
 | `gateway attach` | Attach a gateway to an agent session. |
 | `gateway status` | Show gateway status for a session. |
 | `gateway prompt` | Send a prompt through the gateway. |
@@ -62,6 +65,12 @@ The preferred local serverless mailbox workflow is:
 
 For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That remains true even when a joined session is controllable but non-relaunchable because no launch options were recorded, as long as Houmao can still update the session manifest and the owning tmux live mailbox projection safely. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
+Cleanup targeting rules:
+
+- `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
+- Inside the target tmux session, omitting those options resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus fresh shared-registry metadata second.
+- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized JSON payload.
+
 ### `mailbox` — Local filesystem mailbox administration
 
 ```
@@ -79,6 +88,7 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `register` | Create or reuse one filesystem mailbox registration for a full mailbox address. |
 | `unregister` | Deactivate or purge one filesystem mailbox registration. |
 | `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
+| `cleanup` | Remove inactive or stashed mailbox registrations while preserving active registrations and canonical `messages/` history. |
 
 ### `brains` — Local brain-construction commands
 

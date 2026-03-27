@@ -34,7 +34,7 @@ Think of it as a per-user phonebook for live sessions:
 
 ### Start here
 
-- [Discovery And Cleanup](operations/discovery-and-cleanup.md): How name-based resolution falls back from tmux-local discovery to the registry, plus how `cleanup-registry` classifies stale state.
+- [Discovery And Cleanup](operations/discovery-and-cleanup.md): How name-based resolution falls back from tmux-local discovery to the registry, plus how `houmao-mgr admin cleanup registry` classifies stale state.
 
 ### Contracts
 

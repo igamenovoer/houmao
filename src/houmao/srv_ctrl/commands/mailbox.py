@@ -7,19 +7,29 @@ import sqlite3
 from typing import Any, Callable, Literal, cast
 
 import click
-
-from houmao.mailbox import MailboxBootstrapError, bootstrap_filesystem_mailbox, read_protocol_version
-from houmao.mailbox.filesystem import resolve_filesystem_mailbox_paths, unsupported_mailbox_root_reason
+from houmao.mailbox import (
+    MailboxBootstrapError,
+    bootstrap_filesystem_mailbox,
+    read_protocol_version,
+)
+from houmao.mailbox.filesystem import (
+    resolve_filesystem_mailbox_paths,
+    unsupported_mailbox_root_reason,
+)
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
+    MailboxCleanupRecord,
+    MailboxCleanupResult,
     RegisterMailboxRequest,
     RepairRequest,
+    cleanup_mailbox_registrations,
     deregister_mailbox,
     register_mailbox,
     repair_mailbox_index,
 )
 from houmao.owned_paths import resolve_mailbox_root
 
+from .cleanup_support import CleanupAction, build_cleanup_payload
 from .common import emit_json
 
 
@@ -190,6 +200,51 @@ def repair_mailbox_command(
     )
 
 
+@mailbox_group.command(name="cleanup")
+@_mailbox_root_option
+@click.option(
+    "--inactive-older-than-seconds",
+    default=0,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Only clean inactive registrations older than this threshold.",
+)
+@click.option(
+    "--stashed-older-than-seconds",
+    default=0,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Only clean stashed registrations older than this threshold.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview inactive or stashed mailbox cleanup candidates without deleting them.",
+)
+def cleanup_mailbox_command(
+    mailbox_root: Path | None,
+    inactive_older_than_seconds: int,
+    stashed_older_than_seconds: int,
+    dry_run: bool,
+) -> None:
+    """Clean inactive or stashed mailbox registrations without deleting canonical mail."""
+
+    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
+    result = cleanup_mailbox_registrations(
+        resolved_root,
+        inactive_older_than_seconds=inactive_older_than_seconds,
+        stashed_older_than_seconds=stashed_older_than_seconds,
+        dry_run=dry_run,
+    )
+    emit_json(
+        _mailbox_cleanup_payload(
+            result=result,
+            inactive_older_than_seconds=inactive_older_than_seconds,
+            stashed_older_than_seconds=stashed_older_than_seconds,
+        )
+    )
+
+
 def _mailbox_root_status_payload(mailbox_root: Path) -> dict[str, object]:
     """Return a structured filesystem mailbox root status payload."""
 
@@ -240,3 +295,60 @@ def _mailbox_root_status_payload(mailbox_root: Path) -> dict[str, object]:
         "structural_state_readable": structural_state_readable,
         "error": error,
     }
+
+
+def _mailbox_cleanup_payload(
+    *,
+    result: MailboxCleanupResult,
+    inactive_older_than_seconds: int,
+    stashed_older_than_seconds: int,
+) -> dict[str, object]:
+    """Return the structured CLI payload for mailbox cleanup."""
+
+    planned_actions: list[CleanupAction] = []
+    applied_actions: list[CleanupAction] = []
+    blocked_actions: list[CleanupAction] = []
+    preserved_actions: list[CleanupAction] = []
+
+    for record in result.planned:
+        planned_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.removed:
+        applied_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.blocked:
+        blocked_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.preserved:
+        preserved_actions.append(_cleanup_action_from_mailbox_record(record))
+
+    return build_cleanup_payload(
+        dry_run=result.dry_run,
+        scope={
+            "kind": "mailbox_cleanup",
+            "mailbox_root": str(result.mailbox_root),
+            "inactive_older_than_seconds": inactive_older_than_seconds,
+            "stashed_older_than_seconds": stashed_older_than_seconds,
+        },
+        resolution={"authority": "mailbox_root"},
+        planned_actions=planned_actions,
+        applied_actions=applied_actions,
+        blocked_actions=blocked_actions,
+        preserved_actions=preserved_actions,
+    )
+
+
+def _cleanup_action_from_mailbox_record(record: MailboxCleanupRecord) -> CleanupAction:
+    """Translate one mailbox cleanup record into the shared cleanup payload shape."""
+
+    details: dict[str, object] = {}
+    if record.address is not None:
+        details["address"] = record.address
+    if record.registration_id is not None:
+        details["registration_id"] = record.registration_id
+    if record.registration_status is not None:
+        details["registration_status"] = record.registration_status
+    return CleanupAction(
+        artifact_kind=record.artifact_kind,
+        path=record.path,
+        proposed_action="remove" if record.outcome != "preserved" else "preserve",
+        reason=record.reason,
+        details=details,
+    )
