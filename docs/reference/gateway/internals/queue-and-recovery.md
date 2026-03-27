@@ -50,7 +50,7 @@ sequenceDiagram
     participant CLI as Runtime CLI
     participant GW as Gateway
     participant Q as queue.sqlite
-    participant Be as CAO terminal
+    participant Be as Agent terminal
     CLI->>GW: POST /v1/requests
     GW->>Q: insert accepted record
     GW-->>CLI: accepted response
@@ -132,10 +132,10 @@ sequenceDiagram
 
 ## Current Execution-Adapter Boundary
 
-The live gateway process now selects an execution adapter from strict `attach.json` metadata instead of assuming one CAO-only callback path.
+The live gateway process now selects an execution adapter from manifest-backed authority plus internal bootstrap metadata instead of assuming a single callback path.
 
 - REST-backed adapters cover runtime-owned `cao_rest` and `houmao_server_rest` sessions and use the existing REST callback path for inspection, prompt submission, and interrupt delivery.
-- A local headless adapter covers runtime-owned native headless sessions and resumes that session through runtime-owned control.
+- A local tmux-backed adapter covers runtime-owned native headless sessions and runtime-owned `local_interactive` sessions, and resumes that runtime through runtime-owned control.
 - A server-managed headless adapter covers native headless sessions whose attach metadata publishes `managed_api_base_url` plus `managed_agent_ref`, and routes prompt or interrupt work back through the managed-agent API rather than bypassing server-owned turn authority.
 - Queue durability, reconciliation checks, and gateway-local epoch handling stay the same across those adapters.
 

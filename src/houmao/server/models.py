@@ -14,12 +14,20 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
     GatewayAdmissionState,
     GatewayConnectivityState,
     GatewayExecutionState,
     GatewayHealthState,
     GatewayHost,
+    GatewayMailActionResponseV1,
+    GatewayMailCheckRequestV1,
+    GatewayMailCheckResponseV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
     GatewayRecoveryState,
+    GatewayRequestCreateV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.shared_tui_tracking.models import (
@@ -54,6 +62,14 @@ OperatorStatus = Literal[
 ]
 CompletionAuthority = Literal["turn_anchored", "unanchored_background"]
 TurnAnchorState = Literal["active", "absent", "lost"]
+
+__all__ = (
+    "CompletionState",
+    "ParseStatus",
+    "ProcessState",
+    "ReadinessState",
+    "TransportState",
+)
 
 
 class _HoumaoModel(BaseModel):
@@ -368,33 +384,6 @@ class HoumaoRegisterLaunchRequest(_HoumaoModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
-
-
-class HoumaoInstallAgentProfileRequest(_HoumaoModel):
-    """Pair-owned install request for child-managed agent profiles."""
-
-    agent_source: str
-    provider: str
-    working_directory: str | None = None
-
-    @field_validator("agent_source", "provider", "working_directory")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Require optional string inputs to be non-empty when present."""
-
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-
-class HoumaoInstallAgentProfileResponse(CaoSuccessResponse):
-    """Success payload for pair-owned agent-profile install."""
-
-    agent_source: str
-    provider: str
-    detail: str
 
 
 class HoumaoRegisterLaunchResponse(CaoSuccessResponse):
@@ -762,6 +751,38 @@ class HoumaoManagedAgentRequestAcceptedResponse(CaoSuccessResponse):
         return stripped
 
 
+class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
+    """Gateway-mediated managed-agent request payload."""
+
+
+class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):
+    """Accepted response for `POST /houmao/agents/{agent_ref}/gateway/requests`."""
+
+
+class HoumaoManagedAgentMailStatusResponse(GatewayMailStatusV1):
+    """Pair-owned managed-agent mail status payload."""
+
+
+class HoumaoManagedAgentMailCheckRequest(GatewayMailCheckRequestV1):
+    """Pair-owned managed-agent mail-check request payload."""
+
+
+class HoumaoManagedAgentMailCheckResponse(GatewayMailCheckResponseV1):
+    """Pair-owned managed-agent mail-check response payload."""
+
+
+class HoumaoManagedAgentMailSendRequest(GatewayMailSendRequestV1):
+    """Pair-owned managed-agent mail-send request payload."""
+
+
+class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
+    """Pair-owned managed-agent mail-reply request payload."""
+
+
+class HoumaoManagedAgentMailActionResponse(GatewayMailActionResponseV1):
+    """Pair-owned managed-agent mail action response payload."""
+
+
 class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):
     """Optional mailbox overrides for native headless launch."""
 
@@ -802,7 +823,7 @@ class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     working_directory: str
     agent_def_dir: str
     brain_manifest_path: str
-    role_name: str
+    role_name: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
     mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None

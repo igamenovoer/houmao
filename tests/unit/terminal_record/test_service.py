@@ -8,9 +8,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
-from houmao.demo.cao_dual_shadow_watch.models import AgentSessionState, MonitorObservation
-from houmao.demo.cao_dual_shadow_watch.monitor import AgentStateTracker
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, TmuxPaneRecord
 from houmao.terminal_record import service as terminal_record_service
 from houmao.terminal_record.models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -126,27 +124,6 @@ def _read_ndjson(path: Path) -> list[dict[str, object]]:
     ]
 
 
-def _demo_session(*, tool: str, session_name: str) -> AgentSessionState:
-    return AgentSessionState(
-        slot="recorded",
-        tool=tool,
-        blueprint_path="recorded",
-        brain_recipe_path="recorded",
-        role_name="recorded",
-        workdir="recorded",
-        brain_home_path="recorded",
-        brain_manifest_path="recorded",
-        launch_helper_path="recorded",
-        session_manifest_path="recorded",
-        agent_identity="recorded",
-        agent_id="recorded",
-        tmux_session_name=session_name,
-        cao_session_name="recorded",
-        terminal_id="recorded",
-        parsing_mode="shadow_only",
-    )
-
-
 def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -162,15 +139,56 @@ def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
     )
     monkeypatch.setattr(
         terminal_record_service,
-        "list_tmux_panes",
-        lambda *, session_name: (
-            TmuxPaneRecord("%1", session_name, "@2", "developer-1", "0", True),
-            TmuxPaneRecord("%2", session_name, "@2", "developer-1", "1", False),
+        "resolve_tmux_pane_shared",
+        lambda *, session_name, pane_id: (_ for _ in ()).throw(
+            TmuxCommandError(
+                f"Ambiguous tmux pane target for `{session_name}`: 2 panes matched; "
+                "provide pane_id, window_id, window_index, or window_name."
+            )
         ),
     )
 
-    with pytest.raises(TerminalRecordError, match="provide --target-pane"):
+    with pytest.raises(TerminalRecordError, match="multiple panes; provide --target-pane"):
         resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane=None)
+
+
+def test_resolve_terminal_record_target_accepts_explicit_pane_in_non_current_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        terminal_record_service,
+        "has_tmux_session",
+        lambda *, session_name: subprocess.CompletedProcess(
+            args=["tmux", "has-session", "-t", session_name],
+            returncode=0,
+            stdout="",
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        terminal_record_service,
+        "resolve_tmux_pane_shared",
+        lambda *, session_name, pane_id: TmuxPaneRecord(
+            pane_id=pane_id or "%9",
+            session_name=session_name,
+            window_id="@9",
+            window_index="2",
+            window_name="gateway",
+            pane_index="0",
+            pane_active=False,
+            pane_dead=False,
+            pane_pid=4242,
+        ),
+    )
+
+    target = resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane="%9")
+
+    assert target == TerminalRecordTarget(
+        session_name="AGENTSYS-gpu",
+        pane_id="%9",
+        window_id="@9",
+        window_name="gateway",
+    )
 
 
 def test_start_terminal_record_persists_manifest_and_attach_command(
@@ -559,7 +577,7 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
     )
 
 
-def test_analyze_terminal_record_keeps_demo_tracker_as_reference_only(tmp_path: Path) -> None:
+def test_analyze_terminal_record_keeps_state_fields_consistent(tmp_path: Path) -> None:
     run_root = tmp_path / "run-009"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
     fixture_text = Path("tests/fixtures/shadow_parser/codex/tui_completed.txt").read_text(
@@ -586,42 +604,15 @@ def test_analyze_terminal_record_keeps_demo_tracker_as_reference_only(tmp_path: 
     parser_stack = ShadowParserStack(tool="codex")
     parsed = parser_stack.parse_snapshot(fixture_text, baseline_pos=0)
     assessment = parsed.surface_assessment
-    projection = parsed.dialog_projection
-    tracker = AgentStateTracker(
-        session=_demo_session(tool="codex", session_name=_target().session_name),
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-    )
-    reference_state, _ = tracker.observe(
-        MonitorObservation(
-            slot="recorded",
-            tool="codex",
-            terminal_id=_target().pane_id,
-            tmux_session_name=_target().session_name,
-            cao_status="recorded",
-            parser_family=parser_stack.parser_family,
-            parser_preset_id=assessment.parser_metadata.parser_preset_id,
-            parser_preset_version=assessment.parser_metadata.parser_preset_version,
-            availability=assessment.availability,
-            business_state=assessment.business_state,
-            input_mode=assessment.input_mode,
-            ui_context=assessment.ui_context,
-            normalized_projection_text=projection.normalized_text,
-            dialog_tail=projection.tail,
-            operator_blocked_excerpt=assessment.operator_blocked_excerpt,
-            anomaly_codes=tuple(
-                anomaly.code
-                for anomaly in (
-                    *assessment.parser_metadata.anomalies,
-                    *assessment.anomalies,
-                    *projection.anomalies,
-                )
-            ),
-            baseline_invalidated=assessment.parser_metadata.baseline_invalidated,
-            monotonic_ts=0.0,
-            error_detail=None,
-        )
-    )
 
-    assert state_payload["readiness_state"] == reference_state.readiness_state
-    assert state_payload["completion_state"] == reference_state.completion_state
+    assert state_payload["diagnostics_availability"] == "available"
+    assert state_payload["surface_accepting_input"] == "yes"
+    assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["turn_phase"] == "ready"
+    assert state_payload["last_turn_result"] == "none"
+    assert state_payload["last_turn_source"] == "none"
+    assert state_payload["readiness_state"] == "ready"
+    assert state_payload["completion_state"] == "inactive"
+    assert state_payload["business_state"] == assessment.business_state
+    assert state_payload["input_mode"] == assessment.input_mode
+    assert state_payload["ui_context"] == assessment.ui_context

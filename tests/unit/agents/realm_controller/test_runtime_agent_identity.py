@@ -878,47 +878,90 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
     assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
 
 
-def test_resolve_start_session_identity_uses_explicit_agent_id_for_tmux_handle(
+def test_resolve_start_session_identity_uses_timestamp_based_tmux_handle_for_raw_agent_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
         lambda: set(),
     )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.time.time_ns",
+        lambda: 1760000123456000000,
+    )
 
     resolved = _resolve_start_session_identity(
         manifest={},
         tool="codex",
         role_name="gpu-kernel-coder",
-        requested_agent_identity="gpu",
+        requested_agent_name="gpu",
+        requested_agent_identity=None,
         requested_agent_id="deadbeefcafefeed",
     )
 
+    assert resolved.agent_name == "gpu"
     assert resolved.canonical_agent_name == "AGENTSYS-gpu"
     assert resolved.agent_id == "deadbeefcafefeed"
-    assert resolved.tmux_session_name == "AGENTSYS-gpu-deadbe"
+    assert resolved.tmux_session_name == "AGENTSYS-gpu-1760000123456"
 
 
-def test_resolve_start_session_identity_extends_agent_id_prefix_on_collision(
+def test_resolve_start_session_identity_rejects_reserved_prefixed_raw_agent_name() -> None:
+    with pytest.raises(SessionManifestError, match="raw creation-time name"):
+        _resolve_start_session_identity(
+            manifest={},
+            tool="codex",
+            role_name="gpu-kernel-coder",
+            requested_agent_name="AGENTSYS-gpu",
+            requested_agent_identity=None,
+            requested_agent_id=None,
+        )
+
+
+def test_resolve_start_session_identity_fails_when_generated_default_name_collides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     canonical_agent_name = "AGENTSYS-gpu"
-    agent_id = derive_agent_id_from_name(canonical_agent_name)
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
-        lambda: {f"{canonical_agent_name}-{agent_id[:6]}"},
+        lambda: {f"{canonical_agent_name}-1760000123456"},
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.time.time_ns",
+        lambda: 1760000123456000000,
+    )
+
+    with pytest.raises(SessionManifestError, match="already in use"):
+        _resolve_start_session_identity(
+            manifest={},
+            tool="codex",
+            role_name="gpu-kernel-coder",
+            requested_agent_name="gpu",
+            requested_agent_identity=None,
+            requested_agent_id=None,
+        )
+
+
+def test_resolve_start_session_identity_preserves_explicit_tmux_session_name_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: (_ for _ in ()).throw(AssertionError("default generator should be bypassed")),
     )
 
     resolved = _resolve_start_session_identity(
         manifest={},
         tool="codex",
         role_name="gpu-kernel-coder",
-        requested_agent_identity="gpu",
-        requested_agent_id=None,
+        requested_agent_name="gpu",
+        requested_agent_identity=None,
+        requested_agent_id=derive_agent_id_from_name("gpu"),
+        requested_tmux_session_name="custom-gpu",
     )
 
-    assert resolved.agent_id == agent_id
-    assert resolved.tmux_session_name == f"{canonical_agent_name}-{agent_id[:7]}"
+    assert resolved.agent_name == "gpu"
+    assert resolved.canonical_agent_name == "AGENTSYS-gpu"
+    assert resolved.tmux_session_name == "custom-gpu"
 
 
 def test_tmux_backed_manifest_build_rejects_suffixed_handle_without_explicit_identity(

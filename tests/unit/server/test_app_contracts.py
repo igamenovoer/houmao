@@ -9,13 +9,15 @@ from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
 
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.server.app import create_app
 from houmao.server.models import (
-    ChildCaoStatus,
     HoumaoCurrentInstance,
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessLaunchResponse,
@@ -24,15 +26,21 @@ from houmao.server.models import (
     HoumaoHeadlessTurnRequest,
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
-    HoumaoInstallAgentProfileRequest,
-    HoumaoInstallAgentProfileResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayRequestAcceptedResponse,
+    HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryEntry,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
+    HoumaoManagedAgentMailActionResponse,
+    HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailReplyRequest,
+    HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentStateResponse,
@@ -115,7 +123,6 @@ class _AppServiceDouble:
         self.m_tracking_debug_events: list[dict[str, object]] = []
         self.m_deleted_sessions: list[str] = []
         self.m_deleted_terminals: list[str] = []
-        self.m_install_requests: list[HoumaoInstallAgentProfileRequest] = []
         self.m_register_requests: list[HoumaoRegisterLaunchRequest] = []
         self.m_history_calls: list[tuple[str, int]] = []
         self.m_headless_launch_requests: list[HoumaoHeadlessLaunchRequest] = []
@@ -130,9 +137,15 @@ class _AppServiceDouble:
         self.m_gateway_status_calls: list[str] = []
         self.m_gateway_attach_calls: list[str] = []
         self.m_gateway_detach_calls: list[str] = []
+        self.m_gateway_request_calls: list[tuple[str, HoumaoManagedAgentGatewayRequestCreate]] = []
+        self.m_gateway_control_calls: list[tuple[str, GatewayControlInputRequestV1]] = []
         self.m_gateway_notifier_get_calls: list[str] = []
         self.m_gateway_notifier_put_calls: list[tuple[str, GatewayMailNotifierPutV1]] = []
         self.m_gateway_notifier_delete_calls: list[str] = []
+        self.m_mail_status_calls: list[str] = []
+        self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
+        self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
+        self.m_mail_reply_calls: list[tuple[str, HoumaoManagedAgentMailReplyRequest]] = []
 
     def startup(self) -> None:
         return None
@@ -169,15 +182,6 @@ class _AppServiceDouble:
         return HoumaoHealthResponse(
             status="ok",
             service="cli-agent-orchestrator",
-            child_cao=ChildCaoStatus(
-                api_base_url="http://127.0.0.1:9890",
-                healthy=True,
-                health_status="ok",
-                service="cli-agent-orchestrator",
-                error=None,
-                derived_port=9890,
-                ownership_file="/tmp/child/ownership.json",
-            ),
         )
 
     def current_instance_response(self) -> HoumaoCurrentInstance:
@@ -185,26 +189,6 @@ class _AppServiceDouble:
             pid=12345,
             api_base_url="http://127.0.0.1:9889",
             server_root="/tmp/houmao-server",
-            child_cao=ChildCaoStatus(
-                api_base_url="http://127.0.0.1:9890",
-                healthy=True,
-                health_status="ok",
-                service="cli-agent-orchestrator",
-                error=None,
-                derived_port=9890,
-                ownership_file="/tmp/child/ownership.json",
-            ),
-        )
-
-    def install_agent_profile(
-        self, request_model: HoumaoInstallAgentProfileRequest
-    ) -> HoumaoInstallAgentProfileResponse:
-        self.m_install_requests.append(request_model)
-        return HoumaoInstallAgentProfileResponse(
-            success=True,
-            agent_source=request_model.agent_source,
-            provider=request_model.provider,
-            detail="Pair-owned install completed.",
         )
 
     def register_launch(
@@ -522,6 +506,29 @@ class _AppServiceDouble:
         self.m_gateway_detach_calls.append(agent_ref)
         return self.managed_agent_gateway_status(agent_ref)
 
+    def submit_managed_agent_gateway_request(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayRequestCreate,
+    ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
+        self.m_gateway_request_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentGatewayRequestAcceptedResponse(
+            request_id="greq-123",
+            request_kind=request_model.kind,
+            state="accepted",
+            accepted_at_utc="2026-03-24T16:00:00+00:00",
+            queue_depth=1,
+            managed_agent_instance_epoch=2,
+        )
+
+    def send_managed_agent_gateway_control_input(
+        self,
+        agent_ref: str,
+        request_model: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        self.m_gateway_control_calls.append((agent_ref, request_model))
+        return GatewayControlInputResultV1(detail="control input delivered")
+
     def get_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
@@ -566,6 +573,85 @@ class _AppServiceDouble:
             last_poll_at_utc=None,
             last_notification_at_utc=None,
             last_error=None,
+        )
+
+    def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
+        self.m_mail_status_calls.append(agent_ref)
+        return HoumaoManagedAgentMailStatusResponse(
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            bindings_version="v1",
+        )
+
+    def check_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailCheckRequest,
+    ) -> HoumaoManagedAgentMailCheckResponse:
+        self.m_mail_check_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailCheckResponse(
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            unread_only=request_model.unread_only,
+            message_count=0,
+            unread_count=0,
+            messages=[],
+        )
+
+    def send_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailSendRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        self.m_mail_send_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailActionResponse(
+            operation="send",
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            message={
+                "message_ref": "msg-123",
+                "thread_ref": "thread-1",
+                "created_at_utc": "2026-03-24T16:00:00+00:00",
+                "subject": request_model.subject,
+                "unread": False,
+                "body_preview": request_model.body_content,
+                "body_text": request_model.body_content,
+                "sender": {"address": "agent@agents.localhost"},
+                "to": [{"address": request_model.to[0]}],
+                "cc": [],
+                "reply_to": [],
+                "attachments": [],
+            },
+        )
+
+    def reply_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailReplyRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        self.m_mail_reply_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailActionResponse(
+            operation="reply",
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            message={
+                "message_ref": request_model.message_ref,
+                "thread_ref": "thread-1",
+                "created_at_utc": "2026-03-24T16:00:00+00:00",
+                "subject": "reply",
+                "unread": False,
+                "body_preview": request_model.body_content,
+                "body_text": request_model.body_content,
+                "sender": {"address": "agent@agents.localhost"},
+                "to": [{"address": "peer@agents.localhost"}],
+                "cc": [],
+                "reply_to": [],
+                "attachments": [],
+            },
         )
 
 
@@ -842,13 +928,6 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
         and candidate.path == "/houmao/launches/register"
         and "POST" in candidate.methods
     )
-    install_route = next(
-        candidate
-        for candidate in app.routes
-        if isinstance(candidate, APIRoute)
-        and candidate.path == "/houmao/agent-profiles/install"
-        and "POST" in candidate.methods
-    )
     state_route = next(
         candidate
         for candidate in app.routes
@@ -866,11 +945,6 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
 
     health_response = health_route.endpoint()
     current_instance_response = current_instance_route.endpoint()
-    install_response = install_route.endpoint(
-        agent_source="projection-demo",
-        provider="codex",
-        working_directory="/tmp/workspace",
-    )
     register_response = register_route.endpoint(
         session_name="cao-gpu",
         tool="codex",
@@ -881,19 +955,9 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     history_response = history_route.endpoint(terminal_id="abcd1234", limit=3)
 
     assert health_response.houmao_service == "houmao-server"
-    assert health_response.child_cao is not None
-    assert health_response.child_cao.derived_port == 9890
-
+    assert health_response.child_cao is None
     assert current_instance_response.api_base_url == "http://127.0.0.1:9889"
-
-    assert install_response.success is True
-    assert service.m_install_requests == [
-        HoumaoInstallAgentProfileRequest(
-            agent_source="projection-demo",
-            provider="codex",
-            working_directory="/tmp/workspace",
-        )
-    ]
+    assert current_instance_response.child_cao is None
 
     assert register_response.success is True
     assert service.m_register_requests[0].session_name == "cao-gpu"
@@ -991,6 +1055,16 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     gateway_status_route = _route("/houmao/agents/{agent_ref}/gateway", "GET", app=app)
     gateway_attach_route = _route("/houmao/agents/{agent_ref}/gateway/attach", "POST", app=app)
     gateway_detach_route = _route("/houmao/agents/{agent_ref}/gateway/detach", "POST", app=app)
+    gateway_request_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/requests",
+        "POST",
+        app=app,
+    )
+    gateway_control_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/control/send-keys",
+        "POST",
+        app=app,
+    )
     gateway_notifier_get_route = _route(
         "/houmao/agents/{agent_ref}/gateway/mail-notifier",
         "GET",
@@ -1006,6 +1080,10 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         "DELETE",
         app=app,
     )
+    mail_status_route = _route("/houmao/agents/{agent_ref}/mail/status", "GET", app=app)
+    mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
+    mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
+    mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
 
     assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
     assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
@@ -1063,6 +1141,19 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     )
     assert gateway_attach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
     assert gateway_detach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    gateway_request_response = gateway_request_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentGatewayRequestCreate(
+            kind="submit_prompt",
+            payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+        ),
+    )
+    assert gateway_request_response.request_id == "greq-123"
+    gateway_control_response = gateway_control_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),
+    )
+    assert gateway_control_response.action == "control_input"
     notifier_status = gateway_notifier_get_route.endpoint(agent_ref="claude-headless-1")
     assert notifier_status.enabled is False
     notifier_enabled = gateway_notifier_put_route.endpoint(
@@ -1071,3 +1162,29 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     )
     assert notifier_enabled.enabled is True
     assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False
+    assert mail_status_route.endpoint(agent_ref="claude-headless-1").principal_id == "agent-1234"
+    mail_check_response = mail_check_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+    )
+    assert mail_check_response.unread_only is True
+    mail_send_response = mail_send_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailSendRequest(
+            to=["peer@agents.localhost"],
+            subject="status",
+            body_content="hello",
+        ),
+    )
+    assert mail_send_response.operation == "send"
+    mail_reply_response = mail_reply_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailReplyRequest(
+            message_ref="msg-123",
+            body_content="reply",
+        ),
+    )
+    assert mail_reply_response.operation == "reply"
+    assert len(service.m_gateway_control_calls) == 1
+    assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
+    assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"

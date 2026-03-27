@@ -7,9 +7,7 @@ Use it together with:
 - [Shared Contracts](shared-contracts.md)
 - [Claude](claude.md)
 - [Runtime Lifecycle](runtime-lifecycle.md)
-- [Shared TUI Tracking Demo Pack README](../../../scripts/demo/shared-tui-tracking-demo-pack/README.md)
-
-The concrete examples here were confirmed from the maintained complex captures logged in [20260323-124129.md](../../../context/logs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md).
+The concrete examples here were confirmed from the maintained complex captures logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md).
 
 ## Latest-Turn Scoping Rule
 
@@ -121,11 +119,11 @@ Tracker meaning:
 
 - `turn_phase=ready`
 - `last_turn_result=interrupted`
-- `last_turn_source=explicit_input` when it follows an intentional interrupt in the demo-pack workflow
+- `last_turn_source=explicit_input` when it follows an intentional interrupt
 
 Operational note:
 
-- For demo authoring, the first visible interrupted-ready occurrence is sufficient. Do not wait for a repeated footer or summary line if the interrupted status line is already visible.
+- For fixture authoring, the first visible interrupted-ready occurrence is sufficient. Do not wait for a repeated footer or summary line if the interrupted status line is already visible.
 
 ### Settled success
 

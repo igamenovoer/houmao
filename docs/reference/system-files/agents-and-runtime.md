@@ -25,6 +25,7 @@ Representative default layout:
           <credential-ref>.json
         gateway/
           attach.json
+          gateway_manifest.json
           protocol-version.txt
           desired-config.json
           state.json
@@ -96,15 +97,31 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it |
 | `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material |
 | `<session-root>/gateway/` | gateway-capability publication | runtime and gateway lifecycle helpers | Session-owned gateway subtree | Stable path family for gateway-capable sessions | Subtree contents have mixed durability |
-| `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Stable attachability contract for the same logical session | Stable operator-facing artifact | Durable |
+| `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Internal bootstrap artifact used by runtime and gateway internals to seed startup, offline status, and metadata transfer for the same logical session | Internal runtime artifact | Durable |
+| `<session-root>/gateway/gateway_manifest.json` | gateway-capability publication | runtime refresh and attach or detach lifecycle | Derived outward-facing gateway bookkeeping regenerated from manifest-backed authority plus current listener state | Derived operator-facing publication | Durable |
 | `<session-root>/gateway/protocol-version.txt` | gateway-capability publication | runtime refresh if protocol changes | Local version marker for gateway artifacts | Stable path, simple payload | Durable |
 | `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints for later gateway starts | Stable operator-facing artifact | Durable |
-| `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status | Stable operator-facing artifact | Durable, but reflects current status |
+| `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status, seeded before first live attach | Stable operator-facing artifact | Durable, but reflects current status |
 | `<session-root>/gateway/queue.sqlite` | gateway-capability publication | live gateway process | Durable request queue state plus gateway-owned notifier audit history | Stable path, implementation-owned contents | Treat as durable while the session is active |
 | `<session-root>/gateway/events.jsonl` | gateway-capability publication | live gateway process | Append-only gateway event log | Stable path, implementation-owned contents | Safe to inspect; not the source of truth for queue state |
 | `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Append-only running log for lifecycle, queue execution, and notifier polling | Stable operator-facing artifact | Log-style cleanup only after the session is stopped |
-| `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process/binding snapshot | Current implementation detail | Ephemeral |
-| `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process | Current implementation detail | Ephemeral |
+| `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process and listener snapshot, including the authoritative same-session tmux execution handle for `houmao_server_rest` auxiliary-window mode | Current implementation detail with active lifecycle semantics | Ephemeral |
+| `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process; same-session mode still writes it, but detach and cleanup rely on the current-instance execution handle rather than pid alone | Current implementation detail | Ephemeral |
+
+Pair-managed `houmao_server_rest` notes:
+
+- server-backed `houmao_server_rest` sessions seed the stable gateway subtree through the same runtime-owned gateway publication seam used by direct runtime flows
+- that means internal bootstrap files such as `attach.json`, derived publication such as `gateway_manifest.json`, `state.json`, queue/bootstrap files, and manifest-first tmux discovery env can exist before any live gateway is attached
+- current-session `houmao-mgr agents gateway attach` still remains invalid until the same logical session is registered under `/houmao/agents/*` on the persisted `api_base_url`
+- tmux window `0` is the only contractual agent surface; non-zero windows remain auxiliary and non-contractual except for the exact live gateway handle recorded in `gateway/run/current-instance.json`
+
+Joined-session notes:
+
+- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and workspace-local `job_dir` envelope that native launches expect.
+- For joined sessions, `manifest.json` becomes the source of truth for secret-free relaunch posture through `agent_launch_authority`, including `session_origin=joined_tmux`, explicit `posture_kind`, structured `launch_args`, and structured Docker-style `launch_env`.
+- Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
+- The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
+- Shared-registry publication for joined sessions uses a long sentinel lease instead of a short renewable lease because `agents join` is a one-shot adoption command rather than a resident launcher.
 
 ## Mailbox Binding And Secret Lifecycle
 
@@ -135,9 +152,12 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 ## Contract Boundaries
 
 - `manifest.json` is the durable runtime record for resume and control.
+- `manifest.json` is also the supported durable authority for attach and relaunch on tmux-backed sessions.
 - `manifest.json` stays secret-free for Stalwart-backed sessions and persists `credential_ref` instead of inline mailbox secrets.
 - `manifest.json` may persist `launch_policy_provenance` when the session was built for unattended mode, and the nested redacted `launch_plan` may carry the same typed provenance for diagnostics.
 - Runtime-owned Stalwart credential material lives under the runtime root, while one session-local materialized copy lives under the session root when needed.
+- `gateway/attach.json` is internal bootstrap state, not part of the supported external attach contract.
+- `gateway/gateway_manifest.json` is derived outward-facing bookkeeping, not the authoritative input for attach or relaunch behavior.
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
 - The workspace-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
 

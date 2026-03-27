@@ -1,6 +1,13 @@
 # Houmao Server State Tracking
 
-`houmao-server` owns live tracked state for supported interactive TUIs. Clients, dashboards, and demo packs consume `HoumaoTerminalStateResponse`; they do not run a second reducer. Interactive Codex tracking now resolves through the `codex_tui` tracked-TUI family, while headless backend names such as `codex_app_server` remain outside this subsystem.
+`houmao-server` owns the public tracked-state contract for supported interactive TUIs, but it is no longer always the component that runs the live tracker. Clients and dashboards consume `HoumaoTerminalStateResponse`; they do not run a second reducer. Interactive Codex tracking now resolves through the `codex_tui` tracked-TUI family, while headless backend names such as `codex_app_server` remain outside this subsystem.
+
+There are now two live-tracking execution modes behind the same public models:
+
+- Direct fallback: `houmao-server` runs the tracker locally for eligible managed TUI sessions.
+- Gateway-owned tracking: an attached healthy per-agent gateway runs the live tracker for that one session, and `houmao-server` projects the gateway state back through the same server routes.
+
+This keeps one public state contract while enforcing single-owner tracking authority during attach, detach, and gateway health transitions.
 
 The public models live in [`src/houmao/server/models.py`](../../../src/houmao/server/models.py), which re-exports core types from [`src/houmao/shared_tui_tracking/models.py`](../../../src/houmao/shared_tui_tracking/models.py). The standalone tracker engine now lives in [`src/houmao/shared_tui_tracking/session.py`](../../../src/houmao/shared_tui_tracking/session.py), while [`src/houmao/server/tui/tracking.py`](../../../src/houmao/server/tui/tracking.py) acts as the live host adapter that merges shared tracker state with server-owned diagnostics and lifecycle metadata. Timed readiness and completion behavior still reuse the shared ReactiveX lifecycle kernel in [`src/houmao/lifecycle/rx_lifecycle_kernel.py`](../../../src/houmao/lifecycle/rx_lifecycle_kernel.py). For the file-by-file package layout of the server watch plane, see [internals/tui_tracking_module.md](internals/tui_tracking_module.md).
 

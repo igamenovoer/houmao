@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import re
 import subprocess
 from pathlib import Path
@@ -11,6 +12,7 @@ import yaml
 
 from houmao.agents.launch_policy.models import (
     LaunchPolicyAction,
+    LaunchPolicyCompatibilityError,
     LaunchPolicyError,
     LaunchPolicyProvenance,
     LaunchPolicyRegistryDocument,
@@ -22,11 +24,12 @@ from houmao.agents.launch_policy.models import (
     MinimalInputContract,
     OperatorPromptMode,
     OwnedPathSpec,
+    SupportedVersionSpec,
     StrategyEvidence,
     ToolVersion,
-    VersionRange,
 )
 from houmao.agents.launch_policy.provider_hooks import (
+    provider_state_mutation_lock,
     run_provider_hook,
     set_json_key,
     set_toml_key,
@@ -91,8 +94,14 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     )
     args = list(request.base_args)
 
-    for action in strategy.actions:
-        _apply_action(action=action, request=request, args=args)
+    mutation_context = (
+        provider_state_mutation_lock(request.home_path)
+        if request.application_kind == "provider_start"
+        else nullcontext()
+    )
+    with mutation_context:
+        for action in strategy.actions:
+            _apply_action(action=action, request=request, args=args)
 
     provenance = LaunchPolicyProvenance(
         requested_operator_prompt_mode=request.requested_operator_prompt_mode,
@@ -144,6 +153,10 @@ def resolve_strategy(
 ) -> tuple[LaunchPolicyStrategy, LaunchPolicySelectionSource]:
     """Resolve one registry strategy for the request."""
 
+    requested_operator_prompt_mode = request.requested_operator_prompt_mode
+    if requested_operator_prompt_mode is None:
+        raise LaunchPolicyError("Launch policy strategy resolution requires a prompt mode.")
+
     documents = load_registry_documents(tool=request.tool)
     override_strategy_id = request.env.get(_OVERRIDE_ENV_VAR, "").strip()
     if override_strategy_id:
@@ -151,7 +164,7 @@ def resolve_strategy(
             for strategy in document.strategies:
                 if strategy.strategy_id != override_strategy_id:
                     continue
-                if strategy.operator_prompt_mode != request.requested_operator_prompt_mode:
+                if strategy.operator_prompt_mode != requested_operator_prompt_mode:
                     break
                 if request.backend not in strategy.backends:
                     break
@@ -164,26 +177,30 @@ def resolve_strategy(
     matches: list[LaunchPolicyStrategy] = []
     for document in documents:
         for strategy in document.strategies:
-            if strategy.operator_prompt_mode != request.requested_operator_prompt_mode:
+            if strategy.operator_prompt_mode != requested_operator_prompt_mode:
                 continue
             if request.backend not in strategy.backends:
                 continue
-            if not strategy.version_range.contains(detected_version):
+            if not strategy.supported_versions.contains(detected_version):
                 continue
             matches.append(strategy)
 
     if not matches:
-        raise LaunchPolicyError(
-            "No compatible unattended launch strategy exists for "
-            f"tool={request.tool!r}, backend={request.backend!r}, "
-            f"version={detected_version.raw!r}."
+        raise LaunchPolicyCompatibilityError(
+            tool=request.tool,
+            backend=request.backend,
+            detected_version=detected_version.raw,
+            requested_operator_prompt_mode=requested_operator_prompt_mode,
+            reason="No compatible unattended launch strategy exists",
         )
     if len(matches) != 1:
         strategy_ids = ", ".join(item.strategy_id for item in matches)
-        raise LaunchPolicyError(
-            "Launch policy resolution is ambiguous for "
-            f"tool={request.tool!r}, backend={request.backend!r}, "
-            f"version={detected_version.raw!r}: {strategy_ids}"
+        raise LaunchPolicyCompatibilityError(
+            tool=request.tool,
+            backend=request.backend,
+            detected_version=detected_version.raw,
+            requested_operator_prompt_mode=requested_operator_prompt_mode,
+            reason=f"Launch policy resolution is ambiguous: {strategy_ids}",
         )
     return matches[0], "registry"
 
@@ -254,15 +271,12 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         parsed_backends.append(cast(LaunchSurface, backend_raw))
     backends = tuple(parsed_backends)
 
-    version_range_payload = payload.get("version_range")
-    if not isinstance(version_range_payload, dict):
-        raise LaunchPolicyError(f"{source}.version_range must be a mapping.")
-    min_raw = version_range_payload.get("min_inclusive")
-    max_raw = version_range_payload.get("max_exclusive")
-    version_range = VersionRange(
-        min_inclusive=ToolVersion.parse(min_raw) if isinstance(min_raw, str) else None,
-        max_exclusive=ToolVersion.parse(max_raw) if isinstance(max_raw, str) else None,
-    )
+    supported_versions_raw = payload.get("supported_versions")
+    if not isinstance(supported_versions_raw, str) or not supported_versions_raw.strip():
+        raise LaunchPolicyError(
+            f"{source}.supported_versions must be a non-empty dependency-style specifier string."
+        )
+    supported_versions = SupportedVersionSpec.parse(supported_versions_raw)
 
     minimal_inputs_payload = payload.get("minimal_inputs")
     if not isinstance(minimal_inputs_payload, dict):
@@ -314,7 +328,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         strategy_id=strategy_id,
         operator_prompt_mode=operator_prompt_mode,
         backends=backends,
-        version_range=version_range,
+        supported_versions=supported_versions,
         minimal_inputs=minimal_inputs,
         evidence=evidence,
         owned_paths=owned_paths,
@@ -389,6 +403,8 @@ def _apply_action(
     """Apply one ordered launch-policy action."""
 
     if action.kind == "validate.reject_conflicting_launch_args":
+        if request.application_kind != "provider_start":
+            return
         _validate_owned_args(params=action.params, args=args)
         return
     if action.kind == "cli_arg.ensure_present":
@@ -402,11 +418,20 @@ def _apply_action(
             args.remove(arg)
         return
     if action.kind == "json.set":
+        if request.application_kind != "provider_start":
+            return
         path = request.home_path / _require_non_blank_str(action.params, "path", source=action.kind)
         key_path = _parse_key_path(action.params, source=action.kind)
-        set_json_key(path=path, key_path=key_path, value=action.params.get("value"))
+        set_json_key(
+            path=path,
+            key_path=key_path,
+            value=action.params.get("value"),
+            repair_invalid=True,
+        )
         return
     if action.kind == "toml.set":
+        if request.application_kind != "provider_start":
+            return
         path = request.home_path / _require_non_blank_str(action.params, "path", source=action.kind)
         key_path = _parse_key_path(action.params, source=action.kind)
         value = action.params.get("value")
@@ -414,9 +439,16 @@ def _apply_action(
             raise LaunchPolicyError(
                 f"{action.kind}.params.value must be a string, boolean, or integer."
             )
-        set_toml_key(path=path, key_path=key_path, value=value)
+        set_toml_key(
+            path=path,
+            key_path=key_path,
+            value=value,
+            repair_invalid=True,
+        )
         return
     if action.kind == "provider_hook.call":
+        if request.application_kind != "provider_start":
+            return
         hook_id = _require_non_blank_str(action.params, "hook_id", source=action.kind)
         run_provider_hook(hook_id=hook_id, request=request)
         return

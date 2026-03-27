@@ -1,6 +1,8 @@
 # Realm Controller `send-keys`
 
-`send-keys` is the raw control-input command for resumed `backend=cao_rest` runtime sessions. It exists for interactive TUI situations where `send-prompt` is the wrong abstraction, such as slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
+`send-keys` is the raw control-input command for runtime sessions when the backend exposes low-level terminal control. It exists for interactive TUI situations where `send-prompt` is the wrong abstraction, such as slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
+
+The runtime routes this path through the `send_input_ex()` method on `RuntimeSessionController` and backend-specific session implementations. The gateway also exposes `POST /v1/control/send-keys` for raw input delivery via HTTP.
 
 ## When To Use `send-keys`
 
@@ -21,11 +23,16 @@ Use `send-prompt` instead when you want normal prompt-turn behavior:
 - advance persisted prompt-turn state
 - collect normal `SessionEvent` turn output
 
+For `local_interactive` and `houmao_server_rest` backends, the distinction is explicit:
+
+- `send-prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
+- `send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
+
 ## Scope And Output
 
-- Initial support is intentionally limited to resumed `backend=cao_rest` sessions.
-- Non-CAO backends return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
-- The runtime routes this path through the advanced backend method `send_input_ex()`.
+- Supported backends include `local_interactive` and `houmao_server_rest`. Legacy `cao_rest` sessions also support this path.
+- Backends without raw control-input support return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
+- The runtime routes this path through the `send_input_ex()` method on sessions.
 - The CLI returns one JSON `SessionControlResult` object and does not stream prompt-turn events.
 
 Example result:
@@ -156,23 +163,25 @@ Delivery rules:
 - exact special-key tokens are sent with normal `tmux send-keys`
 - submit behavior only happens when the caller explicitly includes `<[Enter]>`
 
-That means these two commands are different:
+That means these commands stay meaningfully different:
 
 - `--sequence '/model'`
   This types `/model` and stops.
 - `--sequence '/model<[Enter]>'`
   This types `/model` and then presses `Enter`.
+- `send-prompt --prompt '/model<[Enter]>'`
+  This submits the literal text `/model<[Enter]>` as one semantic prompt turn.
 
 ## Tmux Target Resolution
 
 Callers continue to address sessions by `agent_identity`; they do not provide raw tmux targets.
 
-For resumed CAO sessions the runtime resolves the live tmux destination like this:
+The runtime resolves the live tmux destination like this:
 
 1. resolve `--agent-identity` to the persisted session manifest and effective agent-definition root
-2. read persisted CAO state from that manifest
-3. reuse `cao.tmux_window_name` when available
-4. fall back to live `GET /terminals/{id}` metadata when older manifests do not yet persist the window name
+2. read persisted backend state from that manifest
+3. reuse the `tmux_window_name` when available
+4. fall back to live terminal metadata when older manifests do not yet persist the window name
 5. resolve the tmux window in the session and send the requested control input
 
 This keeps older manifests usable without a schema-version bump.
@@ -186,7 +195,7 @@ This keeps older manifests usable without a schema-version bump.
 - unsupported exact tokens such as `<[escape]>`
 - tmux resolution failures
 - tmux send failures
-- CAO terminal metadata failures during live fallback
+- terminal metadata failures during live fallback
 
 ## Related Reference
 

@@ -4,7 +4,7 @@ Default agent-definition directory: `tests/fixtures/agents` (override with `AGEN
 
 This tutorial pack answers one concrete question:
 
-> "How can I start one mailbox-enabled CAO session, attach the gateway, enable unread-mail polling, inject a wake-up message, and verify the outcome through gateway-owned artifacts instead of guessing from terminal text?"
+> "How can I start one mailbox-enabled `houmao_server_rest` session through demo-owned `houmao-server`, attach the gateway after launch, inject a wake-up message, and verify the outcome through gateway-owned artifacts instead of guessing from terminal text?"
 
 Success means you can run one end-to-end automatic flow, inspect the durable notifier audit history in `queue.sqlite`, confirm the gateway either enqueued or skipped work for an explicit reason, and see the demo-owned output file written by the agent after the wake-up mail lands.
 
@@ -16,21 +16,23 @@ Success means you can run one end-to-end automatic flow, inspect the durable not
 - [ ] The default Codex credential profile selected by `tests/fixtures/agents/blueprints/mailbox-demo-codex.yaml` is available.
 - [ ] You are running from this repository checkout.
 
-The default verified path is launcher-managed loopback CAO. The helper writes a demo-local launcher config under `<demo-output-dir>/cao/`, starts or reuses CAO there, derives the matching `CAO_PROFILE_STORE`, and stops that CAO again during cleanup when the demo owns it.
+The default verified path is demo-owned `houmao-server`. The helper starts or reuses one local server rooted under `<demo-output-dir>/server/`, launches the runtime session with `backend=houmao_server_rest`, attaches the gateway through the server-managed agent route after launch, and stops that same server again during cleanup when the demo owns it.
 
-If you point `CAO_BASE_URL` at a non-loopback or intentionally external CAO service, provide `CAO_PROFILE_STORE` explicitly. Otherwise the helper exits `0` with a `SKIP:` message instead of guessing profile-store state.
+Override the listener with `HOUMAO_BASE_URL=http://127.0.0.1:<port>` if needed. The selected server must belong to the same demo output root; the helper fails clearly instead of targeting an unrelated external server instance.
 
 ## Filesystem Layout
 
 ```text
 <demo-output-dir>/
-├── cao/                       # demo-local CAO launcher config and runtime state
 ├── deliveries/                # staged Markdown plus managed delivery payload files
 ├── inputs/                    # copied tracked tutorial inputs
 ├── outputs/                   # demo-owned wake-up artifact written by the agent
 ├── project/                   # copied dummy-project fixture initialized as a fresh git repo
+│   └── skills/mailbox/        # project-local mailbox skill docs mirrored from the runtime home
 ├── runtime/                   # built brain outputs and session manifests
+├── server/                    # demo-owned `houmao-server` runtime and process logs
 ├── shared-mailbox/            # shared filesystem mailbox root
+├── server_start.json
 ├── brain_build.json
 ├── session_start.json
 ├── gateway_attach.json
@@ -59,7 +61,7 @@ The gateway notifier is unread-set based, not per-message based.
 - If the unread set is unchanged, later polls may deduplicate instead of enqueueing another reminder.
 - Burst delivery success means no unread mail was lost, not that one gateway prompt was emitted per message.
 
-That is why this pack treats the durable audit table in `queue.sqlite` as the detailed source of truth. `GET /v1/mail-notifier` remains a compact snapshot, while `gateway_notifier_audit` records one structured decision row per enabled poll cycle.
+That is why this pack treats the durable audit table in `queue.sqlite` as the detailed source of truth. The live notifier-status surface remains a compact snapshot, while `gateway_notifier_audit` records one structured decision row per enabled poll cycle.
 
 ## Automatic Workflow
 
@@ -72,10 +74,10 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh
 What it does:
 
 1. Provisions `<demo-output-dir>/project` by copying the tracked dummy-project fixture and initializing it as a fresh standalone git repo.
-2. Starts or reuses loopback CAO under `<demo-output-dir>/cao/`.
-3. Builds the tracked lightweight mailbox-demo Codex brain and starts one mailbox-enabled session.
-4. Attaches the gateway and enables notifier polling with a one-second interval.
-5. Waits for the session to look idle, using CAO terminal status first and gateway status as a fallback.
+2. Starts or reuses demo-owned `houmao-server` under `<demo-output-dir>/server/`.
+3. Builds the tracked lightweight mailbox-demo Codex brain, mirrors its runtime mailbox skill docs into `project/skills/mailbox/`, and starts one mailbox-enabled `houmao_server_rest` session.
+4. Resolves the server-managed agent identity for that session, attaches the gateway through the server-managed route, and enables notifier polling with a one-second interval.
+5. Waits for the session to look idle, using server-managed agent readiness first and gateway status as a fallback.
 6. Injects one wake-up mail through the managed mailbox delivery script.
 7. Waits for `<demo-output-dir>/outputs/wakeup-time.txt`.
 8. Builds `report.json`, sanitizes it to `report.sanitized.json`, and compares that sanitized output to `expected_report/report.json`.
@@ -119,7 +121,7 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh manual-send-many \
 
 The helper always stages Markdown under `deliveries/staged/`, writes one managed delivery payload under `deliveries/payloads/`, and invokes the projected mailbox script `shared-mailbox/rules/scripts/deliver_message.py`. The pack never mutates mailbox SQLite directly.
 
-Stop the live session and demo-owned CAO:
+Stop the live managed agent and demo-owned server:
 
 ```bash
 scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh stop
@@ -135,6 +137,7 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh inspect
 
 That snapshot writes `inspect.json` under the demo output directory and includes:
 
+- server lifecycle and managed-agent identity evidence,
 - compact notifier status,
 - durable notifier audit summary plus raw rows,
 - notifier-related queue and event evidence,
@@ -149,9 +152,11 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh verify
 
 The expected contract intentionally compares summary-shaped evidence rather than exact poll-by-poll sequences. Raw audit rows remain in `inspect.json` for debugging, but `expected_report/report.json` only tracks stable facts such as:
 
+- demo-owned server lifecycle and managed-agent identity,
 - notifier enabled,
 - notifier enqueued at least one wake-up prompt,
 - no poll errors were observed,
+- project-local mailbox skill surface present,
 - mailbox unread state was visible,
 - the output file existed and looked timestamp-like.
 
@@ -185,6 +190,7 @@ Pack-local helpers:
 
 Key output artifacts:
 
+- `server_start.json`: persisted demo-owned `houmao-server` lifecycle state.
 - `shared-mailbox/index.sqlite`: shared mailbox index.
 - `shared-mailbox/mailboxes/<address>/mailbox.sqlite`: mailbox-local unread state.
 - `gateway_root/queue.sqlite`: durable gateway requests plus `gateway_notifier_audit`.

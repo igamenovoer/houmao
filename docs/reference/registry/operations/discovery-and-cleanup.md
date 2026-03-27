@@ -102,8 +102,8 @@ Default behavior:
 Examples:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller cleanup-registry
-pixi run python -m houmao.agents.realm_controller cleanup-registry --grace-seconds 0
+pixi run houmao-mgr admin cleanup-registry
+pixi run houmao-mgr admin cleanup-registry --grace-seconds 0
 ```
 
 Representative result:

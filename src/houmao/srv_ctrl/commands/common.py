@@ -1,17 +1,35 @@
-"""Shared helpers for `houmao-srv-ctrl`."""
+"""Shared helpers for `houmao-mgr`."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import json
 import os
 import shutil
 import subprocess
-from typing import Sequence
+from typing import Any, ParamSpec, Sequence, TypeVar, cast
 
 import click
+from pydantic import BaseModel
 
+from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.cao.rest_client import CaoApiError
 from houmao.server.client import HoumaoServerClient
+from houmao.server.models import HoumaoManagedAgentIdentity
+from houmao.server.pair_client import (
+    PairAuthorityClientProtocol,
+    PairAuthorityConnectionError,
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
 
 _CAO_DEFAULT_PORT = int(os.environ.get("CAO_PORT", "9889"))
+_COMPAT_HTTP_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS"
+_COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
+_FC = TypeVar("_FC", bound=Callable[..., Any])
+_ParamT = ParamSpec("_ParamT")
+_ReturnT = TypeVar("_ReturnT")
 
 
 def require_cao_executable() -> str:
@@ -24,25 +42,57 @@ def require_cao_executable() -> str:
 
 
 def resolve_server_base_url(*, port: int | None = None) -> str:
-    """Return the Houmao server base URL for CAO-compatible delegation."""
+    """Return the Houmao pair-authority base URL for pair-compatible delegation."""
 
     return f"http://127.0.0.1:{port or _CAO_DEFAULT_PORT}"
 
 
-def require_supported_houmao_pair(*, base_url: str) -> HoumaoServerClient:
-    """Ensure the target server is a real `houmao-server`."""
+def resolve_pair_client(*, port: int | None = None) -> PairAuthorityClientProtocol:
+    """Return one verified pair client for the requested server port."""
 
-    client = HoumaoServerClient(base_url)
+    return require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
+
+
+def require_supported_houmao_pair(
+    *,
+    base_url: str,
+    timeout_seconds: float | None = None,
+    create_timeout_seconds: float | None = None,
+) -> PairAuthorityClientProtocol:
+    """Ensure the target server is one supported Houmao pair authority."""
+
     try:
-        health = client.health_extended()
-    except Exception as exc:
-        raise click.ClickException(f"Failed to reach `houmao-server` at {base_url}: {exc}") from exc
-    if health.houmao_service != "houmao-server":
-        raise click.ClickException(
-            "The supported replacement is `houmao-server + houmao-srv-ctrl`; "
-            "mixed usage with raw `cao-server` is unsupported."
+        return resolve_pair_authority_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            create_timeout_seconds=create_timeout_seconds,
+        ).client
+    except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def require_houmao_server_pair(
+    *,
+    base_url: str,
+    timeout_seconds: float | None = None,
+    create_timeout_seconds: float | None = None,
+) -> HoumaoServerClient:
+    """Ensure the target pair authority is specifically `houmao-server`."""
+
+    try:
+        resolution = resolve_pair_authority_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            create_timeout_seconds=create_timeout_seconds,
         )
-    return client
+    except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if resolution.health.houmao_service != "houmao-server":
+        raise click.ClickException(
+            "This command requires `houmao-server`; `houmao-passive-server` does not expose "
+            "the legacy session-backed pair control surface."
+        )
+    return cast(HoumaoServerClient, resolution.client)
 
 
 def run_passthrough(
@@ -74,3 +124,235 @@ def has_flag(args: Sequence[str], flag_name: str) -> bool:
     """Return whether a passthrough flag is present."""
 
     return any(value == flag_name for value in args)
+
+
+def pair_port_option(
+    *,
+    help_text: str = "Houmao pair authority port to use",
+) -> Callable[[_FC], _FC]:
+    """Return the shared `--port` click option decorator."""
+
+    return click.option("--port", default=None, type=int, help=help_text)
+
+
+def compatibility_launch_timeout_options(function: _FC) -> _FC:
+    """Attach shared compatibility launch timeout controls."""
+
+    function = click.option(
+        "--compat-create-timeout-seconds",
+        default=None,
+        type=click.FloatRange(min=0.0, min_open=True),
+        help=(
+            "Compatibility create timeout budget for session-backed launch. "
+            f"Falls back to `{_COMPAT_CREATE_TIMEOUT_ENV_VAR}`."
+        ),
+    )(function)
+    function = click.option(
+        "--compat-http-timeout-seconds",
+        default=None,
+        type=click.FloatRange(min=0.0, min_open=True),
+        help=(
+            "Compatibility request timeout budget for non-create requests during "
+            f"session-backed launch. Falls back to `{_COMPAT_HTTP_TIMEOUT_ENV_VAR}`."
+        ),
+    )(function)
+    return function
+
+
+def resolve_compatibility_launch_timeouts(
+    *,
+    compat_http_timeout_seconds: float | None,
+    compat_create_timeout_seconds: float | None,
+) -> tuple[float | None, float | None]:
+    """Resolve compatibility launch timeouts from flags or environment."""
+
+    return (
+        _resolve_optional_timeout_from_env(
+            explicit_value=compat_http_timeout_seconds,
+            env_var_name=_COMPAT_HTTP_TIMEOUT_ENV_VAR,
+        ),
+        _resolve_optional_timeout_from_env(
+            explicit_value=compat_create_timeout_seconds,
+            env_var_name=_COMPAT_CREATE_TIMEOUT_ENV_VAR,
+        ),
+    )
+
+
+def managed_agent_argument(function: _FC) -> _FC:
+    """Attach the shared managed-agent positional argument decorator."""
+
+    return click.argument("agent_ref")(function)
+
+
+def managed_agent_selector_options(function: _FC) -> _FC:
+    """Attach the shared managed-agent selector options."""
+
+    function = click.option(
+        "--agent-name",
+        default=None,
+        help=(
+            "Raw creation-time friendly managed-agent name. Do not include the "
+            "`AGENTSYS-` prefix."
+        ),
+    )(function)
+    function = click.option(
+        "--agent-id",
+        default=None,
+        help="Authoritative managed-agent id.",
+    )(function)
+    return function
+
+
+def require_managed_agent_ref(agent_ref: str) -> str:
+    """Validate and normalize one managed-agent reference."""
+
+    candidate = agent_ref.strip()
+    if not candidate:
+        raise click.ClickException("`agent_ref` must not be empty.")
+    return candidate
+
+
+def resolve_managed_agent_selector(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    allow_missing: bool = False,
+) -> tuple[str | None, str | None]:
+    """Validate the shared managed-agent selector contract."""
+
+    normalized_agent_id = _normalize_optional_selector_value(
+        option_name="--agent-id",
+        value=agent_id,
+    )
+    normalized_agent_name = _normalize_optional_selector_value(
+        option_name="--agent-name",
+        value=agent_name,
+        raw_managed_agent_name=True,
+    )
+    if normalized_agent_id is not None and normalized_agent_name is not None:
+        raise click.ClickException("Use exactly one of `--agent-id` or `--agent-name`.")
+    if not allow_missing and normalized_agent_id is None and normalized_agent_name is None:
+        raise click.ClickException("Exactly one of `--agent-id` or `--agent-name` is required.")
+    return normalized_agent_id, normalized_agent_name
+
+
+def emit_json(payload: object) -> None:
+    """Render one model or JSON-compatible payload with stable formatting."""
+
+    normalized: object
+    if isinstance(payload, BaseModel):
+        normalized = payload.model_dump(mode="json")
+    else:
+        normalized = payload
+    click.echo(json.dumps(normalized, indent=2, sort_keys=True))
+
+
+def pair_request(
+    call: Callable[_ParamT, _ReturnT], /, *args: _ParamT.args, **kwargs: _ParamT.kwargs
+) -> _ReturnT:
+    """Invoke one pair client call and surface API errors as click failures."""
+
+    try:
+        return call(*args, **kwargs)
+    except CaoApiError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def resolve_prompt_text(*, prompt: str | None) -> str:
+    """Resolve prompt text from `--prompt` or piped stdin."""
+
+    if prompt is not None:
+        value = prompt.strip()
+        if not value:
+            raise click.ClickException("`--prompt` must not be empty.")
+        return value
+    stdin = click.get_text_stream("stdin")
+    if stdin.isatty():
+        raise click.ClickException("Provide `--prompt` or pipe prompt text on stdin.")
+    value = stdin.read()
+    if not value.strip():
+        raise click.ClickException("Prompt input must not be empty.")
+    return value
+
+
+def resolve_body_text(*, body_content: str | None, body_file: str | None) -> str:
+    """Resolve body content from text, file input, or piped stdin."""
+
+    if body_content is not None and body_file is not None:
+        raise click.ClickException("Use either `--body-content` or `--body-file`, not both.")
+    if body_content is not None:
+        if "\x00" in body_content:
+            raise click.ClickException("`--body-content` must not contain NUL bytes.")
+        return body_content
+    if body_file is not None:
+        try:
+            value = open(body_file, encoding="utf-8").read()
+        except OSError as exc:
+            raise click.ClickException(f"Failed to read `--body-file`: {exc}") from exc
+        if "\x00" in value:
+            raise click.ClickException("`--body-file` must not contain NUL bytes.")
+        return value
+    stdin = click.get_text_stream("stdin")
+    if stdin.isatty():
+        raise click.ClickException(
+            "Provide `--body-content`, `--body-file`, or pipe body text on stdin."
+        )
+    value = stdin.read()
+    if "\x00" in value:
+        raise click.ClickException("Body input must not contain NUL bytes.")
+    return value
+
+
+def resolve_managed_agent_identity(
+    client: PairAuthorityClientProtocol,
+    *,
+    agent_ref: str,
+) -> HoumaoManagedAgentIdentity:
+    """Resolve one managed-agent identity through the pair authority."""
+
+    return pair_request(client.get_managed_agent, require_managed_agent_ref(agent_ref))
+
+
+def _normalize_optional_selector_value(
+    *,
+    option_name: str,
+    value: str | None,
+    raw_managed_agent_name: bool = False,
+) -> str | None:
+    """Normalize one optional selector value or fail clearly."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException(f"`{option_name}` must not be empty.")
+    if raw_managed_agent_name:
+        try:
+            return normalize_user_managed_agent_name(stripped)
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from exc
+    return stripped
+
+
+def _resolve_optional_timeout_from_env(
+    *,
+    explicit_value: float | None,
+    env_var_name: str,
+) -> float | None:
+    """Resolve one positive timeout override from CLI or environment."""
+
+    if explicit_value is not None:
+        return explicit_value
+    raw_value = os.environ.get(env_var_name)
+    if raw_value is None:
+        return None
+    stripped = raw_value.strip()
+    if not stripped:
+        return None
+    try:
+        resolved = float(stripped)
+    except ValueError as exc:
+        raise click.ClickException(f"`{env_var_name}` must be a positive float.") from exc
+    if resolved <= 0:
+        raise click.ClickException(f"`{env_var_name}` must be > 0.")
+    return resolved

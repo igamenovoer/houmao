@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_agent_identity_name,
@@ -41,6 +42,7 @@ def _seed_manifest(
     *,
     tool: str = "claude",
     cao_parsing_mode: str | None = None,
+    operator_prompt_mode: str | None = None,
 ) -> Path:
     if tool == "claude":
         env_var = "ANTHROPIC_API_KEY"
@@ -83,6 +85,13 @@ def _seed_manifest(
             f"      - {env_var}",
         ]
     )
+    if operator_prompt_mode is not None:
+        runtime_lines.extend(
+            [
+                "launch_policy:",
+                f"  operator_prompt_mode: {operator_prompt_mode}",
+            ]
+        )
     manifest_path.write_text("\n".join(runtime_lines) + "\n", encoding="utf-8")
 
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt")
@@ -97,12 +106,14 @@ def _build_session_payload(
     backend: BackendKind,
     backend_state: dict[str, Any],
     cao_parsing_mode: str | None = None,
+    operator_prompt_mode: str | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     brain_manifest_path = _seed_manifest(
         agent_def_dir,
         tmp_path,
         tool=tool,
         cao_parsing_mode=cao_parsing_mode,
+        operator_prompt_mode=operator_prompt_mode,
     )
     manifest = load_brain_manifest(brain_manifest_path)
     role = load_role_package(agent_def_dir, "r")
@@ -177,6 +188,204 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
         )
 
 
+def test_resume_local_interactive_uses_persisted_tmux_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="claude",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 2,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "AGENTSYS-r",
+            "tmux_window_name": "manual",
+        },
+    )
+    session_path = tmp_path / "session-local-interactive.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeLocalInteractiveSession:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert captured["state"].turn_index == 2
+    assert captured["state"].tmux_session_name == "AGENTSYS-r"
+    assert captured["state"].tmux_window_name == "manual"
+    assert controller.launch_plan.backend == "local_interactive"
+
+
+def test_resume_local_interactive_restores_join_launch_window_name_when_manifest_fields_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="claude",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 2,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "AGENTSYS-r",
+        },
+    )
+    session_payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
+    session_payload["launch_plan"]["metadata"]["tmux_window_name"] = "manual"
+    session_payload["agent_launch_authority"] = {
+        "backend": "local_interactive",
+        "tool": "claude",
+        "tmux_session_name": "AGENTSYS-r",
+        "primary_window_index": "0",
+        "working_directory": str(tmp_path),
+        "posture_kind": "unavailable",
+        "session_origin": "joined_tmux",
+    }
+    if session_payload.get("tmux") is not None:
+        session_payload["tmux"]["primary_window_name"] = None
+    if session_payload.get("interactive") is not None:
+        session_payload["interactive"]["tmux_window_name"] = None
+    session_payload["backend_state"].pop("tmux_window_name", None)
+    session_path = tmp_path / "session-local-interactive-joined.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.backend = "local_interactive"
+            self._state = kwargs["state"]
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert captured["state"].tmux_window_name == "manual"
+    assert controller.launch_plan.metadata["tmux_window_name"] == "manual"
+
+
+def test_resume_unattended_local_interactive_uses_resume_control_intent_without_mutating_owned_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "2.1.83 (Claude Code)", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="claude",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 2,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "AGENTSYS-r",
+        },
+        operator_prompt_mode="unattended",
+    )
+    home = tmp_path / "home"
+    settings_path = home / "settings.json"
+    state_path = home / ".claude.json"
+    settings_path.write_text("", encoding="utf-8")
+    state_path.write_text("", encoding="utf-8")
+    session_path = tmp_path / "session-local-interactive-unattended.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+    intents: list[str] = []
+    real_build_launch_plan = build_launch_plan
+
+    class _FakeLocalInteractiveSession:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+
+    def _capture_build_launch_plan(request: LaunchPlanRequest):
+        intents.append(request.intent)
+        return real_build_launch_plan(request)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.build_launch_plan",
+        _capture_build_launch_plan,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
+
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_path,
+    )
+
+    assert intents == ["resume_control"]
+    assert captured["state"].turn_index == 2
+    assert controller.launch_plan.backend == "local_interactive"
+    assert controller.launch_plan.args[-1] == "--dangerously-skip-permissions"
+    assert settings_path.read_text(encoding="utf-8") == ""
+    assert state_path.read_text(encoding="utf-8") == ""
+
+
 def test_resume_cao_uses_manifest_api_base_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -214,6 +423,10 @@ def test_resume_cao_uses_manifest_api_base_url(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
     )
 
     controller = resume_runtime_session(
@@ -328,6 +541,10 @@ def test_resume_cao_accepts_older_manifest_without_tmux_window_name(
         "houmao.agents.realm_controller.runtime.CaoRestSession",
         _FakeCaoRestSession,
     )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
 
     resume_runtime_session(
         agent_def_dir=agent_def_dir,
@@ -382,7 +599,7 @@ def test_resume_cao_rejects_backend_state_parsing_mode_mismatch(tmp_path: Path) 
     session_path = tmp_path / "session-cao-mode-mismatch.json"
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
-    with pytest.raises(SessionManifestError, match="parsing_mode mismatch"):
+    with pytest.raises(SessionManifestError, match="parsing mode mismatch"):
         resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=session_path,

@@ -16,9 +16,9 @@ from typing import Any, Callable, Literal
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_compatibility_document_path,
     mailbox_skill_document_path,
     mailbox_skill_name,
+    resolve_live_mailbox_binding,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
 from houmao.agents.mailbox_runtime_models import (
@@ -69,10 +69,14 @@ def prepare_mail_prompt(
     operation: MailOperation,
     args: dict[str, Any],
     prefer_live_gateway: bool = False,
+    tmux_session_name: str | None = None,
 ) -> MailPromptRequest:
     """Build one runtime-owned mailbox prompt for a live session."""
 
-    mailbox = ensure_mailbox_command_ready(launch_plan)
+    mailbox = ensure_mailbox_command_ready(
+        launch_plan,
+        tmux_session_name=tmux_session_name,
+    )
     request_id = generate_mail_request_id()
     request_payload = {
         "version": MAIL_REQUEST_VERSION,
@@ -112,12 +116,27 @@ def prepare_mail_prompt(
     )
 
 
-def ensure_mailbox_command_ready(launch_plan: LaunchPlan) -> MailboxResolvedConfig:
+def ensure_mailbox_command_ready(
+    launch_plan: LaunchPlan,
+    *,
+    tmux_session_name: str | None = None,
+) -> MailboxResolvedConfig:
     """Validate that a session can safely run runtime-owned mailbox commands."""
 
     mailbox = launch_plan.mailbox
     if mailbox is None:
         raise MailboxCommandError("Target session is not mailbox-enabled.")
+    if tmux_session_name is not None:
+        try:
+            mailbox = resolve_live_mailbox_binding(
+                durable_mailbox=mailbox,
+                tmux_session_name=tmux_session_name,
+            ).mailbox
+        except ValueError as exc:
+            raise MailboxCommandError(
+                "Target session mailbox binding is not live-actionable through the tmux-backed "
+                f"runtime projection: {exc}"
+            ) from exc
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         paths = resolve_filesystem_mailbox_paths(mailbox.filesystem_root)
         required_files = (
@@ -155,15 +174,19 @@ def _mail_prompt_instruction_lines(
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
     skill_document_path = mailbox_skill_document_path(mailbox)
-    compatibility_document_path = mailbox_skill_compatibility_document_path(mailbox)
     lines = [
         (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
         f"Open the primary mailbox skill document at `{skill_document_path}`.",
         (
-            "The same mailbox skill may also be mirrored at "
-            f"`{compatibility_document_path}`, but treat that hidden path as compatibility-only."
+            "Before any direct mailbox access, resolve current mailbox bindings through the "
+            "runtime-owned helper "
+            "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`."
         ),
-        "Follow the mailbox env bindings for the current session. Do not guess sender identity or mailbox endpoints.",
+        (
+            "Use only the targeted mailbox binding keys returned by that helper. Do not guess "
+            "sender identity or mailbox endpoints, do not trust stale inherited process env, "
+            "and do not scrape tmux state directly."
+        ),
         "Only mark messages read after the message has actually been processed successfully.",
     ]
     if prefer_live_gateway:

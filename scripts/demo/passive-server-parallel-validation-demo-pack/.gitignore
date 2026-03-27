@@ -1,0 +1,4 @@
+outputs/
+agents/brains/api-creds/*/*/env/vars.env
+agents/brains/api-creds/*/*/files/auth.json
+agents/brains/api-creds/*/*/files/credentials.json

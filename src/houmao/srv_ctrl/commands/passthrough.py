@@ -1,10 +1,10 @@
-"""Simple passthrough CAO-compatible commands for `houmao-srv-ctrl`."""
+"""Simple passthrough CAO-compatible commands for `houmao-mgr`."""
 
 from __future__ import annotations
 
 import click
 
-from .common import require_supported_houmao_pair, resolve_server_base_url, run_passthrough
+from .common import require_houmao_server_pair, resolve_server_base_url, run_passthrough
 
 
 def passthrough_command(name: str, *, require_pair: bool = False) -> click.Command:
@@ -17,7 +17,7 @@ def passthrough_command(name: str, *, require_pair: bool = False) -> click.Comma
     @click.pass_context
     def _command(ctx: click.Context) -> None:
         if require_pair:
-            require_supported_houmao_pair(base_url=resolve_server_base_url())
+            require_houmao_server_pair(base_url=resolve_server_base_url())
         result = run_passthrough(command_name=name, extra_args=ctx.args)
         ctx.exit(result.returncode)
 

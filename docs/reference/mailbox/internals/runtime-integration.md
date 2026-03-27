@@ -6,21 +6,20 @@ This page explains how mailbox support is attached to a brain home, a launch pla
 
 Mailbox support spans build time, start time, resume time, and control time.
 
-- Build time projects both runtime-owned mailbox skills into the home, with a visible primary mailbox subtree and a hidden compatibility mirror.
+- Build time projects both runtime-owned mailbox skills into the home under the visible mailbox subtree.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
-- Launch-plan composition injects transport-specific mailbox env vars into the session.
+- Launch-plan composition injects transport-specific mailbox env vars into the session and, for tmux-backed managed sessions, publishes the targeted mailbox keys into tmux session environment as the live mailbox projection.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
 - Resume reconstructs the same mailbox binding from the manifest payload and materializes session-local secret files when the selected transport needs them.
-- `mail` commands still run through the normal prompt-turn path, but shared mailbox work prefers the live gateway mailbox facade when it is attached.
+- `mail` commands still run through the normal prompt-turn path, but shared mailbox work prefers the live gateway mailbox facade when it is attached and otherwise resolves current bindings through the runtime-owned live helper.
 
 ## Build Time
 
 `build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. For current adapters, that means:
 
 - primary visible skill docs at `skills/mailbox/email-via-filesystem/SKILL.md` and `skills/mailbox/email-via-stalwart/SKILL.md`
-- hidden compatibility mirrors at `skills/.system/mailbox/email-via-filesystem/SKILL.md` and `skills/.system/mailbox/email-via-stalwart/SKILL.md`
 
-That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and Codex-safe prompt construction can point directly at the visible mailbox skill files without depending on hidden-dot discovery.
+That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and Codex-safe prompt construction can point directly at the visible mailbox skill files.
 
 ## Start Time
 
@@ -60,6 +59,7 @@ sequenceDiagram
         RT->>SR: materialize session-local<br/>credential file
     end
     RT->>LP: inject AGENTSYS_MAILBOX_* env
+    RT->>RT: publish targeted mailbox<br/>projection into tmux env
     RT->>Man: persist redacted mailbox<br/>payload and bindings_version
 ```
 
@@ -71,10 +71,11 @@ The refresh flow:
 
 1. Create a fresh `MailboxResolvedConfig` with a new `bindings_version`.
 2. Bootstrap the refreshed root.
-3. Update the backend launch plan if the backend supports launch-plan refresh.
-4. Persist the updated mailbox payload into the session manifest.
+3. Refresh or clear the targeted mailbox keys in tmux session environment for tmux-backed managed sessions.
+4. Update the backend launch plan if the backend supports launch-plan refresh.
+5. Persist the updated mailbox payload into the session manifest.
 
-This is why code interacting with mailbox paths must respect `AGENTSYS_MAILBOX_BINDINGS_VERSION` rather than caching paths forever.
+This is why code interacting with mailbox paths must respect `AGENTSYS_MAILBOX_BINDINGS_VERSION` rather than caching paths forever, and why direct mailbox work should resolve current bindings through the runtime-owned helper instead of assuming launch-time process env stays current forever.
 
 ## Resume Time
 
@@ -95,7 +96,8 @@ The runtime does not expose direct mailbox RPCs to the operator. Instead:
 In practice, the session-facing path is:
 
 1. prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached,
-2. otherwise use direct transport-specific access through the runtime-owned mailbox skill and env bindings.
+2. otherwise resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`,
+3. then use those resolved bindings with the transport-specific runtime-owned mailbox skill.
 
 This design keeps mailbox control inside the same runtime session model as ordinary prompt turns, while still enforcing a stronger response contract and preserving one operator-facing mailbox UX across both transports.
 

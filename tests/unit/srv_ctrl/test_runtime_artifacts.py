@@ -6,9 +6,16 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.agent_identity import (
+    AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_agent_id_from_name,
     normalize_agent_identity_name,
+)
+from houmao.agents.realm_controller.gateway_storage import (
+    AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+    AGENT_GATEWAY_ROOT_ENV_VAR,
+    load_attach_contract,
+    load_gateway_status,
 )
 from houmao.srv_ctrl.commands.runtime_artifacts import materialize_delegated_launch
 
@@ -48,12 +55,16 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert session_root == manifest_path.parent
     assert canonical_agent_name == expected_agent_name
     assert agent_id == derive_agent_id_from_name(expected_agent_name)
+    assert manifest_payload["schema_version"] == 4
     assert manifest_payload["backend"] == "houmao_server_rest"
+    assert manifest_payload["runtime"]["session_id"] == session_root.name
+    assert manifest_payload["runtime"]["agent_def_dir"] == str(session_root / "agent_def")
     assert manifest_payload["houmao_server"]["api_base_url"] == "http://127.0.0.1:9889"
     assert manifest_payload["houmao_server"]["session_name"] == "cao-gpu"
     assert manifest_payload["houmao_server"]["terminal_id"] == "abcd1234"
     assert manifest_payload["houmao_server"]["tmux_window_name"] == "developer-1"
     assert manifest_payload["registry_generation_id"]
+    assert manifest_payload["registry_launch_authority"] == "external"
     assert (
         session_root / "agent_def" / "roles" / "gpu-kernel-coder" / "system-prompt.md"
     ).is_file()
@@ -61,6 +72,19 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert (
         Path(str(published_env[AGENT_MANIFEST_PATH_ENV_VAR])).resolve() == manifest_path.resolve()
     )
+    assert published_env[AGENT_ID_ENV_VAR] == agent_id
+    assert Path(str(published_env[AGENT_GATEWAY_ATTACH_PATH_ENV_VAR])).is_file()
+    assert Path(str(published_env[AGENT_GATEWAY_ROOT_ENV_VAR])).is_dir()
+    attach_contract = load_attach_contract(
+        Path(str(published_env[AGENT_GATEWAY_ATTACH_PATH_ENV_VAR]))
+    )
+    gateway_state = load_gateway_status(
+        Path(str(published_env[AGENT_GATEWAY_ROOT_ENV_VAR])) / "state.json"
+    )
+    assert attach_contract.backend == "houmao_server_rest"
+    assert attach_contract.backend_metadata.api_base_url == "http://127.0.0.1:9889"
+    assert attach_contract.backend_metadata.session_name == "cao-gpu"
+    assert gateway_state.gateway_health == "not_attached"
 
     record = published["record"]
     assert getattr(record, "identity").backend == "houmao_server_rest"

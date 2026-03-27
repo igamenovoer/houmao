@@ -1,19 +1,54 @@
 from __future__ import annotations
 
+import pytest
+
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayRequestPayloadSubmitPromptV1,
+)
+from houmao.passive_server.client import PassiveServerClient
+from houmao.passive_server.models import (
+    PassiveHeadlessLaunchRequest,
+    PassiveHeadlessLaunchResponse,
 )
 from houmao.server.client import HoumaoServerClient
+from houmao.server.pair_client import (
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessLaunchResponse,
+    HoumaoHeadlessTurnAcceptedResponse,
+    HoumaoHeadlessTurnRequest,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentGatewayRequestAcceptedResponse,
+    HoumaoManagedAgentGatewayRequestCreate,
+    HoumaoManagedAgentMailActionResponse,
+    HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailReplyRequest,
+    HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoManagedAgentStateResponse,
+    HoumaoRegisterLaunchRequest,
+    HoumaoRegisterLaunchResponse,
     HoumaoTerminalStateResponse,
 )
+
+
+def test_houmao_server_client_defaults_to_split_compatibility_timeout_budgets() -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+
+    assert client.base_url == "http://127.0.0.1:9889"
+    assert client.path_prefix == "/cao"
+    assert client.timeout_seconds == 15.0
+    assert client.create_timeout_seconds == 75.0
 
 
 def test_terminal_state_parses_simplified_tracked_state_contract(monkeypatch) -> None:
@@ -146,6 +181,63 @@ def test_launch_headless_agent_posts_resolved_json_body(monkeypatch) -> None:
         "path": "/houmao/agents/headless/launches",
         "kwargs": {
             "json_body": request_model.model_dump(mode="json"),
+        },
+    }
+
+
+def test_register_launch_posts_to_root_houmao_route(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoRegisterLaunchRequest(
+        session_name="cao-gpu",
+        terminal_id="abcd1234",
+        tool="claude",
+        manifest_path="/tmp/manifest.json",
+        session_root="/tmp/session-root",
+        agent_name="AGENTSYS-gpu",
+        agent_id="agent-1234",
+        tmux_session_name="cao-gpu",
+        tmux_window_name="gpu-1",
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "success": True,
+        "session_name": "cao-gpu",
+        "terminal_id": "abcd1234",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoRegisterLaunchResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.register_launch(request_model)
+
+    assert response.success is True
+    assert response.session_name == "cao-gpu"
+    assert response.terminal_id == "abcd1234"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/launches/register",
+        "kwargs": {
+            "params": {
+                "session_name": "cao-gpu",
+                "terminal_id": "abcd1234",
+                "tool": "claude",
+                "manifest_path": "/tmp/manifest.json",
+                "session_root": "/tmp/session-root",
+                "agent_name": "AGENTSYS-gpu",
+                "agent_id": "agent-1234",
+                "tmux_session_name": "cao-gpu",
+                "tmux_window_name": "gpu-1",
+            }
         },
     }
 
@@ -339,6 +431,81 @@ def test_submit_managed_agent_request_posts_typed_json_body(monkeypatch) -> None
     }
 
 
+def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoManagedAgentGatewayRequestCreate(
+        kind="submit_prompt",
+        payload=GatewayRequestPayloadSubmitPromptV1(prompt="hello"),
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "request_id": "greq-123",
+        "request_kind": "submit_prompt",
+        "state": "accepted",
+        "accepted_at_utc": "2026-03-24T16:00:00+00:00",
+        "queue_depth": 1,
+        "managed_agent_instance_epoch": 2,
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentGatewayRequestAcceptedResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.submit_managed_agent_gateway_request("AGENTSYS gpu/1", request_model)
+
+    assert response.request_id == "greq-123"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/requests",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_send_managed_agent_gateway_control_input_posts_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = GatewayControlInputRequestV1(
+        sequence="<[Escape]>",
+        escape_special_keys=False,
+    )
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "status": "ok",
+        "action": "control_input",
+        "detail": "delivered",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[object],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
+
+    assert response.action == "control_input"
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
 def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
     request_model = GatewayMailNotifierPutV1(interval_seconds=60)
@@ -377,6 +544,145 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
     }
 
 
+def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "schema_version": 1,
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "bindings_version": "v1",
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailStatusResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.get_managed_agent_mail_status("AGENTSYS gpu/1")
+
+    assert response.principal_id == "agent-1234"
+    assert recorded == {
+        "method": "GET",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/status",
+        "kwargs": {},
+    }
+
+
+def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    request_model = HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5)
+    recorded: dict[str, object] = {}
+    response_payload = {
+        "schema_version": 1,
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "unread_only": True,
+        "message_count": 0,
+        "unread_count": 0,
+        "messages": [],
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailCheckResponse],
+        **kwargs,
+    ):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.check_managed_agent_mail("AGENTSYS gpu/1", request_model)
+
+    assert response.unread_only is True
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/check",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: list[dict[str, object]] = []
+    send_request = HoumaoManagedAgentMailSendRequest(
+        to=["peer@agents.localhost"],
+        subject="status",
+        body_content="hello",
+    )
+    reply_request = HoumaoManagedAgentMailReplyRequest(
+        message_ref="msg-123",
+        body_content="reply",
+    )
+    response_payload = {
+        "schema_version": 1,
+        "operation": "send",
+        "transport": "filesystem",
+        "principal_id": "agent-1234",
+        "address": "agent@agents.localhost",
+        "message": {
+            "message_ref": "msg-123",
+            "thread_ref": "thread-1",
+            "created_at_utc": "2026-03-24T16:00:00+00:00",
+            "subject": "status",
+            "unread": False,
+            "body_preview": "hello",
+            "body_text": "hello",
+            "sender": {"address": "agent@agents.localhost"},
+            "to": [{"address": "peer@agents.localhost"}],
+            "cc": [],
+            "reply_to": [],
+            "attachments": [],
+        },
+    }
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailActionResponse],
+        **kwargs,
+    ):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        payload = dict(response_payload)
+        if path.endswith("/reply"):
+            payload["operation"] = "reply"
+        return model.model_validate(payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    send_response = client.send_managed_agent_mail("AGENTSYS gpu/1", send_request)
+    reply_response = client.reply_managed_agent_mail("AGENTSYS gpu/1", reply_request)
+
+    assert send_response.operation == "send"
+    assert reply_response.operation == "reply"
+    assert recorded == [
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/send",
+            "kwargs": {"json_body": send_request.model_dump(mode="json")},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/reply",
+            "kwargs": {"json_body": reply_request.model_dump(mode="json")},
+        },
+    ]
+
+
 def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
     recorded: dict[str, object] = {}
@@ -399,5 +705,352 @@ def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
     assert recorded == {
         "method": "GET",
         "path": "/sessions/cao-gpu",
-        "kwargs": {"params": None},
+        "kwargs": {"params": None, "timeout_seconds": None},
     }
+
+
+def test_resolve_pair_authority_client_selects_passive_server(monkeypatch) -> None:
+    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
+        del self, method, kwargs
+        assert path == "/health"
+        return model.model_validate({"status": "ok", "houmao_service": "houmao-passive-server"})
+
+    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+
+    resolution = resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+
+    assert isinstance(resolution.client, PassiveServerClient)
+    assert resolution.health.houmao_service == "houmao-passive-server"
+
+
+def test_resolve_pair_authority_client_rejects_unknown_pair_identity(monkeypatch) -> None:
+    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
+        del self, method, kwargs
+        assert path == "/health"
+        return model.model_validate({"status": "ok", "houmao_service": "raw-cao"})
+
+    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+
+    with pytest.raises(UnsupportedPairAuthorityError, match="unsupported houmao_service"):
+        resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+
+
+def test_passive_server_client_routes_state_detail_and_history_to_compatibility_paths(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: list[dict[str, object]] = []
+    identity_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "transport": "headless",
+        "tool": "claude",
+        "session_name": None,
+        "terminal_id": None,
+        "runtime_session_id": "tracked-alpha",
+        "tmux_session_name": "AGENTSYS-alpha",
+        "tmux_window_name": "agent",
+        "manifest_path": "/tmp/manifest.json",
+        "session_root": "/tmp/session-root",
+        "agent_name": "AGENTSYS-alpha",
+        "agent_id": "published-alpha",
+    }
+    state_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "identity": identity_payload,
+        "availability": "available",
+        "turn": {"phase": "ready", "active_turn_id": None},
+        "last_turn": {
+            "result": "none",
+            "turn_id": None,
+            "turn_index": None,
+            "updated_at_utc": None,
+        },
+        "diagnostics": [],
+        "mailbox": None,
+        "gateway": None,
+    }
+    detail_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "identity": identity_payload,
+        "summary_state": state_payload,
+        "detail": {
+            "transport": "headless",
+            "runtime_resumable": True,
+            "tmux_session_live": True,
+            "can_accept_prompt_now": True,
+            "interruptible": False,
+            "turn": {"phase": "ready", "active_turn_id": None},
+            "last_turn": {
+                "result": "none",
+                "turn_id": None,
+                "turn_index": None,
+                "updated_at_utc": None,
+            },
+            "active_turn_started_at_utc": None,
+            "active_turn_interrupt_requested_at_utc": None,
+            "last_turn_status": None,
+            "last_turn_started_at_utc": None,
+            "last_turn_completed_at_utc": None,
+            "last_turn_completion_source": None,
+            "last_turn_returncode": None,
+            "last_turn_history_summary": None,
+            "last_turn_error": None,
+            "mailbox": None,
+            "gateway": None,
+            "diagnostics": [],
+        },
+    }
+    history_payload = {
+        "tracked_agent_id": "tracked-alpha",
+        "entries": [
+            {
+                "recorded_at_utc": "2026-03-26T09:00:00+00:00",
+                "summary": "turn completed",
+                "availability": "available",
+                "turn_phase": "ready",
+                "last_turn_result": "success",
+                "turn_id": "turn-0001",
+            }
+        ],
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if path.endswith("/managed-state"):
+            return model.model_validate(state_payload)
+        if path.endswith("/managed-state/detail"):
+            return model.model_validate(detail_payload)
+        if path.endswith("/managed-history"):
+            return model.model_validate(history_payload)
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    state = client.get_managed_agent_state("AGENTSYS gpu/1")
+    detail = client.get_managed_agent_state_detail("AGENTSYS gpu/1")
+    history = client.get_managed_agent_history("AGENTSYS gpu/1", limit=5)
+
+    assert state.tracked_agent_id == "tracked-alpha"
+    assert detail.detail.transport == "headless"
+    assert history.entries[0].turn_id == "turn-0001"
+    assert recorded == [
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state",
+            "kwargs": {},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state/detail",
+            "kwargs": {},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-history",
+            "kwargs": {"params": {"limit": "5"}},
+        },
+    ]
+
+
+def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypatch) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: dict[str, object] = {}
+    request_model = HoumaoHeadlessTurnRequest(prompt="hello")
+    response_payload = {
+        "status": "ok",
+        "tracked_agent_id": "tracked-alpha",
+        "turn_id": "turn-0001",
+        "turn_index": 1,
+        "turn_status": "completed",
+        "detail": "accepted",
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.submit_headless_turn("AGENTSYS gpu/1", request_model)
+
+    assert response == HoumaoHeadlessTurnAcceptedResponse(
+        success=True,
+        tracked_agent_id="tracked-alpha",
+        turn_id="turn-0001",
+        turn_index=1,
+        status="completed",
+        detail="accepted",
+    )
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/turns",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_passive_server_client_launch_passive_headless_agent_posts_request_model(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: dict[str, object] = {}
+    request_model = PassiveHeadlessLaunchRequest(
+        tool="claude",
+        working_directory="/tmp/workdir",
+        agent_def_dir="/tmp/agents",
+        brain_manifest_path="/tmp/brain/manifest.json",
+        role_name="server-api-smoke",
+        agent_name="AGENTSYS-headless",
+        agent_id="published-headless",
+    )
+    response_payload = {
+        "status": "ok",
+        "tracked_agent_id": "tracked-headless",
+        "agent_name": "AGENTSYS-headless",
+        "manifest_path": "/tmp/brain/manifest.json",
+        "session_root": "/tmp/session-root",
+        "detail": "launch accepted",
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded["method"] = method
+        recorded["path"] = path
+        recorded["kwargs"] = kwargs
+        return model.model_validate(response_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.launch_passive_headless_agent(request_model)
+
+    assert response == PassiveHeadlessLaunchResponse(
+        status="ok",
+        tracked_agent_id="tracked-headless",
+        agent_name="AGENTSYS-headless",
+        manifest_path="/tmp/brain/manifest.json",
+        session_root="/tmp/session-root",
+        detail="launch accepted",
+    )
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/headless/launches",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
+
+
+def test_passive_server_client_normalizes_headless_managed_prompt_submission(
+    monkeypatch,
+) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-alpha",
+        transport="headless",
+        tool="claude",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="tracked-alpha",
+        tmux_session_name="AGENTSYS-alpha",
+        tmux_window_name="agent",
+        manifest_path="/tmp/manifest.json",
+        session_root="/tmp/session-root",
+        agent_name="AGENTSYS-alpha",
+        agent_id="published-alpha",
+    )
+
+    monkeypatch.setattr(client, "get_managed_agent", lambda agent_ref: identity)
+    monkeypatch.setattr(
+        client,
+        "submit_headless_turn",
+        lambda agent_ref, request_model: HoumaoHeadlessTurnAcceptedResponse(
+            success=True,
+            tracked_agent_id="tracked-alpha",
+            turn_id="turn-0001",
+            turn_index=1,
+            status="completed",
+            detail=f"accepted:{request_model.prompt}:{agent_ref}",
+        ),
+    )
+
+    response = client.submit_managed_agent_request(
+        "published-alpha",
+        HoumaoManagedAgentSubmitPromptRequest(prompt="hello"),
+    )
+
+    assert response.request_id == "headless-turn:turn-0001"
+    assert response.headless_turn_id == "turn-0001"
+    assert response.headless_turn_index == 1
+    assert response.detail == "accepted:hello:published-alpha"
+
+
+def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkeypatch) -> None:
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    recorded: list[dict[str, object]] = []
+    request_model = GatewayControlInputRequestV1(sequence="abc", escape_special_keys=True)
+    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45)
+    control_payload = {
+        "status": "ok",
+        "action": "control_input",
+        "detail": "queued",
+    }
+    notifier_payload = {
+        "schema_version": 1,
+        "enabled": True,
+        "interval_seconds": 45,
+        "supported": True,
+        "support_error": None,
+        "last_poll_at_utc": None,
+        "last_notification_at_utc": None,
+        "last_error": None,
+    }
+    notifier_disabled_payload = {
+        "schema_version": 1,
+        "enabled": False,
+        "interval_seconds": None,
+        "supported": True,
+        "support_error": None,
+        "last_poll_at_utc": None,
+        "last_notification_at_utc": None,
+        "last_error": None,
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if path.endswith("/gateway/control/send-keys"):
+            return model.model_validate(control_payload)
+        if method == "DELETE":
+            return model.model_validate(notifier_disabled_payload)
+        return model.model_validate(notifier_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    control = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
+    notifier_status = client.get_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+    notifier_enabled = client.put_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1", notifier_put)
+    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+
+    assert control.detail == "queued"
+    assert notifier_status.enabled is True
+    assert notifier_enabled.interval_seconds == 45
+    assert notifier_disabled.enabled is False
+    assert recorded == [
+        {
+            "method": "POST",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
+            "kwargs": {"json_body": request_model.model_dump(mode="json")},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {},
+        },
+        {
+            "method": "PUT",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {"json_body": notifier_put.model_dump(mode="json")},
+        },
+        {
+            "method": "DELETE",
+            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {},
+        },
+    ]

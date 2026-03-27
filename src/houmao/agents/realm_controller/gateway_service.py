@@ -19,7 +19,11 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
-from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_support import (
+    mailbox_skill_document_path,
+    resolve_live_mailbox_binding,
+    resolved_mailbox_config_from_payload,
+)
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.errors import LaunchPlanError
@@ -36,8 +40,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachContractV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayConnectivityState,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
+    GatewayHeadlessControlStateV1,
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayMailActionResponseV1,
@@ -68,11 +75,12 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_health_response,
     gateway_paths_from_session_root,
     generate_gateway_request_id,
-    load_attach_contract,
     load_gateway_current_instance,
     read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
+    refresh_gateway_manifest_publication,
+    resolve_internal_gateway_attach_contract,
     write_gateway_mail_notifier_record,
     write_gateway_current_instance,
     write_gateway_status,
@@ -81,19 +89,37 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
-from houmao.agents.realm_controller.runtime import resume_runtime_session
-from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
+    tmux_session_exists,
+)
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
-from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
+    HoumaoTerminalHistoryResponse,
+    HoumaoTerminalStateResponse,
+    HoumaoTrackedSessionIdentity,
 )
+from houmao.server.pair_client import (
+    PairAuthorityClientProtocol,
+    PairAuthorityConnectionError,
+    UnsupportedPairAuthorityError,
+    resolve_pair_authority_client,
+)
+from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _GatewayRequestTerminalState = Literal["completed", "failed"]
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
 
 
 @dataclass(frozen=True)
@@ -163,6 +189,16 @@ def _parse_gateway_timestamp(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _optional_env_string(variable_name: str) -> str | None:
+    """Return one stripped environment variable when present."""
+
+    value = os.environ.get(variable_name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 class GatewayExecutionAdapter(Protocol):
     """Execution adapter boundary for one gateway-managed target."""
 
@@ -173,8 +209,11 @@ class GatewayExecutionAdapter(Protocol):
     def inspect_target(self) -> _GatewayTargetState:
         """Return current target posture for status and reconciliation."""
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt to the addressed managed target."""
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Deliver one raw control-input sequence to the addressed managed target."""
 
     def interrupt(self) -> None:
         """Interrupt the addressed managed target."""
@@ -209,6 +248,20 @@ class _RestBackedGatewayAdapter:
                 houmao_metadata.api_base_url,
                 path_prefix="/cao",
             )
+        manifest_path_value = attach_contract.manifest_path
+        agent_def_dir_value = attach_contract.agent_def_dir
+        self.m_manifest_path = (
+            Path(manifest_path_value).expanduser().resolve()
+            if manifest_path_value is not None
+            else None
+        )
+        self.m_agent_def_dir = (
+            Path(agent_def_dir_value).expanduser().resolve()
+            if agent_def_dir_value is not None
+            else None
+        )
+        self.m_controller: RuntimeSessionController | None = None
+        self.m_failed_recovery_terminal_id: str | None = None
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -221,6 +274,14 @@ class _RestBackedGatewayAdapter:
 
         terminal_id = self._read_current_terminal_id()
         connectivity = self._inspect_connectivity(terminal_id)
+        if connectivity != "connected" and self._should_attempt_recovery(terminal_id):
+            if self._attempt_relaunch_recovery():
+                terminal_id = self._read_current_terminal_id()
+                connectivity = self._inspect_connectivity(terminal_id)
+                if connectivity == "connected":
+                    self.m_failed_recovery_terminal_id = None
+            else:
+                self.m_failed_recovery_terminal_id = terminal_id
         return _GatewayTargetState(
             instance_id=terminal_id,
             connectivity=connectivity,
@@ -228,13 +289,23 @@ class _RestBackedGatewayAdapter:
             prompt_admission_open=connectivity == "connected",
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt to the current runtime-owned terminal."""
 
+        del turn_id
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
             raise GatewayError("CAO prompt submission returned success=false.")
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Reject raw send-keys because REST-backed gateways lack tmux key semantics."""
+
+        del sequence, escape_special_keys
+        raise GatewayError(
+            "Raw control input is unsupported for REST-backed gateway targets because the "
+            "gateway cannot preserve exact tmux `<[key-name]>` semantics on that path."
+        )
 
     def interrupt(self) -> None:
         """Interrupt the current runtime-owned terminal."""
@@ -264,19 +335,14 @@ class _RestBackedGatewayAdapter:
 
         handle = load_session_manifest(Path(manifest_path))
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        if self.m_attach_contract.backend == "cao_rest":
-            if payload.cao is None:
-                raise GatewayError(
-                    "Runtime-owned CAO manifest is missing the `cao` payload required for "
-                    "gateway attach."
-                )
-            return payload.cao.terminal_id
-        if payload.houmao_server is None:
-            raise GatewayError(
-                "Runtime-owned houmao-server manifest is missing the `houmao_server` payload "
-                "required for gateway attach."
-            )
-        return payload.houmao_server.terminal_id
+        authority = resolve_manifest_session_authority(
+            manifest_path=handle.path,
+            payload=payload,
+        )
+        try:
+            return authority.control.require_terminal_id()
+        except SessionManifestError as exc:
+            raise GatewayError(str(exc)) from exc
 
     def _inspect_connectivity(self, terminal_id: str) -> GatewayConnectivityState:
         """Return whether the addressed CAO terminal is reachable."""
@@ -287,32 +353,75 @@ class _RestBackedGatewayAdapter:
             return "unavailable"
         return "connected"
 
+    def _should_attempt_recovery(self, terminal_id: str) -> bool:
+        """Return whether one manifest-backed relaunch recovery should run."""
+
+        if terminal_id == self.m_failed_recovery_terminal_id:
+            return False
+        if self.m_manifest_path is None or self.m_agent_def_dir is None:
+            return False
+        session_name = self.m_attach_contract.tmux_session_name
+        if not session_name.strip():
+            return False
+        return tmux_session_exists(session_name=session_name)
+
+    def _attempt_relaunch_recovery(self) -> bool:
+        """Try one shared relaunch recovery for the runtime-owned tmux surface."""
+
+        try:
+            result = self._resume_controller().relaunch()
+        except (GatewayError, LaunchPlanError, RuntimeError, SessionManifestError):
+            return False
+        return result.status == "ok"
+
+    def _resume_controller(self) -> RuntimeSessionController:
+        """Return the resumed runtime controller for relaunch recovery."""
+
+        if self.m_controller is not None:
+            return self.m_controller
+        if self.m_manifest_path is None or self.m_agent_def_dir is None:
+            raise GatewayError(
+                "REST-backed gateway recovery requires manifest_path and agent_def_dir."
+            )
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=self.m_agent_def_dir,
+                session_manifest_path=self.m_manifest_path,
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(
+                f"Failed to resume runtime-owned REST-backed session for recovery: {exc}"
+            ) from exc
+        return self.m_controller
+
 
 class _LocalHeadlessGatewayAdapter:
-    """Execution adapter for runtime-owned local headless sessions."""
+    """Execution adapter for runtime-owned local tmux-backed sessions."""
 
     def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
         """Resume local runtime authority from the strict attach contract."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if attach_contract.backend not in {
+            "local_interactive",
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+        }:
             raise GatewayError(
-                "Local headless gateway adapter only supports native headless backends, got "
+                "Local tmux gateway adapter only supports native tmux-backed backends, got "
                 f"{attach_contract.backend!r}."
             )
         manifest_path_value = attach_contract.manifest_path
         agent_def_dir_value = attach_contract.agent_def_dir
         if manifest_path_value is None or agent_def_dir_value is None:
             raise GatewayError(
-                "Headless gateway attach requires manifest_path and agent_def_dir in the attach contract."
+                "Local tmux gateway attach requires manifest_path and agent_def_dir in the "
+                "attach contract."
             )
-        try:
-            self.m_controller = resume_runtime_session(
-                agent_def_dir=Path(agent_def_dir_value).expanduser().resolve(),
-                session_manifest_path=Path(manifest_path_value).expanduser().resolve(),
-            )
-        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
-            raise GatewayError(f"Failed to resume runtime-owned headless session: {exc}") from exc
+        self.m_manifest_path = Path(manifest_path_value).expanduser().resolve()
+        self.m_agent_def_dir = Path(agent_def_dir_value).expanduser().resolve()
+        self.m_controller: RuntimeSessionController | None = None
         self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
 
     @property
@@ -322,9 +431,14 @@ class _LocalHeadlessGatewayAdapter:
         return self.m_attach_contract
 
     def inspect_target(self) -> _GatewayTargetState:
-        """Return current execution posture for the local headless target."""
+        """Return current execution posture for the local tmux-backed target."""
 
         connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
+        if connected:
+            try:
+                self._resume_controller()
+            except GatewayError:
+                connected = False
         connectivity: GatewayConnectivityState = "connected" if connected else "unavailable"
         return _GatewayTargetState(
             instance_id=self.m_instance_id,
@@ -333,29 +447,67 @@ class _LocalHeadlessGatewayAdapter:
             prompt_admission_open=connected,
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
-        """Submit one prompt through resumed local headless runtime control."""
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+        """Submit one prompt through resumed local tmux-backed runtime control."""
 
         self._require_live_tmux_session()
         try:
-            self.m_controller.send_prompt(prompt)
+            controller = self._resume_controller()
+            backend_session = controller.backend_session
+            # `LocalInteractiveSession` currently satisfies this resumable boundary by
+            # subclassing `HeadlessInteractiveSession`.
+            if not isinstance(backend_session, HeadlessInteractiveSession):
+                raise GatewayError(
+                    "Resumed local tmux-backed controller is missing a resumable "
+                    "interactive backend."
+                )
+            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
-            raise GatewayError(f"Local headless prompt submission failed: {exc}") from exc
+            raise GatewayError(f"Local tmux-backed prompt submission failed: {exc}") from exc
 
     def interrupt(self) -> None:
-        """Interrupt one resumed local headless runtime."""
+        """Interrupt one resumed local tmux-backed runtime."""
 
         self._require_live_tmux_session()
-        result = self.m_controller.interrupt()
+        result = self._resume_controller().interrupt()
         if result.status != "ok":
             raise GatewayError(result.detail)
 
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Deliver raw control input through resumed local runtime control."""
+
+        self._require_live_tmux_session()
+        result = self._resume_controller().send_input_ex(
+            sequence,
+            escape_special_keys=escape_special_keys,
+        )
+        if result.status != "ok":
+            raise GatewayError(result.detail)
+        return result.detail
+
+    def _resume_controller(self) -> RuntimeSessionController:
+        """Return the resumed local runtime controller, materializing it lazily."""
+
+        if self.m_controller is not None:
+            return self.m_controller
+        try:
+            self.m_controller = resume_runtime_session(
+                agent_def_dir=self.m_agent_def_dir,
+                session_manifest_path=self.m_manifest_path,
+            )
+        except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+            raise GatewayError(
+                f"Failed to resume runtime-owned local tmux-backed session: {exc}"
+            ) from exc
+        return self.m_controller
+
     def _require_live_tmux_session(self) -> None:
-        """Require the headless tmux session to still be live."""
+        """Require the tmux session to still be live."""
 
         if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
             raise GatewayError(
-                f"Headless tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
+                f"Tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
             )
 
 
@@ -381,7 +533,8 @@ class _ServerManagedHeadlessGatewayAdapter:
                 "managed_agent_ref metadata."
             )
         self.m_managed_agent_ref = metadata.managed_agent_ref
-        self.m_client = HoumaoServerClient(metadata.managed_api_base_url)
+        self.m_managed_api_base_url = metadata.managed_api_base_url
+        self.m_client: PairAuthorityClientProtocol | None = None
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -393,8 +546,10 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Return current execution posture for the server-managed target."""
 
         try:
-            response = self.m_client.get_managed_agent_state_detail(self.m_managed_agent_ref)
-        except CaoApiError:
+            response = self._resolve_client().get_managed_agent_state_detail(
+                self.m_managed_agent_ref
+            )
+        except (CaoApiError, GatewayError):
             return _GatewayTargetState(
                 instance_id=self.m_managed_agent_ref,
                 connectivity="unavailable",
@@ -421,10 +576,11 @@ class _ServerManagedHeadlessGatewayAdapter:
             prompt_admission_open=can_accept_prompt_now,
         )
 
-    def submit_prompt(self, *, prompt: str) -> None:
+    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
         """Submit one prompt through the managed-agent server API."""
 
-        response = self.m_client.submit_managed_agent_request(
+        del turn_id
+        response = self._resolve_client().submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
         )
@@ -434,10 +590,33 @@ class _ServerManagedHeadlessGatewayAdapter:
     def interrupt(self) -> None:
         """Interrupt the managed-agent target through the server API."""
 
-        self.m_client.submit_managed_agent_request(
+        self._resolve_client().submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentInterruptRequest(),
         )
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Reject raw send-keys for server-managed headless routes."""
+
+        del sequence, escape_special_keys
+        raise GatewayError(
+            "Raw control input is unsupported for server-managed headless gateway targets."
+        )
+
+    def _resolve_client(self) -> PairAuthorityClientProtocol:
+        """Return the resolved pair-authority client for the managed target."""
+
+        if self.m_client is not None:
+            return self.m_client
+        try:
+            self.m_client = resolve_pair_authority_client(
+                base_url=self.m_managed_api_base_url
+            ).client
+        except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
+            raise GatewayError(
+                f"Failed to resolve managed pair authority `{self.m_managed_api_base_url}`: {exc}"
+            ) from exc
+        return self.m_client
 
 
 def _build_gateway_execution_adapter(
@@ -448,12 +627,19 @@ def _build_gateway_execution_adapter(
 
     if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
         return _RestBackedGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend in {"claude_headless", "codex_headless", "gemini_headless"}:
-        metadata = cast(
-            GatewayAttachBackendMetadataHeadlessV1,
-            attach_contract.backend_metadata,
-        )
-        if metadata.managed_api_base_url is not None and metadata.managed_agent_ref is not None:
+    if attach_contract.backend in {
+        "local_interactive",
+        "claude_headless",
+        "codex_headless",
+        "gemini_headless",
+    }:
+        metadata = attach_contract.backend_metadata
+        if (
+            isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1)
+            and metadata.managed_api_base_url is not None
+            and metadata.managed_agent_ref is not None
+            and attach_contract.agent_def_dir is None
+        ):
             return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
         return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
     raise GatewayError(
@@ -484,7 +670,7 @@ class GatewayServiceRuntime:
         )
         self.m_host: GatewayHost = host
         self.m_port: int = port
-        self.m_attach_contract = load_attach_contract(self.m_paths.attach_path)
+        self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
             attach_contract=self.m_attach_contract
         )
@@ -498,6 +684,11 @@ class GatewayServiceRuntime:
         self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
         self.m_mailbox_adapter: GatewayMailboxAdapter | None = None
         self.m_mailbox_bindings_version: str | None = None
+        self.m_execution_mode = self._execution_mode_from_env()
+        self.m_tmux_window_id = _optional_env_string(_GATEWAY_TMUX_WINDOW_ID_ENV_VAR)
+        self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
+        self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
+        self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
 
     @classmethod
     def from_gateway_root(
@@ -526,6 +717,16 @@ class GatewayServiceRuntime:
 
         return cls(gateway_root=gateway_root, host=host, port=port)
 
+    def _execution_mode_from_env(self) -> Literal["detached_process", "tmux_auxiliary_window"]:
+        """Return the runtime execution mode published by the launcher."""
+
+        raw_value = _optional_env_string(_GATEWAY_EXECUTION_MODE_ENV_VAR)
+        if raw_value is None:
+            return "detached_process"
+        if raw_value not in {"detached_process", "tmux_auxiliary_window"}:
+            raise GatewayError(f"Unsupported gateway execution mode `{raw_value}` in environment.")
+        return cast(Literal["detached_process", "tmux_auxiliary_window"], raw_value)
+
     def start(self) -> None:
         """Initialize current-instance state and start the queue worker."""
 
@@ -533,6 +734,8 @@ class GatewayServiceRuntime:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
             self._refresh_status_snapshot(active_execution="idle")
+            refresh_gateway_manifest_publication(self.m_paths)
+            self._start_tui_tracking_locked()
             self._log(
                 f"gateway started host={self.m_host} port={self.m_port} attach_identity={self.m_attach_contract.attach_identity}"
             )
@@ -567,6 +770,9 @@ class GatewayServiceRuntime:
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            if self.m_tui_tracking is not None:
+                self.m_tui_tracking.stop()
+                self.m_tui_tracking = None
             self._flush_rate_limited_logs()
             self._log("gateway stopping")
             delete_gateway_current_instance(self.m_paths)
@@ -582,6 +788,61 @@ class GatewayServiceRuntime:
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
 
+    def get_tui_state(self) -> HoumaoTerminalStateResponse:
+        """Return gateway-owned live tracked TUI state."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.current_state()
+
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+        """Return gateway-owned live tracked TUI history."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.history(limit=limit)
+
+    def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:
+        """Record explicit prompt evidence in the gateway-owned tracker."""
+
+        with self.m_lock:
+            tracking = self._require_tui_tracking_locked()
+        return tracking.note_prompt_submission(message=prompt)
+
+    def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:
+        """Return read-optimized live headless control posture."""
+
+        with self.m_lock:
+            if self.m_attach_contract.backend not in {
+                "claude_headless",
+                "codex_headless",
+                "gemini_headless",
+            }:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Gateway headless live-state routes are only available for headless backends.",
+                )
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            active_turn_id = self._active_headless_turn_id_locked()
+            tmux_session_live = status.managed_agent_connectivity == "connected"
+            active_execution = status.active_execution
+            can_accept_prompt_now = (
+                tmux_session_live
+                and status.request_admission == "open"
+                and active_execution == "idle"
+                and active_turn_id is None
+            )
+            return GatewayHeadlessControlStateV1(
+                runtime_resumable=isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter),
+                tmux_session_live=tmux_session_live,
+                can_accept_prompt_now=can_accept_prompt_now,
+                interruptible=active_execution == "running" or active_turn_id is not None,
+                request_admission=status.request_admission,
+                active_execution=active_execution,
+                queue_depth=status.queue_depth,
+                active_turn_id=active_turn_id,
+            )
+
     def create_request(self, request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Validate admission and persist one gateway-managed request."""
 
@@ -596,6 +857,19 @@ class GatewayServiceRuntime:
                 raise HTTPException(
                     status_code=503,
                     detail="Gateway admission is blocked because the managed agent is unavailable.",
+                )
+            if (
+                self.m_attach_contract.backend
+                in {"claude_headless", "codex_headless", "gemini_headless"}
+                and request_payload.kind == "submit_prompt"
+                and (
+                    status.active_execution == "running"
+                    or self._active_headless_turn_id_locked() is not None
+                )
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway headless prompt admission is blocked because managed work is already active.",
                 )
 
             request_id = generate_gateway_request_id()
@@ -645,6 +919,44 @@ class GatewayServiceRuntime:
                 queue_depth=status.queue_depth,
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
+
+    def send_control_input(
+        self,
+        request_payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Deliver one raw control-input sequence without queueing prompt work."""
+
+        with self.m_lock:
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            if status.request_admission == "blocked_reconciliation":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Gateway admission is blocked pending managed-agent reconciliation.",
+                )
+            if status.request_admission != "open":
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gateway admission is blocked because the managed agent is unavailable.",
+                )
+
+        try:
+            detail = self.m_adapter.send_control_input(
+                sequence=request_payload.sequence,
+                escape_special_keys=request_payload.escape_special_keys,
+            )
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_input",
+                "escape_special_keys": request_payload.escape_special_keys,
+                "sequence_preview": request_payload.sequence[:120],
+                "submitted_at_utc": now_utc_iso(),
+            },
+        )
+        return GatewayControlInputResultV1(detail=detail)
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -773,7 +1085,7 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             try:
-                self._mailbox_adapter_locked()
+                self._require_live_notifier_mailbox_config_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             record = write_gateway_mail_notifier_record(
@@ -823,10 +1135,32 @@ class GatewayServiceRuntime:
         """Return whether notifier behavior is currently supported."""
 
         try:
-            self._mailbox_adapter_locked()
+            self._require_live_notifier_mailbox_config_locked()
         except GatewayError as exc:
             return False, str(exc)
         return True, None
+
+    def _require_live_notifier_mailbox_config_locked(self) -> MailboxResolvedConfig:
+        """Return durable mailbox config only when live notifier actionability is present."""
+
+        mailbox = self._load_mailbox_config()
+        tmux_session_name = (self.m_attach_contract.tmux_session_name or "").strip()
+        if not tmux_session_name:
+            raise GatewayError(
+                "Gateway notifier requires a tmux-backed session identity, but the attach "
+                "contract is missing `tmux_session_name`."
+            )
+        try:
+            resolve_live_mailbox_binding(
+                durable_mailbox=mailbox,
+                tmux_session_name=tmux_session_name,
+            )
+        except ValueError as exc:
+            raise GatewayError(
+                "Gateway notifier requires a live mailbox projection in tmux session "
+                f"`{tmux_session_name}`: {exc}"
+            ) from exc
+        return mailbox
 
     def _load_mailbox_config(self) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by mailbox routes."""
@@ -928,6 +1262,7 @@ class GatewayServiceRuntime:
             poll_time_utc = now_utc_iso()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             try:
+                self._require_live_notifier_mailbox_config_locked()
                 adapter = self._mailbox_adapter_locked()
             except GatewayError as exc:
                 write_gateway_mail_notifier_record(
@@ -1085,6 +1420,7 @@ class GatewayServiceRuntime:
     def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
+        mailbox = self._load_mailbox_config()
         nominated = unread_messages[0]
         remaining_unread_count = len(unread_messages) - 1
         sender_label = (
@@ -1095,20 +1431,15 @@ class GatewayServiceRuntime:
         lines = [
             "You have one bounded shared-mailbox task to process.",
             (
-                "Use the runtime-owned mailbox skill document for this transport: "
-                "`email-via-filesystem` at `skills/mailbox/email-via-filesystem/SKILL.md` "
-                "when `AGENTSYS_MAILBOX_TRANSPORT=filesystem`, or `email-via-stalwart` at "
-                "`skills/mailbox/email-via-stalwart/SKILL.md` when "
-                "`AGENTSYS_MAILBOX_TRANSPORT=stalwart`."
+                "Resolve current mailbox bindings through the runtime-owned helper "
+                "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
+                "before any direct mailbox access. Do not scrape tmux state directly or trust "
+                "stale inherited process env."
             ),
             (
-                "The same documents may also be mirrored under `skills/.system/mailbox/...`, "
-                "but prefer the visible `skills/mailbox/...` paths and open them directly "
-                "instead of searching with `rg`, `find`, or slash-skill lookup. If the project "
-                "worktree truly does not expose those visible paths, fall back to the same "
-                "locations under the runtime home. Treat that mailbox skill as a runtime-owned "
-                "skill document to read and follow, not as a registered slash skill to invoke "
-                "by name."
+                "Use the runtime-owned mailbox skill document for the current transport at "
+                f"`{mailbox_skill_document_path(mailbox)}` and open it directly instead of "
+                "searching with `rg`, `find`, or slash-skill lookup."
             ),
             (
                 "Use shared mailbox operations through the live gateway facade for this turn: "
@@ -1328,7 +1659,9 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(prompt=payload.prompt)
+                self.m_adapter.submit_prompt(prompt=payload.prompt, turn_id=payload.turn_id)
+                if self.m_tui_tracking is not None and request_kind == "submit_prompt":
+                    self.m_tui_tracking.note_prompt_submission(message=payload.prompt)
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
                 self.m_adapter.interrupt()
@@ -1440,6 +1773,10 @@ class GatewayServiceRuntime:
                 pid=self._current_pid(),
                 host=self.m_host,
                 port=self.m_port,
+                execution_mode=self.m_execution_mode,
+                tmux_window_id=self.m_tmux_window_id,
+                tmux_window_index=self.m_tmux_window_index,
+                tmux_pane_id=self.m_tmux_pane_id,
                 managed_agent_instance_epoch=self.m_current_epoch,
                 managed_agent_instance_id=current_instance_id,
             ),
@@ -1482,9 +1819,13 @@ class GatewayServiceRuntime:
             request_admission=admission,
             terminal_surface_eligibility=target_state.terminal_surface_eligibility,
             active_execution=active_execution,
+            execution_mode=self.m_execution_mode,
             queue_depth=queue_depth_from_sqlite(self.m_paths.queue_path),
             gateway_host=self.m_host,
             gateway_port=self.m_port,
+            gateway_tmux_window_id=self.m_tmux_window_id,
+            gateway_tmux_window_index=self.m_tmux_window_index,
+            gateway_tmux_pane_id=self.m_tmux_pane_id,
             managed_agent_instance_epoch=self.m_current_epoch,
             managed_agent_instance_id=self.m_current_instance_id,
         )
@@ -1495,6 +1836,10 @@ class GatewayServiceRuntime:
                 pid=self._current_pid(),
                 host=self.m_host,
                 port=self.m_port,
+                execution_mode=self.m_execution_mode,
+                tmux_window_id=self.m_tmux_window_id,
+                tmux_window_index=self.m_tmux_window_index,
+                tmux_pane_id=self.m_tmux_pane_id,
                 managed_agent_instance_epoch=self.m_current_epoch,
                 managed_agent_instance_id=self.m_current_instance_id,
             ),
@@ -1515,6 +1860,120 @@ class GatewayServiceRuntime:
         if row is None or int(row[0]) == 0:
             return "idle"
         return "running"
+
+    def _active_headless_turn_id_locked(self) -> str | None:
+        """Return the current headless turn id from queued or running prompt work."""
+
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM gateway_requests
+                WHERE request_kind = 'submit_prompt'
+                  AND state IN ('accepted', 'running')
+                ORDER BY accepted_at_utc ASC
+                """
+            ).fetchall()
+        for row in rows:
+            try:
+                payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(str(row[0]))
+            except ValidationError:
+                continue
+            if payload.turn_id is not None:
+                return payload.turn_id
+        return None
+
+    def _start_tui_tracking_locked(self) -> None:
+        """Start gateway-owned TUI tracking when the attach target is TUI-backed."""
+
+        if self.m_tui_tracking is not None:
+            return
+        identity = self._tui_tracking_identity_locked()
+        if identity is None:
+            return
+        tracking = SingleSessionTrackingRuntime(identity=identity)
+        tracking.start()
+        self.m_tui_tracking = tracking
+
+    def _require_tui_tracking_locked(self) -> SingleSessionTrackingRuntime:
+        """Require gateway-owned TUI tracking for the attached session."""
+
+        if self.m_tui_tracking is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway TUI live-state routes are only available for attached TUI backends.",
+            )
+        return self.m_tui_tracking
+
+    def _tui_tracking_identity_locked(self) -> HoumaoTrackedSessionIdentity | None:
+        """Build the tracked-session identity for gateway-owned TUI tracking."""
+
+        metadata = self.m_attach_contract.backend_metadata
+        tracked_session_id: str
+        session_name: str
+        tmux_window_name: str | None
+        terminal_aliases: list[str]
+        tool = "codex"
+        if isinstance(metadata, GatewayAttachBackendMetadataCaoV1):
+            if self.m_attach_contract.backend != "cao_rest":
+                return None
+            tracked_session_id = self.m_attach_contract.attach_identity
+            session_name = self.m_attach_contract.attach_identity
+            tmux_window_name = metadata.tmux_window_name
+            terminal_aliases = [metadata.terminal_id]
+        elif isinstance(metadata, GatewayAttachBackendMetadataHoumaoServerV1):
+            if self.m_attach_contract.backend != "houmao_server_rest":
+                return None
+            tracked_session_id = metadata.session_name
+            session_name = metadata.session_name
+            tmux_window_name = metadata.tmux_window_name
+            terminal_aliases = [metadata.terminal_id]
+        elif isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1):
+            if self.m_attach_contract.backend != "local_interactive":
+                return None
+            tracked_session_id = (
+                self.m_attach_contract.runtime_session_id or self.m_attach_contract.attach_identity
+            )
+            session_name = tracked_session_id
+            tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
+            terminal_aliases = []
+            tool = metadata.tool
+        else:
+            return None
+
+        observed_tool_version: str | None = None
+        agent_name: str | None = None
+        agent_id: str | None = None
+        manifest_path_value = self.m_attach_contract.manifest_path
+        if manifest_path_value is not None:
+            try:
+                handle = load_session_manifest(Path(manifest_path_value))
+                payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+            except SessionManifestError:
+                payload = None
+            if payload is not None:
+                tool = payload.tool
+                observed_tool_version = (
+                    payload.launch_policy_provenance.detected_tool_version
+                    if payload.launch_policy_provenance is not None
+                    else None
+                )
+                agent_name = payload.agent_name
+                agent_id = payload.agent_id
+
+        return HoumaoTrackedSessionIdentity(
+            tracked_session_id=tracked_session_id,
+            session_name=session_name,
+            tool=tool,
+            observed_tool_version=observed_tool_version,
+            tmux_session_name=self.m_attach_contract.tmux_session_name,
+            tmux_window_name=tmux_window_name,
+            terminal_aliases=terminal_aliases,
+            agent_name=agent_name,
+            agent_id=agent_id,
+            manifest_path=self.m_attach_contract.manifest_path,
+            session_root=str(self.m_paths.session_root.resolve()),
+        )
 
     def _current_pid(self) -> int:
         """Return the current process id."""
@@ -1580,6 +2039,40 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve the structured gateway status snapshot."""
 
         return runtime.status()
+
+    @app.get("/v1/control/tui/state", response_model=HoumaoTerminalStateResponse)
+    def _tui_state() -> HoumaoTerminalStateResponse:
+        """Serve gateway-owned tracked TUI state."""
+
+        return runtime.get_tui_state()
+
+    @app.get("/v1/control/tui/history", response_model=HoumaoTerminalHistoryResponse)
+    def _tui_history(limit: int = 100) -> HoumaoTerminalHistoryResponse:
+        """Serve gateway-owned tracked TUI history."""
+
+        return runtime.get_tui_history(limit=limit)
+
+    @app.post("/v1/control/tui/note-prompt", response_model=HoumaoTerminalStateResponse)
+    def _note_tui_prompt(
+        request_payload: GatewayRequestPayloadSubmitPromptV1,
+    ) -> HoumaoTerminalStateResponse:
+        """Record explicit-input evidence in the gateway-owned tracker."""
+
+        return runtime.note_tui_prompt_submission(prompt=request_payload.prompt)
+
+    @app.post("/v1/control/send-keys", response_model=GatewayControlInputResultV1)
+    def _send_control_input(
+        request_payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Deliver raw control input through the dedicated non-queued surface."""
+
+        return runtime.send_control_input(request_payload)
+
+    @app.get("/v1/control/headless/state", response_model=GatewayHeadlessControlStateV1)
+    def _headless_state() -> GatewayHeadlessControlStateV1:
+        """Serve read-optimized live headless control posture."""
+
+        return runtime.get_headless_control_state()
 
     @app.post("/v1/requests", response_model=GatewayAcceptedRequestV1)
     def _create_request(request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:

@@ -22,6 +22,8 @@ from .models import (
 )
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS = 15.0
+DEFAULT_CAO_CREATE_TIMEOUT_SECONDS = 75.0
 
 
 class CaoApiError(RuntimeError):
@@ -65,12 +67,14 @@ class CaoRestClient:
     def __init__(
         self,
         base_url: str,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float = DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+        create_timeout_seconds: float = DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
         *,
         path_prefix: str = "",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.create_timeout_seconds = create_timeout_seconds
         self.path_prefix = _normalize_path_prefix(path_prefix)
 
     def health(self) -> CaoHealthResponse:
@@ -107,6 +111,7 @@ class CaoRestClient:
             "/sessions",
             CaoTerminal,
             params=params,
+            timeout_seconds=self.create_timeout_seconds,
         )
 
     def delete_session(self, session_name: str) -> CaoSuccessResponse:
@@ -153,6 +158,7 @@ class CaoRestClient:
             f"/sessions/{escaped}/terminals",
             CaoTerminal,
             params=params,
+            timeout_seconds=self.create_timeout_seconds,
         )
 
     def get_terminal(self, terminal_id: str) -> CaoTerminal:
@@ -244,8 +250,14 @@ class CaoRestClient:
         model: type[_ModelT],
         *,
         params: dict[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> _ModelT:
-        payload, status_code, url = self._request_json(method, path, params=params)
+        payload, status_code, url = self._request_json(
+            method,
+            path,
+            params=params,
+            timeout_seconds=timeout_seconds,
+        )
         try:
             return model.model_validate(payload)
         except ValidationError as exc:
@@ -264,8 +276,14 @@ class CaoRestClient:
         model: type[_ModelT],
         *,
         params: dict[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> list[_ModelT]:
-        payload, status_code, url = self._request_json(method, path, params=params)
+        payload, status_code, url = self._request_json(
+            method,
+            path,
+            params=params,
+            timeout_seconds=timeout_seconds,
+        )
         if not isinstance(payload, list):
             raise CaoApiError(
                 method=method,
@@ -295,7 +313,11 @@ class CaoRestClient:
         path: str,
         *,
         params: dict[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> tuple[object, int, str]:
+        resolved_timeout_seconds = (
+            self.timeout_seconds if timeout_seconds is None else timeout_seconds
+        )
         url = f"{self.base_url}{self.path_prefix}{path}"
         if params:
             url = f"{url}?{parse.urlencode(params)}"
@@ -309,7 +331,7 @@ class CaoRestClient:
 
         try:
             with scoped_loopback_no_proxy_for_cao_base_url(self.base_url):
-                with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                with request.urlopen(req, timeout=resolved_timeout_seconds) as resp:
                     status_code = int(resp.status)
                     raw_text = resp.read().decode("utf-8", errors="replace")
         except error.HTTPError as exc:
@@ -332,7 +354,7 @@ class CaoRestClient:
             raise CaoApiError(
                 method=method,
                 url=url,
-                detail=f"Connection failed after {self.timeout_seconds}s: {exc}",
+                detail=f"Connection failed after {resolved_timeout_seconds}s: {exc}",
             ) from exc
 
         if not raw_text.strip():

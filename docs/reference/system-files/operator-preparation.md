@@ -8,7 +8,7 @@ The safest preparation pattern is:
 
 1. choose where durable runtime and registry state should live,
 2. choose whether workspace-local jobs should stay in the repo worktree or move to a scratch filesystem,
-3. choose whether launcher-managed CAO state should use an explicit `home_dir`,
+3. choose whether the legacy launcher-managed CAO state should use an explicit `home_dir` (only relevant for `cao_rest` backend),
 4. pre-create any redirected parent directories with the right ownership and write permissions.
 
 ## Writable-Path Summary
@@ -88,7 +88,7 @@ If you intentionally redirect the runtime root or registry root into a repo-loca
 
 - [Roots And Ownership](roots-and-ownership.md): Root precedence and ownership categories.
 - [Agents And Runtime](agents-and-runtime.md): Which runtime artifacts are durable versus scratch-adjacent.
-- [CAO Server](cao-server.md): Launcher and CAO-home placement details.
+- [Legacy CAO Server](cao-server.md): Launcher and CAO-home placement details (legacy `cao_rest` backend only).
 - [Shared Registry](shared-registry.md): Registry-root layout and cleanup boundary.
 
 ## Source References

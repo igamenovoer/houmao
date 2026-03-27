@@ -38,10 +38,12 @@ Use this skill to work with the filesystem mailbox transport where canonical mes
 
 ## Binding Checks
 
-- Require the common and filesystem-specific env vars defined in [references/env-vars.md](references/env-vars.md).
-- Refuse to use this skill when `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
-- Re-read the mailbox env vars before each mailbox action. Do not cache paths or addresses across turns.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and reload the current bindings before continuing.
+- Resolve current mailbox bindings through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` before direct mailbox work.
+- Require the common and filesystem-specific mailbox binding keys defined in [references/env-vars.md](references/env-vars.md) from that resolver output.
+- Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
+- Do not cache paths or addresses across turns. Re-resolve the current mailbox bindings before each mailbox action that uses direct filesystem access.
+- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and resolve the current bindings again before continuing.
+- Do not scrape tmux state directly or rely on stale inherited process env snapshots when the runtime-owned resolver is available.
 
 ## Direct Filesystem Fallback Actions
 

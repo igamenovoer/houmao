@@ -23,7 +23,7 @@ That works for normal prompt turns, but it breaks down for live interactive UI i
 - interactive flows that need `Escape` to back out of a menu,
 - provider-specific prompt surfaces where “type text and newline” is not equivalent to pressing a real terminal key.
 
-We already have local proof that real key injection is useful: `scripts/demo/cao-claude-esc-interrupt/` uses `tmux send-keys ... Escape` to interrupt a Claude CAO session and continue the session afterward. That capability should be promoted into a supported runtime contract for managed agents rather than remaining a one-off local demo technique.
+We already had local proof that real key injection is useful: a now-retired Claude CAO interrupt demo used `tmux send-keys ... Escape` to interrupt a live session and continue afterward. That capability should be promoted into a supported runtime contract for managed agents rather than remaining a one-off demo technique.
 
 ## Requested Scope
 1. Add a runtime-level control-input mechanism for CAO-managed tmux-backed sessions that sends keys through tmux rather than through prompt-text submission.

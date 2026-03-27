@@ -16,7 +16,7 @@ The gateway mailbox facade is the shared mailbox control surface for one attache
 
 | Layer | Owns | Defers to |
 | --- | --- | --- |
-| Gateway mailbox facade | route availability, attach-to-manifest resolution, adapter selection, notifier polling cadence, notifier audit history | mailbox semantics and route payload details described in mailbox and gateway contract pages |
+| Gateway mailbox facade | route availability, manifest-backed resolution, adapter selection, notifier polling cadence, notifier audit history | mailbox semantics and route payload details described in mailbox and gateway contract pages |
 | Filesystem adapter | shared mailbox route implementation against filesystem mailbox state | gateway listener lifecycle, queue semantics, notifier scheduling |
 | Stalwart adapter | shared mailbox route implementation against JMAP plus session-local credential material | gateway listener lifecycle, runtime manifest persistence, Stalwart account provisioning |
 
@@ -47,8 +47,8 @@ The gateway does not invent its own mailbox configuration. It resolves the mailb
 
 Sequence:
 
-1. The live gateway loads `attach.json`.
-2. `attach.json.manifest_path` points to the runtime-managed session manifest.
+1. The live gateway resolves the runtime-managed session manifest through its internal bootstrap state.
+2. In the current implementation, that bootstrap state usually comes from `attach.json.manifest_path`.
 3. The gateway reads `payload.launch_plan.mailbox` from that manifest.
 4. The gateway builds one transport-specific adapter from that mailbox binding.
 5. Shared mailbox routes call the adapter for `status`, `check`, `send`, `reply`, or the single-message read-state update.
@@ -57,12 +57,12 @@ Sequence:
 sequenceDiagram
     participant Cli as Gateway<br/>client
     participant Gw as Gateway
-    participant Att as attach.json
+    participant Att as internal<br/>bootstrap
     participant Man as manifest.json
     participant Ad as Mailbox<br/>adapter
     participant MB as Filesystem or<br/>Stalwart transport
     Cli->>Gw: call /v1/mail/*
-    Gw->>Att: load manifest_path
+    Gw->>Att: resolve manifest_path
     Gw->>Man: read launch_plan.mailbox
     Gw->>Ad: build adapter for<br/>resolved transport
     Ad->>MB: perform status/check/<br/>send/reply/state-update

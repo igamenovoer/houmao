@@ -1,7 +1,29 @@
 ## Purpose
-Define the public `houmao-server` contract as the Houmao-owned CAO-compatible HTTP authority, its additive extension routes, and its child-CAO shallow-cut lifecycle.
+Define the public `houmao-server` contract as the Houmao-owned CAO-compatible HTTP authority and its additive extension routes over the native compatibility control core.
 
 ## Requirements
+
+### Requirement: `houmao-server` serves `/cao/*` through a Houmao-owned control core
+`houmao-server` SHALL satisfy the supported `/cao/*` compatibility surface through the Houmao-owned CAO-compatible control core rather than by proxying to a separate child `cao-server`.
+
+`houmao-server` current-instance, health, and install behavior MAY expose Houmao-owned control-core status, but they SHALL NOT require or publish child-CAO process identity as part of the supported public contract.
+
+In v1, `houmao-server` MAY preserve the existing `/cao/*` route-handler seam through a server-local compatibility transport that projects control-core results back into the current route surface.
+
+#### Scenario: Compatibility routes resolve locally inside `houmao-server`
+- **WHEN** a caller uses a supported `/cao/*` route against `houmao-server`
+- **THEN** the server dispatches that route into its local control core
+- **AND THEN** the caller does not need a hidden child listener for the route to succeed
+
+#### Scenario: Root health omits child-CAO process metadata after absorption
+- **WHEN** a caller queries `GET /health` or `GET /houmao/server/current-instance` on a running `houmao-server`
+- **THEN** those routes report Houmao-owned server state and any Houmao-owned control-core status that the server chooses to expose
+- **AND THEN** they do not require a `child_cao` process record to describe the supported server state
+
+#### Scenario: Root health keeps pair compatibility identity fields
+- **WHEN** a pair-owned client queries `GET /health` on a running `houmao-server`
+- **THEN** the response still includes `service="cli-agent-orchestrator"` and `houmao_service="houmao-server"`
+- **AND THEN** child-CAO-specific metadata is absent
 
 ### Requirement: `houmao-server` keeps root and `/houmao/*` namespaces Houmao-owned
 `houmao-server` SHALL reserve the server root and the `/houmao/*` route family for Houmao-owned pair behavior.
@@ -71,7 +93,7 @@ The system SHALL treat that exact source as the parity oracle for `houmao-server
 - **AND THEN** the parity target does not drift with a floating upstream branch
 
 ### Requirement: `houmao-server` compatibility is defined within the supported Houmao pair
-The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-srv-ctrl` replacement pair for `cao-server + cao`.
+The compatibility contract for `houmao-server` SHALL be defined as part of the supported `houmao-server + houmao-mgr` replacement pair for `cao-server + cao`.
 
 This capability SHALL NOT require `houmao-server` to support arbitrary external `cao` clients as a public compatibility contract.
 
@@ -122,75 +144,18 @@ Pair-owned code that needs CAO-compatible session or terminal behavior against `
 - **THEN** that caller uses the same shared compatibility client seam for CAO-compatible session or terminal routes
 - **AND THEN** the caller does not invent its own root-path or persisted `/cao` rewrite logic
 
-### Requirement: `houmao-server` supervises a child `cao-server` in the shallow cut
-In v1, `houmao-server` SHALL start and supervise a child `cao-server` subprocess as part of its own managed runtime.
-
-For most mapped CAO-compatible HTTP routes under `/cao/*` in the shallow cut, `houmao-server` SHALL dispatch the corresponding work to that child `cao-server` rather than re-implementing CAO logic natively.
-
-The child `cao-server` SHALL listen on a loopback endpoint whose port is derived mechanically as `houmao-server` port `+1`.
-
-User-facing interfaces for `houmao-server` SHALL NOT expose a separate option to configure that internal child CAO port.
-
-When the child `cao-server` requires `HOME` or other on-disk support state, `houmao-server` SHALL provision and manage that state under Houmao-owned server storage rather than exposing a separate user-facing CAO-home contract.
-
-The detailed layout and contents of that internal child-CAO storage SHALL be treated as opaque implementation detail rather than as a supported public filesystem surface.
-
-Direct use of the child CAO endpoint by an external caller who already knows that derived port SHALL be treated as an unsupported debug or user hack rather than as a supported public interface.
-
-`houmao-server` SHALL keep its own health and lifecycle distinct from the child `cao-server` health so callers can distinguish "Houmao server is alive" from "child CAO is healthy."
-
-#### Scenario: Shallow-cut compatibility routing dispatches `/cao` work to the child CAO server
-- **WHEN** a caller creates or mutates a CAO-compatible session or terminal through a `/cao/*` route on `houmao-server`
-- **THEN** `houmao-server` may dispatch that route to its supervised child `cao-server`
-- **AND THEN** the caller still interacts with the public `houmao-server` compatibility surface rather than the hidden child listener
-
-#### Scenario: Child CAO port derives from the public `houmao-server` port
-- **WHEN** `houmao-server` starts on loopback port `9890`
-- **THEN** the child `cao-server` listens on loopback port `9891`
-- **AND THEN** callers cannot configure that internal child port through a separate user-facing option
-
-#### Scenario: Child CAO filesystem state stays behind Houmao-owned storage
-- **WHEN** the supervised child `cao-server` needs a home directory or adapter-private support files
-- **THEN** `houmao-server` provisions those files under Houmao-owned server storage
-- **AND THEN** callers do not manage a separate CAO-home path as part of the public contract
-
-#### Scenario: Direct child CAO access is not a supported operator contract
-- **WHEN** an external caller reaches the child `cao-server` directly by manually targeting the derived internal port
-- **THEN** that access is treated as unsupported debug or user-hack behavior
-- **AND THEN** the supported public compatibility surface remains `houmao-server` through `/cao/*`
-
-### Requirement: `houmao-server` no-child mode keeps Houmao root health independent from child-CAO readiness
-When `houmao-server` starts with child startup disabled, its Houmao-owned health and current-instance routes SHALL remain available for server-local readiness checks without requiring a running child `cao-server`.
-
-In that mode, `GET /health` and `GET /houmao/server/current-instance` SHALL represent the Houmao-owned server state only, and `child_cao` SHALL be absent rather than projected as an unhealthy derived-port probe.
-
-CAO-dependent readiness SHALL remain a compatibility-surface concern and SHALL be checked through `/cao/*` behavior rather than inferred from Houmao root health.
-
-#### Scenario: Root health stays ready when child startup is disabled
-- **WHEN** `houmao-server` starts with `startup_child=false`
-- **THEN** `GET /health` reports Houmao-server liveness without requiring child-CAO health
-- **AND THEN** the response omits `child_cao`
-
-#### Scenario: Current-instance omits child metadata when no child is started
-- **WHEN** `houmao-server` starts with `startup_child=false`
-- **THEN** `GET /houmao/server/current-instance` reports the live Houmao-server identity and runtime root
-- **AND THEN** the response omits `child_cao`
-
-#### Scenario: Native managed-headless routes do not inherit CAO readiness requirements
-- **WHEN** a caller uses Houmao-owned managed-headless routes on a `houmao-server` started with `startup_child=false`
-- **THEN** the server may admit that native managed-headless work without a running child `cao-server`
-- **AND THEN** the caller does not need child-CAO health to treat the Houmao-owned server as ready
-
 ### Requirement: `houmao-server` separates direct watch observation from CAO-compatible control delegation
-`houmao-server` SHALL keep its live watch and parsing path separate from any CAO-compatible control delegation path.
+`houmao-server` SHALL keep its live watch and parsing path separate from its CAO-compatible control authority.
 
 For live TUI parsing and continuous state tracking, `houmao-server` SHALL observe tmux and process state directly.
 
-For CAO-compatible create, mutate, or control routes that remain delegated in v1, `houmao-server` MAY still use its child CAO adapter.
+For CAO-compatible create, mutate, or control routes, `houmao-server` SHALL use its Houmao-owned control core through the explicit upstream-adapter boundary.
 
-#### Scenario: Delegated control does not make CAO the watch authority
-- **WHEN** `houmao-server` delegates a CAO-compatible control route such as session creation or input delivery to the child CAO adapter
-- **THEN** that delegation does not make child CAO the authoritative parser or live-state source for the watched session
+Those control operations SHALL NOT become the authoritative parser or live-state source for watched sessions.
+
+#### Scenario: Local control authority does not replace watch authority
+- **WHEN** `houmao-server` creates a session, delivers input, or exits a terminal through the Houmao-owned control core
+- **THEN** that control action does not make the control core the authoritative parser or live-state reducer for the watched session
 - **AND THEN** the watch plane continues to use direct tmux and process observation
 
 ### Requirement: `houmao-server` seeds known-session tracking from server-owned registrations
@@ -252,9 +217,9 @@ At minimum, the filesystem-authoritative bucket SHALL include:
 - server-managed session registration bridges,
 - Houmao-owned server roots,
 - logs, and
-- child-supervision support files that remain part of the server's managed runtime.
+- Houmao-managed compatibility profile-store artifacts.
 
-At minimum, the transitional compatibility bucket SHALL include shared registry live-agent records for v1.
+At minimum, the transitional compatibility bucket SHALL include shared registry live-agent records for v1 and any persisted compatibility-only inbox queue artifacts if the implementation chooses to store them.
 
 At minimum, the memory-primary bucket SHALL include:
 
@@ -264,7 +229,7 @@ At minimum, the memory-primary bucket SHALL include:
 - latest parsed TUI state,
 - bounded recent transitions or recent-state history,
 - current live control-plane views, and
-- child-supervisor live bookkeeping.
+- control-core live bookkeeping.
 
 `houmao-server` SHALL NOT require per-terminal watch snapshot files or append-only watch logs as part of the authoritative live TUI tracking contract.
 
@@ -278,10 +243,10 @@ At minimum, the memory-primary bucket SHALL include:
 - **THEN** those registry files may remain on disk
 - **AND THEN** they do not become the authoritative source of live tracked TUI state
 
-#### Scenario: Child adapter files stay hidden under Houmao-owned storage
-- **WHEN** `houmao-server` supervises a child `cao-server`
-- **THEN** any child-required filesystem state lives under Houmao-owned server storage rather than a separate public CAO-home surface
-- **AND THEN** child launcher pid, ownership, or support files remain internal implementation detail or server compatibility views rather than the public control plane
+#### Scenario: Compatibility profile state stays behind Houmao-owned storage
+- **WHEN** `houmao-server` needs stored compatibility profiles to create or bootstrap a terminal
+- **THEN** it reads those profiles from Houmao-owned server storage
+- **AND THEN** callers do not manage a separate CAO-home contract as part of the supported public surface
 
 ### Requirement: Tracked-state routes expose simplified turn and last-turn semantics
 When `houmao-server` returns server-owned tracked-state payloads for watched sessions, it SHALL expose the simplified turn model as the primary consumer-facing route contract.
@@ -570,7 +535,7 @@ The initial tracker state SHALL use that preserved or enriched pane identity rat
 - **THEN** `houmao-server` enriches the initial tracked-session record from that manifest before the first live polling cycles
 - **AND THEN** registration-seeded tracking does not need to wait for a later reconcile pass to recover the correct pane target
 
-### Requirement: `houmao-server` uses replaceable upstream adapters and v1 SHALL support a CAO-backed engine
+### Requirement: `houmao-server` uses replaceable upstream adapters and v1 SHALL support a native CAO-compatible engine
 `houmao-server` SHALL interact with underlying live terminal providers through an explicit upstream-adapter boundary rather than embedding one backend's control logic into the public server contract.
 
 That upstream-adapter boundary SHALL support at minimum:
@@ -583,19 +548,28 @@ That upstream-adapter boundary SHALL support at minimum:
 - interrupt or exit delivery
 - upstream health or connectivity checks
 
-In v1, the system SHALL provide an upstream engine that uses the supervised child `cao-server` behind `houmao-server`.
+In v1 after this change, the system SHALL provide a Houmao-owned native CAO-compatible engine behind that boundary, composed from a tmux controller, provider adapters, a profile store, and CAO compatibility projection layers.
 
-The public `houmao-server` API SHALL remain Houmao-owned even when the v1 implementation delegates core operations to CAO behind that adapter.
+That v1 engine SHALL preserve the current pair compatibility launch provider identifiers accepted by the supported pair surface:
 
-#### Scenario: V1 server delegates terminal lifecycle to CAO behind the adapter boundary
-- **WHEN** a caller creates a terminal through `houmao-server` in the shallow v1 implementation
-- **THEN** `houmao-server` may use the CAO-backed upstream engine to create the underlying terminal
+- `kiro_cli`
+- `claude_code`
+- `codex`
+- `gemini_cli`
+- `kimi_cli`
+- `q_cli`
+
+The public `houmao-server` API SHALL remain Houmao-owned even when the implementation continues to compare itself to CAO as a parity oracle.
+
+#### Scenario: V1 server serves terminal lifecycle from the native control core
+- **WHEN** a caller creates a terminal through `houmao-server` in the supported pair
+- **THEN** `houmao-server` may use its Houmao-owned CAO-compatible engine to create the underlying terminal
 - **AND THEN** the caller still interacts with `houmao-server` as the public session authority
 
-#### Scenario: Upstream CAO loss does not make server-local health unreadable
-- **WHEN** the child `cao-server` becomes unavailable while `houmao-server` is still running
+#### Scenario: Compatibility-core degradation does not make root health unreadable
+- **WHEN** the native compatibility control core becomes degraded while `houmao-server` is still running
 - **THEN** `GET /health` on `houmao-server` still reports server-local liveness
-- **AND THEN** Houmao-owned terminal state reflects upstream unavailability separately from server process health
+- **AND THEN** Houmao-owned terminal state reflects upstream or provider degradation separately from server process health
 
 ### Requirement: `houmao-server` is designed to outgrow CAO rather than permanently mirror it
 The system SHALL treat CAO compatibility as a migration strategy, not as the final architecture of `houmao-server`.
@@ -612,17 +586,16 @@ Future native Houmao-owned terminal backends SHALL be able to replace the CAO-ba
 ### Requirement: `houmao-server` compatibility SHALL be verified against a real `cao-server`
 The implementation SHALL include verification that uses the pinned `cao-server` source to exercise the CAO-compatible HTTP routes exposed under `/cao/*` and the Houmao-owned server behavior that sits around those routes.
 
-For passthrough CAO-compatible routes, verification SHALL focus on whether `houmao-server` forwards the request surface correctly so the child `cao-server` accepts or rejects the input in the expected compatibility-significant places.
+Because `houmao-server` no longer proxies those routes to a child CAO process in the supported runtime path, verification SHALL focus on behavioral parity between the Houmao-owned implementation and the pinned CAO oracle rather than on passthrough wiring alone.
 
-That passthrough verification SHALL cover at minimum:
+That compatibility verification SHALL cover at minimum:
 
 - `/cao/*` endpoint availability and routing
 - path-segment encoding and routing
 - request argument, query, and request-body handling
 - required-versus-optional input handling
 - additive-extension safety on `/cao/*` compatibility routes
-
-That passthrough verification SHALL NOT need to re-test the downstream session, terminal, or provider behavior once the child `cao-server` has accepted the forwarded input.
+- compatibility inbox behavior where those routes remain exposed
 
 Houmao-owned behavior SHALL be tested directly and more strictly. That verification SHALL cover at minimum:
 
@@ -631,34 +604,18 @@ Houmao-owned behavior SHALL be tested directly and more strictly. That verificat
 - launch registration behavior
 - terminal state and history route correctness
 - watch-worker lifecycle and runtime-owned state reduction
-- runtime routing behavior owned by Houmao rather than by CAO
+- session-backed native-selector resolution and launch-time compatibility projection
+- migration-failure behavior for deprecated standalone CAO surfaces
 
-#### Scenario: `/cao` passthrough verification catches request-surface regressions
+#### Scenario: `/cao` parity verification catches request-surface regressions
 - **WHEN** a `houmao-server` compatibility route under `/cao/*` changes in a way that breaks CAO-compatible path, query, or body handling
-- **THEN** passthrough verification against the pinned `cao-server` detects the divergence
-- **AND THEN** the implementation can reject that change before claiming compatibility-safe delegation
+- **THEN** parity verification against the pinned `cao-server` detects the divergence
+- **AND THEN** the implementation can reject that change before claiming compatibility-safe behavior
 
 #### Scenario: Houmao-owned verification catches root or native-route regressions
 - **WHEN** a Houmao-owned root route or `/houmao/*` route changes in a way that breaks server-owned behavior
 - **THEN** direct Houmao behavior verification detects the regression
-- **AND THEN** the implementation can reject that change even if the delegated child CAO still accepts the underlying request
-
-### Requirement: `houmao-server` exposes a pair-owned install surface for child-managed profile state
-`houmao-server` SHALL expose a Houmao-owned install surface that lets paired clients install agent profiles into the server-managed child CAO state without direct access to the hidden `child_cao` filesystem layout.
-
-That install surface SHALL accept the install inputs needed by the supported pair, including the provider plus agent source or profile reference needed for the install operation.
-
-`houmao-server` SHALL resolve child-managed filesystem state internally. The public contract SHALL NOT require callers to provide or compute child-home paths or other `child_cao` storage details.
-
-#### Scenario: Pair client installs profile through the public server authority
-- **WHEN** a paired client submits a profile-install request to `houmao-server` for provider `codex`
-- **THEN** `houmao-server` performs that install against its managed child CAO state
-- **AND THEN** the caller does not need to inspect or mutate the hidden `child_cao` filesystem layout directly
-
-#### Scenario: Failed pair-owned install returns an explicit server-owned error
-- **WHEN** the underlying install operation fails while `houmao-server` is handling a pair-owned install request
-- **THEN** `houmao-server` returns an explicit failure through the public Houmao surface
-- **AND THEN** the caller does not need to infer failure indirectly from missing files under internal child storage
+- **AND THEN** the implementation can reject that change even though `/cao/*` parity may still succeed
 
 ### Requirement: Session detail responses preserve terminal summary metadata needed by pair clients
 For the CAO-compatible `GET /cao/sessions/{session_name}` route, `houmao-server` SHALL preserve the session-detail structure and terminal-summary metadata exposed by the supported CAO source closely enough that paired Houmao clients can consume that response as a typed contract.

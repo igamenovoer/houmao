@@ -1,0 +1,2 @@
+Reply with one short sentence confirming the passive-server gateway validation prompt.
+

@@ -6,7 +6,7 @@ For the canonical filesystem layout behind generated homes, runtime session root
 
 ## Mental Model
 
-The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or CAO-backed.
+The runtime is the stable front door for a session, even though the live backend may be tmux-backed, headless, or server-backed.
 
 - `start-session` creates a runtime-owned session root and persists a manifest.
 - Later control commands either address that manifest directly or rediscover it from tmux session state.
@@ -57,9 +57,9 @@ The main runtime-managed commands are intentionally different:
 | Surface | What it does now | Waits for completion? | Notes |
 | --- | --- | --- | --- |
 | `send-prompt` | Runs the normal prompt-turn path against the resumed backend session | Yes | Advances persisted backend state after the turn |
-| `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | CAO-only in the current implementation |
+| `send-keys` | Sends raw control input to resumed `cao_rest` sessions | No | Legacy `cao_rest` backend only |
 | `mail check/send/reply` | Prepares a structured prompt and sends it through the normal prompt-turn path | Yes | Mailbox transport is `filesystem` only in v1 |
-| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends with implemented adapters |
+| `attach-gateway` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for runtime-owned `local_interactive`, `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends with implemented adapters |
 | `gateway-status` | Reads live gateway status or seeded offline state | No | Falls back to `state.json` when no live gateway is attached |
 | `gateway-send-prompt` | Queues a prompt through the live gateway | No | Returns an accepted queue record instead of waiting for turn completion |
 | `gateway-interrupt` | Queues an interrupt through the live gateway | No | Requires a live attached gateway |
@@ -72,9 +72,16 @@ Runtime-managed sessions persist a durable manifest under `<runtime_root>/sessio
 Publicly relevant details:
 
 - `manifest.json` is the runtime's durable session record.
-- Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR`.
-- Gateway-capable sessions publish stable attach pointers through `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT`.
+- Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, and `AGENTSYS_AGENT_DEF_DIR`.
+- `gateway/attach.json` is internal runtime bootstrap state, not part of the supported external discovery contract.
 - Live gateway env vars appear only while a gateway instance is actually attached.
+
+Pair-managed note:
+
+- `attach-gateway` remains the repo runtime command surface, but the supported public pair command for `houmao_server_rest` is `houmao-mgr agents gateway attach`
+- explicit pair attach resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract on `houmao-server`
+- current-session pair attach resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID` and uses persisted manifest authority as the only route target
+- for pair-managed sessions, tmux window `0` remains the contractual agent surface while live gateway auxiliary windows are implementation detail except for the exact handle recorded in `gateway/run/current-instance.json`
 
 Representative `start-session` output for a gateway-capable session:
 
@@ -83,14 +90,12 @@ Representative `start-session` output for a gateway-capable session:
   "session_manifest": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
   "backend": "cao_rest",
   "tool": "codex",
-  "agent_identity": "AGENTSYS-gpu",
-  "agent_name": "AGENTSYS-gpu",
+  "agent_identity": "gpu",
+  "agent_name": "gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
-  "tmux_session_name": "AGENTSYS-gpu-270b87",
+  "tmux_session_name": "AGENTSYS-gpu-1760000123456",
   "job_dir": "/abs/path/workspace/.houmao/jobs/cao-rest-1",
-  "parsing_mode": "shadow_only",
-  "gateway_root": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway",
-  "gateway_attach_path": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/gateway/attach.json"
+  "parsing_mode": "shadow_only"
 }
 ```
 
@@ -108,8 +113,8 @@ The runtime keeps these paths separate because they promise different things.
 These docs intentionally describe the implemented behavior, not the full design space.
 
 - Gateway capability publication exists for runtime-owned tmux-backed sessions.
-- Live gateway attach supports runtime-owned `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
-- `send-keys` is implemented only for resumed `cao_rest` sessions.
+- Live gateway attach supports runtime-owned `local_interactive`, `cao_rest`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
+- `send-keys` is implemented only for resumed `cao_rest` sessions (legacy backend).
 - Mailbox control currently supports the filesystem transport only.
 - The public managed-agent server surface for TUI-backed and server-managed headless agents lives under `/houmao/agents/*`; use [Managed-Agent API](../../managed_agent_api.md) for the server-owned request, detail-state, and gateway-route contracts.
 

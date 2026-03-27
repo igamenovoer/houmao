@@ -3,24 +3,157 @@
 ## Purpose
 Define the durable per-agent gateway companion, including its storage layout, HTTP surface, execution policy, and recovery behavior.
 ## Requirements
-### Requirement: Per-agent gateway companion introduces no visible operator surface and may attach after session start
+### Requirement: Per-agent gateway companion introduces no visible operator surface by default and may attach after session start
 The system SHALL support a per-agent gateway companion for gateway-capable tmux-backed sessions.
 
-The gateway companion SHALL NOT require or create a separate visible tmux window or pane for normal operation.
+Outside pair-managed same-session `houmao_server_rest` topology and outside explicit foreground attach mode, the gateway companion SHALL NOT require or create a separate visible tmux window or pane for normal operation.
+
+For pair-managed same-session `houmao_server_rest` sessions and for runtime-owned tmux-backed sessions whose attach flow explicitly requests foreground mode, the gateway companion MAY run in an auxiliary tmux window in the same tmux session so long as that auxiliary window does not redefine the contractual managed-agent surface.
 
 The gateway companion MAY be started immediately after a managed session starts or later by attaching to an already-running tmux-backed session.
 
-The gateway companion SHALL direct its own logs away from the visible operator terminal.
+The gateway companion SHALL direct its own logs away from the contractual operator-facing agent surface. When foreground mode is active, gateway console output SHALL appear only in the auxiliary gateway window and gateway-owned durable log storage, not on the agent surface in tmux window `0`.
 
-#### Scenario: Attach-later preserves a single visible TUI surface
-- **WHEN** a gateway companion attaches to an already-running tmux-backed session
+#### Scenario: Attach-later preserves a single visible TUI surface by default
+- **WHEN** a gateway companion attaches to an already-running tmux-backed session without explicit foreground mode outside the supported pair-managed same-session `houmao_server_rest` topology
 - **THEN** the managed agent TUI remains the only visible operator surface for normal interaction
 - **AND THEN** the attach flow does not require creating a visible tmux pane or window for the gateway
 
+#### Scenario: Runtime-owned foreground attach may add an auxiliary window
+- **WHEN** a gateway companion attaches to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
+- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
+- **AND THEN** that auxiliary window does not become the contractual managed-agent surface
+
+#### Scenario: Pair-managed same-session gateway does not redefine the contractual agent surface
+- **WHEN** a pair-managed `houmao_server_rest` gateway companion runs in an auxiliary tmux window in the same tmux session
+- **THEN** that auxiliary window does not become the contractual managed-agent surface
+- **AND THEN** the primary agent surface remains distinct from the gateway window
+
 #### Scenario: Gateway logging does not paint onto the shared terminal
 - **WHEN** the gateway companion emits logs or diagnostics during normal operation
-- **THEN** that output is written to gateway-owned log storage rather than the visible tmux terminal
+- **THEN** that output is written to gateway-owned log storage rather than the contractual operator-facing tmux surface
 - **AND THEN** normal gateway activity does not inject its own text into the operator-facing TUI surface
+
+### Requirement: Pair-owned gateway attach for managed `houmao_server_rest` sessions supports explicit and current-session targeting
+The system SHALL expose `houmao-mgr agents gateway attach` as the pair-owned gateway attach surface for pair-managed tmux-backed TUI sessions whose runtime backend is `houmao_server_rest`.
+
+When called with an explicit managed-agent selector, the command SHALL resolve the target through the Houmao managed-agent identity namespace and SHALL execute attach through the managed-agent gateway attach route rather than through raw `cao` or raw runtime CLI semantics.
+
+When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `AGENTSYS_MANIFEST_PATH` from that tmux session when present and valid, SHALL otherwise use `AGENTSYS_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`, SHALL require the resolved manifest to belong to the current tmux session, SHALL derive attach authority from that manifest, and SHALL refuse the attach when those inputs are missing, stale, ambiguous, identify a non-`houmao_server_rest` session, or fail to resolve exactly one managed agent on the persisted pair authority.
+
+`houmao-mgr` SHALL NOT require the user to address raw `cao_rest` or child-CAO topology in order to attach a gateway for pair-managed sessions, and current-session attach SHALL NOT fall back to `AGENTSYS_GATEWAY_ATTACH_PATH`, `AGENTSYS_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
+
+#### Scenario: Explicit attach resolves through managed-agent identity
+- **WHEN** a developer runs `houmao-mgr agents gateway attach --agent-id abc123` for a pair-managed `houmao_server_rest` session
+- **THEN** the command resolves that target through the managed-agent identity namespace
+- **AND THEN** the attach request is issued through the Houmao managed-agent gateway lifecycle surface
+
+#### Scenario: Current-session attach prefers the tmux-published manifest pointer
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
+- **AND WHEN** that tmux session publishes a valid `AGENTSYS_MANIFEST_PATH`
+- **THEN** the command loads that manifest directly as the current-session attach authority
+- **AND THEN** the command does not require an explicit agent identity
+
+#### Scenario: Current-session attach falls back to shared registry by agent id
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
+- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that session
+- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
+- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
+- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
+
+#### Scenario: Current-session attach uses manifest-declared server authority
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
+- **AND WHEN** the resolved manifest declares attach authority `api_base_url=<server>` with managed-agent ref `<agent-ref>`
+- **THEN** the command issues the managed-agent gateway attach request against `<server>` with `<agent-ref>` as `{agent_ref}`
+- **AND THEN** it does not retarget the request through legacy gateway pointers, `terminal_id`, or another alias
+
+#### Scenario: Current-session attach fails closed without usable manifest-first discovery
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from a tmux session whose `AGENTSYS_MANIFEST_PATH` is unusable
+- **AND WHEN** `AGENTSYS_AGENT_ID` is missing, stale, or does not resolve exactly one fresh shared-registry record
+- **THEN** the command fails explicitly
+- **AND THEN** it does not guess from cwd, ambient shell env, or raw CAO state
+
+### Requirement: Pair-managed `houmao_server_rest` gateway companions may run in an auxiliary tmux window without redefining the agent surface
+For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session for normal operation.
+
+When the gateway companion runs in the same tmux session, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
+
+When the gateway companion runs in the same tmux session, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
+
+The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
+
+The `houmao-server` process and its internal child-CAO support state SHALL remain outside the agent's tmux session even when the gateway companion runs in the same managed session as the agent.
+
+#### Scenario: Attach-later adds an auxiliary window without redefining the agent surface
+- **WHEN** a gateway companion attaches later to an already-running pair-managed `houmao_server_rest` session
+- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
+- **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
+
+#### Scenario: Gateway logging stays off the primary agent surface
+- **WHEN** the gateway companion emits logs or diagnostics while running in an auxiliary tmux window
+- **THEN** the gateway output appears only in the auxiliary process window and gateway-owned durable log storage
+- **AND THEN** normal gateway activity does not inject its own text into the operator-facing agent window `0`
+
+#### Scenario: Same-session gateway lifecycle uses the auxiliary tmux surface
+- **WHEN** the gateway companion runs in an auxiliary tmux window for a pair-managed `houmao_server_rest` session
+- **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
+- **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
+- **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
+
+### Requirement: Runtime-owned foreground gateway companions may run in an auxiliary tmux window without redefining the agent surface
+For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session when foreground mode is explicitly requested.
+
+When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
+
+When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL resolve that surface from the persisted auxiliary pane or window identity through session-wide tmux pane lookup, SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
+
+Same-session foreground gateway liveness SHALL NOT depend on which tmux window is currently active in the session.
+
+The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
+
+#### Scenario: Runtime-owned foreground attach adds an auxiliary window without redefining the agent surface
+- **WHEN** a gateway companion attaches later to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
+- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
+- **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
+- **AND THEN** the gateway auxiliary window uses a tmux window index `>=1`
+
+#### Scenario: Runtime-owned foreground gateway logging stays off the primary agent surface
+- **WHEN** the gateway companion emits logs or diagnostics while running in an auxiliary tmux window for a runtime-owned session
+- **THEN** the gateway output appears only in the auxiliary gateway window and gateway-owned durable log storage
+- **AND THEN** normal gateway activity does not inject its own text into the operator-facing agent window `0`
+
+#### Scenario: Runtime-owned foreground gateway lifecycle uses the auxiliary tmux surface
+- **WHEN** the gateway companion runs in an auxiliary tmux window for a runtime-owned tmux-backed session
+- **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
+- **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
+- **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
+
+#### Scenario: Current agent window does not hide the live gateway pane
+- **WHEN** tmux window `0` is current for a runtime-owned tmux-backed session
+- **AND WHEN** the live gateway companion pane remains in auxiliary window `1`
+- **THEN** foreground gateway liveness still resolves that auxiliary pane from the persisted gateway surface identity
+- **AND THEN** the runtime does not clear live gateway state solely because the agent window is current
+
+### Requirement: Same-session gateway live state persists an authoritative execution handle
+The runtime SHALL persist one authoritative live gateway record under `<session-root>/gateway/run/current-instance.json`.
+
+When the gateway runs in a same-session auxiliary tmux window, that live record SHALL include an explicit execution mode plus the tmux window and pane identifiers for the auxiliary gateway surface, in addition to the listener and managed-agent instance fields needed for live gateway status.
+
+Detach, crash cleanup, and auxiliary-window recreation SHALL resolve the live gateway surface from that runtime-owned record rather than from ad hoc tmux discovery over non-contractual auxiliary windows.
+
+When auxiliary-window recreation replaces the live gateway surface, the runtime SHALL update the authoritative live gateway record before treating the recreated gateway as ready.
+
+When the same-session auxiliary-window mode is active, the recorded tmux window index SHALL NOT be `0`.
+
+#### Scenario: Same-session live gateway record captures the tmux execution handle
+- **WHEN** a gateway companion starts in an auxiliary tmux window
+- **THEN** the runtime persists one live gateway record under `<session-root>/gateway/run/current-instance.json`
+- **AND THEN** that record identifies the same-session execution mode plus the auxiliary tmux window and pane identifiers for the live gateway surface
+
+#### Scenario: Auxiliary-window recreation updates the authoritative live gateway record
+- **WHEN** a same-session gateway auxiliary window is replaced during detach, cleanup, or recovery
+- **THEN** the runtime updates the authoritative live gateway record to the new tmux window and pane identifiers
+- **AND THEN** later detach or cleanup targets the recreated auxiliary gateway surface without rediscovering non-contractual windows heuristically
 
 ### Requirement: The gateway maintains a durable per-agent control root
 Each gateway-capable session SHALL have a deterministic per-agent gateway root under the runtime-owned storage hierarchy once attachability is published or a gateway first attaches.
@@ -72,7 +205,7 @@ The gateway root SHALL distinguish stable attachability metadata from live gatew
 ### Requirement: Stable attachability metadata is distinct from live gateway bindings
 The system SHALL publish stable attachability metadata for gateway-capable sessions independently from whether a gateway process is currently running.
 
-Stable attachability metadata SHALL be sufficient for a later attach flow to determine how to attach to the live session.
+Stable attachability metadata SHALL be sufficient for a later attach flow to determine how to attach to the live session through `manifest.json` together with tmux-local discovery and shared-registry fallback. `gateway_manifest.json` MAY exist as derived outward-facing gateway bookkeeping, but SHALL NOT be the authoritative input for attach resolution.
 
 Live gateway bindings such as active host, port, and state-path pointers SHALL describe only the currently running gateway instance and SHALL be treated as ephemeral.
 
@@ -85,6 +218,77 @@ Live gateway bindings such as active host, port, and state-path pointers SHALL d
 - **WHEN** an attached gateway companion stops gracefully while the managed tmux session remains live
 - **THEN** the system preserves stable attachability metadata for later re-attach
 - **AND THEN** live gateway host or port bindings are removed or invalidated for that stopped instance
+
+#### Scenario: Current-session attach does not trust `gateway_manifest.json` as stable authority
+- **WHEN** a current-session attach flow resolves a valid manifest through tmux-local discovery or shared-registry fallback
+- **THEN** it uses that manifest as the stable attach authority
+- **AND THEN** any existing `gateway_manifest.json` is treated as derived publication rather than as the authoritative input
+
+### Requirement: Native headless gateway attach supports tmux current-session targeting without requiring a live worker process
+For native headless tmux-backed sessions, the system SHALL allow gateway attach from inside the owning tmux session using manifest-first discovery from `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`.
+
+Current-session headless attach SHALL target the logical headless session described by the manifest rather than assuming a currently running headless worker process already exists.
+
+The system SHALL keep tmux window `0` reserved for the headless agent console surface, and any same-session gateway surface used during attach SHALL remain off window `0`.
+
+When the resolved manifest declares native headless relaunch authority, gateway attach SHALL treat that manifest-owned authority as sufficient to manage future headless turns even when no current headless process pid is published.
+
+#### Scenario: Current-session headless attach uses manifest-first discovery
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
+- **AND WHEN** that session publishes a valid `AGENTSYS_MANIFEST_PATH`
+- **THEN** the command loads that manifest as the current-session attach authority
+- **AND THEN** it does not require a currently running headless worker process
+
+#### Scenario: Headless attach falls back to shared registry by agent id
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
+- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale
+- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
+- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
+- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
+
+#### Scenario: Headless attach succeeds between turns with no live agent pid
+- **WHEN** a native headless session has a valid manifest and tmux discovery metadata
+- **AND WHEN** no current headless worker process is running because the previous turn already ended
+- **THEN** gateway attach remains valid for that logical session
+- **AND THEN** the gateway uses manifest-owned launch authority to manage future turns
+
+### Requirement: Gateway bootstrap artifacts are internal runtime state rather than supported public authority
+The system MAY keep internal gateway bootstrap artifacts such as `attach.json` under the session-owned gateway root when runtime or server internals still need them for startup seeding, offline status materialization, or managed-agent metadata transfer.
+
+Those artifacts SHALL be treated as internal runtime state rather than supported public authority for attach or control behavior.
+
+External attach, resume, relaunch, and control flows SHALL use manifest-backed authority plus shared-registry and tmux-local discovery rather than reading `attach.json` or another bootstrap artifact directly as the contract.
+
+`gateway_manifest.json` SHALL remain outward-facing bookkeeping only. When internal bootstrap artifacts and manifest-backed authority disagree, manifest-backed authority wins for supported behavior.
+
+#### Scenario: Internal bootstrap artifacts may still exist after migration
+- **WHEN** runtime or server internals still need bootstrap metadata to seed gateway startup or offline status
+- **THEN** the session-owned gateway root may contain `attach.json` or equivalent internal bootstrap files
+- **AND THEN** those files are not part of the supported external attach contract
+
+#### Scenario: Supported attach does not read internal bootstrap files as authority
+- **WHEN** an external attach or control flow targets a managed session after the manifest-first migration
+- **THEN** it resolves authority from `manifest.json` plus tmux-local or shared-registry discovery
+- **AND THEN** it does not require `attach.json` to exist or remain authoritative
+
+### Requirement: Gateway-managed recovery uses the tmux-backed relaunch contract rather than build-time launch
+For tmux-backed sessions that a gateway attaches to, the resolved manifest SHALL be sufficient for later gateway-managed agent relaunch without rebuilding the brain home.
+
+When the attached session uses tmux-local relaunch authority, the gateway SHALL use the shared runtime relaunch primitive backed by `manifest.json` plus the owning tmux session env.
+
+Gateway-managed relaunch SHALL NOT route through build-time `houmao-mgr agents launch`, SHALL NOT require per-agent launcher directories in shared registry, and SHALL NOT depend on copied launcher scripts or copied credentials outside the owning tmux session.
+
+Gateway-managed relaunch SHALL always target tmux window `0` for the managed agent surface and SHALL NOT allocate a new tmux window.
+
+#### Scenario: Gateway relaunch reuses the existing built home
+- **WHEN** an attached gateway requests relaunch for a tmux-backed managed session
+- **THEN** the gateway uses manifest-owned relaunch posture plus the current tmux session env
+- **AND THEN** it does not rebuild the brain home
+
+#### Scenario: Gateway relaunch does not search for another tmux window
+- **WHEN** an attached gateway relaunches the managed agent surface for a tmux-backed session
+- **THEN** it targets window `0`
+- **AND THEN** it does not allocate a replacement window when the user has repurposed that window
 
 ### Requirement: Each running gateway instance binds one resolved host and port
 Each running gateway instance SHALL expose its gateway submit or status surface as an HTTP service bound on exactly one resolved listener address before that gateway instance starts accepting work.
@@ -254,9 +458,12 @@ At minimum, the published gateway status SHALL distinguish:
 - request-admission state
 - terminal-surface eligibility state
 - active execution state
+- gateway execution mode
 - gateway host
 - gateway port
 - queue depth
+
+When the gateway is running in `tmux_auxiliary_window` mode, the published gateway status SHALL additionally expose the authoritative tmux execution handle for that live gateway surface, including the tmux window index and tmux window identifier. It MAY also expose the tmux pane identifier.
 
 When the gateway cannot safely classify the managed terminal surface, it SHALL publish an explicit unknown-like state rather than inferring readiness.
 
@@ -278,6 +485,11 @@ When the gateway cannot safely classify the managed terminal surface, it SHALL p
 - **WHEN** a human operator opens or leaves the managed TUI in a non-submit-ready modal surface
 - **THEN** the gateway updates the published terminal-surface eligibility state to reflect that non-ready surface
 - **AND THEN** the gateway does not mark itself unhealthy solely because the operator changed the TUI surface
+
+#### Scenario: Foreground gateway status exposes the tmux execution handle
+- **WHEN** the gateway companion runs in `tmux_auxiliary_window` mode
+- **THEN** the published status includes `execution_mode=tmux_auxiliary_window`
+- **AND THEN** the published status exposes the authoritative tmux window index and tmux window identifier for that live gateway surface
 
 #### Scenario: Uncertain surface classification stays explicit
 - **WHEN** the gateway cannot safely determine whether the managed terminal surface is ready for injection
@@ -512,7 +724,7 @@ The gateway SHALL execute accepted terminal-mutating request kinds through an ex
 In this change, the gateway execution layer SHALL support at minimum:
 
 - a direct REST-backed terminal adapter for the existing runtime-owned REST-backed sessions,
-- a local-headless adapter for runtime-owned native headless sessions outside `houmao-server`, and
+- a local tmux-backed adapter for runtime-owned native headless sessions and runtime-owned `local_interactive` sessions outside `houmao-server`, and
 - a server-managed-agent adapter for managed-agent execution owned by `houmao-server`.
 
 For server-managed agents, the gateway SHALL submit prompt and interrupt work through the server-owned managed-agent API rather than locally resuming the session and bypassing server-owned turn or interrupt authority.
@@ -524,15 +736,56 @@ The gateway SHALL preserve the same durable queueing, serialization, and admissi
 - **THEN** the gateway delivers that work through the server-owned managed-agent API
 - **AND THEN** the gateway does not bypass server-owned headless turn authority by privately resuming the managed session itself
 
-#### Scenario: Gateway prompt for a runtime-owned headless session uses the local headless adapter
+#### Scenario: Gateway prompt for a runtime-owned headless session uses the local tmux-backed adapter
 - **WHEN** a live gateway executes an accepted `submit_prompt` request for a runtime-owned native headless session outside `houmao-server`
-- **THEN** the gateway uses the local headless execution adapter for that session
+- **THEN** the gateway uses the local tmux-backed execution adapter for that session
 - **AND THEN** the gateway still preserves its durable request queue and single active execution slot semantics
+
+#### Scenario: Gateway prompt for a runtime-owned local interactive session uses the local tmux-backed adapter
+- **WHEN** a live gateway executes an accepted `submit_prompt` request for a runtime-owned `local_interactive` session outside `houmao-server`
+- **THEN** the gateway uses the local tmux-backed execution adapter for that session
+- **AND THEN** prompt delivery targets the live provider TUI through the gateway-owned queue rather than bypassing the gateway path
+
+#### Scenario: Gateway interrupt for a runtime-owned local interactive session uses the local tmux-backed adapter
+- **WHEN** a live gateway executes an accepted `interrupt` request for a runtime-owned `local_interactive` session outside `houmao-server`
+- **THEN** the gateway uses the local tmux-backed execution adapter for that session
+- **AND THEN** interrupt delivery targets the live provider TUI through the gateway path rather than bypassing the gateway with direct concurrent control
 
 #### Scenario: Existing REST-backed gateway execution remains supported
 - **WHEN** a live gateway executes an accepted request for an existing runtime-owned REST-backed session
 - **THEN** the gateway may continue using the direct REST-backed execution adapter for that session
-- **AND THEN** adding headless or server-managed adapters does not require the REST-backed path to change its public request semantics
+- **AND THEN** adding local tmux-backed or server-managed adapters does not require the REST-backed path to change its public request semantics
+
+### Requirement: Gateway-owned TUI tracking routes support attached runtime-owned local interactive sessions
+For an attached runtime-owned `local_interactive` session outside `houmao-server`, the gateway SHALL treat that session as eligible for its gateway-owned live TUI state and explicit prompt-note tracking surface when durable attach metadata identifies the runtime-owned session and the tmux-backed session remains available.
+
+For this path, the gateway SHALL start one gateway-owned continuous tracking runtime for the attached session and SHALL serve `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt` from that runtime rather than returning unsupported-backend semantics.
+
+The gateway SHALL derive tracked-session identity from durable attach-contract fields together with optional manifest-backed enrichment and SHALL NOT require a CAO terminal id to expose this tracking surface.
+
+This local runtime-owned tracking contract SHALL NOT require `GET /v1/control/tui/history` to remain part of the supported local/serverless operator workflow.
+
+#### Scenario: Gateway-local TUI state succeeds for attached local interactive session
+- **WHEN** a gateway is attached to a runtime-owned `local_interactive` session outside `houmao-server`
+- **AND WHEN** the durable attach metadata identifies the runtime session id, tmux session name, and manifest path for that session
+- **THEN** the gateway starts its gateway-owned tracking runtime for that session
+- **AND THEN** `GET /v1/control/tui/state` succeeds using gateway-owned tracked state rather than returning an unsupported-backend response
+
+#### Scenario: Gateway-local prompt-note route succeeds for attached local interactive session
+- **WHEN** a gateway-owned tracking runtime is active for an attached runtime-owned `local_interactive` session
+- **THEN** `POST /v1/control/tui/note-prompt` succeeds for that session
+- **AND THEN** the prompt note is recorded against the same gateway-owned tracked session identity used by current tracked state
+
+### Requirement: Gateway prompt execution preserves explicit prompt-note evidence for tracked local interactive sessions
+When the gateway accepts and executes `submit_prompt` for an attached runtime-owned `local_interactive` session, the gateway SHALL forward that explicit prompt-submission evidence to its gateway-owned tracking runtime for the same session.
+
+That prompt-note behavior SHALL use the same gateway-owned tracking authority as the gateway-local TUI state and prompt-note routes for that attached session.
+
+#### Scenario: Prompt submission updates gateway-owned tracked state for local interactive
+- **WHEN** the gateway executes an accepted `submit_prompt` request for an attached runtime-owned `local_interactive` session
+- **THEN** the gateway delivers the prompt through the local tmux-backed execution adapter for that session
+- **AND THEN** the gateway records explicit prompt-submission evidence on the gateway-owned tracker for that same attached session
+- **AND THEN** later tracked state for that session can preserve explicit-input provenance for the completed turn
 
 ### Requirement: Gateway status remains meaningful for headless sessions without TUI parsing
 For headless sessions, the gateway SHALL derive execution eligibility and request-admission behavior from managed-agent execution posture rather than from parsed TUI surface classification.
@@ -548,3 +801,151 @@ The published gateway status contract SHALL remain structurally stable across tr
 - **WHEN** a live gateway targets a managed headless session that already has one active managed turn
 - **THEN** the gateway status reports non-open prompt admission for that session
 - **AND THEN** the gateway does not pretend that a new prompt can safely execute merely because no TUI parser is involved
+
+### Requirement: Attached gateway becomes the authoritative per-agent control plane
+When an eligible live gateway is attached to a gateway-capable managed agent session, that gateway SHALL become the authoritative per-agent control plane for live session-local control behavior for that agent.
+
+For an attached agent, gateway-owned control behavior SHALL include at minimum:
+
+- prompt queueing,
+- readiness gating before prompt delivery,
+- prompt relay to the addressed agent surface,
+- interrupt sequencing,
+- per-agent live execution posture, and
+- per-agent lifecycle control needed to restart, stop, or kill attached work without promoting those responsibilities to the central shared server.
+
+For attached TUI agents, this control-plane ownership SHALL apply to prompt delivery against the live TUI surface.
+
+For attached server-managed headless agents, this control-plane ownership SHALL apply to live prompt admission and interrupt or lifecycle control for that agent even though `houmao-server` remains the durable public HTTP authority and the durable turn-inspection surface.
+
+When no eligible live gateway is attached, this requirement does not prevent the system from using a separate direct fallback path outside the gateway capability.
+
+#### Scenario: Attached TUI agent prompt work is admitted through the gateway
+- **WHEN** a managed TUI agent has an eligible attached live gateway
+- **AND WHEN** the system accepts a prompt for that agent through the public managed-agent server surface
+- **THEN** live prompt queueing, readiness gating, and prompt relay for that prompt are owned by the attached gateway
+- **AND THEN** the central server does not need to own a second authoritative per-agent prompt queue for that attached agent
+
+#### Scenario: Attached server-managed headless agent uses gateway-owned live admission
+- **WHEN** a server-managed headless agent has an eligible attached live gateway
+- **AND WHEN** the system accepts prompt work for that agent through the public managed-agent server surface
+- **THEN** live admission, queueing, and interrupt sequencing for that work are owned by the attached gateway
+- **AND THEN** the central server remains the public facade and durable projection layer rather than the sole live per-agent admission owner for that attached agent
+
+### Requirement: Gateway control roots publish read-optimized per-agent live control state
+For an attached managed agent, the gateway SHALL expose read-optimized per-agent live control state through its versioned live HTTP surface so `houmao-server` and other pair-owned consumers can project current gateway-backed posture without reconstructing it from queue internals or raw tmux probing.
+
+Those HTTP read surfaces MAY be backed by gateway control-root storage, but `houmao-server` SHALL consume attached-agent live control state through the gateway API rather than treating files under the session root as the authoritative live-state source.
+
+For attached TUI agents, that published live control state SHALL include:
+
+- the current tracked-state snapshot for that agent, and
+- bounded recent tracked-state history for that agent.
+
+For attached headless agents, that published live control state SHALL include:
+
+- current execution or admission posture for that agent, and
+- current queue-backed request posture for that agent.
+
+Those read-optimized gateway-backed state artifacts or equivalent gateway-owned read surfaces SHALL remain distinct from:
+
+- the durable request queue itself,
+- raw runtime session artifacts,
+- and shared-registry publication.
+
+#### Scenario: Attached TUI gateway publishes tracked-state snapshot and history
+- **WHEN** an eligible live gateway is attached to a managed TUI agent
+- **THEN** the gateway control root publishes a read-optimized current tracked-state snapshot and bounded recent tracked-state history for that agent
+- **AND THEN** pair-owned consumers do not need to reconstruct authoritative tracked state for that attached agent by replaying raw queue or event internals
+
+#### Scenario: Server projects gateway-backed state without duplicating authority
+- **WHEN** `houmao-server` serves managed-agent or terminal-facing state for an attached agent
+- **THEN** it may consume the gateway-owned read-optimized live control state for that agent
+- **AND THEN** it does not need to create a second conflicting per-agent live-state authority for the same attached agent inside the central server
+
+#### Scenario: Server reads attached-agent live posture through gateway HTTP endpoints
+- **WHEN** `houmao-server` needs current gateway-backed live state for one attached managed agent
+- **THEN** it reads that state through the live gateway HTTP surface for that agent
+- **AND THEN** it does not treat gateway-private session-root files as the authoritative live-state transport
+
+### Requirement: Gateway exposes semantic prompt submission separately from raw send-keys control
+
+For gateway-managed tmux-backed sessions, the gateway SHALL keep semantic prompt submission separate from raw key/control-input delivery.
+
+`POST /v1/requests` SHALL remain the semantic queued request surface for `submit_prompt` and `interrupt`.
+
+The gateway SHALL additionally expose a dedicated raw control-input endpoint for send-keys style delivery. That endpoint SHALL accept exact `<[key-name]>` control-input sequences using the same contract as the runtime tmux-control-input capability, including optional full-string literal escaping.
+
+The semantic gateway prompt path SHALL treat the provided prompt body as literal text, SHALL NOT interpret `<[key-name]>` substrings as special keys, and SHALL automatically submit once at the end.
+
+The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_prompt` request, SHALL NOT claim that a managed prompt turn was submitted, and SHALL NOT trigger gateway prompt-submission tracking hooks by itself.
+
+#### Scenario: Gateway prompt submission remains on the queued semantic request surface
+
+- **WHEN** a caller submits managed prompt work through the gateway
+- **THEN** the caller uses `POST /v1/requests` with kind `submit_prompt`
+- **AND THEN** the gateway treats that work as semantic prompt submission rather than generic key injection
+
+#### Scenario: Gateway raw send-keys uses a separate control endpoint
+
+- **WHEN** a caller needs to inject the raw control-input sequence `"/model<[Enter]><[Down]>"` into a live gateway-managed TUI
+- **THEN** the caller uses the dedicated gateway raw control-input endpoint rather than `POST /v1/requests`
+- **AND THEN** the gateway applies the exact `<[key-name]>` parsing rules without claiming that a semantic prompt turn was submitted
+
+#### Scenario: Gateway send-prompt keeps special-key-looking text literal
+
+- **WHEN** a caller submits gateway prompt text `type <[Enter]> literally`
+- **THEN** the gateway semantic prompt path treats `<[Enter]>` as literal text
+- **AND THEN** the gateway performs one automatic final submit instead of interpreting that substring as a raw keypress
+
+### Requirement: Gateway semantic prompt submission for local interactive sessions uses the runtime semantic prompt path
+
+When the gateway executes semantic prompt submission for an attached runtime-owned `local_interactive` session, it SHALL call the runtime semantic prompt-submission operation rather than routing prompt text through the raw send-keys control path.
+
+For this local-interactive semantic prompt path, the gateway SHALL preserve the distinction between prompt submission and raw send-keys internally as well as on the HTTP surface.
+
+The gateway SHALL only record gateway-owned prompt-submission tracking evidence after the semantic prompt-submission path succeeds.
+
+#### Scenario: Gateway prompt for local interactive session uses semantic submit
+
+- **WHEN** the gateway executes an accepted `submit_prompt` request for an attached runtime-owned `local_interactive` session
+- **THEN** it calls the runtime semantic prompt-submission operation for that session
+- **AND THEN** it does not implement that gateway prompt by sending raw prompt text plus Enter through the generic send-keys path
+
+#### Scenario: Gateway raw send-keys does not create prompt-tracking evidence
+
+- **WHEN** a caller uses the dedicated gateway raw control-input endpoint to send literal text or exact special-key tokens to an attached runtime-owned `local_interactive` session
+- **THEN** the gateway does not invoke the semantic prompt-submission operation for that request
+- **AND THEN** gateway-owned TUI prompt-tracking hooks do not record that raw control action as a submitted prompt turn
+
+#### Scenario: Gateway raw send-keys does not auto-submit without explicit Enter
+
+- **WHEN** a caller uses the dedicated gateway raw control-input endpoint to send the sequence `"hello world"` to an attached runtime-owned `local_interactive` session
+- **THEN** the gateway inserts the literal text `hello world`
+- **AND THEN** it does not auto-submit because the caller did not include an explicit `<[Enter]>`
+
+### Requirement: Runtime-owned foreground gateway companions may run in an auxiliary tmux window without redefining the agent surface
+For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session when foreground mode is explicitly requested.
+
+When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
+
+When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
+
+The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
+
+#### Scenario: Runtime-owned foreground attach adds an auxiliary window without redefining the agent surface
+- **WHEN** a gateway companion attaches later to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
+- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
+- **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
+- **AND THEN** the gateway auxiliary window uses a tmux window index `>=1`
+
+#### Scenario: Runtime-owned foreground gateway logging stays off the primary agent surface
+- **WHEN** the gateway companion emits logs or diagnostics while running in an auxiliary tmux window for a runtime-owned session
+- **THEN** the gateway output appears only in the auxiliary gateway window and gateway-owned durable log storage
+- **AND THEN** normal gateway activity does not inject its own text into the operator-facing agent window `0`
+
+#### Scenario: Runtime-owned foreground gateway lifecycle uses the auxiliary tmux surface
+- **WHEN** the gateway companion runs in an auxiliary tmux window for a runtime-owned tmux-backed session
+- **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
+- **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
+- **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle

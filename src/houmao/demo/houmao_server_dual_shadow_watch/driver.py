@@ -229,7 +229,7 @@ def preflight_demo(
             "tmux",
             "cao",
             "houmao-server",
-            "houmao-srv-ctrl",
+            "houmao-mgr",
             "claude",
             "codex",
         )
@@ -449,7 +449,7 @@ def start_demo(
             "--state-file",
             str(paths.state_path),
         )
-        state = HoumaoServerDualShadowWatchState(
+        demo_state = HoumaoServerDualShadowWatchState(
             schema_version=1,
             active=True,
             created_at_utc=created_at_utc,
@@ -485,12 +485,12 @@ def start_demo(
                 dashboard_log_path=str(paths.logs_dir / "monitor-dashboard.log"),
             ),
         )
-        save_demo_state(paths.state_path, state)
+        save_demo_state(paths.state_path, demo_state)
         _start_monitor_tmux_session(
             session_name=monitor_session_name,
             working_directory=paths.run_root,
             command=monitor_command,
-            log_path=Path(state.monitor.dashboard_log_path),
+            log_path=Path(demo_state.monitor.dashboard_log_path),
             timeout_seconds=launch_timeout_seconds,
         )
     except Exception:
@@ -516,7 +516,7 @@ def inspect_demo(
 
     del json_output
     state = _load_selected_demo_state(repo_root=repo_root, run_root=run_root)
-    payload = {
+    payload: dict[str, Any] = {
         "change": "houmao-server-dual-shadow-watch",
         "active": state.active,
         "created_at_utc": state.created_at_utc,
@@ -550,7 +550,7 @@ def inspect_demo(
     }
     client = HoumaoServerClient(state.server.api_base_url, timeout_seconds=3.0)
     for slot, session in state.agents.items():
-        agent_payload = {
+        agent_payload: dict[str, Any] = {
             "tool": session.tool,
             "provider": session.provider,
             "profile_name": session.profile_name,
@@ -1081,7 +1081,7 @@ def _launch_lane(
     timeout_seconds: float,
     env: dict[str, str],
 ) -> AgentSessionState:
-    """Launch one live session through `houmao-srv-ctrl` and persist its metadata."""
+    """Launch one live session through `houmao-mgr` and persist its metadata."""
 
     stdout_path = paths.logs_dir / f"launch-{lane.slot}.stdout.log"
     stderr_path = paths.logs_dir / f"launch-{lane.slot}.stderr.log"
@@ -1118,7 +1118,7 @@ def _launch_lane(
             ).strip()
         )
         raise HoumaoServerDualShadowWatchError(
-            f"timed out or failed while launching `{lane.slot}` through houmao-srv-ctrl: {detail}"
+            f"timed out or failed while launching `{lane.slot}` through houmao-mgr: {detail}"
         )
 
     session_payload = _wait_for_session_registration(

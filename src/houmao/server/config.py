@@ -32,6 +32,11 @@ class HoumaoServerConfig(BaseModel):
         default_factory=lambda: dict(_DEFAULT_SUPPORTED_TUI_PROCESSES)
     )
     child_startup_timeout_seconds: float = 15.0
+    compat_shell_ready_timeout_seconds: float = 10.0
+    compat_shell_ready_poll_interval_seconds: float = 0.5
+    compat_provider_ready_timeout_seconds: float = 45.0
+    compat_provider_ready_poll_interval_seconds: float = 1.0
+    compat_codex_warmup_seconds: float = 2.0
     startup_child: bool = True
 
     @field_validator("api_base_url")
@@ -50,11 +55,22 @@ class HoumaoServerConfig(BaseModel):
         "completion_stability_seconds",
         "unknown_to_stalled_timeout_seconds",
         "child_startup_timeout_seconds",
+        "compat_shell_ready_timeout_seconds",
+        "compat_shell_ready_poll_interval_seconds",
+        "compat_provider_ready_timeout_seconds",
+        "compat_provider_ready_poll_interval_seconds",
     )
     @classmethod
     def _validate_positive_float(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("must be > 0")
+        return value
+
+    @field_validator("compat_codex_warmup_seconds")
+    @classmethod
+    def _validate_non_negative_float(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("must be >= 0")
         return value
 
     @field_validator("recent_transition_limit")
@@ -164,6 +180,54 @@ class HoumaoServerConfig(BaseModel):
         """Return the server current-instance path."""
 
         return (self.run_dir / "current-instance.json").resolve()
+
+    @property
+    def compatibility_home_dir(self) -> Path:
+        """Return the server-managed HOME root for compatibility tooling."""
+
+        return (self.server_root / "compat_home").resolve()
+
+    @property
+    def compatibility_cao_home_dir(self) -> Path:
+        """Return the server-managed CAO-compatible home subtree."""
+
+        return (self.compatibility_home_dir / ".aws" / "cli-agent-orchestrator").resolve()
+
+    @property
+    def compatibility_agent_store_dir(self) -> Path:
+        """Return the server-managed compatibility profile store."""
+
+        return (self.compatibility_cao_home_dir / "agent-store").resolve()
+
+    @property
+    def compatibility_agent_context_dir(self) -> Path:
+        """Return the server-managed compatibility context directory."""
+
+        return (self.compatibility_cao_home_dir / "agent-context").resolve()
+
+    @property
+    def compatibility_q_agents_dir(self) -> Path:
+        """Return the server-managed Amazon Q compatibility agents directory."""
+
+        return (self.compatibility_home_dir / ".aws" / "amazonq" / "cli-agents").resolve()
+
+    @property
+    def compatibility_kiro_agents_dir(self) -> Path:
+        """Return the server-managed Kiro compatibility agents directory."""
+
+        return (self.compatibility_home_dir / ".kiro" / "agents").resolve()
+
+    @property
+    def compatibility_state_dir(self) -> Path:
+        """Return the durability root for the native compatibility core."""
+
+        return (self.state_dir / "cao_compat").resolve()
+
+    @property
+    def compatibility_registry_path(self) -> Path:
+        """Return the compatibility registry snapshot path."""
+
+        return (self.compatibility_state_dir / "registry.json").resolve()
 
     @property
     def pid_path(self) -> Path:

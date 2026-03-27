@@ -86,19 +86,19 @@ def test_registry_root_honors_absolute_env_override(
     assert resolve_global_registry_root() == override_root.resolve()
 
 
-def test_registry_publish_and_resolve_accepts_optional_prefix(
+def test_registry_publish_and_resolve_accepts_friendly_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
-    record = _sample_record()
+    record = _sample_record(agent_name="gpu")
 
     published = publish_live_agent_record(record)
     resolved = resolve_live_agent_record("gpu")
 
-    assert published.agent_id == derive_agent_id_from_name("AGENTSYS-gpu")
+    assert published.agent_id == derive_agent_id_from_name("gpu")
     assert resolved is not None
-    assert resolved.agent_name == "AGENTSYS-gpu"
+    assert resolved.agent_name == "gpu"
     assert resolved.generation_id == "generation-1"
 
 
@@ -152,9 +152,9 @@ def test_registry_schema_is_packaged_and_covers_optional_gateway_and_mailbox_gro
 
     assert gateway["anyOf"][1]["type"] == "null"
     gateway_object = schema["$defs"]["RegistryGatewayV1"]
-    assert gateway_object["required"] == ["gateway_root", "attach_path"]
-    assert gateway_object["properties"]["host"]["anyOf"][1]["type"] == "null"
-    assert gateway_object["properties"]["protocol_version"]["anyOf"][1]["type"] == "null"
+    assert gateway_object["required"] == ["host", "port", "state_path", "protocol_version"]
+    assert gateway_object["properties"]["host"]["enum"] == ["127.0.0.1", "0.0.0.0"]
+    assert gateway_object["properties"]["protocol_version"]["const"] == "v1"
 
     assert mailbox["anyOf"][1]["type"] == "null"
     mailbox_object = schema["$defs"]["RegistryMailboxFilesystemV1"]

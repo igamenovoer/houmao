@@ -1,4 +1,4 @@
-"""Top-level entrypoint for `houmao-srv-ctrl`."""
+"""Top-level entrypoint for `houmao-mgr`."""
 
 from __future__ import annotations
 

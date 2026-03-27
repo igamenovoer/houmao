@@ -9,9 +9,9 @@ import shlex
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -21,7 +21,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     has_tmux_session,
     kill_tmux_session,
     list_tmux_clients,
-    list_tmux_panes,
+    resolve_tmux_pane as resolve_tmux_pane_shared,
     run_tmux,
     tmux_error_detail,
 )
@@ -45,6 +45,8 @@ from .models import (
     TerminalRecordPaneSnapshot,
     TerminalRecordPaths,
     TerminalRecordTarget,
+    InputEventSource,
+    VisualRecordingKind,
     append_ndjson,
     load_labels,
     load_live_state,
@@ -351,7 +353,9 @@ def start_terminal_record(
     recorder_session_name = _recorder_session_name(run_id=selected_run_root.name)
     if mode == "active":
         attach_command = f"env -u TMUX tmux attach-session -t {recorder_session_name}"
-    visual_recording_kind = "interactive_client" if mode == "active" else "readonly_observer"
+    visual_recording_kind: VisualRecordingKind = (
+        "interactive_client" if mode == "active" else "readonly_observer"
+    )
     input_capture_level: InputCaptureLevel = (
         "authoritative_managed" if mode == "active" else "output_only"
     )
@@ -668,20 +672,19 @@ def resolve_terminal_record_target(
     result = has_tmux_session(session_name=target_session)
     if result.returncode != 0:
         raise TerminalRecordError(f"Target tmux session does not exist: {target_session}")
-    panes = list_tmux_panes(session_name=target_session)
-    if target_pane is None:
-        if len(panes) != 1:
+    try:
+        pane = resolve_tmux_pane_shared(session_name=target_session, pane_id=target_pane)
+    except TmuxCommandError as exc:
+        detail = str(exc)
+        if target_pane is None and "Ambiguous tmux pane target" in detail:
             raise TerminalRecordError(
-                f"Target session `{target_session}` has {len(panes)} panes; provide --target-pane."
-            )
-        pane = panes[0]
-    else:
-        try:
-            pane = next(item for item in panes if item.pane_id == target_pane)
-        except StopIteration as exc:
+                f"Target session `{target_session}` has multiple panes; provide --target-pane."
+            ) from exc
+        if target_pane is not None and f"pane id `{target_pane}`" in detail:
             raise TerminalRecordError(
                 f"Target pane `{target_pane}` was not found in session `{target_session}`."
             ) from exc
+        raise TerminalRecordError(detail) from exc
     return TerminalRecordTarget(
         session_name=pane.session_name,
         pane_id=pane.pane_id,
@@ -923,10 +926,8 @@ def _build_recorder_shell_command(manifest: TerminalRecordManifest) -> str:
     return shlex.join(record_args)
 
 
-def _duration_from_seconds(value: float):
+def _duration_from_seconds(value: float) -> timedelta:
     """Return one timedelta from seconds without importing globally."""
-
-    from datetime import timedelta
 
     return timedelta(seconds=value)
 
@@ -1040,12 +1041,13 @@ def _load_input_events(path: Path) -> list[TerminalRecordInputEvent]:
             if not line:
                 continue
             payload = json.loads(line)
+            source = str(payload["source"])
             events.append(
                 TerminalRecordInputEvent(
                     event_id=str(payload["event_id"]),
                     elapsed_seconds=float(payload["elapsed_seconds"]),
                     ts_utc=str(payload["ts_utc"]),
-                    source=str(payload["source"]),
+                    source=cast(InputEventSource, source),
                     sequence=str(payload["sequence"]),
                     escape_special_keys=bool(payload["escape_special_keys"]),
                     tmux_target=(

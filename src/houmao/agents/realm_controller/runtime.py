@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import signal
 import socket
 import subprocess
@@ -12,21 +13,27 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, cast
+from typing import Callable, Literal, cast
 
 from houmao.owned_paths import (
     AGENTSYS_JOB_DIR_ENV_VAR,
+    resolve_mailbox_root,
     resolve_runtime_root,
     resolve_session_job_dir,
 )
 from .agent_identity import (
+    AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
+    AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_auto_agent_name_base,
     derive_agent_id_from_name,
     derive_tmux_session_name,
     is_path_like_agent_identity,
+    normalize_managed_agent_id,
+    normalize_managed_agent_name,
     normalize_agent_identity_name,
+    normalize_user_managed_agent_name,
 )
 from .backends.cao_rest import (
     CaoRestSession,
@@ -34,7 +41,12 @@ from .backends.cao_rest import (
     cao_backend_state_payload,
 )
 from .backends.houmao_server_rest import HoumaoServerRestSession
-from .boundary_models import SessionManifestPayloadV3
+from .boundary_models import (
+    RegistryLaunchAuthorityV1,
+    SessionManifestAgentLaunchAuthorityV1,
+    SessionManifestPayloadV3,
+    SessionManifestPayloadV4,
+)
 from .backends.claude_headless import ClaudeHeadlessSession
 from .backends.codex_headless import CodexHeadlessSession
 from .backends.codex_app_server import (
@@ -47,10 +59,15 @@ from .backends.headless_base import (
     HeadlessSessionState,
     headless_backend_state_payload,
 )
+from .backends.local_interactive import LocalInteractiveSession
 from .backends.tmux_runtime import (
     TmuxCommandError,
+    TmuxPaneRecord,
     has_tmux_session as has_tmux_session_shared,
+    list_tmux_panes as list_tmux_panes_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    read_tmux_session_environment_value as read_tmux_session_environment_value_shared,
+    run_tmux as run_tmux_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -63,6 +80,8 @@ from .errors import (
     GatewayNoLiveInstanceError,
     GatewayProtocolError,
     GatewayUnsupportedBackendError,
+    LaunchPlanError,
+    LaunchPolicyResolutionError,
     SessionManifestError,
 )
 from .gateway_client import GatewayClient, GatewayEndpoint
@@ -71,19 +90,23 @@ from .gateway_models import (
     BlueprintGatewayDefaults,
     GatewayAcceptedRequestV1,
     GatewayAttachContractV1,
+    GatewayCurrentExecutionMode,
+    GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
-    GatewayProtocolVersion,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    default_gateway_execution_mode_for_backend,
 )
 from .gateway_storage import (
+    AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
+    AGENT_GATEWAY_ROOT_ENV_VAR,
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     GatewayCapabilityPublication,
     GatewayPaths,
@@ -94,14 +117,14 @@ from .gateway_storage import (
     gateway_paths_from_manifest_path,
     is_pid_running,
     live_gateway_env_var_names,
-    load_attach_contract,
     load_gateway_current_instance,
     load_gateway_desired_config,
     load_gateway_status,
     publish_live_gateway_env,
-    publish_stable_gateway_env,
     read_pid_file,
-    write_attach_contract,
+    refresh_gateway_manifest_publication,
+    refresh_internal_gateway_publication,
+    resolve_internal_gateway_attach_contract,
     write_gateway_desired_config,
     write_gateway_status,
 )
@@ -112,12 +135,16 @@ from .launch_plan import (
     configured_cao_parsing_mode,
     resolve_cao_parsing_mode,
 )
-from .loaders import load_brain_manifest, load_role_package
+from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
+    default_mailbox_principal_id,
     mailbox_env_bindings,
+    mailbox_env_var_names,
+    mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
+    publish_tmux_live_mailbox_projection,
     refresh_filesystem_mailbox_config,
     resolve_effective_mailbox_config,
     resolved_mailbox_config_from_payload,
@@ -144,6 +171,7 @@ from .models import (
     GatewayControlResult,
     InteractiveSession,
     LaunchPlan,
+    RoleInjectionPlan,
     SessionControlResult,
     SessionEvent,
 )
@@ -160,21 +188,76 @@ from .registry_models import (
 )
 from .registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
+    JOINED_REGISTRY_SENTINEL_LEASE_TTL,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
 )
+from houmao.server.client import HoumaoServerClient
+from houmao.server.models import HoumaoRegisterLaunchRequest
+from houmao.mailbox import bootstrap_filesystem_mailbox, resolve_filesystem_mailbox_paths
+from houmao.mailbox.managed import (
+    DeregisterMailboxRequest,
+    RegisterMailboxRequest,
+    deregister_mailbox,
+    register_mailbox,
+)
 
 _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
-    {"codex_headless", "claude_headless", "gemini_headless", "cao_rest", "houmao_server_rest"}
+    {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+        "cao_rest",
+        "houmao_server_rest",
+    }
 )
+# Keep this narrow allowlist aligned with `_build_gateway_execution_adapter()`.
+_GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
+    "local_interactive",
+    "codex_headless",
+    "claude_headless",
+    "gemini_headless",
+    "cao_rest",
+    "houmao_server_rest",
+)
+_PRIMARY_AGENT_WINDOW_INDEX = "0"
+_GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_BRAIN_ONLY_ROLE_NAME = "brain-only"
+_JOINED_SESSION_ORIGIN = "joined_tmux"
+_MAILBOX_LIVE_ENABLED_METADATA_KEY = "mailbox_live_enabled"
+_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY = "mailbox_live_bindings_version"
 _LOGGER = logging.getLogger(__name__)
+
+MailboxActivationState = Literal["active", "pending_relaunch"]
 
 
 class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
     """Raised when tmux-local discovery pointers are unavailable for fallback."""
+
+
+@dataclass(frozen=True)
+class _MailboxLiveState:
+    """Persisted view of the live session's mailbox posture."""
+
+    enabled: bool
+    bindings_version: str | None
+
+
+@dataclass(frozen=True)
+class FilesystemMailboxBindingMutationResult:
+    """Structured result for one late filesystem mailbox mutation."""
+
+    mailbox: FilesystemMailboxResolvedConfig | None
+    shared_lifecycle_result: dict[str, object]
+    activation_state: MailboxActivationState
 
 
 @dataclass(frozen=True)
@@ -200,9 +283,19 @@ class AgentIdentityResolution:
 
 
 @dataclass(frozen=True)
+class _TmuxAuxiliaryWindowHandle:
+    """Resolved tmux-owned execution handle for one auxiliary gateway window."""
+
+    window_id: str
+    window_index: str
+    pane_id: str
+
+
+@dataclass(frozen=True)
 class ResolvedRuntimeIdentity:
     """Resolved runtime-owned identity metadata for a started tmux-backed session."""
 
+    agent_name: str
     canonical_agent_name: str
     agent_id: str
     tmux_session_name: str
@@ -232,6 +325,8 @@ class RuntimeSessionController:
     gateway_host: str | None = None
     gateway_port: int | None = None
     registry_generation_id: str | None = None
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
+    agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
 
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
@@ -294,13 +389,20 @@ class RuntimeSessionController:
             self.persist_manifest()
             return result
 
+        backend_send_input_ex = getattr(self.backend_session, "send_input_ex", None)
+        if callable(backend_send_input_ex):
+            result = backend_send_input_ex(
+                sequence,
+                escape_special_keys=escape_special_keys,
+            )
+            if isinstance(result, SessionControlResult):
+                self.persist_manifest()
+                return result
+
         result = SessionControlResult(
             status="error",
             action="control_input",
-            detail=(
-                "Raw control input is only supported for resumed "
-                f"backend=cao_rest sessions, got backend={self.launch_plan.backend!r}."
-            ),
+            detail=(f"Raw control input is unsupported for backend={self.launch_plan.backend!r}."),
         )
         self.persist_manifest()
         return result
@@ -367,11 +469,16 @@ class RuntimeSessionController:
             filesystem_root=filesystem_root,
         )
         try:
-            refreshed = bootstrap_resolved_mailbox(
+            bootstrapped = bootstrap_resolved_mailbox(
                 refreshed,
                 manifest_path_hint=self.manifest_path,
                 role_name=self.role_name,
             )
+            if not isinstance(bootstrapped, FilesystemMailboxResolvedConfig):
+                raise SessionManifestError(
+                    "Mailbox binding refresh returned an unexpected non-filesystem mailbox type."
+                )
+            refreshed = bootstrapped
         except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
 
@@ -379,13 +486,220 @@ class RuntimeSessionController:
             self.launch_plan,
             refreshed,
         )
-        _refresh_backend_launch_plan(
-            backend_session=self.backend_session,
-            launch_plan=updated_launch_plan,
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
         )
         self.launch_plan = updated_launch_plan
         self.persist_manifest()
         return refreshed
+
+    def mailbox_activation_state(self) -> MailboxActivationState | None:
+        """Return the current local mailbox activation state, when meaningful."""
+
+        mailbox = self.launch_plan.mailbox
+        live_state = _mailbox_live_state(self.launch_plan)
+        if mailbox is None:
+            return "pending_relaunch" if live_state.enabled else None
+        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+            return "active"
+        if self.launch_plan.backend != "local_interactive":
+            return "active"
+        if live_state.enabled and live_state.bindings_version == mailbox.bindings_version:
+            return "active"
+        return "pending_relaunch"
+
+    def register_filesystem_mailbox(
+        self,
+        *,
+        mailbox_root: Path | None = None,
+        principal_id: str | None = None,
+        address: str | None = None,
+        mode: Literal["safe", "force", "stash"] = "safe",
+    ) -> FilesystemMailboxBindingMutationResult:
+        """Attach one filesystem mailbox binding to the current session."""
+
+        self._reset_operation_warnings()
+
+        effective_principal_id = _normalize_optional_mailbox_text(
+            principal_id,
+            field_name="principal_id",
+        ) or default_mailbox_principal_id(
+            tool=self.launch_plan.tool,
+            role_name=self.role_name,
+            agent_identity=self.agent_identity,
+        )
+        effective_address = (
+            _normalize_optional_mailbox_text(
+                address,
+                field_name="address",
+            )
+            or f"{effective_principal_id}@agents.localhost"
+        )
+        effective_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
+
+        bootstrap_filesystem_mailbox(effective_mailbox_root)
+        mailbox_paths = resolve_filesystem_mailbox_paths(effective_mailbox_root)
+        shared_result = register_mailbox(
+            effective_mailbox_root,
+            RegisterMailboxRequest(
+                mode=mode,
+                address=effective_address,
+                owner_principal_id=effective_principal_id,
+                mailbox_kind="in_root",
+                mailbox_path=mailbox_paths.mailbox_entry_path(effective_address),
+                display_name=self.agent_identity,
+                manifest_path_hint=str(self.manifest_path.resolve()),
+                role=self.role_name,
+            ),
+        )
+
+        updated_mailbox = FilesystemMailboxResolvedConfig(
+            transport="filesystem",
+            principal_id=effective_principal_id,
+            address=effective_address,
+            filesystem_root=effective_mailbox_root.resolve(),
+            bindings_version=mailbox_bindings_version_now(),
+        )
+        updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, updated_mailbox)
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+        )
+        self.launch_plan = updated_launch_plan
+        self.persist_manifest()
+        return FilesystemMailboxBindingMutationResult(
+            mailbox=updated_mailbox,
+            shared_lifecycle_result=shared_result,
+            activation_state=_mailbox_mutation_activation_state(
+                controller=self,
+                updated_mailbox=updated_mailbox,
+            ),
+        )
+
+    def unregister_filesystem_mailbox(
+        self,
+        *,
+        mode: Literal["deactivate", "purge"] = "deactivate",
+    ) -> FilesystemMailboxBindingMutationResult:
+        """Remove one filesystem mailbox binding from the current session."""
+
+        self._reset_operation_warnings()
+
+        mailbox = self.launch_plan.mailbox
+        if mailbox is None:
+            raise SessionManifestError("Session does not have a filesystem mailbox binding.")
+        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+            raise SessionManifestError(
+                f"Late mailbox unregistration is not implemented for transport={mailbox.transport!r}."
+            )
+
+        shared_result = deregister_mailbox(
+            mailbox.filesystem_root,
+            DeregisterMailboxRequest(mode=mode, address=mailbox.address),
+        )
+        updated_launch_plan = _launch_plan_without_mailbox(self.launch_plan)
+        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+            backend=self.launch_plan.backend,
+        )
+        _refresh_mailbox_projection_and_backend_launch_plan(
+            controller=self,
+            previous_launch_plan=self.launch_plan,
+            updated_launch_plan=updated_launch_plan,
+        )
+        self.launch_plan = updated_launch_plan
+        self.persist_manifest()
+        return FilesystemMailboxBindingMutationResult(
+            mailbox=None,
+            shared_lifecycle_result=shared_result,
+            activation_state=_mailbox_mutation_activation_state(
+                controller=self,
+                updated_mailbox=None,
+            ),
+        )
+
+    def relaunch(self) -> SessionControlResult:
+        """Relaunch the tmux-backed managed-agent surface without rebuilding the home."""
+
+        self._reset_operation_warnings()
+        authority = _resolve_manifest_relaunch_authority(self)
+        if authority.primary_window_index != _PRIMARY_AGENT_WINDOW_INDEX:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Manifest relaunch authority is invalid because the primary window index "
+                    f"is `{authority.primary_window_index}` instead of `{_PRIMARY_AGENT_WINDOW_INDEX}`."
+                ),
+            )
+
+        session_name = _tmux_session_name_for_controller(self)
+        if session_name is None or session_name.strip() != authority.tmux_session_name:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Manifest relaunch authority is stale because the controller tmux session "
+                    f"`{session_name}` does not match the persisted relaunch session "
+                    f"`{authority.tmux_session_name}`."
+                ),
+            )
+
+        if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
+            try:
+                updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                _refresh_backend_launch_plan(
+                    backend_session=self.backend_session,
+                    launch_plan=updated_launch_plan,
+                )
+            except (
+                FileNotFoundError,
+                LaunchPlanError,
+                LaunchPolicyResolutionError,
+                RuntimeError,
+                SessionManifestError,
+                ValueError,
+            ) as exc:
+                self.persist_manifest()
+                return SessionControlResult(
+                    status="error",
+                    action="relaunch",
+                    detail=str(exc),
+                )
+            self.launch_plan = updated_launch_plan
+
+        result = _relaunch_backend_session(self)
+        if result.status != "ok":
+            self.persist_manifest()
+            return result
+
+        try:
+            _refresh_pair_launch_registration(self)
+        except SessionManifestError as exc:
+            self.persist_manifest()
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        self.launch_plan = _launch_plan_with_current_mailbox_live_state(self.launch_plan)
+        self.persist_manifest()
+        return result
 
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         """Persist current backend state to session manifest."""
@@ -401,9 +715,18 @@ class RuntimeSessionController:
                 agent_name=self.agent_identity,
                 agent_id=self.agent_id,
                 tmux_session_name=self.tmux_session_name,
+                session_id=_runtime_session_id_from_manifest_path(self.manifest_path),
                 job_dir=self.job_dir,
+                agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
+                registry_launch_authority=self.registry_launch_authority,
+                agent_launch_authority=self.agent_launch_authority,
             )
+        )
+        payload = _preserve_server_managed_headless_gateway_authority(
+            manifest_path=self.manifest_path,
+            backend=self.launch_plan.backend,
+            payload=payload,
         )
         write_session_manifest(self.manifest_path, payload)
         if refresh_registry:
@@ -431,6 +754,7 @@ class RuntimeSessionController:
 
         if not self._is_tmux_backed():
             return
+        self.persist_manifest(refresh_registry=False)
         session_name = _tmux_session_name_for_controller(self)
         if session_name is None:
             return
@@ -450,12 +774,26 @@ class RuntimeSessionController:
                 blueprint_gateway_defaults=blueprint_gateway_defaults,
             )
         )
-        publish_stable_gateway_env(
+        stable_discovery_env = {
+            AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
+        }
+        if self.agent_id is not None:
+            stable_discovery_env[AGENT_ID_ENV_VAR] = self.agent_id
+        set_tmux_session_environment_shared(
             session_name=session_name,
-            attach_path=paths.attach_path,
-            gateway_root=paths.gateway_root,
-            set_env=set_tmux_session_environment_shared,
+            env_vars=stable_discovery_env,
         )
+        if has_tmux_session_shared(session_name=session_name).returncode == 0:
+            try:
+                unset_tmux_session_environment_shared(
+                    session_name=session_name,
+                    variable_names=[
+                        AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+                        AGENT_GATEWAY_ROOT_ENV_VAR,
+                    ],
+                )
+            except TmuxCommandError:
+                pass
         self.gateway_root = paths.gateway_root
         self.gateway_attach_path = paths.attach_path
         self.refresh_shared_registry_record()
@@ -465,6 +803,7 @@ class RuntimeSessionController:
         *,
         host_override: str | None = None,
         port_override: int | None = None,
+        execution_mode_override: GatewayCurrentExecutionMode | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
@@ -472,6 +811,7 @@ class RuntimeSessionController:
             self,
             host_override=host_override,
             port_override=port_override,
+            execution_mode_override=execution_mode_override,
         )
         if result.status == "ok":
             self.refresh_shared_registry_record()
@@ -530,7 +870,9 @@ class RuntimeSessionController:
     def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
         """Publish or refresh the shared-registry record for this live session."""
 
-        record = _build_shared_registry_record_for_controller(self)
+        if not self.should_publish_shared_registry_record():
+            return None
+        record = self.build_shared_registry_record()
         if record is None:
             return None
         existing_record = resolve_live_agent_record_by_agent_id(record.agent_id)
@@ -545,6 +887,16 @@ class RuntimeSessionController:
                 ),
             )
         return publish_live_agent_record(record)
+
+    def should_publish_shared_registry_record(self) -> bool:
+        """Return whether runtime is the launch authority for registry publication."""
+
+        return self.registry_launch_authority == "runtime"
+
+    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+        """Build the current pointer-oriented shared-registry record for this session."""
+
+        return _build_shared_registry_record_for_controller(self)
 
     def clear_shared_registry_record(self) -> bool:
         """Remove this session's shared-registry record during authoritative teardown."""
@@ -573,13 +925,14 @@ def start_runtime_session(
     *,
     agent_def_dir: Path,
     brain_manifest_path: Path,
-    role_name: str,
+    role_name: str | None,
     runtime_root: Path | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
     cao_profile_store_dir: Path | None = None,
     agent_identity: str | None = None,
+    agent_name: str | None = None,
     agent_id: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
     mailbox_transport: str | None = None,
@@ -594,6 +947,8 @@ def start_runtime_session(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    tmux_session_name: str | None = None,
+    registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
 
@@ -603,7 +958,15 @@ def start_runtime_session(
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
-    role_package = load_role_package(agent_def_dir, role_name)
+    resolved_role_name = role_name.strip() if role_name is not None and role_name.strip() else None
+    if resolved_role_name is None:
+        role_package = RolePackage(
+            role_name=_BRAIN_ONLY_ROLE_NAME,
+            system_prompt="",
+            path=(agent_def_dir / "roles" / _BRAIN_ONLY_ROLE_NAME / "system-prompt.md").resolve(),
+        )
+    else:
+        role_package = load_role_package(agent_def_dir, resolved_role_name)
 
     try:
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
@@ -625,26 +988,28 @@ def start_runtime_session(
         resolved_runtime_identity = _resolve_start_session_identity(
             manifest=manifest,
             tool=tool,
-            role_name=role_name,
+            role_name=role_package.role_name,
+            requested_agent_name=agent_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
+            requested_tmux_session_name=tmux_session_name,
         )
         agent_identity_warnings = resolved_runtime_identity.warnings
         existing_record = resolve_live_agent_record_by_agent_id(resolved_runtime_identity.agent_id)
         if (
             existing_record is not None
-            and existing_record.agent_name != resolved_runtime_identity.canonical_agent_name
+            and existing_record.agent_name != resolved_runtime_identity.agent_name
         ):
             startup_warnings = (
                 "authoritative agent_id "
                 f"`{resolved_runtime_identity.agent_id}` was previously published as "
                 f"`{existing_record.agent_name}` and is now starting as "
-                f"`{resolved_runtime_identity.canonical_agent_name}`",
+                f"`{resolved_runtime_identity.agent_name}`",
             )
-    elif agent_identity is not None or agent_id is not None:
+    elif agent_identity is not None or agent_name is not None or agent_id is not None:
         raise SessionManifestError(
-            "start-session --agent-identity/--agent-id are only supported for tmux-backed "
-            f"backends: {sorted(_TMUX_BACKED_BACKENDS)}."
+            "start-session --agent-identity/--agent-name/--agent-id are only supported for "
+            f"tmux-backed backends: {sorted(_TMUX_BACKED_BACKENDS)}."
         )
 
     try:
@@ -665,7 +1030,7 @@ def start_runtime_session(
             declared_config=declared_mailbox,
             runtime_root=effective_runtime_root,
             tool=tool,
-            role_name=role_name,
+            role_name=role_package.role_name,
             agent_identity=(
                 resolved_runtime_identity.canonical_agent_name
                 if resolved_runtime_identity is not None
@@ -690,7 +1055,7 @@ def start_runtime_session(
             resolved_mailbox = bootstrap_resolved_mailbox(
                 resolved_mailbox,
                 manifest_path_hint=manifest_path,
-                role_name=role_name,
+                role_name=role_package.role_name,
             )
         except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
@@ -708,14 +1073,14 @@ def start_runtime_session(
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
-        role_name=role_name,
+        role_name=role_package.role_name,
         role_prompt=role_package.system_prompt,
         agent_def_dir=agent_def_dir,
         api_base_url=api_base_url,
         cao_profile_store_dir=cao_profile_store_dir,
         session_manifest_path=manifest_path,
         agent_identity=(
-            resolved_runtime_identity.tmux_session_name
+            tmux_session_name or resolved_runtime_identity.tmux_session_name
             if resolved_runtime_identity is not None
             else None
         ),
@@ -733,15 +1098,13 @@ def start_runtime_session(
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
-        role_name=role_name,
+        role_name=role_package.role_name,
         brain_manifest_path=brain_manifest_path.resolve(),
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir.resolve(),
         backend_session=backend_session,
         agent_identity=(
-            resolved_runtime_identity.canonical_agent_name
-            if resolved_runtime_identity is not None
-            else None
+            resolved_runtime_identity.agent_name if resolved_runtime_identity is not None else None
         ),
         agent_id=resolved_runtime_identity.agent_id
         if resolved_runtime_identity is not None
@@ -754,6 +1117,8 @@ def start_runtime_session(
         registry_generation_id=(
             new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
         ),
+        registry_launch_authority=registry_launch_authority,
+        agent_launch_authority=None,
     )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
@@ -858,7 +1223,6 @@ def resume_runtime_session(
     backend = manifest_payload.backend
     role_name = manifest_payload.role_name
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
-    manifest = load_brain_manifest(brain_manifest_path)
     role_package = load_role_package(agent_def_dir, role_name)
     job_dir = _job_dir_from_manifest_payload(
         payload=manifest_payload,
@@ -866,18 +1230,35 @@ def resume_runtime_session(
     )
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    launch_plan = build_launch_plan(
-        LaunchPlanRequest(
-            brain_manifest=manifest,
-            role_package=role_package,
-            backend=backend,
-            working_directory=Path(manifest_payload.working_directory),
-            mailbox=_resolved_mailbox_from_manifest_payload(
-                manifest_payload,
-                session_manifest_path=session_manifest_path,
-            ),
-        )
+    resolved_mailbox = _resolved_mailbox_from_manifest_payload(
+        manifest_payload,
+        session_manifest_path=session_manifest_path,
     )
+    if _is_joined_tmux_manifest(manifest_payload):
+        launch_plan = _build_joined_launch_plan_from_manifest_payload(
+            payload=manifest_payload,
+            role_package=role_package,
+            mailbox=resolved_mailbox,
+        )
+    else:
+        manifest = load_brain_manifest(brain_manifest_path)
+        launch_plan = build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role_package,
+                backend=backend,
+                working_directory=Path(manifest_payload.working_directory),
+                mailbox=resolved_mailbox,
+                intent="resume_control",
+            )
+        )
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                **dict(manifest_payload.launch_plan.metadata),
+            },
+        )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
 
     backend_session = _create_backend_session(
@@ -919,6 +1300,8 @@ def resume_runtime_session(
             else None
         ),
         registry_generation_id=registry_generation_id,
+        registry_launch_authority=manifest_payload.registry_launch_authority,
+        agent_launch_authority=manifest_payload.agent_launch_authority,
     )
     controller.ensure_gateway_capability()
     return controller
@@ -932,7 +1315,7 @@ def _create_backend_session(
     agent_def_dir: Path,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
-    resume_state: SessionManifestPayloadV3 | None = None,
+    resume_state: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None = None,
     session_manifest_path: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
@@ -952,6 +1335,23 @@ def _create_backend_session(
         return cast(
             InteractiveSession,
             CodexHeadlessSession(
+                launch_plan=launch_plan,
+                role_name=role_name,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path,
+                    backend=launch_plan.backend,
+                ),
+                agent_def_dir=agent_def_dir,
+                state=state,
+                tmux_session_name=agent_identity,
+            ),
+        )
+
+    if launch_plan.backend == "local_interactive":
+        state = _resume_local_interactive_state(resume_state, launch_plan=launch_plan)
+        return cast(
+            InteractiveSession,
+            LocalInteractiveSession(
                 launch_plan=launch_plan,
                 role_name=role_name,
                 session_manifest_path=_require_session_manifest_path(
@@ -1084,7 +1484,7 @@ def _create_backend_session(
 
 
 def _resume_headless_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -1101,18 +1501,65 @@ def _resume_headless_state(
         raise SessionManifestError(
             "Headless resume requires a non-empty headless.session_id after turn 0"
         )
-    tmux_session_name = payload.backend_state.get("tmux_session_name")
-    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
-        raise SessionManifestError(
-            "Headless resume requires non-empty backend_state.tmux_session_name"
-        )
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
+        raise SessionManifestError("Headless resume requires a non-empty tmux session authority.")
+    tmux_window_name = _resolved_resumed_tmux_window_name(payload=payload, launch_plan=launch_plan)
 
     return HeadlessSessionState(
         session_id=session_id.strip() if session_id else None,
-        turn_index=turn_index,
-        role_bootstrap_applied=headless.role_bootstrap_applied,
-        working_directory=headless.working_directory or str(launch_plan.working_directory),
+        turn_index=_manifest_interactive_turn_index(payload, fallback=turn_index),
+        role_bootstrap_applied=_manifest_interactive_role_bootstrap_applied(
+            payload,
+            fallback=headless.role_bootstrap_applied,
+        ),
+        working_directory=_manifest_interactive_working_directory(
+            payload,
+            fallback=headless.working_directory or str(launch_plan.working_directory),
+        ),
         tmux_session_name=tmux_session_name.strip(),
+        tmux_window_name=tmux_window_name,
+        resume_selection_kind=headless.resume_selection_kind,
+        resume_selection_value=headless.resume_selection_value,
+        joined_session=_is_joined_tmux_manifest(payload),
+    )
+
+
+def _resume_local_interactive_state(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
+    *,
+    launch_plan: LaunchPlan,
+) -> HeadlessSessionState | None:
+    if payload is None:
+        return None
+
+    local_interactive = payload.local_interactive
+    if local_interactive is None:
+        raise SessionManifestError(
+            "Local interactive session manifest missing `local_interactive` state"
+        )
+
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
+        raise SessionManifestError(
+            "Local interactive resume requires a non-empty tmux session authority."
+        )
+    tmux_window_name = _resolved_resumed_tmux_window_name(payload=payload, launch_plan=launch_plan)
+
+    return HeadlessSessionState(
+        session_id=None,
+        turn_index=_manifest_interactive_turn_index(payload, fallback=local_interactive.turn_index),
+        role_bootstrap_applied=_manifest_interactive_role_bootstrap_applied(
+            payload,
+            fallback=local_interactive.role_bootstrap_applied,
+        ),
+        working_directory=_manifest_interactive_working_directory(
+            payload,
+            fallback=local_interactive.working_directory or str(launch_plan.working_directory),
+        ),
+        tmux_session_name=tmux_session_name.strip(),
+        tmux_window_name=tmux_window_name,
+        joined_session=_is_joined_tmux_manifest(payload),
     )
 
 
@@ -1124,8 +1571,339 @@ def _require_session_manifest_path(
     return session_manifest_path.resolve()
 
 
+def _manifest_tmux_session_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized tmux session name from one parsed manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+        return payload.tmux.session_name
+    return payload.tmux_session_name
+
+
+def _manifest_interactive_turn_index(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: int,
+) -> int:
+    """Return the normalized interactive turn index for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.turn_index
+    return fallback
+
+
+def _manifest_interactive_working_directory(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: str,
+) -> str:
+    """Return the normalized interactive working directory for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        value = payload.interactive.working_directory
+        if value is not None and value.strip():
+            return value
+    return fallback
+
+
+def _manifest_interactive_role_bootstrap_applied(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    *,
+    fallback: bool,
+) -> bool:
+    """Return the normalized role-bootstrap flag for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        value = payload.interactive.role_bootstrap_applied
+        if value is not None:
+            return value
+    return fallback
+
+
+def _manifest_interactive_terminal_id(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized interactive terminal id for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.terminal_id
+    return None
+
+
+def _manifest_interactive_parsing_mode(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> CaoParsingMode | None:
+    """Return the normalized interactive parsing mode for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.parsing_mode
+    return None
+
+
+def _manifest_interactive_tmux_window_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized interactive tmux window name for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+        return payload.interactive.tmux_window_name
+    return None
+
+
+def _manifest_primary_tmux_window_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the best persisted tmux window name from one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+        value = payload.tmux.primary_window_name
+        if value is not None and value.strip():
+            return value.strip()
+    interactive_value = _manifest_interactive_tmux_window_name(payload)
+    if interactive_value is not None and interactive_value.strip():
+        return interactive_value.strip()
+    backend_window_name = payload.backend_state.get("tmux_window_name")
+    if isinstance(backend_window_name, str) and backend_window_name.strip():
+        return backend_window_name.strip()
+    return None
+
+
+def _joined_launch_plan_tmux_window_name(launch_plan: LaunchPlan) -> str | None:
+    """Return the joined launch-plan tmux window name when one was persisted."""
+
+    value = launch_plan.metadata.get("tmux_window_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _resolved_resumed_tmux_window_name(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    launch_plan: LaunchPlan,
+) -> str | None:
+    """Resolve the tmux window name to keep during resume-time manifest persistence."""
+
+    persisted_window_name = _manifest_primary_tmux_window_name(payload)
+    if persisted_window_name is not None:
+        return persisted_window_name
+    if _is_joined_tmux_manifest(payload):
+        return _joined_launch_plan_tmux_window_name(launch_plan)
+    return None
+
+
+def _manifest_pair_managed_agent_ref(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
+    """Return the normalized pair-managed session alias for one manifest payload."""
+
+    if isinstance(payload, SessionManifestPayloadV4) and payload.gateway_authority is not None:
+        return payload.gateway_authority.attach.managed_agent_ref
+    if payload.houmao_server is not None:
+        return payload.houmao_server.session_name
+    return None
+
+
+def _is_joined_tmux_manifest(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> bool:
+    """Return whether one manifest payload describes a joined tmux session."""
+
+    return (
+        isinstance(payload, SessionManifestPayloadV4)
+        and payload.agent_launch_authority is not None
+        and payload.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
+    )
+
+
+def _build_joined_launch_plan_from_manifest_payload(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    role_package: RolePackage,
+    mailbox: MailboxResolvedConfig | None,
+) -> LaunchPlan:
+    """Rebuild a join-derived launch plan from the persisted session manifest."""
+
+    if not isinstance(payload, SessionManifestPayloadV4) or payload.agent_launch_authority is None:
+        raise SessionManifestError("Joined-session resume requires v4 agent_launch_authority data.")
+    authority = payload.agent_launch_authority
+    if authority.session_origin != _JOINED_SESSION_ORIGIN:
+        raise SessionManifestError("Joined-session resume requires session_origin=joined_tmux.")
+
+    launch_payload = payload.launch_plan
+    tmux_session_name = authority.tmux_session_name or _manifest_tmux_session_name(payload)
+    env = _resolve_joined_launch_env_values(
+        authority=authority,
+        tmux_session_name=tmux_session_name,
+    )
+    metadata = dict(launch_payload.metadata)
+    metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
+    return LaunchPlan(
+        backend=launch_payload.backend,
+        tool=launch_payload.tool,
+        executable=launch_payload.executable,
+        args=list(launch_payload.args),
+        working_directory=Path(launch_payload.working_directory).resolve(),
+        home_env_var=launch_payload.home_selector.env_var,
+        home_path=Path(launch_payload.home_selector.home_path).resolve(),
+        env=env,
+        env_var_names=list(launch_payload.env_var_names),
+        role_injection=RoleInjectionPlan(
+            method=launch_payload.role_injection.method,
+            role_name=launch_payload.role_injection.role_name,
+            prompt=role_package.system_prompt,
+            bootstrap_message=(
+                role_package.system_prompt
+                if launch_payload.role_injection.method == "bootstrap_message"
+                else None
+            ),
+        ),
+        metadata=metadata,
+        mailbox=mailbox,
+        launch_policy_provenance=None,
+    )
+
+
+def _resolve_joined_launch_env_values(
+    *,
+    authority: SessionManifestAgentLaunchAuthorityV1,
+    tmux_session_name: str | None,
+) -> dict[str, str]:
+    """Resolve persisted joined-session launch env bindings into concrete values."""
+
+    resolved: dict[str, str] = {}
+    for binding in authority.launch_env or ():
+        if binding.mode == "literal":
+            resolved[binding.name] = binding.value
+            continue
+        if tmux_session_name is None or not tmux_session_name.strip():
+            raise SessionManifestError(
+                f"Joined relaunch requires tmux session authority to resolve `{binding.name}`."
+            )
+        value = read_tmux_session_environment_value_shared(
+            session_name=tmux_session_name,
+            variable_name=binding.name,
+        )
+        if value is None or not value.strip():
+            raise SessionManifestError(
+                "Joined relaunch could not resolve inherited launch env "
+                f"`{binding.name}` from tmux session `{tmux_session_name}`."
+            )
+        resolved[binding.name] = value
+    return resolved
+
+
+def _optional_backend_state_str(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    key: str,
+) -> str | None:
+    """Return one normalized optional backend_state string."""
+
+    value = payload.backend_state.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _resolve_manifest_relaunch_authority(
+    controller: RuntimeSessionController,
+) -> SessionManifestAgentLaunchAuthorityV1:
+    """Load and validate the relaunch authority for one tmux-backed controller."""
+
+    handle = load_session_manifest(controller.manifest_path)
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    if isinstance(payload, SessionManifestPayloadV4) and payload.agent_launch_authority is not None:
+        return payload.agent_launch_authority
+
+    tmux_session_name = _manifest_tmux_session_name(payload)
+    if tmux_session_name is None or not tmux_session_name.strip():
+        raise SessionManifestError(
+            f"Manifest `{handle.path}` is missing tmux-backed relaunch authority."
+        )
+    return SessionManifestAgentLaunchAuthorityV1(
+        backend=payload.backend,
+        tool=payload.tool,
+        tmux_session_name=tmux_session_name,
+        primary_window_index=_PRIMARY_AGENT_WINDOW_INDEX,
+        working_directory=payload.working_directory,
+        posture_kind="runtime_launch_plan",
+        session_id=(
+            payload.runtime.session_id
+            if isinstance(payload, SessionManifestPayloadV4)
+            else _runtime_session_id_from_manifest_path(handle.path)
+        ),
+        profile_name=(
+            payload.cao.profile_name
+            if payload.cao is not None
+            else _optional_backend_state_str(payload, "profile_name")
+        ),
+        profile_path=(
+            payload.cao.profile_path
+            if payload.cao is not None
+            else _optional_backend_state_str(payload, "profile_path")
+        ),
+    )
+
+
+def _relaunch_backend_session(controller: RuntimeSessionController) -> SessionControlResult:
+    """Dispatch the shared relaunch primitive across supported tmux-backed backends."""
+
+    backend_session = controller.backend_session
+    if isinstance(backend_session, HoumaoServerRestSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, LocalInteractiveSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, HeadlessInteractiveSession):
+        return backend_session.relaunch()
+    if isinstance(backend_session, CaoRestSession):
+        return backend_session.relaunch()
+    return SessionControlResult(
+        status="error",
+        action="relaunch",
+        detail=(
+            f"backend={controller.launch_plan.backend!r} does not support tmux-backed relaunch."
+        ),
+    )
+
+
+def _refresh_pair_launch_registration(controller: RuntimeSessionController) -> None:
+    """Refresh the pair launch registration after a successful local relaunch."""
+
+    if controller.launch_plan.backend != "houmao_server_rest":
+        return
+    backend_session = controller.backend_session
+    if not isinstance(backend_session, HoumaoServerRestSession):
+        raise SessionManifestError(
+            "Pair-backed relaunch completed without a houmao_server_rest backend session."
+        )
+
+    state = backend_session.state
+    client = HoumaoServerClient(state.api_base_url)
+    try:
+        client.register_launch(
+            HoumaoRegisterLaunchRequest(
+                session_name=state.session_name,
+                terminal_id=state.terminal_id,
+                tool=controller.launch_plan.tool,
+                manifest_path=str(controller.manifest_path),
+                session_root=str(controller.manifest_path.parent),
+                agent_name=controller.agent_identity,
+                agent_id=controller.agent_id,
+                tmux_session_name=controller.tmux_session_name or state.session_name,
+                tmux_window_name=state.tmux_window_name,
+            )
+        )
+    except Exception as exc:
+        raise SessionManifestError(
+            "Pair-managed relaunch succeeded locally, but failed to refresh the owning "
+            f"`houmao-server` registration: {exc}"
+        ) from exc
+
+
 def _resume_cao_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -1139,8 +1917,16 @@ def _resume_cao_state(
         raise SessionManifestError("CAO session manifest missing or blank cao.api_base_url")
 
     terminal_id = cao.terminal_id.strip()
+    normalized_terminal_id = _manifest_interactive_terminal_id(payload)
+    if normalized_terminal_id is not None:
+        normalized_terminal_id = normalized_terminal_id.strip()
     if not terminal_id:
         raise SessionManifestError("CAO session manifest missing or blank cao.terminal_id")
+    if normalized_terminal_id is not None and terminal_id != normalized_terminal_id:
+        raise SessionManifestError(
+            "CAO session manifest terminal_id mismatch: "
+            "cao.terminal_id must equal interactive.terminal_id"
+        )
 
     session_name = cao.session_name.strip()
     if not session_name:
@@ -1155,6 +1941,12 @@ def _resume_cao_state(
         raise SessionManifestError("CAO session manifest missing or blank cao.profile_path")
 
     parsing_mode = cao.parsing_mode
+    normalized_parsing_mode = _manifest_interactive_parsing_mode(payload)
+    if normalized_parsing_mode is not None and parsing_mode != normalized_parsing_mode:
+        raise SessionManifestError(
+            "CAO session manifest parsing_mode mismatch: "
+            "cao.parsing_mode must equal interactive.parsing_mode"
+        )
 
     backend_api_base_url = payload.backend_state.get("api_base_url")
     if not isinstance(backend_api_base_url, str) or not backend_api_base_url.strip():
@@ -1167,35 +1959,48 @@ def _resume_cao_state(
             "cao.api_base_url must equal backend_state.api_base_url"
         )
     backend_parsing_mode = payload.backend_state.get("parsing_mode")
-    if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
-        raise SessionManifestError(
-            "CAO session manifest missing or blank backend_state.parsing_mode"
-        )
-    if parsing_mode != backend_parsing_mode.strip():
+    if normalized_parsing_mode is None:
+        if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
+            raise SessionManifestError(
+                "CAO session manifest missing or blank backend_state.parsing_mode"
+            )
+        normalized_parsing_mode = cast(CaoParsingMode, backend_parsing_mode.strip())
+    if parsing_mode != normalized_parsing_mode:
         raise SessionManifestError(
             "CAO session manifest parsing_mode mismatch: "
-            "cao.parsing_mode must equal backend_state.parsing_mode"
+            "cao.parsing_mode must equal normalized interactive parsing mode"
         )
 
-    tmux_window_name: str | None = None
-    if cao.tmux_window_name is not None:
-        tmux_window_name = cao.tmux_window_name.strip()
-
-    backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
-    if backend_tmux_window_name is not None:
-        if not isinstance(backend_tmux_window_name, str) or not backend_tmux_window_name.strip():
-            raise SessionManifestError(
-                "CAO session manifest backend_state.tmux_window_name must be a "
-                "non-empty string when present"
-            )
-        resolved_backend_tmux_window_name = backend_tmux_window_name.strip()
+    tmux_window_name = cao.tmux_window_name.strip() if cao.tmux_window_name is not None else None
+    normalized_tmux_window_name = _manifest_interactive_tmux_window_name(payload)
+    if normalized_tmux_window_name is not None:
+        normalized_tmux_window_name = normalized_tmux_window_name.strip()
         if tmux_window_name is None:
-            tmux_window_name = resolved_backend_tmux_window_name
-        elif tmux_window_name != resolved_backend_tmux_window_name:
+            tmux_window_name = normalized_tmux_window_name
+        elif tmux_window_name != normalized_tmux_window_name:
             raise SessionManifestError(
                 "CAO session manifest tmux_window_name mismatch: "
-                "cao.tmux_window_name must equal backend_state.tmux_window_name"
+                "cao.tmux_window_name must equal interactive.tmux_window_name"
             )
+    else:
+        backend_tmux_window_name = payload.backend_state.get("tmux_window_name")
+        if backend_tmux_window_name is not None:
+            if (
+                not isinstance(backend_tmux_window_name, str)
+                or not backend_tmux_window_name.strip()
+            ):
+                raise SessionManifestError(
+                    "CAO session manifest backend_state.tmux_window_name must be a "
+                    "non-empty string when present"
+                )
+            resolved_backend_tmux_window_name = backend_tmux_window_name.strip()
+            if tmux_window_name is None:
+                tmux_window_name = resolved_backend_tmux_window_name
+            elif tmux_window_name != resolved_backend_tmux_window_name:
+                raise SessionManifestError(
+                    "CAO session manifest tmux_window_name mismatch: "
+                    "cao.tmux_window_name must equal backend_state.tmux_window_name"
+                )
 
     return CaoSessionState(
         api_base_url=persisted_api_base_url,
@@ -1210,7 +2015,7 @@ def _resume_cao_state(
 
 
 def _resume_houmao_server_state(
-    payload: SessionManifestPayloadV3 | None,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -1226,15 +2031,31 @@ def _resume_houmao_server_state(
         )
 
     terminal_id = houmao_server.terminal_id.strip()
+    normalized_terminal_id = _manifest_interactive_terminal_id(payload)
+    if normalized_terminal_id is not None:
+        normalized_terminal_id = normalized_terminal_id.strip()
     if not terminal_id:
         raise SessionManifestError(
             "houmao-server session manifest missing or blank houmao_server.terminal_id"
         )
+    if normalized_terminal_id is not None and terminal_id != normalized_terminal_id:
+        raise SessionManifestError(
+            "houmao-server session manifest terminal_id mismatch: "
+            "houmao_server.terminal_id must equal interactive.terminal_id"
+        )
 
     session_name = houmao_server.session_name.strip()
+    normalized_session_name = _manifest_pair_managed_agent_ref(payload)
+    if normalized_session_name is not None:
+        normalized_session_name = normalized_session_name.strip()
     if not session_name:
         raise SessionManifestError(
             "houmao-server session manifest missing or blank houmao_server.session_name"
+        )
+    if normalized_session_name is not None and session_name != normalized_session_name:
+        raise SessionManifestError(
+            "houmao-server session manifest session_name mismatch: "
+            "houmao_server.session_name must equal gateway_authority.attach.managed_agent_ref"
         )
 
     backend_api_base_url = payload.backend_state.get("api_base_url")
@@ -1248,15 +2069,18 @@ def _resume_houmao_server_state(
             "houmao_server.api_base_url must equal backend_state.api_base_url"
         )
 
-    backend_parsing_mode = payload.backend_state.get("parsing_mode")
-    if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
-        raise SessionManifestError(
-            "houmao-server session manifest missing or blank backend_state.parsing_mode"
-        )
-    if houmao_server.parsing_mode != backend_parsing_mode.strip():
+    normalized_parsing_mode = _manifest_interactive_parsing_mode(payload)
+    if normalized_parsing_mode is None:
+        backend_parsing_mode = payload.backend_state.get("parsing_mode")
+        if not isinstance(backend_parsing_mode, str) or not backend_parsing_mode.strip():
+            raise SessionManifestError(
+                "houmao-server session manifest missing or blank backend_state.parsing_mode"
+            )
+        normalized_parsing_mode = cast(CaoParsingMode, backend_parsing_mode.strip())
+    if houmao_server.parsing_mode != normalized_parsing_mode:
         raise SessionManifestError(
             "houmao-server session manifest parsing_mode mismatch: "
-            "houmao_server.parsing_mode must equal backend_state.parsing_mode"
+            "houmao_server.parsing_mode must equal normalized interactive parsing mode"
         )
 
     profile_name = str(payload.backend_state.get("profile_name", "houmao-server")).strip()
@@ -1272,9 +2096,11 @@ def _resume_houmao_server_state(
         terminal_id=terminal_id,
         profile_name=profile_name,
         profile_path=profile_path,
-        tmux_window_name=houmao_server.tmux_window_name,
+        tmux_window_name=(
+            _manifest_interactive_tmux_window_name(payload) or houmao_server.tmux_window_name
+        ),
         parsing_mode=houmao_server.parsing_mode,
-        turn_index=houmao_server.turn_index,
+        turn_index=_manifest_interactive_turn_index(payload, fallback=houmao_server.turn_index),
     )
 
 
@@ -1319,7 +2145,7 @@ def _declared_mailbox_from_manifest(
 
 
 def _resolved_mailbox_from_manifest_payload(
-    payload: SessionManifestPayloadV3,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     *,
     session_manifest_path: Path,
 ) -> MailboxResolvedConfig | None:
@@ -1347,6 +2173,200 @@ def _launch_plan_with_mailbox(
     )
 
 
+def _launch_plan_without_mailbox(launch_plan: LaunchPlan) -> LaunchPlan:
+    """Return a launch plan with mailbox bindings removed."""
+
+    mailbox = launch_plan.mailbox
+    if mailbox is None:
+        return launch_plan
+
+    mailbox_env_names = set(mailbox_env_var_names(mailbox))
+    updated_env = {
+        key: value for key, value in launch_plan.env.items() if key not in mailbox_env_names
+    }
+    updated_env_var_names = [
+        name for name in launch_plan.env_var_names if name not in mailbox_env_names
+    ]
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=updated_env_var_names,
+        mailbox=None,
+    )
+
+
+def _mailbox_live_state(launch_plan: LaunchPlan) -> _MailboxLiveState:
+    """Return the persisted live mailbox posture for one launch plan."""
+
+    metadata = launch_plan.metadata
+    raw_enabled = metadata.get(_MAILBOX_LIVE_ENABLED_METADATA_KEY)
+    raw_bindings_version = metadata.get(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY)
+    if isinstance(raw_enabled, bool):
+        enabled = raw_enabled
+    else:
+        enabled = launch_plan.mailbox is not None
+
+    bindings_version = (
+        raw_bindings_version.strip()
+        if isinstance(raw_bindings_version, str) and raw_bindings_version.strip()
+        else None
+    )
+    if raw_enabled is None and launch_plan.mailbox is not None:
+        bindings_version = launch_plan.mailbox.bindings_version
+    if not enabled:
+        return _MailboxLiveState(enabled=False, bindings_version=bindings_version)
+    return _MailboxLiveState(enabled=True, bindings_version=bindings_version)
+
+
+def _launch_plan_with_mailbox_live_state(
+    launch_plan: LaunchPlan,
+    *,
+    live_enabled: bool,
+    bindings_version: str | None,
+) -> LaunchPlan:
+    """Return a launch plan with explicit live-mailbox posture metadata."""
+
+    metadata = dict(launch_plan.metadata)
+    metadata[_MAILBOX_LIVE_ENABLED_METADATA_KEY] = live_enabled
+    if bindings_version is None:
+        metadata.pop(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY, None)
+    else:
+        metadata[_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY] = bindings_version
+    return replace(launch_plan, metadata=metadata)
+
+
+def _launch_plan_with_current_mailbox_live_state(launch_plan: LaunchPlan) -> LaunchPlan:
+    """Mark the live mailbox posture as fully synchronized with the launch plan."""
+
+    mailbox = launch_plan.mailbox
+    return _launch_plan_with_mailbox_live_state(
+        launch_plan,
+        live_enabled=mailbox is not None,
+        bindings_version=None if mailbox is None else mailbox.bindings_version,
+    )
+
+
+def _apply_mailbox_live_state_after_mutation(
+    *,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+    backend: BackendKind,
+) -> LaunchPlan:
+    """Persist live-mailbox posture after one late mailbox mutation."""
+
+    del previous_launch_plan, backend
+    return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
+
+def _mailbox_mutation_activation_state(
+    *,
+    controller: RuntimeSessionController,
+    updated_mailbox: FilesystemMailboxResolvedConfig | None,
+) -> MailboxActivationState:
+    """Return the activation state for one completed mailbox mutation."""
+
+    del controller, updated_mailbox
+    return "active"
+
+
+def _refresh_mailbox_projection_and_backend_launch_plan(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Refresh live mailbox projection and backend launch plan as one mutation step."""
+
+    projection_refreshed = False
+    try:
+        _refresh_tmux_live_mailbox_projection_for_controller(
+            controller=controller,
+            previous_launch_plan=previous_launch_plan,
+            updated_launch_plan=updated_launch_plan,
+        )
+        projection_refreshed = True
+        _refresh_backend_launch_plan(
+            backend_session=controller.backend_session,
+            launch_plan=updated_launch_plan,
+        )
+    except Exception:
+        if projection_refreshed:
+            _best_effort_restore_tmux_live_mailbox_projection_for_controller(
+                controller=controller,
+                previous_launch_plan=previous_launch_plan,
+                updated_launch_plan=updated_launch_plan,
+            )
+        raise
+
+
+def _refresh_tmux_live_mailbox_projection_for_controller(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Refresh the targeted mailbox projection for one tmux-backed live session."""
+
+    if updated_launch_plan.backend not in _TMUX_BACKED_BACKENDS:
+        return
+    session_name = controller._require_tmux_session_name()
+    if has_tmux_session_shared(session_name=session_name).returncode != 0:
+        raise SessionManifestError(
+            f"Cannot refresh live mailbox projection because tmux session `{session_name}` is unavailable."
+        )
+    try:
+        publish_tmux_live_mailbox_projection(
+            session_name=session_name,
+            previous_mailbox=previous_launch_plan.mailbox,
+            mailbox=updated_launch_plan.mailbox,
+            set_env=lambda current_session_name, env_vars: set_tmux_session_environment_shared(
+                session_name=current_session_name,
+                env_vars=env_vars,
+            ),
+            unset_env=lambda current_session_name, variable_names: (
+                unset_tmux_session_environment_shared(
+                    session_name=current_session_name,
+                    variable_names=variable_names,
+                )
+            ),
+        )
+    except (TmuxCommandError, ValueError) as exc:
+        raise SessionManifestError(
+            f"Failed to refresh tmux live mailbox projection: {exc}"
+        ) from exc
+
+
+def _best_effort_restore_tmux_live_mailbox_projection_for_controller(
+    *,
+    controller: RuntimeSessionController,
+    previous_launch_plan: LaunchPlan,
+    updated_launch_plan: LaunchPlan,
+) -> None:
+    """Best-effort rollback for mailbox projection updates after a later failure."""
+
+    try:
+        _refresh_tmux_live_mailbox_projection_for_controller(
+            controller=controller,
+            previous_launch_plan=updated_launch_plan,
+            updated_launch_plan=previous_launch_plan,
+        )
+    except SessionManifestError as exc:
+        controller._record_registry_warning(
+            "Mailbox projection rollback failed after launch-plan refresh error",
+            exc,
+        )
+
+
+def _normalize_optional_mailbox_text(value: str | None, *, field_name: str) -> str | None:
+    """Normalize one optional mailbox command field."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise SessionManifestError(f"`{field_name}` must not be blank.")
+    return stripped
+
+
 def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> LaunchPlan:
     """Return a launch plan with the runtime-owned job-dir binding injected."""
 
@@ -1359,9 +2379,79 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
     )
 
 
+def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
+    """Return whether one backend relaunch must rebuild provider-start state."""
+
+    return backend in {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }
+
+
+def _build_provider_start_launch_plan_for_relaunch(
+    controller: RuntimeSessionController,
+) -> LaunchPlan:
+    """Rebuild a provider-start launch plan for one local tmux-backed relaunch."""
+
+    if controller.agent_launch_authority is not None:
+        authority = controller.agent_launch_authority
+        if authority.session_origin == _JOINED_SESSION_ORIGIN:
+            if authority.posture_kind == "unavailable":
+                raise SessionManifestError(
+                    "Joined-session relaunch is unavailable because no launch options were recorded."
+                )
+            if controller.agent_def_dir is None:
+                raise SessionManifestError(
+                    "Joined-session relaunch requires a persisted agent-definition directory."
+                )
+            handle = load_session_manifest(controller.manifest_path)
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+            role_package = load_role_package(controller.agent_def_dir, controller.role_name)
+            updated_launch_plan = _build_joined_launch_plan_from_manifest_payload(
+                payload=payload,
+                role_package=role_package,
+                mailbox=_resolved_mailbox_from_manifest_payload(
+                    payload,
+                    session_manifest_path=controller.manifest_path,
+                ),
+            )
+            if controller.job_dir is not None:
+                updated_launch_plan = _launch_plan_with_job_dir(
+                    updated_launch_plan,
+                    job_dir=controller.job_dir,
+                )
+            return updated_launch_plan
+
+    if controller.agent_def_dir is None:
+        raise SessionManifestError(
+            "Local provider relaunch requires a persisted agent-definition directory."
+        )
+
+    manifest = load_brain_manifest(controller.brain_manifest_path)
+    role_package = load_role_package(controller.agent_def_dir, controller.role_name)
+    updated_launch_plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role_package,
+            backend=controller.launch_plan.backend,
+            working_directory=controller.launch_plan.working_directory,
+            mailbox=controller.launch_plan.mailbox,
+            intent="provider_start",
+        )
+    )
+    if controller.job_dir is not None:
+        updated_launch_plan = _launch_plan_with_job_dir(
+            updated_launch_plan,
+            job_dir=controller.job_dir,
+        )
+    return updated_launch_plan
+
+
 def _job_dir_from_manifest_payload(
     *,
-    payload: SessionManifestPayloadV3,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     session_manifest_path: Path,
 ) -> Path:
     """Resolve the persisted or fallback job dir for one manifest payload."""
@@ -1389,14 +2479,20 @@ def _resolve_start_session_identity(
     manifest: dict[str, object],
     tool: str,
     role_name: str,
+    requested_agent_name: str | None = None,
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
+    requested_tmux_session_name: str | None = None,
 ) -> ResolvedRuntimeIdentity:
     """Resolve canonical name, authoritative id, and tmux handle for session start."""
 
     built_identity = _built_manifest_identity(manifest)
     warnings: list[str] = []
 
+    if requested_agent_name is not None and requested_agent_identity is not None:
+        raise SessionManifestError(
+            "start-session does not allow both --agent-name and --agent-identity."
+        )
     if requested_agent_identity is not None and is_path_like_agent_identity(
         requested_agent_identity
     ):
@@ -1404,56 +2500,69 @@ def _resolve_start_session_identity(
             "start-session --agent-identity must be a canonical agent name, not a manifest path."
         )
 
-    if requested_agent_identity is not None:
+    if requested_agent_name is not None:
+        agent_name = normalize_user_managed_agent_name(requested_agent_name)
+        canonical_agent_name = f"{AGENT_NAMESPACE_PREFIX}{agent_name}"
+    elif requested_agent_identity is not None:
         normalized = normalize_agent_identity_name(requested_agent_identity)
+        agent_name = normalized.canonical_name
         canonical_agent_name = normalized.canonical_name
         warnings.extend(normalized.warnings)
     elif built_identity[0] is not None:
-        canonical_agent_name = built_identity[0]
+        agent_name = built_identity[0]
+        canonical_agent_name = _canonical_runtime_agent_name(agent_name)
     else:
         canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
+        agent_name = canonical_agent_name
 
     stripped_requested_agent_id = None
     if requested_agent_id is not None:
-        stripped_requested_agent_id = requested_agent_id.strip()
-        if not stripped_requested_agent_id:
-            raise SessionManifestError("start-session --agent-id must not be blank.")
+        stripped_requested_agent_id = normalize_managed_agent_id(requested_agent_id)
 
     persisted_agent_id = built_identity[1]
     agent_id = (
-        stripped_requested_agent_id
-        or persisted_agent_id
-        or derive_agent_id_from_name(canonical_agent_name)
+        stripped_requested_agent_id or persisted_agent_id or derive_agent_id_from_name(agent_name)
     )
 
     persisted_agent_name = built_identity[0]
     if (
         persisted_agent_id is not None
         and persisted_agent_name is not None
-        and persisted_agent_name != canonical_agent_name
+        and persisted_agent_name != agent_name
     ):
         warnings.append(
             "reusing persisted authoritative agent_id "
-            f"`{persisted_agent_id}` for canonical agent name "
-            f"`{canonical_agent_name}` after build metadata previously named "
+            f"`{persisted_agent_id}` for agent name "
+            f"`{agent_name}` after build metadata previously named "
             f"`{persisted_agent_name}`"
         )
 
-    try:
-        occupied_session_names = list_tmux_sessions_shared()
-    except TmuxCommandError as exc:
-        raise SessionManifestError(
-            "start-session requires `tmux` on PATH for tmux-backed backends."
-        ) from exc
+    stripped_requested_tmux_session_name = (
+        requested_tmux_session_name.strip()
+        if requested_tmux_session_name is not None and requested_tmux_session_name.strip()
+        else None
+    )
+    if stripped_requested_tmux_session_name is not None:
+        resolved_tmux_session_name = stripped_requested_tmux_session_name
+    else:
+        try:
+            occupied_session_names = list_tmux_sessions_shared()
+        except TmuxCommandError as exc:
+            raise SessionManifestError(
+                "start-session requires `tmux` on PATH for tmux-backed backends."
+            ) from exc
+
+        resolved_tmux_session_name = derive_tmux_session_name(
+            canonical_agent_name=canonical_agent_name,
+            launch_epoch_ms=time.time_ns() // 1_000_000,
+            occupied_session_names=occupied_session_names,
+        )
 
     return ResolvedRuntimeIdentity(
+        agent_name=agent_name,
         canonical_agent_name=canonical_agent_name,
         agent_id=agent_id,
-        tmux_session_name=derive_tmux_session_name(
-            canonical_agent_name=canonical_agent_name,
-            agent_id=agent_id,
-            occupied_session_names=occupied_session_names,
-        ),
+        tmux_session_name=resolved_tmux_session_name,
         warnings=tuple(warnings),
     )
 
@@ -1468,12 +2577,12 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
     raw_agent_name = raw_identity.get("canonical_agent_name")
     agent_name = None
     if isinstance(raw_agent_name, str) and raw_agent_name.strip():
-        agent_name = normalize_agent_identity_name(raw_agent_name).canonical_name
+        agent_name = normalize_managed_agent_name(raw_agent_name)
 
     raw_agent_id = raw_identity.get("agent_id")
-    agent_id = (
-        raw_agent_id.strip() if isinstance(raw_agent_id, str) and raw_agent_id.strip() else None
-    )
+    agent_id = None
+    if isinstance(raw_agent_id, str) and raw_agent_id.strip():
+        agent_id = normalize_managed_agent_id(raw_agent_id)
     return agent_name, agent_id
 
 
@@ -1484,6 +2593,15 @@ def _default_canonical_agent_name(*, tool: str, role_name: str) -> str:
         derive_auto_agent_name_base(tool=tool, role_name=role_name)
     )
     return normalized.canonical_name
+
+
+def _canonical_runtime_agent_name(agent_name: str) -> str:
+    """Return the runtime-owned canonical tmux name for one persisted agent name."""
+
+    normalized_name = normalize_managed_agent_name(agent_name)
+    if normalized_name.startswith(AGENT_NAMESPACE_PREFIX):
+        return normalized_name
+    return f"{AGENT_NAMESPACE_PREFIX}{normalized_name}"
 
 
 def _refresh_backend_launch_plan(
@@ -1498,6 +2616,54 @@ def _refresh_backend_launch_plan(
     raise SessionManifestError(
         f"backend={launch_plan.backend!r} does not support mailbox binding refresh."
     )
+
+
+def _preserve_server_managed_headless_gateway_authority(
+    *,
+    manifest_path: Path,
+    backend: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Preserve server-managed headless pair routing when runtime state omits it."""
+
+    if backend not in {"codex_headless", "claude_headless", "gemini_headless"}:
+        return payload
+
+    raw_gateway_authority = payload.get("gateway_authority")
+    if not isinstance(raw_gateway_authority, dict):
+        return payload
+
+    try:
+        existing_handle = load_session_manifest(manifest_path)
+        existing_payload = parse_session_manifest_payload(
+            existing_handle.payload,
+            source=str(existing_handle.path),
+        )
+    except SessionManifestError:
+        return payload
+
+    existing_gateway_authority = existing_payload.gateway_authority
+    if existing_gateway_authority is None:
+        return payload
+
+    merged_gateway_authority = dict(raw_gateway_authority)
+    for endpoint_name in ("attach", "control"):
+        raw_endpoint = merged_gateway_authority.get(endpoint_name)
+        merged_endpoint = dict(raw_endpoint) if isinstance(raw_endpoint, dict) else {}
+        existing_endpoint = getattr(existing_gateway_authority, endpoint_name).model_dump(
+            mode="json"
+        )
+        for field_name in ("api_base_url", "managed_agent_ref"):
+            if (
+                merged_endpoint.get(field_name) is None
+                and existing_endpoint.get(field_name) is not None
+            ):
+                merged_endpoint[field_name] = existing_endpoint[field_name]
+        merged_gateway_authority[endpoint_name] = merged_endpoint
+
+    updated_payload = dict(payload)
+    updated_payload["gateway_authority"] = merged_gateway_authority
+    return updated_payload
 
 
 def _resolve_manifest_path(value: str, *, base: Path) -> Path:
@@ -1899,7 +3065,11 @@ def _validate_resolved_manifest_matches_tmux_session(
         )
 
 
-def _persisted_tmux_session_name(*, payload: SessionManifestPayloadV3, manifest_path: Path) -> str:
+def _persisted_tmux_session_name(
+    *,
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    manifest_path: Path,
+) -> str:
     persisted = payload.tmux_session_name
     if persisted is None or not persisted.strip():
         raise SessionManifestError(
@@ -1947,6 +3117,14 @@ def _build_shared_registry_record_for_controller(
     published_at = datetime.now(UTC)
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
     mailbox = controller.launch_plan.mailbox
+    lease_ttl = (
+        JOINED_REGISTRY_SENTINEL_LEASE_TTL
+        if (
+            controller.agent_launch_authority is not None
+            and controller.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
+        )
+        else DEFAULT_REGISTRY_LEASE_TTL
+    )
 
     gateway_payload = _shared_registry_gateway_payload(controller)
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
@@ -1976,7 +3154,7 @@ def _build_shared_registry_record_for_controller(
         agent_id=agent_id,
         generation_id=generation_id,
         published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
         identity=RegistryIdentityV1(
             backend=controller.launch_plan.backend,
             tool=controller.launch_plan.tool,
@@ -2002,35 +3180,28 @@ def _build_shared_registry_record_for_controller(
 def _shared_registry_gateway_payload(
     controller: RuntimeSessionController,
 ) -> RegistryGatewayV1 | None:
-    """Build stable and live gateway metadata for registry publication."""
+    """Build optional live gateway connect metadata for registry publication."""
 
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
-    if paths is None or not paths.attach_path.is_file():
+    if paths is None:
         return None
-
-    host: str | None = None
-    port: int | None = None
-    state_path: str | None = None
-    protocol_version: GatewayProtocolVersion | None = None
 
     if paths.current_instance_path.is_file():
         try:
             current_instance = load_gateway_current_instance(paths.current_instance_path)
         except SessionManifestError:
             current_instance = None
-        if current_instance is not None:
-            host = current_instance.host
-            port = current_instance.port
-            state_path = str(paths.state_path.resolve())
-            protocol_version = current_instance.protocol_version
+    else:
+        current_instance = None
+
+    if current_instance is None:
+        return None
 
     return RegistryGatewayV1(
-        gateway_root=str(paths.gateway_root.resolve()),
-        attach_path=str(paths.attach_path.resolve()),
-        host=cast(GatewayHost | None, host),
-        port=port,
-        state_path=state_path,
-        protocol_version=protocol_version,
+        host=cast(GatewayHost, current_instance.host),
+        port=current_instance.port,
+        state_path=str(paths.state_path.resolve()),
+        protocol_version=current_instance.protocol_version,
     )
 
 
@@ -2075,6 +3246,7 @@ def _attach_gateway_for_controller(
     *,
     host_override: str | None,
     port_override: int | None,
+    execution_mode_override: GatewayCurrentExecutionMode | None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
 
@@ -2086,6 +3258,8 @@ def _attach_gateway_for_controller(
         Optional CLI host override for the attach action.
     port_override:
         Optional CLI port override for the attach action.
+    execution_mode_override:
+        Optional CLI execution-mode override for the attach action.
 
     Returns
     -------
@@ -2093,18 +3267,14 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    if controller.launch_plan.backend not in {
-        "cao_rest",
-        "houmao_server_rest",
-        "claude_headless",
-        "codex_headless",
-        "gemini_headless",
-    }:
+    if controller.launch_plan.backend not in _GATEWAY_ATTACH_SUPPORTED_BACKENDS:
         paths = _require_gateway_paths_for_controller(controller)
+        supported_backends = ", ".join(
+            repr(backend) for backend in _GATEWAY_ATTACH_SUPPORTED_BACKENDS
+        )
         detail = (
             "Gateway attach is only implemented for runtime-owned tmux-backed backends "
-            "{'cao_rest', 'houmao_server_rest', 'claude_headless', "
-            "'codex_headless', 'gemini_headless'} in v1, got "
+            f"{{{supported_backends}}} in v1, got "
             f"backend={controller.launch_plan.backend!r}."
         )
         return GatewayControlResult(
@@ -2115,7 +3285,7 @@ def _attach_gateway_for_controller(
         )
 
     paths = _require_gateway_paths_for_controller(controller)
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         host, requested_port = _resolve_gateway_listener(
             paths=paths,
@@ -2123,11 +3293,17 @@ def _attach_gateway_for_controller(
             host_override=host_override,
             port_override=port_override,
         )
+        execution_mode = _resolve_gateway_execution_mode(
+            controller=controller,
+            paths=paths,
+            execution_mode_override=execution_mode_override,
+        )
         resolved_port = _start_gateway_process(
             controller=controller,
             paths=paths,
             host=host,
             port=requested_port,
+            execution_mode=execution_mode,
         )
     except (
         GatewayAttachError,
@@ -2180,7 +3356,57 @@ def _detach_gateway_for_controller(controller: RuntimeSessionController) -> Gate
     """
 
     paths = _require_gateway_paths_for_controller(controller)
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
+    try:
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        current_instance = None
+    session_name = controller._require_tmux_session_name()
+    if current_instance is not None and current_instance.execution_mode == "tmux_auxiliary_window":
+        try:
+            was_running = _same_session_gateway_is_alive(
+                session_name=session_name,
+                current_instance=current_instance,
+            )
+        except TmuxCommandError as exc:
+            return GatewayControlResult(
+                status="error",
+                action="gateway_detach",
+                detail=f"Failed to inspect gateway tmux pane state: {exc}",
+                gateway_root=str(paths.gateway_root),
+            )
+        try:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=True,
+            )
+        except GatewayAttachError as exc:
+            return GatewayControlResult(
+                status="error",
+                action="gateway_detach",
+                detail=str(exc),
+                gateway_root=str(paths.gateway_root),
+            )
+        delete_gateway_current_instance(paths)
+        _clear_stale_gateway_runtime_state(
+            controller=controller,
+            paths=paths,
+            attach_contract=attach_contract,
+        )
+        controller.gateway_host = None
+        controller.gateway_port = None
+        return GatewayControlResult(
+            status="ok",
+            action="gateway_detach",
+            detail=(
+                "Detached live gateway instance."
+                if was_running
+                else "Cleared stale or absent live gateway bindings."
+            ),
+            gateway_root=str(paths.gateway_root),
+        )
+
     listener = _live_gateway_listener_from_status(paths)
     pid = read_pid_file(paths.pid_path)
     was_running = pid is not None and is_pid_running(pid)
@@ -2309,7 +3535,30 @@ def _validated_gateway_client_for_controller(
     """
 
     session_name = controller._require_tmux_session_name()
-    attach_contract = load_attach_contract(paths.attach_path)
+    attach_contract = resolve_internal_gateway_attach_contract(paths)
+    try:
+        current_instance = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        current_instance = None
+    if current_instance is not None and current_instance.execution_mode == "tmux_auxiliary_window":
+        try:
+            live_same_session = _same_session_gateway_is_alive(
+                session_name=session_name,
+                current_instance=current_instance,
+            )
+        except TmuxCommandError as exc:
+            raise GatewayDiscoveryError(
+                f"Failed to inspect same-session gateway tmux pane state: {exc}"
+            ) from exc
+        if not live_same_session:
+            _clear_stale_gateway_runtime_state(
+                controller=controller,
+                paths=paths,
+                attach_contract=attach_contract,
+            )
+            raise GatewayNoLiveInstanceError(
+                f"No live gateway is attached for session `{session_name}`."
+            )
     host_value = _read_optional_tmux_session_env_var(
         session_name=session_name,
         variable_name=AGENT_GATEWAY_HOST_ENV_VAR,
@@ -2445,12 +3694,267 @@ def _resolve_gateway_listener(
     return cast(GatewayHost, host_candidate), port_candidate
 
 
+def _resolve_gateway_execution_mode(
+    *,
+    controller: RuntimeSessionController,
+    paths: GatewayPaths,
+    execution_mode_override: GatewayCurrentExecutionMode | None,
+) -> GatewayCurrentExecutionMode:
+    """Resolve the requested gateway execution mode for one attach action."""
+
+    if execution_mode_override is not None:
+        return execution_mode_override
+    desired_config = _load_optional_desired_config(paths)
+    if desired_config is not None:
+        return desired_config.desired_execution_mode
+    return default_gateway_execution_mode_for_backend(controller.launch_plan.backend)
+
+
+def _find_tmux_pane(
+    *,
+    session_name: str,
+    pane_id: str,
+) -> TmuxPaneRecord | None:
+    """Return one tmux pane record by id when present."""
+
+    for pane in list_tmux_panes_shared(session_name=session_name):
+        if pane.pane_id == pane_id:
+            return pane
+    return None
+
+
+def _same_session_gateway_is_alive(
+    *,
+    session_name: str,
+    current_instance: GatewayCurrentInstanceV1,
+) -> bool:
+    """Return whether the recorded same-session gateway pane is still alive."""
+
+    if current_instance.execution_mode != "tmux_auxiliary_window":
+        return True
+    pane_id = current_instance.tmux_pane_id
+    if pane_id is None:
+        return False
+    pane = _find_tmux_pane(session_name=session_name, pane_id=pane_id)
+    if pane is None:
+        return False
+    return not pane.pane_dead
+
+
+def _stop_same_session_gateway_surface(
+    *,
+    session_name: str,
+    current_instance: GatewayCurrentInstanceV1,
+    strict: bool,
+) -> bool:
+    """Stop one recorded same-session gateway tmux surface."""
+
+    if current_instance.execution_mode != "tmux_auxiliary_window":
+        return False
+    window_id = current_instance.tmux_window_id
+    window_index = current_instance.tmux_window_index
+    pane_id = current_instance.tmux_pane_id
+    if window_id is None or pane_id is None:
+        return False
+    if window_index == _PRIMARY_AGENT_WINDOW_INDEX:
+        if strict:
+            raise GatewayAttachError("Refusing to stop the reserved agent window `0`.")
+        return False
+    try:
+        result = run_tmux_shared(["kill-window", "-t", window_id])
+    except TmuxCommandError as exc:
+        if strict:
+            raise GatewayAttachError(
+                f"Failed to stop gateway tmux window `{window_id}`: {exc}"
+            ) from exc
+        return False
+    if result.returncode != 0:
+        detail = tmux_error_detail_shared(result).lower()
+        if (
+            "can't find window" in detail
+            or "can't find pane" in detail
+            or "no server running" in detail
+        ):
+            return False
+        if strict:
+            raise GatewayAttachError(
+                f"Failed to stop gateway tmux window `{window_id}`: "
+                f"{tmux_error_detail_shared(result) or 'unknown tmux error'}"
+            )
+        return False
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if _find_tmux_pane(session_name=session_name, pane_id=pane_id) is None:
+            return True
+        time.sleep(0.1)
+    if strict:
+        raise GatewayAttachError(
+            f"Timed out waiting for gateway tmux pane `{pane_id}` to stop after killing "
+            f"window `{window_id}`."
+        )
+    return False
+
+
+def _same_session_gateway_shell_command(
+    *,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    port: int,
+) -> str:
+    """Return the shell command used to launch a gateway in an auxiliary tmux window."""
+
+    gateway_module = "houmao.agents.realm_controller.gateway_service"
+    exports = (
+        f"export {_GATEWAY_EXECUTION_MODE_ENV_VAR}=tmux_auxiliary_window; "
+        f'export {_GATEWAY_TMUX_PANE_ID_ENV_VAR}="$TMUX_PANE"; '
+        f'export {_GATEWAY_TMUX_WINDOW_ID_ENV_VAR}="$(tmux display-message -p -t '
+        f'"$TMUX_PANE" \'#{{window_id}}\')"; '
+        f'export {_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR}="$(tmux display-message -p -t '
+        f'"$TMUX_PANE" \'#{{window_index}}\')"; '
+        "export PYTHONUNBUFFERED=1; "
+        "set -o pipefail; "
+    )
+    gateway_command = " ".join(
+        shlex.quote(value)
+        for value in (
+            sys.executable,
+            "-m",
+            gateway_module,
+            "--gateway-root",
+            str(paths.gateway_root),
+            "--host",
+            host,
+            "--port",
+            str(port),
+        )
+    )
+    log_target = shlex.quote(str(paths.log_path))
+    return f"{exports}{gateway_command} 2>&1 | tee -a {log_target}; exit ${{PIPESTATUS[0]}}"
+
+
+def _launch_same_session_gateway_window(
+    *,
+    controller: RuntimeSessionController,
+    session_name: str,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    port: int,
+) -> _TmuxAuxiliaryWindowHandle:
+    """Launch one same-session gateway window and return its tmux execution handle."""
+
+    command = _same_session_gateway_shell_command(paths=paths, host=host, port=port)
+    try:
+        result = run_tmux_shared(
+            [
+                "new-window",
+                "-d",
+                "-P",
+                "-F",
+                "#{window_id}\t#{window_index}\t#{pane_id}",
+                "-t",
+                session_name,
+                "-n",
+                _GATEWAY_AUXILIARY_WINDOW_NAME,
+                "-c",
+                str(controller.launch_plan.working_directory),
+                "bash",
+                "-lc",
+                command,
+            ]
+        )
+    except TmuxCommandError as exc:
+        raise GatewayAttachError(f"Failed to create gateway tmux window: {exc}") from exc
+    if result.returncode != 0:
+        raise GatewayAttachError(
+            "Failed to create gateway tmux window: "
+            f"{tmux_error_detail_shared(result) or 'unknown tmux error'}"
+        )
+    parts = (result.stdout or "").strip().split("\t")
+    if len(parts) != 3:
+        raise GatewayAttachError(
+            f"Unexpected tmux new-window output while launching gateway: {result.stdout!r}"
+        )
+    handle = _TmuxAuxiliaryWindowHandle(
+        window_id=parts[0],
+        window_index=parts[1],
+        pane_id=parts[2],
+    )
+    if handle.window_index == _PRIMARY_AGENT_WINDOW_INDEX:
+        raise GatewayAttachError("Gateway auxiliary window unexpectedly used reserved window `0`.")
+    return handle
+
+
+def _wait_for_same_session_gateway_endpoint(
+    *,
+    session_name: str,
+    handle: _TmuxAuxiliaryWindowHandle,
+    paths: GatewayPaths,
+    host: GatewayHost,
+    requested_port: int,
+    deadline: float,
+) -> GatewayEndpoint:
+    """Wait until the tmux-hosted gateway publishes its live execution state."""
+
+    observed_pane = False
+    while time.monotonic() < deadline:
+        pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
+        if pane is None:
+            if observed_pane:
+                raise GatewayAttachError(
+                    _gateway_process_start_failure_detail(
+                        log_path=paths.log_path,
+                        host=host,
+                        port=requested_port,
+                    )
+                )
+        elif pane.pane_dead:
+            raise GatewayAttachError(
+                _gateway_process_start_failure_detail(
+                    log_path=paths.log_path,
+                    host=host,
+                    port=requested_port,
+                )
+            )
+        else:
+            observed_pane = True
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            time.sleep(0.1)
+            continue
+        if current_instance.execution_mode != "tmux_auxiliary_window":
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_window_id != handle.window_id:
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_window_index != handle.window_index:
+            time.sleep(0.1)
+            continue
+        if current_instance.tmux_pane_id != handle.pane_id:
+            time.sleep(0.1)
+            continue
+        if requested_port not in {0, current_instance.port}:
+            raise GatewayAttachError(
+                "Gateway startup published a listener port that does not match the "
+                f"requested port {requested_port}."
+            )
+        return GatewayEndpoint(host=host, port=current_instance.port)
+    if requested_port == 0:
+        raise GatewayAttachError("Timed out waiting for gateway startup to publish its bound port.")
+    raise GatewayAttachError(
+        f"Timed out waiting for gateway startup to publish listener {host}:{requested_port}."
+    )
+
+
 def _start_gateway_process(
     *,
     controller: RuntimeSessionController,
     paths: GatewayPaths,
     host: GatewayHost,
     port: int,
+    execution_mode: GatewayCurrentExecutionMode,
 ) -> int:
     """Launch the gateway subprocess and wait for health readiness.
 
@@ -2465,6 +3969,8 @@ def _start_gateway_process(
     port:
         Requested listener port. A value of `0` delegates port assignment to
         the gateway bind step.
+    execution_mode:
+        Execution mode requested for the live gateway instance.
 
     Returns
     -------
@@ -2473,6 +3979,100 @@ def _start_gateway_process(
     """
 
     session_name = controller._require_tmux_session_name()
+    if execution_mode == "tmux_auxiliary_window":
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            current_instance = None
+        if current_instance is not None:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=False,
+            )
+        handle = _launch_same_session_gateway_window(
+            controller=controller,
+            session_name=session_name,
+            paths=paths,
+            host=host,
+            port=port,
+        )
+        deadline = time.monotonic() + 10.0
+        observed_pane = False
+        try:
+            endpoint = _wait_for_same_session_gateway_endpoint(
+                session_name=session_name,
+                handle=handle,
+                paths=paths,
+                host=host,
+                requested_port=port,
+                deadline=deadline,
+            )
+            client = GatewayClient(endpoint=endpoint)
+            while time.monotonic() < deadline:
+                pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
+                if pane is None:
+                    if observed_pane:
+                        raise GatewayAttachError(
+                            _gateway_process_start_failure_detail(
+                                log_path=paths.log_path,
+                                host=host,
+                                port=port,
+                            )
+                        )
+                elif pane.pane_dead:
+                    raise GatewayAttachError(
+                        _gateway_process_start_failure_detail(
+                            log_path=paths.log_path,
+                            host=host,
+                            port=port,
+                        )
+                    )
+                else:
+                    observed_pane = True
+                try:
+                    health = client.health()
+                except GatewayHttpError:
+                    time.sleep(0.1)
+                    continue
+                if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
+                    raise GatewayProtocolError(
+                        f"Gateway health returned incompatible protocol version "
+                        f"{health.protocol_version!r}."
+                    )
+                write_gateway_desired_config(
+                    paths.desired_config_path,
+                    GatewayDesiredConfigV1(
+                        desired_host=host,
+                        desired_port=endpoint.port,
+                        desired_execution_mode=execution_mode,
+                    ),
+                )
+                refresh_internal_gateway_publication(paths)
+                publish_live_gateway_env(
+                    session_name=session_name,
+                    live_bindings=build_live_gateway_bindings(
+                        host=host,
+                        port=endpoint.port,
+                        state_path=paths.state_path,
+                    ),
+                    set_env=set_tmux_session_environment_shared,
+                )
+                return endpoint.port
+            raise GatewayAttachError(
+                f"Timed out waiting for gateway health readiness on {host}:{endpoint.port}."
+            )
+        except Exception:
+            try:
+                _stop_same_session_gateway_surface(
+                    session_name=session_name,
+                    current_instance=load_gateway_current_instance(paths.current_instance_path),
+                    strict=False,
+                )
+            except SessionManifestError:
+                pass
+            raise
+
     log_stream = paths.log_path.open("a", encoding="utf-8")
     process = subprocess.Popen(
         [
@@ -2527,14 +4127,10 @@ def _start_gateway_process(
                 GatewayDesiredConfigV1(
                     desired_host=host,
                     desired_port=endpoint.port,
+                    desired_execution_mode=execution_mode,
                 ),
             )
-            write_attach_contract(
-                paths.attach_path,
-                load_attach_contract(paths.attach_path).model_copy(
-                    update={"desired_host": host, "desired_port": endpoint.port}
-                ),
-            )
+            refresh_internal_gateway_publication(paths)
             publish_live_gateway_env(
                 session_name=session_name,
                 live_bindings=build_live_gateway_bindings(
@@ -2644,12 +4240,23 @@ def _clear_stale_gateway_runtime_state(
             )
         except TmuxCommandError:
             pass
+        try:
+            current_instance = load_gateway_current_instance(paths.current_instance_path)
+        except SessionManifestError:
+            current_instance = None
+        if current_instance is not None:
+            _stop_same_session_gateway_surface(
+                session_name=session_name,
+                current_instance=current_instance,
+                strict=False,
+            )
     delete_gateway_current_instance(paths)
     existing_epoch = 0
     try:
         existing_status = load_gateway_status(paths.state_path)
     except SessionManifestError:
         existing_status = None
+    desired_config = _load_optional_desired_config(paths)
     if existing_status is not None:
         existing_epoch = existing_status.managed_agent_instance_epoch
     write_gateway_status(
@@ -2657,8 +4264,10 @@ def _clear_stale_gateway_runtime_state(
         build_offline_gateway_status(
             attach_contract=attach_contract,
             managed_agent_instance_epoch=existing_epoch,
+            desired_config=desired_config,
         ),
     )
+    refresh_gateway_manifest_publication(paths)
 
 
 def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1 | None:

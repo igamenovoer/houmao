@@ -1,6 +1,6 @@
 # System Files Reference
 
-This subtree is the centralized reference for filesystem paths that Houmao creates, selects, or relies on during normal runtime, registry, and CAO-launcher lifecycles.
+This subtree is the centralized reference for filesystem paths that Houmao creates, selects, or relies on during normal runtime, registry, and server lifecycles.
 
 Use it when you need to answer questions like:
 
@@ -55,8 +55,8 @@ Representative launcher-owned layout:
 
 - [Roots And Ownership](roots-and-ownership.md): Default roots, override precedence, ownership categories, and the mailbox boundary.
 - [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime session roots, nested gateway files, and workspace-local job directories.
-- [CAO Server](cao-server.md): Launcher-owned artifacts, derived CAO home placement, and the Houmao-owned versus CAO-owned boundary.
-- [Houmao Server](houmao-server.md): Server-owned listener roots, hidden child-CAO storage, registration bridges, and memory-primary live tracking.
+- [Legacy CAO Server](cao-server.md): Historical reference for the retired standalone CAO launcher layout.
+- [Houmao Server](houmao-server.md): Server-owned listener roots, registration bridges, and memory-primary live tracking.
 - [Shared Registry](shared-registry.md): Registry root placement, `live_agents/<agent-id>/record.json`, and the registry’s pointer-oriented scope.
 - [Operator Preparation](operator-preparation.md): Pre-creation, permissions, redirection surfaces, ignore rules, and cleanup expectations.
 
@@ -65,8 +65,7 @@ Representative launcher-owned layout:
 - [Runtime-Managed Agents Reference](../agents/index.md): Session lifecycle, targeting, and recovery behavior.
 - [Shared Registry Reference](../registry/index.md): Registry semantics, discovery, and cleanup behavior.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol, queue behavior, and lifecycle handling.
-- [CAO Server Launcher](../cao_server_launcher.md): Launcher CLI, health semantics, and proxy policy.
-- [Houmao Server Pair](../houmao_server_pair.md): Supported pair boundary, backend identity, and migration direction.
+- [Houmao Server Pair](../houmao_server_pair.md): Supported pair boundary and backend identity.
 
 ## Source References
 

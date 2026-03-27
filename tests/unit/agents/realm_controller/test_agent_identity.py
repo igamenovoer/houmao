@@ -8,6 +8,7 @@ from houmao.agents.realm_controller.agent_identity import (
     derive_tmux_session_name,
     is_path_like_agent_identity,
     normalize_agent_identity_name,
+    normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 
@@ -64,41 +65,31 @@ def test_agentsys_substring_inside_alnum_run_is_allowed(value: str) -> None:
     assert normalized.canonical_name == f"AGENTSYS-{value}"
 
 
-def test_derive_tmux_session_name_uses_default_agent_id_prefix_length() -> None:
+@pytest.mark.parametrize("value", ["AGENTSYS-gpu", "agentsys-gpu", "AGENTSYS_gpu"])
+def test_normalize_user_managed_agent_name_rejects_reserved_leading_namespace(value: str) -> None:
+    with pytest.raises(SessionManifestError, match="raw creation-time name"):
+        normalize_user_managed_agent_name(value)
+
+
+@pytest.mark.parametrize("value", ["AGENT-SYS-gpu", "gpu-AGENTSYS", "AGENTSYS123"])
+def test_normalize_user_managed_agent_name_allows_non_reserved_occurrences(value: str) -> None:
+    assert normalize_user_managed_agent_name(value) == value
+
+
+def test_derive_tmux_session_name_uses_canonical_name_plus_epoch_milliseconds() -> None:
     assert (
         derive_tmux_session_name(
             canonical_agent_name="AGENTSYS-gpu",
-            agent_id="270b8738f2f97092e572b73d19e6f923",
+            launch_epoch_ms=1760000123456,
         )
-        == "AGENTSYS-gpu-270b87"
+        == "AGENTSYS-gpu-1760000123456"
     )
 
 
-def test_derive_tmux_session_name_extends_prefix_until_unique() -> None:
-    assert (
+def test_derive_tmux_session_name_fails_explicitly_on_generated_name_conflict() -> None:
+    with pytest.raises(SessionManifestError, match="already in use"):
         derive_tmux_session_name(
             canonical_agent_name="AGENTSYS-gpu",
-            agent_id="270b8738f2f97092e572b73d19e6f923",
-            occupied_session_names={"AGENTSYS-gpu-270b87"},
-        )
-        == "AGENTSYS-gpu-270b873"
-    )
-
-
-def test_derive_tmux_session_name_uses_explicit_agent_id_override() -> None:
-    assert (
-        derive_tmux_session_name(
-            canonical_agent_name="AGENTSYS-gpu",
-            agent_id="deadbeefcafefeed",
-        )
-        == "AGENTSYS-gpu-deadbe"
-    )
-
-
-def test_derive_tmux_session_name_fails_when_full_agent_id_still_collides() -> None:
-    with pytest.raises(SessionManifestError, match="Failed to derive a unique tmux session name"):
-        derive_tmux_session_name(
-            canonical_agent_name="AGENTSYS-gpu",
-            agent_id="deadbe",
-            occupied_session_names={"AGENTSYS-gpu-deadbe"},
+            launch_epoch_ms=1760000123456,
+            occupied_session_names={"AGENTSYS-gpu-1760000123456"},
         )

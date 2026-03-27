@@ -151,10 +151,10 @@ These two concepts should remain distinguishable in code, UI, and docs.
 
 ## Likely Touch Points
 
-- `src/houmao/demo/cao_dual_shadow_watch/monitor.py`
-- `src/houmao/demo/cao_dual_shadow_watch/models.py`
-- `src/houmao/demo/cao_dual_shadow_watch/driver.py`
-- `scripts/demo/cao-dual-shadow-watch/run_demo.sh`
+- `src/houmao/demo/houmao_server_dual_shadow_watch/driver.py`
+- `src/houmao/demo/houmao_server_dual_shadow_watch/models.py`
+- `scripts/demo/houmao-server-dual-shadow-watch/scripts/watch_dashboard.py`
+- `scripts/demo/houmao-server-dual-shadow-watch/run_demo.sh`
 - docs for shadow monitoring and troubleshooting
 
 ## Non-Goals

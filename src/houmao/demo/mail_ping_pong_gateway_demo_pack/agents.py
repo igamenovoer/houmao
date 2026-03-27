@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Literal, Mapping
 
 from houmao.agents.brain_builder import (
     BuildRequest,
@@ -39,6 +39,7 @@ from .models import (
 )
 
 GitRunner = Callable[[list[str], Path, dict[str, str] | None], subprocess.CompletedProcess[str]]
+ParticipantRole = Literal["initiator", "responder"]
 
 
 class DemoAgentError(RuntimeError):
@@ -101,9 +102,8 @@ def expose_runtime_skills_in_project(
 ) -> None:
     """Stage mailbox skill docs in the demo project workdir.
 
-    Codex may rewrite `CODEX_HOME/skills/.system` during bootstrap, so the demo
-    keeps project-local mailbox skill copies at both `skills/.system/mailbox/...`
-    and `skills/mailbox/...` instead of relying on a live symlink into the
+    The demo keeps a project-local visible mailbox skill tree under
+    `skills/mailbox/...` instead of relying on a live symlink into the
     runtime home.
     """
 
@@ -114,7 +114,7 @@ def expose_runtime_skills_in_project(
         )
     skills_target.mkdir(parents=True, exist_ok=True)
 
-    runtime_mailbox_source = build_result.home_path / "skills" / ".system" / "mailbox"
+    runtime_mailbox_source = build_result.home_path / "skills" / "mailbox"
     if runtime_mailbox_source.is_dir():
         _stage_project_mailbox_skill_tree(
             source_root=runtime_mailbox_source,
@@ -123,19 +123,14 @@ def expose_runtime_skills_in_project(
         return
 
     project_runtime_mailbox_system_skills(skills_target)
-    _stage_project_mailbox_skill_tree(
-        source_root=skills_target / ".system" / "mailbox",
-        skills_target=skills_target,
-    )
 
 
 def _stage_project_mailbox_skill_tree(*, source_root: Path, skills_target: Path) -> None:
-    """Copy one mailbox skill tree into both hidden and visible project paths."""
+    """Copy one mailbox skill tree into the visible project mailbox path."""
 
-    hidden_target = skills_target / ".system" / "mailbox"
     visible_target = skills_target / "mailbox"
-    if source_root.resolve() != hidden_target.resolve():
-        shutil.copytree(source_root, hidden_target, dirs_exist_ok=True)
+    if source_root.resolve() == visible_target.resolve():
+        return
     shutil.copytree(source_root, visible_target, dirs_exist_ok=True)
 
 
@@ -147,7 +142,7 @@ def launch_participant(
     participant: ParticipantParameters,
     build_result: BuildResult,
     working_directory: Path,
-    role: str,
+    role: ParticipantRole,
 ) -> ParticipantState:
     """Launch one managed headless participant through `houmao-server`."""
 

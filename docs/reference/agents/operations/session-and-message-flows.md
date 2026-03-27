@@ -60,11 +60,11 @@ Use for a normal conversational turn.
 
 ### `send-keys`
 
-Use for raw control input into resumed CAO sessions.
+Use for raw control input into resumed sessions (currently limited to `cao_rest` backend).
 
 - Returns after input delivery, not after turn completion.
 - Designed for slash-command menus, arrow navigation, partial typing, `Escape`, and explicit control keys.
-- The current implementation keeps this path CAO-only.
+- The current implementation keeps this path limited to the legacy `cao_rest` backend.
 
 ### `mail`
 
@@ -120,7 +120,7 @@ pixi run python -m houmao.agents.realm_controller start-session \
   --agent-def-dir tests/fixtures/agents \
   --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
-  --backend cao_rest \
+  --backend local_interactive \
   --agent-identity gpu
 ```
 
@@ -157,7 +157,7 @@ pixi run python -m houmao.agents.realm_controller gateway-send-prompt \
 
 ## Troubleshooting
 
-- [Troubleshooting Codex CAO Approval Prompts](../troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Use this when a CAO-backed Codex session starts normally but a later prompt turn stops on an approval or sandbox menu instead of completing the requested work.
+- [Troubleshooting Codex Approval Prompts (Legacy)](../troubleshoot/codex-cao-approval-prompt-troubleshooting.md): Use this when a `cao_rest`-backed Codex session starts normally but a later prompt turn stops on an approval or sandbox menu instead of completing the requested work.
 
 ## Source References
 

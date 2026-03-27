@@ -18,7 +18,7 @@ This directory now has two roles:
 - [docs/developer/tui-parsing/codex-signals.md](../../../../../docs/developer/tui-parsing/codex-signals.md): parallel Codex signal reference for the maintained tracked-TUI workflow
 - [docs/developer/tui-parsing/runtime-lifecycle.md](../../../../../docs/developer/tui-parsing/runtime-lifecycle.md): runtime lifecycle semantics above provider parsing
 - [scripts/demo/shared-tui-tracking-demo-pack/README.md](../../../../../scripts/demo/shared-tui-tracking-demo-pack/README.md): maintained real-fixture authoring and validation workflow
-- [20260323-124129.md](../../../../../context/logs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md): session log with the concrete Claude/Codex signals observed while tightening the complex lifecycle gate
+- [20260323-124129.md](../../../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md): session log with the concrete Claude/Codex signals observed while tightening the complex lifecycle gate
 
 ## Recommended Reading Order
 

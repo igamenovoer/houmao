@@ -1,4 +1,0 @@
-Give exactly one short greeting sentence that includes the word "runtime".
-Put only that sentence between these exact sentinel lines:
-AGENTSYS_DEMO_RESPONSE_BEGIN
-AGENTSYS_DEMO_RESPONSE_END

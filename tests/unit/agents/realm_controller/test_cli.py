@@ -10,32 +10,7 @@ from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.models import SessionControlResult
 
 
-def test_start_session_outputs_canonical_agent_identity_for_cao(
-    monkeypatch,
-    capsys,
-    tmp_path: Path,
-) -> None:
-    manifest_path = tmp_path / "session.json"
-    manifest_path.write_text("{}", encoding="utf-8")
-
-    def _fake_start_runtime_session(**kwargs: object) -> object:
-        return SimpleNamespace(
-            manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="cao_rest", tool="codex"),
-            agent_identity="AGENTSYS-gpu",
-            agent_id="agent-123",
-            tmux_session_name="houmao-session-1",
-            job_dir=tmp_path / "job-123",
-            agent_identity_warnings=("prefix warning",),
-            startup_warnings=("cleanup warning",),
-            parsing_mode="cao_only",
-        )
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.start_runtime_session",
-        _fake_start_runtime_session,
-    )
-
+def test_start_session_rejects_retired_raw_cao_backend(capsys) -> None:
     exit_code = cli.main(
         [
             "start-session",
@@ -50,35 +25,21 @@ def test_start_session_outputs_canonical_agent_identity_for_cao(
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == 2
     captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-    assert payload["agent_identity"] == "AGENTSYS-gpu"
-    assert payload["agent_name"] == "AGENTSYS-gpu"
-    assert payload["agent_id"] == "agent-123"
-    assert payload["tmux_session_name"] == "houmao-session-1"
-    assert payload["job_dir"] == str((tmp_path / "job-123"))
-    assert payload["parsing_mode"] == "cao_only"
-    assert payload["session_manifest"] == str(manifest_path)
-    assert "warning: prefix warning" in captured.err
-    assert "warning: cleanup warning" in captured.err
+    assert captured.out == ""
+    assert "Standalone backend='cao_rest' operator workflows are retired" in captured.err
 
 
-def test_start_session_forwards_cao_parsing_mode_override(monkeypatch, tmp_path: Path) -> None:
-    manifest_path = tmp_path / "session.json"
-    manifest_path.write_text("{}", encoding="utf-8")
-    captured_kwargs: dict[str, object] = {}
+def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
+    monkeypatch,
+    capsys,
+) -> None:
+    captured_calls: list[dict[str, object]] = []
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
-        captured_kwargs.update(kwargs)
-        return SimpleNamespace(
-            manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="cao_rest", tool="codex"),
-            agent_identity="AGENTSYS-gpu",
-            agent_identity_warnings=(),
-            startup_warnings=(),
-            parsing_mode="shadow_only",
-        )
+        captured_calls.append(kwargs)
+        raise AssertionError("start_runtime_session should not run for retired cao_rest")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.start_runtime_session",
@@ -99,8 +60,9 @@ def test_start_session_forwards_cao_parsing_mode_override(monkeypatch, tmp_path:
         ]
     )
 
-    assert exit_code == 0
-    assert captured_kwargs["cao_parsing_mode"] == "shadow_only"
+    assert exit_code == 2
+    assert captured_calls == []
+    assert "retired" in capsys.readouterr().err
 
 
 def test_start_session_forwards_mailbox_overrides(monkeypatch, tmp_path: Path) -> None:

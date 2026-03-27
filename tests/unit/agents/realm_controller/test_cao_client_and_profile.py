@@ -353,6 +353,96 @@ def test_cao_rest_client_request_shapes(monkeypatch: pytest.MonkeyPatch) -> None
     assert payloads == [None, None, None, None, None, None]
 
 
+def test_cao_rest_client_default_create_operations_use_split_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, str, float]] = []
+
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        captured.append((req.get_method(), req.full_url, float(timeout)))
+        if req.full_url.endswith("/health"):
+            return _FakeResponse(
+                status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"}
+            )
+        return _FakeResponse(
+            status=200,
+            payload={
+                "id": "a1b2c3d4",
+                "name": "developer-1",
+                "provider": "codex",
+                "session_name": "cao-gpu",
+                "agent_profile": "role_profile",
+                "status": "idle",
+            },
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient("http://127.0.0.1:9991")
+
+    client.health()
+    client.create_session(provider="codex", agent_profile="role_profile")
+    client.create_terminal("cao-gpu", provider="codex", agent_profile="role_profile")
+
+    assert captured == [
+        ("GET", "http://127.0.0.1:9991/health", 15.0),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions?provider=codex&agent_profile=role_profile",
+            75.0,
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions/cao-gpu/terminals?provider=codex&agent_profile=role_profile",
+            75.0,
+        ),
+    ]
+
+
+def test_cao_rest_client_explicit_timeout_override_leaves_lightweight_requests_narrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, str, float]] = []
+
+    def _fake_urlopen(req, timeout=0):  # type: ignore[no-untyped-def]
+        captured.append((req.get_method(), req.full_url, float(timeout)))
+        if req.full_url.endswith("/health"):
+            return _FakeResponse(
+                status=200, payload={"status": "ok", "service": "cli-agent-orchestrator"}
+            )
+        return _FakeResponse(
+            status=200,
+            payload={
+                "id": "a1b2c3d4",
+                "name": "developer-1",
+                "provider": "codex",
+                "session_name": "cao-gpu",
+                "agent_profile": "role_profile",
+                "status": "idle",
+            },
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = CaoRestClient(
+        "http://127.0.0.1:9991",
+        timeout_seconds=5.0,
+        create_timeout_seconds=90.0,
+    )
+
+    client.health()
+    client.create_session(provider="codex", agent_profile="role_profile")
+
+    assert captured == [
+        ("GET", "http://127.0.0.1:9991/health", 5.0),
+        (
+            "POST",
+            "http://127.0.0.1:9991/sessions?provider=codex&agent_profile=role_profile",
+            90.0,
+        ),
+    ]
+
+
 def test_cao_rest_client_injects_loopback_no_proxy_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1237,6 +1327,37 @@ def test_cao_backend_startup_warns_when_terminal_window_name_never_resolves(
     warning = session.startup_warnings[0]
     assert "Unable to resolve CAO terminal tmux window" in warning
     assert "after 3 attempts" in warning
+
+
+def test_houmao_server_control_input_targets_reserved_window_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_session = object.__new__(CaoRestSession)
+    fake_session.backend = "houmao_server_rest"
+    fake_session._session_name = "AGENTSYS-gpu"
+    fake_session._tmux_window_name = "developer-1"
+
+    monkeypatch.setattr(
+        cao_rest_backend,
+        "_resolve_tmux_window_by_index",
+        lambda **kwargs: SimpleNamespace(
+            window_id="@1",
+            window_index="0",
+            window_name="developer-1",
+        ),
+    )
+    monkeypatch.setattr(
+        cao_rest_backend,
+        "_resolve_tmux_window_by_name",
+        lambda **kwargs: pytest.fail(
+            "houmao_server_rest should not fall back to window-name targeting"
+        ),
+    )
+
+    resolved = CaoRestSession._resolve_control_input_tmux_window(fake_session)
+
+    assert resolved.window_id == "@1"
+    assert resolved.window_index == "0"
 
 
 def test_cao_backend_resume_uses_existing_state(tmp_path: Path) -> None:

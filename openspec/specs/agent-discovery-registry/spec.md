@@ -70,58 +70,72 @@ Legacy registry directories keyed by the retired `agent_key` are not part of a c
 - **AND THEN** it continues to publish into `~/.houmao/registry/live_agents/abc123/record.json`
 
 ### Requirement: Shared registry records are strict, secret-free contracts that point to runtime-owned state
+
 Each shared-registry `record.json` SHALL use one strict versioned schema.
 
 That record schema SHALL include at minimum:
-- an explicit top-level `schema_version` field set to `2` for v2 records,
-- the globally unique `agent_name`,
-- the authoritative `agent_id`,
-- a stable-per-live-session `generation_id` that is reused across refreshes and resume-driven republishes of the same live session,
-- top-level `published_at` and `lease_expires_at` timestamps,
-- top-level `identity`, `runtime`, and `terminal` objects containing metadata sufficient to recognize the published agent and locate its runtime-owned artifacts,
-- a top-level `gateway` object when stable or live gateway metadata is available,
-- a top-level `mailbox` object when mailbox bindings are available.
+- an explicit top-level `schema_version` field set to `2` for v2 records
+- the friendly `agent_name`
+- the authoritative globally unique `agent_id`
+- a stable-per-live-session `generation_id` that is reused across refreshes and resume-driven republishes of the same live session
+- top-level `published_at` and `lease_expires_at` timestamps
+- top-level `identity`, `runtime`, and `terminal` objects containing metadata sufficient to recognize the published agent and locate its runtime-owned artifacts
+- a top-level `gateway` object only when externally useful live gateway metadata is available
+- a top-level `mailbox` object when mailbox bindings are available
+
+The record schema SHALL treat `agent_name` as friendly metadata rather than as a global uniqueness guarantee.
+
+The record's `runtime` metadata SHALL include the manifest path required to locate runtime-owned session authority for that live session.
 
 When mailbox bindings are available for the published session, the record SHALL publish mailbox identity metadata such as the active principal id and full mailbox address.
 
 When a live gateway is attached, the record MAY publish exact live gateway connect metadata such as a loopback connect URL and protocol version.
 
-Registry records MUST NOT embed copied session manifests, gateway queue state, mailbox contents, or secrets.
+Registry records MUST NOT embed copied session manifests, gateway queue state, mailbox contents, secrets, relaunch helper scripts, copied credentials, stable gateway roots, or stable gateway attach-path pointers as part of the required contract.
 
 #### Scenario: Registry record publishes runtime pointers without copying runtime payloads
+
 - **WHEN** the system publishes a shared-registry record for a runtime-managed session
-- **THEN** the record includes secret-free pointers such as the manifest path, runtime session root, and gateway attach path when available
+- **THEN** the record includes secret-free pointers such as the manifest path and runtime session root
 - **AND THEN** the record does not embed the full `manifest.json` payload, mailbox message content, or gateway durable queue data
 
 #### Scenario: Detached session omits live gateway connect metadata
+
 - **WHEN** a gateway-capable session has no live gateway currently attached
-- **THEN** the shared-registry record may still publish stable gateway pointers such as the attach-contract path
+- **THEN** the shared-registry record may still publish the runtime manifest locator for that session
 - **AND THEN** the record omits live gateway connect metadata that would imply an active listener exists
 
 #### Scenario: Refresh keeps the same generation for the same live session
+
 - **WHEN** the same live session republishes or refreshes its shared-registry record
 - **THEN** the record keeps the same `generation_id` as earlier publications for that session
 - **AND THEN** later resume-driven publication of that same live session does not manufacture a replacement generation
 
 ### Requirement: Shared-registry records persist authoritative agent identity rather than registry-specific agent keys
-Each shared-registry `record.json` SHALL persist both the canonical agent name and the authoritative `agent_id`.
+
+Each shared-registry `record.json` SHALL persist both the friendly `agent_name` and the authoritative globally unique `agent_id`.
 
 The registry record schema for this capability SHALL replace the registry-specific `agent_key` field with authoritative `agent_id`.
 
-The registry record SHALL continue to include the live terminal session metadata needed to locate the running session, but that terminal session name SHALL NOT be treated as the canonical agent name by contract.
+The registry record SHALL continue to include the live terminal session metadata needed to locate the running session, but that terminal session name SHALL NOT be treated as authoritative managed-agent identity by contract.
 
-#### Scenario: Shared-registry record persists both human-facing and authoritative identity fields
+The registry SHALL treat `agent_name` as user-facing lookup metadata and SHALL NOT require it to be unique across fresh live records.
+
+#### Scenario: Shared-registry record persists both friendly and authoritative identity fields
+
 - **WHEN** the system publishes a live shared-registry record for one agent
-- **THEN** that `record.json` persists both canonical `agent_name` and authoritative `agent_id`
-- **AND THEN** consumers can answer both “what is this agent called?” and “which exact agent identity is up?” from the same record
+- **THEN** that `record.json` persists both friendly `agent_name` and authoritative `agent_id`
+- **AND THEN** consumers can answer both “what is this agent called?” and “which exact globally unique agent identity is up?” from the same record
 
 #### Scenario: Shared-registry terminal session metadata is not the source of truth for agent identity
+
 - **WHEN** a published live record includes terminal session name `houmao-session-abc123`
-- **AND WHEN** that same record persists canonical agent name `AGENTSYS-gpu`
-- **THEN** consumers treat `AGENTSYS-gpu` and the record's `agent_id` as the authoritative agent identity metadata
-- **AND THEN** they do not assume `houmao-session-abc123` itself is the canonical agent name
+- **AND WHEN** that same record persists friendly agent name `gpu`
+- **THEN** consumers treat `agent_id` as authoritative identity and `gpu` as friendly managed-agent metadata
+- **AND THEN** they do not assume `houmao-session-abc123` itself is managed-agent identity
 
 #### Scenario: Legacy agent-key directories are ignored after cutover
+
 - **WHEN** a registry root still contains an old `live_agents/<agent-key>/` directory from before the `agent_id` cutover
 - **AND WHEN** the runtime or registry reader is operating under the new `agent_id`-based contract
 - **THEN** that old directory is not part of a required lookup or migration path
@@ -147,63 +161,84 @@ Shared-registry records SHALL persist the canonical reserved-prefix form in `age
 - **AND THEN** it does not create a second logical identity distinct from input `gpu`
 
 ### Requirement: Shared registry publication is atomic and lease-based
+
 The system SHALL publish shared-registry updates by writing a temporary file in the target live-agent directory and atomically replacing `record.json`.
 
 Published records SHALL use a default 24-hour lease TTL in v1.
 
 Readers SHALL treat lease freshness rather than directory existence as the liveness signal for a published live agent.
 
-If a publisher stops unexpectedly, the system MAY leave the hashed live-agent directory behind, but readers SHALL treat records whose lease has expired as stale.
+If a publisher stops unexpectedly, the system MAY leave the live-agent directory behind, but readers SHALL treat records whose lease has expired as stale.
 
-If a publisher attempts to claim an agent name whose record is still fresh for a different `generation_id`, the system SHALL reject that publication or otherwise prevent both generations from being treated as concurrently live for the same agent name.
+If a publisher attempts to refresh or replace a live record for the same authoritative `agent_id` but a different fresh `generation_id`, the system SHALL reject that publication or otherwise prevent both generations from being treated as the same live identity concurrently.
 
-V1 SHALL tolerate the narrow compare-then-replace race window created by lock-free filesystem publication, but a publisher that later observes a different fresh `generation_id` owning the same canonical `agent_name` SHALL surface that conflict and stand down from claiming shared-registry ownership for that name.
+The registry SHALL allow different fresh live records to share the same `agent_name` so long as they carry different authoritative `agent_id` values.
+
+V1 SHALL tolerate the narrow compare-then-replace race window created by lock-free filesystem publication, but a publisher that later observes a different fresh `generation_id` owning the same authoritative `agent_id` SHALL surface that conflict and stand down from claiming shared-registry ownership for that id.
 
 #### Scenario: Readers ignore an expired record
+
 - **WHEN** a shared-registry record still exists on disk
 - **AND WHEN** its lease has expired
 - **THEN** shared-registry resolution treats that record as stale rather than live
 - **AND THEN** the lingering live-agent directory does not by itself make the agent discoverable
 
-#### Scenario: Fresh duplicate publication for one agent name is rejected
-- **WHEN** one publisher attempts to publish `agent_name=AGENTSYS-gpu`
-- **AND WHEN** a different fresh registry record already exists for `AGENTSYS-gpu` with a different `generation_id`
-- **THEN** the system rejects the second publication or forces that publisher to stand down
-- **AND THEN** readers are not presented with two simultaneously live records for the same agent name
+#### Scenario: Same friendly name may appear on different live identities
 
-#### Scenario: Losing publisher stands down after detecting a conflicting fresh generation
-- **WHEN** two publishers race for the same canonical `agent_name`
-- **AND WHEN** one publisher later refreshes and discovers that a different fresh `generation_id` now owns that same `agent_name`
-- **THEN** that publisher surfaces an explicit conflict and stops claiming shared-registry ownership for that name
-- **AND THEN** the conflict is not normalized as healthy steady-state discovery
+- **WHEN** two fresh live registry records share `agent_name = "gpu"`
+- **AND WHEN** those records carry different authoritative ids such as `abc123` and `def456`
+- **THEN** the registry allows both records to remain published concurrently
+- **AND THEN** callers must disambiguate by `agent_id` or another explicit metadata surface
+
+#### Scenario: Fresh duplicate publication for one authoritative agent id is rejected
+
+- **WHEN** one publisher attempts to publish `agent_id=abc123`
+- **AND WHEN** a different fresh registry record already exists for `agent_id=abc123` with a different `generation_id`
+- **THEN** the system rejects the second publication or forces that publisher to stand down
+- **AND THEN** readers are not presented with two simultaneously live records for the same authoritative identity
 
 ### Requirement: Shared registry resolves live agents primarily by authoritative agent id
+
 The system SHALL support direct resolution of a published live agent by authoritative `agent_id`.
 
-When a caller resolves a live agent by canonical agent name instead of `agent_id`, the system SHALL consult persisted registry metadata rather than deriving the lookup path from canonical name alone.
+When a caller resolves a live agent by friendly `agent_name` instead of `agent_id`, the system SHALL consult persisted registry metadata rather than deriving the lookup path from the name alone.
 
-When more than one fresh live registry record shares the same canonical agent name but carries different authoritative `agent_id` values, canonical-name lookup SHALL report ambiguity rather than silently choosing one record.
+When more than one fresh live registry record shares the same friendly `agent_name` but carries different authoritative `agent_id` values, friendly-name lookup SHALL report ambiguity rather than silently choosing one record.
+
+When current-session discovery cannot use a valid tmux-published manifest pointer, resolution by authoritative `agent_id` SHALL be sufficient to recover the published `runtime.manifest_path` for manifest-first attach, resume, and relaunch flows.
 
 #### Scenario: Direct agent-id resolution returns the published record for that exact identity
+
 - **WHEN** a caller resolves authoritative `agent_id=abc123`
 - **AND WHEN** `live_agents/abc123/record.json` is valid and lease-fresh
 - **THEN** the system returns the validated record for that exact authoritative identity
 - **AND THEN** that result answers whether agent `abc123` is currently up
 
-#### Scenario: Canonical-name lookup scans registry metadata rather than hashing name to path
-- **WHEN** a caller resolves canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** exactly one fresh live registry record persists canonical agent name `AGENTSYS-gpu`
-- **THEN** the system returns that one validated record
-- **AND THEN** it does not require canonical-name lookup to derive the filesystem path from the name directly
+#### Scenario: Friendly-name lookup scans registry metadata rather than hashing name to path
 
-#### Scenario: Canonical-name lookup reports ambiguity when more than one live identity shares the same name
-- **WHEN** a caller resolves canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** more than one fresh live registry record persists canonical agent name `AGENTSYS-gpu`
+- **WHEN** a caller resolves friendly agent name `gpu`
+- **AND WHEN** exactly one fresh live registry record persists friendly agent name `gpu`
+- **THEN** the system returns that one validated record
+- **AND THEN** it does not require name lookup to derive the filesystem path from the friendly name directly
+
+#### Scenario: Friendly-name lookup reports ambiguity when more than one live identity shares the same name
+
+- **WHEN** a caller resolves friendly agent name `gpu`
+- **AND WHEN** more than one fresh live registry record persists friendly agent name `gpu`
 - **AND WHEN** those records carry different authoritative ids such as `abc123` and `def456`
-- **THEN** the system reports canonical-name lookup as ambiguous
+- **THEN** the system reports friendly-name lookup as ambiguous
 - **AND THEN** it requires the caller to disambiguate by `agent_id` or another explicit metadata surface
 
+#### Scenario: Current-session fallback uses agent id to recover the manifest locator
+
+- **WHEN** a tmux-backed attach, resume, or relaunch flow has authoritative `AGENTSYS_AGENT_ID=abc123`
+- **AND WHEN** the tmux-published manifest pointer is missing, blank, or stale
+- **AND WHEN** `live_agents/abc123/record.json` is valid and lease-fresh
+- **THEN** the system resolves `runtime.manifest_path` from that record as the fallback manifest locator
+- **AND THEN** it does not require gateway attach-path or gateway-root metadata to recover the session authority
+
 #### Scenario: Registry root is not repurposed as mutable CAO home storage
+
 - **WHEN** the system starts a launcher-managed CAO server while also using the shared registry for live-agent discovery
 - **THEN** the shared registry root continues to contain registry-owned discovery state only
 - **AND THEN** launcher-managed CAO home state and runtime task artifacts are stored elsewhere
@@ -299,3 +334,73 @@ Historical references to legacy `agent_key` directories may remain only when the
 - **WHEN** the spec mentions a legacy `live_agents/<agent-key>/` directory
 - **THEN** that mention is explicitly framed as pre-cutover cleanup or historical context
 - **AND THEN** readers are not left to infer that `agent_key` still participates in the active registry identity contract
+
+### Requirement: Shared-registry creation follows launch authority and cleanup follows the terminating actor
+The system SHALL create a shared-registry record for a live agent according to the authority that launched or admitted that agent.
+
+The launch authority SHALL be persisted in runtime-readable session or authority metadata so runtime and `houmao-server` consult the same signal before any shared-registry publish or refresh attempt.
+
+For agents created or admitted through `houmao-server`-owned authority, `houmao-server` SHALL create and refresh the shared-registry record for that agent.
+
+For direct runtime-owned workflows outside `houmao-server`-owned admission, runtime publication MAY continue to create and refresh the shared-registry record for that live agent.
+
+Discovery or later management by `houmao-server` SHALL NOT by itself transfer shared-registry creation responsibility or imply that `houmao-server` must republish an already valid live entry.
+
+The system SHALL assign shared-registry cleanup responsibility to the actor that terminates the live agent. If a user or external launcher terminates the agent outside `houmao-server` control, that same actor remains responsible for removing or repairing the registry entry.
+
+The system SHALL NOT infer launch authority or cleanup responsibility from current shared-registry contents alone.
+
+This launch-and-cleanup split SHALL NOT change the pointer-oriented nature of the shared registry. Regardless of who writes or clears the record, the shared-registry entry SHALL remain a secret-free locator layer that points at runtime-owned or server-owned artifacts rather than copying queue state, mailbox content, or other mutable per-agent control state into the registry.
+
+#### Scenario: Server-launched managed headless agent is published by `houmao-server`
+- **WHEN** `houmao-server` launches and admits a managed headless agent through its own launch authority
+- **THEN** `houmao-server` creates and refreshes the shared-registry record for that agent
+- **AND THEN** the registry record continues to publish only secret-free pointers rather than per-agent queue or mailbox state
+
+#### Scenario: Pair-managed server-admitted TUI agent is published by `houmao-server`
+- **WHEN** a TUI agent is admitted into `houmao-server` authority through the supported pair-managed launch path
+- **THEN** `houmao-server` creates and refreshes the shared-registry record for that agent
+- **AND THEN** runtime-owned session and gateway pointers remain the source material for that published record rather than a copied runtime payload
+
+#### Scenario: Direct runtime-owned workflow continues runtime publication
+- **WHEN** a live tmux-backed session is created through a direct runtime-owned workflow outside `houmao-server`-owned admission
+- **THEN** the runtime may continue creating and refreshing the shared-registry record for that session
+- **AND THEN** the registry does not require a running `houmao-server` instance solely to publish that direct runtime-owned session
+
+#### Scenario: Runtime consults persisted launch authority and defers registry writes
+- **WHEN** a runtime-managed session started under `houmao-server` authority reads launch metadata showing that `houmao-server` launched that session
+- **THEN** the runtime does not independently publish or refresh the shared-registry record for that session
+- **AND THEN** it still preserves the pointer artifacts that `houmao-server` needs for its own registry publication
+
+#### Scenario: Server discovery does not republish an externally launched live agent
+- **WHEN** `houmao-server` reads a valid shared-registry entry for an externally launched live agent
+- **THEN** `houmao-server` may manage that agent through its APIs
+- **AND THEN** it does not republish or overwrite the existing registry entry solely because discovery occurred
+
+#### Scenario: Terminating actor clears or repairs the registry entry
+- **WHEN** an externally launched live agent is terminated through a `houmao-server` termination path after discovery
+- **THEN** `houmao-server` clears or updates the shared-registry entry as part of keeping registry integrity
+- **AND THEN** cleanup responsibility follows the terminating actor rather than the original discovering actor
+
+#### Scenario: Manual external termination keeps cleanup responsibility external
+- **WHEN** an externally launched live agent is terminated manually outside `houmao-server` control
+- **THEN** the external actor remains responsible for removing or repairing the shared-registry entry
+- **AND THEN** the system does not assume discovery alone transferred cleanup ownership to `houmao-server`
+
+### Requirement: Shared registry identity inputs are filesystem-safe and URL-safe
+
+The shared registry SHALL require both `agent_id` and `agent_name` to use forms that are safe to embed directly in filesystem path components and URL path segments.
+
+The registry SHALL reject identity values that require path traversal handling, path-separator escaping, or URL-segment escaping in order to store or address the managed agent safely through Houmao-owned routes.
+
+#### Scenario: Path-hostile agent id is rejected before publication
+
+- **WHEN** a caller attempts to publish a live shared-registry record with `agent_id="../escape"`
+- **THEN** the registry rejects that identity value before publication
+- **AND THEN** the caller does not receive a live record that could be confused with filesystem traversal
+
+#### Scenario: URL-hostile friendly name is rejected before publication
+
+- **WHEN** a caller attempts to publish a live shared-registry record with an `agent_name` that contains characters requiring URL-segment escaping
+- **THEN** the registry rejects that identity value before publication
+- **AND THEN** managed-agent routes are not forced to special-case that name for basic path safety

@@ -9,7 +9,7 @@ When you change startup, control, or shutdown behavior:
 - keep `start`, `status`, and `stop` operating through persisted run state
 - preserve the explicit multi-pane failure when `--target-pane` is omitted
 - keep the final pane snapshot in the shutdown path
-- keep package imports light around `houmao.terminal_record`; the runtime bridge is imported from hot CAO code paths, so eager imports can create circular dependencies
+- keep package imports light around `houmao.terminal_record`; the runtime bridge is imported from hot runtime code paths, so eager imports can create circular dependencies
 
 The main lifecycle coverage is in `tests/unit/terminal_record/test_service.py`.
 
@@ -48,7 +48,7 @@ When you change replay or labeling behavior:
 
 When you change contracts:
 
-- update `docs/reference/terminal_record.md` for command-level and artifact-level changes
+- update `docs/reference/terminal-record/index.md` for command-level and artifact-level changes
 - update this developer guide for architecture or maintenance changes
 - update the OpenSpec change or synced spec if the maintained contract moved
 - refresh focused tests before assuming the change is safe to archive

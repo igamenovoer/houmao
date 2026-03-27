@@ -80,8 +80,7 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert prompt_request.operation == "check"
     assert "`email-via-filesystem`" in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
-    assert "skills/.system/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
-    assert "compatibility-only" in prompt_request.prompt
+    assert "resolve-live" in prompt_request.prompt
     assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
     assert '"operation": "check"' in prompt_request.prompt
 
@@ -652,8 +651,6 @@ def _build_prompt_echo_surface() -> str:
     return (
         "Use the runtime-owned mailbox skill `email-via-filesystem` for this mailbox operation.\n"
         "Open the primary mailbox skill document at `skills/mailbox/email-via-filesystem/SKILL.md`.\n"
-        "The same mailbox skill may also be mirrored at "
-        "`skills/.system/mailbox/email-via-filesystem/SKILL.md`, but treat that hidden path as compatibility-only.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"
         "\n"

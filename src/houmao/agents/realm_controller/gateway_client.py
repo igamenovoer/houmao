@@ -12,6 +12,9 @@ from pydantic import BaseModel, ValidationError
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
+    GatewayControlInputRequestV1,
+    GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayJsonObject,
@@ -29,6 +32,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayStatusV1,
 )
+from houmao.server.models import HoumaoTerminalHistoryResponse, HoumaoTerminalStateResponse
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -131,6 +135,56 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
+    def get_tui_state(self) -> HoumaoTerminalStateResponse:
+        """Call `GET /v1/control/tui/state`."""
+
+        return self._request_model(
+            "GET",
+            "/v1/control/tui/state",
+            HoumaoTerminalStateResponse,
+        )
+
+    def get_tui_history(self, *, limit: int) -> HoumaoTerminalHistoryResponse:
+        """Call `GET /v1/control/tui/history?limit=...`."""
+
+        return self._request_model(
+            "GET",
+            f"/v1/control/tui/history?limit={limit}",
+            HoumaoTerminalHistoryResponse,
+        )
+
+    def note_tui_prompt_submission(self, *, prompt: str) -> HoumaoTerminalStateResponse:
+        """Call `POST /v1/control/tui/note-prompt`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/tui/note-prompt",
+            HoumaoTerminalStateResponse,
+            body={"prompt": prompt},
+        )
+
+    def send_control_input(
+        self,
+        payload: GatewayControlInputRequestV1,
+    ) -> GatewayControlInputResultV1:
+        """Call `POST /v1/control/send-keys`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/send-keys",
+            GatewayControlInputResultV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:
+        """Call `GET /v1/control/headless/state`."""
+
+        return self._request_model(
+            "GET",
+            "/v1/control/headless/state",
+            GatewayHeadlessControlStateV1,
+        )
+
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
         """Call `GET /v1/mail-notifier`."""
 
@@ -220,6 +274,46 @@ class GatewayClient:
                 method=method,
                 url=url,
                 detail=f"gateway returned invalid payload: {exc}",
+            ) from exc
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: GatewayJsonObject | None = None,
+    ) -> GatewayJsonValue:
+        """Send one HTTP request and return decoded JSON."""
+
+        url = self._build_url(path)
+        payload: bytes | None = None
+        headers: dict[str, str] = {}
+        if body is not None:
+            payload = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+
+        request_obj = request.Request(
+            url=url,
+            data=payload,
+            method=method,
+            headers=headers,
+        )
+        try:
+            with request.urlopen(request_obj, timeout=self.m_timeout_seconds) as response:
+                return self._decode_response(method=method, url=url, response=response.read())
+        except error.HTTPError as exc:
+            detail = self._decode_error_body(exc.read())
+            raise GatewayHttpError(
+                method=method,
+                url=url,
+                detail=detail,
+                status_code=exc.code,
+            ) from exc
+        except error.URLError as exc:
+            raise GatewayHttpError(
+                method=method,
+                url=url,
+                detail=str(exc.reason),
             ) from exc
 
     def _build_url(self, path: str) -> str:

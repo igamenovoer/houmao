@@ -1,1 +1,1 @@
-"""Command modules for `houmao-srv-ctrl`."""
+"""Command modules for `houmao-mgr`."""

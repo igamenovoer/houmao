@@ -17,7 +17,7 @@ With the `stalwart` transport, Houmao stops acting like the mailbox storage engi
 | Component | Owns | Does not own |
 | --- | --- | --- |
 | Houmao runtime | mailbox config resolution, manifest persistence, Stalwart provisioning orchestration, projected mailbox skill selection, session-local credential materialization | unread truth, mailbox threading truth, transport-local storage semantics inside Stalwart |
-| Agent gateway | `/v1/mail/*` and `/v1/mail-notifier` exposure, adapter selection from `attach.json` and `manifest.json`, notifier cadence and audit history | Stalwart account provisioning, Stalwart mailbox storage, filesystem mailbox repair rules |
+| Agent gateway | `/v1/mail/*` and `/v1/mail-notifier` exposure, adapter selection from manifest-backed authority plus internal bootstrap state, notifier cadence and audit history | Stalwart account provisioning, Stalwart mailbox storage, filesystem mailbox repair rules |
 | Stalwart | mailbox delivery, unread state, reply ancestry, account mailbox contents, JMAP-backed mailbox operations | Houmao session manifests, gateway queue state, Houmao role or prompt contracts |
 
 ## Filesystem Versus Stalwart

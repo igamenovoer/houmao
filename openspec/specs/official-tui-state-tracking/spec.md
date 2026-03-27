@@ -2,76 +2,91 @@
 Define the server-owned live TUI tracking contract for direct tmux/process observation, official parsing, in-memory tracked state, and stability metadata.
 ## Requirements
 ### Requirement: Live tracked-state reduction SHALL be implemented through the shared TUI tracking core
-For supported tmux-backed TUI sessions, the server SHALL derive tracker-owned `surface`, `turn`, `last_turn`, detector identity, and tracker-state stability semantics through the repo-owned shared TUI tracking core rather than through a package-local reducer or parser-owned reduction path.
+For supported tmux-backed TUI sessions, the active per-agent control plane SHALL derive tracker-owned `surface`, `turn`, `last_turn`, detector identity, and tracker-state stability semantics through the repo-owned shared TUI tracking core rather than through a package-local reducer or parser-owned reduction path.
 
-The server SHALL remain responsible for live tmux/process/probe observation, session identity, explicit prompt-submission capture, optional parser-derived surface metadata, optional parser-fed lifecycle/operator enrichment, diagnostics, visible-stability metadata over the published response, and in-memory authority, but the tracker-owned reduction itself SHALL come from the shared standalone tracker session.
+Any reusable tracking ownership or supervision helpers needed by both the attached gateway and the direct `houmao-server` fallback SHALL live in neutral shared modules layered over the shared tracking core rather than requiring the gateway to import `houmao.server.tui` package-local ownership code.
 
-The server's live adapter SHALL feed raw captured TUI snapshot text and any explicit prompt-submission evidence into that shared tracker. Parser-derived data MAY be computed from the same raw capture for server-owned features, but SHALL NOT be required tracker input, SHALL NOT replace raw snapshot text as the authoritative tracking source, and SHALL NOT arm tracker authority through parser-derived surface-inference heuristics.
+The active per-agent control plane SHALL be:
 
-Optional server-owned `operator_state`, `lifecycle_timing`, and `lifecycle_authority` fields MAY continue to derive from parser-fed lifecycle monitoring and explicit-input server anchors, but those fields SHALL remain sidecar server evidence and SHALL NOT redefine tracker-owned `surface`, `turn`, or `last_turn`.
+- the attached per-agent gateway, when an eligible live gateway is attached for that managed agent, or
+- the direct `houmao-server` fallback tracker, when no eligible live gateway is attached.
 
-#### Scenario: Live cycle adapts raw TUI snapshot and diagnostics into the shared core
-- **WHEN** the server records one live tracking cycle for a supported tmux-backed session
-- **THEN** it supplies the captured raw TUI snapshot and any explicit prompt-submission evidence to the shared core
-- **AND THEN** it keeps tmux/process/probe diagnostics and any parser-owned sidecar data under server ownership
-- **AND THEN** the published tracked-state response preserves the official live contract while sharing tracker reduction semantics with the standalone tracker module
+That active control plane SHALL remain responsible for live tmux or process observation for tracker authority, session identity, explicit prompt-submission capture, diagnostics, visible-stability metadata over the authoritative tracked response, and in-memory tracker authority for that agent.
 
-#### Scenario: Server-owned input remains authoritative through the shared core
-- **WHEN** the server accepts prompt input through its owned input route
-- **THEN** the live adapter arms turn authority in the shared core from that explicit input event
+`houmao-server` SHALL remain the public HTTP authority for managed-agent and terminal-facing route families, but it SHALL project gateway-owned tracked state for attached agents rather than duplicating tracker authority for those agents inside the central server.
+
+The active control-plane adapter SHALL feed raw captured TUI snapshot text and any explicit prompt-submission evidence into the shared tracker. Parser-derived data MAY still exist as sidecar evidence, but it SHALL NOT replace raw snapshot text as tracker input and SHALL NOT arm tracker authority through parser-derived surface-inference heuristics.
+
+#### Scenario: Attached gateway owns tracker reduction for an attached managed TUI agent
+- **WHEN** a managed TUI agent has an eligible attached live gateway and that gateway records one live tracking cycle
+- **THEN** the gateway supplies the captured raw TUI snapshot and any explicit prompt-submission evidence to the shared tracking core for that agent
+- **AND THEN** `houmao-server` projects that gateway-owned tracked state rather than running a second authoritative tracker for the same attached agent
+
+#### Scenario: Direct server fallback remains the tracker owner when no gateway is attached
+- **WHEN** a managed TUI agent has no eligible live gateway attached
+- **THEN** the direct `houmao-server` fallback tracker remains the active control plane for tracked-state reduction for that agent
+- **AND THEN** the tracked-state contract exposed to callers remains the same even though no gateway is present
+
+#### Scenario: Prompt submission still arms explicit-input tracking through the active control plane
+- **WHEN** a caller submits prompt input through a server-owned managed-agent or terminal-facing route for a managed TUI agent
+- **THEN** the system forwards that explicit prompt-submission evidence to the active control plane for that agent
 - **AND THEN** later tracked state can still report `last_turn.source=explicit_input`
 
-#### Scenario: Surface-inference authority comes from the shared raw-snapshot tracker
-- **WHEN** a tracked live TUI session shows enough raw-snapshot evidence for a newer turn without an explicit input event
-- **THEN** the shared tracker may infer `last_turn.source=surface_inference` from raw snapshot evidence
-- **AND THEN** the live adapter does not arm tracker authority from parser-derived submit-ready heuristics for that turn
-
-#### Scenario: Observed tool version informs live profile selection when available
-- **WHEN** the server has observed tool-version metadata for a tracked live TUI session
-- **THEN** the live adapter supplies that version metadata to the shared tracker during profile resolution
-- **AND THEN** the live server does not default to an unspecified tracker profile merely because the session is live rather than standalone
-
-#### Scenario: Missing observed tool version falls back gracefully
-- **WHEN** the server lacks observed tool-version metadata for a tracked live TUI session
-- **THEN** the live adapter still resolves the shared tracker through its compatible fallback profile behavior
-- **AND THEN** missing version metadata alone does not fail live tracking or invent a parser-owned warning state
-
-#### Scenario: Parsed surface does not replace raw tracker input
-- **WHEN** the server also computes parsed-surface data from the captured tmux snapshot for server-owned functionality
-- **THEN** the live adapter still feeds the shared tracker from the raw captured snapshot text
-- **AND THEN** it does not synthesize or substitute tracker input from parser-owned fields during normal live execution
-
-#### Scenario: Parser-fed lifecycle sidecar does not override tracker-owned state
-- **WHEN** the server also computes parser-fed lifecycle or operator fields for that cycle
-- **THEN** those fields remain server-owned enrichment
-- **AND THEN** they do not override tracker-owned `surface`, `turn`, or `last_turn`
-
 ### Requirement: Known tmux-backed sessions are tracked continuously
-The system SHALL continuously track every known tmux-backed Houmao session while its tmux session exists, independent of whether any client is currently querying state and independent of whether a prompt was recently submitted.
+The system SHALL continuously track every known tmux-backed managed TUI session while its tmux session exists, independent of whether any client is currently querying state and independent of whether a prompt was recently submitted.
 
-Known sessions SHALL be seeded from `houmao-server` registration records for sessions that this server manages, enriched by manifest-backed metadata, and verified against live tmux liveness rather than by ad hoc CAO polling alone.
+For server-managed sessions, `houmao-server` SHALL continue seeding known-session identity from authoritative registration or admission records and SHALL determine whether an eligible attached gateway exists for that agent.
 
-Shared live-agent registry records MAY be consulted as compatibility evidence or alias enrichment, but they SHALL NOT by themselves create an authoritative known-session entry for this capability.
+When an eligible attached gateway exists for a managed TUI agent, the system SHALL assign continuous tracking authority for that agent to the gateway. When no eligible gateway exists, the direct `houmao-server` fallback tracker SHALL continue tracking that agent.
 
-#### Scenario: Background tracking continues without active queries
-- **WHEN** a known tmux-backed session remains alive and no caller is polling its live state
-- **THEN** the system continues tracking that session in the background
-- **AND THEN** the latest live state remains current without requiring a request-triggered refresh
+When tracking authority changes because a gateway attaches, detaches, or becomes unhealthy, the system SHALL maintain exactly one active authoritative tracking owner for that agent at a time.
 
-#### Scenario: Newly discovered known session enters continuous tracking
-- **WHEN** the server discovers a newly known tmux-backed Houmao session through its registration or manifest-backed discovery path
-- **THEN** the system starts continuous tracking for that session
-- **AND THEN** the session no longer depends on a first state query to become watch-active
+In this phase, the system MAY serve last-known tracked state during a brief transition window while the next tracking owner becomes current, but it SHALL NOT require atomic cross-process state transfer for attach or detach handoff.
 
-#### Scenario: Startup rebuild reuses server registration and live tmux verification
-- **WHEN** `houmao-server` restarts and loads a server-managed registration record for a session whose tmux session is still live
-- **THEN** the system re-admits that session into the known-session registry
-- **AND THEN** manifest-backed metadata may enrich the tracked identity before background tracking resumes
+Shared live-agent registry records MAY be consulted as compatibility evidence or alias enrichment, but they SHALL NOT by themselves create an authoritative tracked-session entry for this capability.
 
-#### Scenario: Shared registry evidence alone does not admit a watched session
-- **WHEN** a shared live-agent registry record exists without an authoritative server registration record or a verifiable live tmux target for that session
-- **THEN** that registry record alone does not create a primary known-session entry for this capability
-- **AND THEN** the system does not start a background watch worker solely from that compatibility evidence
+#### Scenario: Attached gateway becomes the continuous tracking owner
+- **WHEN** a managed TUI agent already admitted by `houmao-server` later gains an eligible attached live gateway
+- **THEN** the system assigns continuous tracked-state authority for that agent to the gateway
+- **AND THEN** the central server no longer needs to remain the authoritative continuous tracker for that attached agent
+
+#### Scenario: Direct fallback continues tracking when no gateway is attached
+- **WHEN** a known managed TUI session remains live and no eligible live gateway is attached for that agent
+- **THEN** the direct `houmao-server` fallback tracker continues tracking that session in the background
+- **AND THEN** callers can still query current tracked state without requiring a gateway sidecar
+
+#### Scenario: Shared registry evidence alone does not admit a tracked session
+- **WHEN** a shared live-agent registry record exists without authoritative server registration or admission for a managed TUI session
+- **THEN** that registry record alone does not create a primary tracked-session entry for this capability
+- **AND THEN** the system does not start continuous tracking solely from that compatibility evidence
+
+#### Scenario: Gateway attach uses single-owner handoff semantics
+- **WHEN** a managed TUI agent transitions from direct fallback tracking to an attached healthy gateway tracker
+- **THEN** the system flips authoritative tracking ownership to the gateway without keeping both trackers authoritative at the same time
+- **AND THEN** `houmao-server` may serve last-known tracked state briefly while the gateway-owned tracker becomes current
+
+#### Scenario: Gateway detach or gateway health loss returns ownership to direct fallback
+- **WHEN** a managed TUI agent loses its healthy attached gateway and direct fallback tracking remains supported
+- **THEN** the system returns authoritative tracking ownership to the direct `houmao-server` fallback tracker
+- **AND THEN** the transition does not require atomic cross-process state transfer to preserve the v1 tracked-state contract
+
+### Requirement: Attached gateways can own live tracked state for runtime-owned local interactive sessions
+For a runtime-owned `local_interactive` TUI session outside `houmao-server`, when an attached gateway is present and healthy, that gateway SHALL be allowed to act as the active control plane for live tracked-state authority for that session.
+
+For this runtime-owned path, the active control plane SHALL be allowed to use the runtime-owned session identifier as the tracked-session identity and SHALL NOT require a CAO-style terminal alias so long as the public compatibility alias can fall back to the tracked session id.
+
+#### Scenario: Gateway becomes the tracking owner for runtime-owned local interactive session
+- **WHEN** a runtime-owned `local_interactive` TUI session outside `houmao-server` has an attached healthy gateway
+- **THEN** the gateway owns continuous live tracked-state reduction for that session
+- **AND THEN** the tracked identity for that session may be anchored by the runtime session id rather than by a CAO terminal id
+
+### Requirement: Gateway-owned local interactive tracking preserves explicit-input authority
+When prompt input for a runtime-owned `local_interactive` session is accepted through an attached gateway, the active gateway-owned control plane SHALL preserve that explicit-input evidence for tracked turn reduction in the same way as other gateway-owned tracked TUI flows.
+
+#### Scenario: Gateway prompt note preserves explicit-input provenance for runtime-owned local interactive session
+- **WHEN** an attached gateway accepts and executes prompt input for a runtime-owned `local_interactive` session outside `houmao-server`
+- **THEN** the gateway forwards that explicit prompt-submission evidence to the active tracking control plane for that session
+- **AND THEN** later tracked state for that session can report explicit-input provenance for the resulting completed turn
 
 ### Requirement: TUI liveliness is derived from process inspection
 For each tracked tmux-backed session, the system SHALL determine whether the supported interactive TUI is up or down by inspecting the live process tree attached to the tracked tmux pane rather than by inferring that state only from captured pane text.
@@ -213,30 +228,25 @@ For supported tools, parse failure SHALL be represented explicitly as a server-o
 - **AND THEN** the simplified turn state does not fabricate a ready or active posture for that cycle
 
 ### Requirement: Live tracked state is authoritative in memory
-The authoritative live tracked state for this capability SHALL live in server memory.
+The authoritative live tracked state for this capability SHALL live in memory of the active per-agent control plane.
 
-That in-memory state SHALL include at minimum:
+For an attached managed TUI agent, that authoritative in-memory tracked state SHALL live in the attached gateway for that agent.
 
-- tracked session identity,
-- `terminal_id` compatibility aliases,
-- tmux transport state,
-- TUI process liveliness,
-- parse-stage status plus any probe or parse error detail,
-- latest parsed TUI surface state when available,
-- simplified foundational, turn, and last-turn state, and
-- bounded recent transitions or recent-state history.
+For a managed TUI agent with no eligible attached gateway, that authoritative in-memory tracked state SHALL live in the direct `houmao-server` fallback tracker.
 
-The system SHALL NOT require per-session watch snapshot files or append-only watch logs as part of the authoritative contract for this capability.
+The system SHALL NOT require per-session watch snapshot files or append-only watch logs as part of the authoritative tracked-state contract for this capability.
 
-#### Scenario: State query reads the current in-memory authority
-- **WHEN** a caller requests live tracked state for a watched session
-- **THEN** the system returns the latest state held in server memory
-- **AND THEN** that result does not depend on reading a persisted watch snapshot file first
+`houmao-server` MAY project gateway-owned tracked state through its public routes, but those route responses SHALL read from the active control plane's current in-memory authority rather than reconstructing authoritative tracked state from persisted watch artifacts.
 
-#### Scenario: Restart rebuilds live state from rediscovery
-- **WHEN** the server restarts while some previously tracked tmux sessions are still alive
-- **THEN** the system rebuilds live tracked state by rediscovering those live known sessions
-- **AND THEN** it does not claim prior watch files as the authoritative source for the rebuilt state
+#### Scenario: Server projects gateway-owned in-memory tracked state
+- **WHEN** a caller requests tracked managed-agent or terminal state for a TUI agent whose eligible live gateway is attached
+- **THEN** `houmao-server` serves that request from the gateway-owned current tracked state for that agent
+- **AND THEN** the public response does not depend on a separate server-owned persisted watch snapshot
+
+#### Scenario: No-gateway fallback reads direct server memory
+- **WHEN** a caller requests tracked state for a managed TUI agent with no eligible live gateway attached
+- **THEN** the direct `houmao-server` fallback tracker returns the latest state held in its own memory
+- **AND THEN** that result does not require persisted watch artifacts to become authoritative
 
 ### Requirement: Live tracking exposes stability metadata over the visible state signature
 The system SHALL track how long the operator-visible live state signature remains unchanged and SHALL expose stability metadata for that signature as part of the in-memory tracked state.
@@ -364,3 +374,22 @@ Selected profiles MAY still classify visible placeholder or suggestion text as `
 - **AND WHEN** the current prompt area contains real draft text for the next turn
 - **THEN** the tracked state reports `surface.editing_input=yes`
 - **AND THEN** the stale interrupted transcript text does not force `surface.editing_input=unknown`
+
+### Requirement: Multi-window tracked TUI sessions resolve an explicit observation surface
+For tmux-backed tracked TUI sessions, when the active control plane has explicit pane or window identity for the intended observed surface, it SHALL resolve capture and process inspection from that explicit tmux surface rather than from current-window or current-pane heuristics.
+
+Session-scoped tmux pane discovery used by the active control plane SHALL span all panes in the tracked session, including panes in non-current windows.
+
+When multiple candidate panes exist and the tracked contract does not include explicit pane or window identity for the intended surface, the active control plane SHALL fail explicitly or surface non-authoritative diagnostics rather than silently rebinding to the current active window.
+
+#### Scenario: Tracked local interactive session stays bound to the agent surface
+- **WHEN** a tracked runtime-owned `local_interactive` session gains an auxiliary gateway window in the same tmux session
+- **AND WHEN** the active control plane knows the contractual agent surface identity
+- **THEN** live capture and process inspection continue targeting the agent surface
+- **AND THEN** the tracking owner does not silently switch to the auxiliary gateway window because it became current
+
+#### Scenario: Ambiguous tracked multi-window session does not guess from current focus
+- **WHEN** a tracked tmux session has multiple candidate panes across multiple windows
+- **AND WHEN** the tracked identity lacks explicit pane or window metadata for the intended observed surface
+- **THEN** the active control plane reports an explicit targeting problem or remains non-authoritative for that cycle
+- **AND THEN** it does not silently choose the current active window as the observed TUI surface

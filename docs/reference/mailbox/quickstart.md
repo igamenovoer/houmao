@@ -1,6 +1,6 @@
 # Mailbox Quickstart
 
-This page shows the shortest safe path to a working mailbox-enabled session and the three runtime-owned mailbox commands you will use first: `mail check`, `mail send`, and `mail reply`.
+This page shows the shortest safe path to a working mailbox-enabled local managed agent and the three runtime-owned mailbox commands you will use first: `agents mail check`, `agents mail send`, and `agents mail reply`.
 
 ## Choose Your Transport
 
@@ -15,76 +15,99 @@ The rest of this page keeps the shortest inline filesystem example. The `mail ch
 
 ## Mental Model
 
-You do not wire mailbox behavior into prompts by hand. The runtime does three jobs for you:
+Do not wire mailbox behavior into prompts by hand. For the preferred local serverless workflow, `houmao-mgr` splits mailbox setup into two explicit seams:
 
-1. Resolve one mailbox binding for the session.
-2. Bootstrap or validate the selected transport binding and register or provision the session address.
-3. Project the runtime-owned mailbox skill and env vars into the session so later `mail` commands can reuse the same binding. The visible `skills/mailbox/...` subtree is the primary mailbox skill surface, and `skills/.system/mailbox/...` remains a compatibility mirror.
+1. `houmao-mgr mailbox ...` manages the shared filesystem mailbox root and address lifecycle.
+2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
+3. `houmao-mgr agents mail ...` reuses that persisted binding for runtime-owned mailbox work after the agent is launched or joined.
 
-After that, `mail check`, `mail send`, and `mail reply` run against a resumed session. The CLI talks to the runtime, the runtime prompts the session using the projected mailbox skill for the selected transport, and the session returns one structured result payload.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface.
 
 ## Filesystem Quickstart
 
-You can enable mailbox support from declarative brain config or from `start-session` overrides. In v1, the implemented transports are `filesystem` and `stalwart`.
+For local serverless usage, prefer `houmao-mgr` late registration instead of launch-time mailbox flags. In v1, the implemented transports are `filesystem` and `stalwart`, but the native `houmao-mgr mailbox ...` and `houmao-mgr agents mailbox ...` workflow targets the filesystem transport only.
 
-Implicit filesystem mailbox state now defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one launch.
+Implicit filesystem mailbox state defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one command.
+
+1. Bootstrap or validate the shared mailbox root.
 
 ```bash
-pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
-  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
-  --role gpu-kernel-coder \
-  --backend claude_headless \
-  --mailbox-transport filesystem \
-  --mailbox-root tmp/shared-mail \
-  --mailbox-principal-id AGENTSYS-research \
-  --mailbox-address AGENTSYS-research@agents.localhost
+pixi run houmao-mgr mailbox init --mailbox-root tmp/shared-mail
 ```
 
-The `start-session` result includes a redacted mailbox payload in the session manifest output when mailbox support is enabled.
+2. Launch or join the local managed agent without mailbox launch flags.
+
+```bash
+pixi run houmao-mgr agents launch \
+  --agents gpu-kernel-coder \
+  --agent-name research \
+  --provider claude_code \
+  --headless \
+  --yolo
+```
+
+3. Register mailbox support after the session already exists.
+
+```bash
+pixi run houmao-mgr agents mailbox register \
+  --agent-name research \
+  --mailbox-root tmp/shared-mail
+```
+
+4. Inspect the late-registration posture before using runtime-owned mail commands.
+
+```bash
+pixi run houmao-mgr agents mailbox status --agent-name research
+```
+
+Typical status output after a successful headless registration:
 
 ```json
 {
-  "mailbox": {
-    "transport": "filesystem",
-    "principal_id": "AGENTSYS-research",
-    "address": "AGENTSYS-research@agents.localhost",
-    "filesystem_root": "/abs/path/tmp/shared-mail",
-    "bindings_version": "2026-03-13T09:15:30.123456Z"
-  }
+  "activation_state": "active",
+  "address": "AGENTSYS-research@agents.localhost",
+  "mailbox_root": "/abs/path/tmp/shared-mail",
+  "principal_id": "AGENTSYS-research",
+  "registered": true,
+  "runtime_mailbox_enabled": true,
+  "transport": "filesystem"
 }
 ```
+
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
 
 Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is a scratch area rather than the shared mailbox root and is a good candidate for ignore rules in local repos.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as start-session
+    participant CLI as houmao-mgr
     participant RT as Runtime
     participant FS as Mailbox<br/>root
     participant Ses as Session
-    Op->>CLI: start-session<br/>with mailbox flags
-    CLI->>RT: resolve effective<br/>mailbox config
-    RT->>FS: bootstrap root<br/>and register address
-    RT->>Ses: launch with mailbox env<br/>and projected skill
-    RT-->>CLI: session manifest<br/>with redacted mailbox
+    Op->>CLI: mailbox init
+    CLI->>FS: bootstrap root
+    Op->>CLI: agents launch<br/>or join
+    CLI->>RT: create or adopt<br/>managed session
+    Op->>CLI: agents mailbox register
+    RT->>FS: register address<br/>and persist binding
+    RT-->>CLI: activation state<br/>plus mailbox identity
 ```
 
 ## Check Mail
 
-Use `mail check` against a resumed mailbox-enabled session.
+Use `agents mail check` against a mailbox-enabled managed agent.
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail check \
-  --agent-identity AGENTSYS-research \
+pixi run houmao-mgr agents mail check \
+  --agent-name research \
   --unread-only \
   --limit 10
 ```
 
 Important details:
 
-- `--agent-identity` can be a name or a manifest path, using the normal runtime control-target rules.
+- `--agent-name` or `--agent-id` uses the normal managed-agent selector rules.
 - `--unread-only` and `--limit` are optional filters.
 - `--since` accepts an RFC3339 lower bound when you want incremental review.
 
@@ -103,8 +126,8 @@ Typical stdout is structured JSON returned by the session through the runtime-ow
 ## Send Mail
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail send \
-  --agent-identity AGENTSYS-research \
+pixi run houmao-mgr agents mail send \
+  --agent-name research \
   --to AGENTSYS-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
@@ -122,8 +145,8 @@ Important details:
 ## Reply To Mail
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail reply \
-  --agent-identity AGENTSYS-research \
+pixi run houmao-mgr agents mail reply \
+  --agent-name research \
   --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
@@ -140,8 +163,8 @@ Important details:
 
 Every `mail` command uses the runtime-owned projected mailbox skill for the selected transport and expects exactly one sentinel-delimited JSON result payload back from the session.
 
-- Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-filesystem/SKILL.md` as a compatibility mirror.
-- Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the primary mailbox skill document and may also carry the same content at `skills/.system/mailbox/email-via-stalwart/SKILL.md` as a compatibility mirror.
+- Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the mailbox skill document.
+- Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the mailbox skill document.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 
@@ -169,7 +192,9 @@ sequenceDiagram
 
 ## Source References
 
-- [`src/houmao/agents/realm_controller/cli.py`](../../../src/houmao/agents/realm_controller/cli.py)
+- [`src/houmao/srv_ctrl/commands/mailbox.py`](../../../src/houmao/srv_ctrl/commands/mailbox.py)
+- [`src/houmao/srv_ctrl/commands/agents/mailbox.py`](../../../src/houmao/srv_ctrl/commands/agents/mailbox.py)
+- [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../../src/houmao/srv_ctrl/commands/agents/mail.py)
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)

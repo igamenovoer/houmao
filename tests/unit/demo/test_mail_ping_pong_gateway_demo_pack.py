@@ -434,6 +434,7 @@ def _seed_launch_posture_manifests(state: DemoState) -> None:
             "cao": None,
             "houmao_server": None,
             "registry_generation_id": "test-generation",
+            "registry_launch_authority": "runtime",
         }
         (participant.session_root / "manifest.json").write_text(
             json.dumps(session_manifest, indent=2, sort_keys=True),
@@ -866,10 +867,8 @@ def test_start_command_uses_tracked_defaults_and_persists_state(
         manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
         launch_helper_path = home_path / "launch.sh"
         home_path.mkdir(parents=True, exist_ok=True)
-        (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(
-            parents=True, exist_ok=True
-        )
-        (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
+        (home_path / "skills/mailbox/email-via-filesystem").mkdir(parents=True, exist_ok=True)
+        (home_path / "skills/mailbox/email-via-filesystem/SKILL.md").write_text(
             "# mailbox skill\n",
             encoding="utf-8",
         )
@@ -1017,10 +1016,8 @@ def test_start_command_honors_agent_def_dir_env_override(
         manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
         launch_helper_path = home_path / "launch.sh"
         home_path.mkdir(parents=True, exist_ok=True)
-        (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(
-            parents=True, exist_ok=True
-        )
-        (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
+        (home_path / "skills/mailbox/email-via-filesystem").mkdir(parents=True, exist_ok=True)
+        (home_path / "skills/mailbox/email-via-filesystem/SKILL.md").write_text(
             "# mailbox skill\n",
             encoding="utf-8",
         )
@@ -1102,11 +1099,8 @@ def test_expose_runtime_skills_in_project_copies_mailbox_skill_docs(tmp_path: Pa
     project_workdir = tmp_path / "project"
     project_workdir.mkdir()
     home_path = tmp_path / "home"
-    (home_path / "skills/.system/mailbox/email-via-filesystem").mkdir(parents=True)
-    (home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").write_text(
-        "# mailbox skill\n",
-        encoding="utf-8",
-    )
+    (home_path / "skills/mailbox/email-via-filesystem").mkdir(parents=True)
+    (home_path / "skills/mailbox/email-via-filesystem/SKILL.md").write_text("# mailbox skill\n", encoding="utf-8")
     build_result = BuildResult(
         home_id="demo-home",
         home_path=home_path,
@@ -1121,8 +1115,8 @@ def test_expose_runtime_skills_in_project_copies_mailbox_skill_docs(tmp_path: Pa
         build_result=build_result,
     )
 
-    assert (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert (project_workdir / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert not (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
     assert not (project_workdir / "skills").is_symlink()
 
 
@@ -1149,8 +1143,8 @@ def test_expose_runtime_skills_in_project_falls_back_to_packaged_mailbox_docs(
         build_result=build_result,
     )
 
-    assert (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").is_file()
     assert (project_workdir / "skills/mailbox/email-via-filesystem/SKILL.md").is_file()
+    assert not (project_workdir / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
 
 
 def test_wait_for_server_health_ignores_child_cao_status_for_native_headless_startup(

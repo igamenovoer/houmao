@@ -6,22 +6,20 @@ The system SHALL provide implemented mailbox access to agents through runtime-ow
 
 These mailbox system skills SHALL be projected into mailbox-enabled sessions in a discoverable non-hidden mailbox subtree under the active skill destination using the same active skill-destination contract as other projected skills.
 
-For the current tool adapters whose active skill destination is `skills`, the primary projected mailbox skill surface SHALL be `skills/mailbox/...`.
-
-The runtime MAY also mirror the same mailbox system skill content into a reserved hidden namespace such as `skills/.system/mailbox/...` for compatibility or bootstrap reasons, but that hidden mirror SHALL NOT be the only normative mailbox skill surface for ordinary mailbox-skill discovery or prompting.
+For the current tool adapters whose active skill destination is `skills`, the mailbox system skill surface SHALL be `skills/mailbox/...`.
 
 The projected mailbox skill set MAY vary by the selected mailbox transport, including filesystem-backed and real-mail-backed transports.
 
 #### Scenario: Filesystem mailbox-enabled agent receives projected mailbox system skills
 - **WHEN** the runtime starts an agent session with filesystem mailbox support enabled
 - **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into the active skill destination
-- **AND THEN** the primary filesystem mailbox skill is available through the discoverable mailbox subtree rather than only through hidden `.system` entries
+- **AND THEN** the filesystem mailbox skill is available through the discoverable mailbox subtree rather than through hidden `.system` entries
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
 #### Scenario: Stalwart mailbox-enabled agent receives projected mailbox system skills
 - **WHEN** the runtime starts an agent session with `stalwart` mailbox support enabled
 - **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into the active skill destination
-- **AND THEN** the primary Stalwart mailbox skill is available through the discoverable mailbox subtree rather than only through hidden `.system` entries
+- **AND THEN** the Stalwart mailbox skill is available through the discoverable mailbox subtree rather than through hidden `.system` entries
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
 #### Scenario: Runtime-owned mailbox skills stay separate from role-authored skills
@@ -29,10 +27,10 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **THEN** the mailbox system skills use a reserved runtime-owned mailbox subtree under the active skill destination
 - **AND THEN** the agent can use those mailbox system skills without overriding or depending on role-authored skill content
 
-#### Scenario: Compatibility mirror does not replace the discoverable mailbox subtree
-- **WHEN** the runtime also projects a hidden compatibility mirror for mailbox system skills
-- **THEN** the primary discoverable mailbox subtree remains present in the active skill destination
-- **AND THEN** runtime-owned prompting does not need the hidden mirror to be the sole mailbox skill reference
+#### Scenario: Hidden mailbox compatibility mirror is not projected
+- **WHEN** the runtime projects mailbox system skills for a mailbox-enabled session
+- **THEN** the runtime does not create a parallel `skills/.system/mailbox/...` mailbox skill tree for that session
+- **AND THEN** ordinary mailbox-skill discovery and prompting depend only on the visible `skills/mailbox/...` mailbox subtree
 
 ### Requirement: Mailbox system skills use a stable env-var binding contract
 The system SHALL require runtime-owned mailbox system skills to resolve mailbox bindings through runtime-managed env vars rather than through literal filesystem paths, URLs, or mailbox addresses embedded in projected skill text.
@@ -97,6 +95,49 @@ Refreshed mailbox bindings SHALL apply to subsequent runtime-controlled work for
 - **WHEN** the runtime changes the effective filesystem mailbox binding for an active session
 - **THEN** the runtime refreshes the mailbox binding env vars for that session
 - **AND THEN** subsequent mailbox-related work in that session observes the refreshed filesystem mailbox bindings without requiring a new mailbox system skill template
+
+### Requirement: Tmux-backed mailbox system skills resolve current mailbox bindings through a runtime-owned live resolver
+For tmux-backed managed sessions, runtime-owned mailbox system skills and runtime-owned mailbox prompts SHALL resolve current mailbox bindings through a runtime-owned live mailbox binding resolver rather than relying only on the provider process's inherited mailbox env snapshot.
+
+That live resolver SHALL:
+
+- use the owning tmux session as the live mailbox binding source for active tmux-contained sessions,
+- read only the targeted common and transport-specific mailbox binding keys needed for mailbox work,
+- surface the current `AGENTSYS_MAILBOX_BINDINGS_VERSION` for mailbox refresh detection,
+- avoid requiring the agent to parse raw manifest JSON or enumerate unrelated tmux env vars manually.
+
+The existing mailbox env naming contract remains unchanged, but for tmux-backed sessions those bindings SHALL be treated as live mailbox projection data resolved through the runtime-owned resolver rather than as launch-time process env that is assumed immutable.
+
+#### Scenario: Filesystem mailbox skill observes late-registered binding without provider relaunch
+- **WHEN** a tmux-backed filesystem mailbox session receives a mailbox task after late registration updated the owning tmux session environment
+- **THEN** the projected mailbox system skill resolves the current mailbox binding through the runtime-owned live resolver
+- **AND THEN** the skill observes the refreshed filesystem mailbox root, mailbox directory, and mailbox-local SQLite path without requiring provider relaunch solely to refresh inherited process env
+- **AND THEN** the agent does not need to reconstruct mailbox paths heuristically from stale launch-time bindings
+
+#### Scenario: Subsequent mailbox work re-resolves after bindings-version change
+- **WHEN** a tmux-backed managed session's mailbox binding changes and `AGENTSYS_MAILBOX_BINDINGS_VERSION` advances in the owning tmux session environment
+- **THEN** the next mailbox-related action resolves mailbox bindings through the runtime-owned live resolver again
+- **AND THEN** the mailbox skill discards cached mailbox assumptions tied to the previous bindings version
+
+#### Scenario: Stalwart direct fallback uses the live resolver rather than stale process env
+- **WHEN** a tmux-backed `stalwart` mailbox session performs direct mailbox work without a live gateway mailbox facade
+- **THEN** the projected mailbox system skill resolves the current `AGENTSYS_MAILBOX_EMAIL_*` binding set through the runtime-owned live resolver
+- **AND THEN** the skill uses the current session-local credential file pointer from that live binding set rather than assuming the provider process inherited a still-valid credential path at launch
+
+### Requirement: Runtime-owned mailbox skill guidance keeps tmux integration behind the runtime-owned helper boundary
+Projected mailbox system skills for tmux-backed sessions SHALL keep raw tmux integration details behind the runtime-owned live mailbox binding resolver.
+
+The skill guidance SHALL NOT require the agent to:
+
+- list all tmux session environment variables,
+- guess which tmux session to inspect,
+- parse raw `show-environment` output structure,
+- or parse mailbox binding state directly from the session manifest when the runtime-owned resolver is available.
+
+#### Scenario: Filesystem mailbox skill does not ask the agent to scrape tmux state ad hoc
+- **WHEN** a tmux-backed filesystem mailbox session uses the projected mailbox system skill for mailbox work
+- **THEN** that skill points the agent at the runtime-owned live mailbox binding resolver
+- **AND THEN** the skill does not instruct the agent to enumerate unrelated tmux environment state or manually parse raw tmux command output
 
 ### Requirement: Runtime-owned mailbox commands rely on projected mailbox system skills
 The system SHALL allow runtime-owned mailbox command surfaces to rely on projected, transport-specific mailbox system skills plus runtime-managed mailbox bindings, without requiring mailbox-specific instructions to be authored in the role or recipe.
@@ -197,4 +238,3 @@ The skill SHALL NOT instruct agents to mark a message read merely because unread
 - **WHEN** the agent receives a gateway-owned reminder that unread mail exists
 - **THEN** the projected filesystem mailbox system skill does not treat that reminder itself as a read-state change
 - **AND THEN** the unread message remains unread until the agent explicitly marks it read after processing
-

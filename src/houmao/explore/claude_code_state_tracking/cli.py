@@ -38,13 +38,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "capture":
         scenario_path = _resolve_scenario_path(Path(args.scenario))
         scenario = load_scenario(scenario_path)
-        result = run_live_capture(
+        capture_result = run_live_capture(
             repo_root=_repo_root(),
             scenario=scenario,
             output_root=Path(args.output_root).expanduser().resolve() if args.output_root else None,
             cleanup_session=not args.keep_session,
         )
-        print(result.run_root)
+        print(capture_result.run_root)
         return 0
     if args.command == "replay":
         run_root = Path(args.run_root).expanduser().resolve()
@@ -70,19 +70,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         scenario_path = _resolve_scenario_path(Path(args.scenario))
         scenario = load_scenario(scenario_path)
-        result = run_live_capture(
+        capture_result = run_live_capture(
             repo_root=_repo_root(),
             scenario=scenario,
             output_root=Path(args.output_root).expanduser().resolve() if args.output_root else None,
             cleanup_session=not args.keep_session,
         )
         _run_replay_workflow(
-            recording_root=result.terminal_record_run_root,
-            run_root=result.run_root,
-            observed_version=result.observed_version,
+            recording_root=capture_result.terminal_record_run_root,
+            run_root=capture_result.run_root,
+            observed_version=capture_result.observed_version,
             settle_seconds=scenario.launch.settle_seconds,
         )
-        print(result.run_root)
+        print(capture_result.run_root)
         return 0
     if args.command == "signal-note-init":
         output_path = Path(args.output_path).expanduser().resolve()
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         print(output_path)
         return 0
     if args.command == "start":
-        result = start_interactive_watch(
+        watch_result = start_interactive_watch(
             repo_root=_repo_root(),
             output_root=Path(args.output_root).expanduser().resolve() if args.output_root else None,
             recipe_path=Path(args.recipe).expanduser().resolve() if args.recipe else None,
@@ -103,17 +103,17 @@ def main(argv: list[str] | None = None) -> int:
             trace_enabled=bool(args.trace),
         )
         payload = {
-            "run_root": str(result.run_root),
-            "runtime_root": result.manifest.runtime_root,
-            "brain_home_path": result.manifest.brain_home_path,
-            "brain_manifest_path": result.manifest.brain_manifest_path,
-            "claude_attach_command": result.manifest.claude_attach_command,
-            "dashboard_attach_command": result.manifest.dashboard_attach_command,
+            "run_root": str(watch_result.run_root),
+            "runtime_root": watch_result.manifest.runtime_root,
+            "brain_home_path": watch_result.manifest.brain_home_path,
+            "brain_manifest_path": watch_result.manifest.brain_manifest_path,
+            "claude_attach_command": watch_result.manifest.claude_attach_command,
+            "dashboard_attach_command": watch_result.manifest.dashboard_attach_command,
         }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
-            print(result.run_root)
+            print(watch_result.run_root)
         return 0
     if args.command == "inspect":
         payload = inspect_interactive_watch(

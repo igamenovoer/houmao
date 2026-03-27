@@ -1,6 +1,6 @@
 # Claude Parsing Contract
 
-Claude-specific parsing lives in `backends/claude_code_shadow.py`. The parser is responsible for one-snapshot interpretation of CAO `mode=full` output and returns `ClaudeSurfaceAssessment` plus `ClaudeDialogProjection`.
+Claude-specific parsing lives in `backends/claude_code_shadow.py`. The parser is responsible for one-snapshot interpretation of captured pane output and returns `ClaudeSurfaceAssessment` plus `ClaudeDialogProjection`.
 
 For the concrete on-screen cues currently used by the maintained tracked-TUI workflow, see [Claude Signals](claude-signals.md).
 
@@ -130,7 +130,7 @@ These events describe parser observations, not runtime lifecycle decisions. The 
 
 Claude is version-aware. The parser selects a preset through this order:
 
-1. `AGENTSYS_CAO_CLAUDE_CODE_VERSION`
+1. `AGENTSYS_CLAUDE_CODE_VERSION` (or the legacy `AGENTSYS_CAO_CLAUDE_CODE_VERSION`)
 2. banner detection from `Claude Code vX.Y.Z`
 3. latest known preset fallback
 

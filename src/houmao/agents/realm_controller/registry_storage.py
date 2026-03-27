@@ -14,6 +14,7 @@ from houmao.owned_paths import resolve_registry_root
 from pydantic import ValidationError
 
 from houmao.agents.realm_controller.errors import SchemaValidationError, SessionManifestError
+from houmao.agents.realm_controller.agent_identity import normalize_managed_agent_id
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
     canonicalize_registry_agent_name,
@@ -22,6 +23,7 @@ from houmao.agents.realm_controller.registry_models import (
 from houmao.agents.realm_controller.schema_validation import validate_payload
 
 DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
+JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
 LIVE_AGENT_REGISTRY_SCHEMA = "live_agent_registry_record.v2.schema.json"
 
@@ -363,12 +365,7 @@ def _record_expired_beyond_grace(
 def _normalize_agent_id_component(agent_id: str) -> str:
     """Validate and normalize one authoritative agent id path component."""
 
-    stripped = agent_id.strip()
-    if not stripped:
-        raise SessionManifestError("agent_id must not be empty")
-    if "/" in stripped or "\\" in stripped:
-        raise SessionManifestError("agent_id must not contain path separators")
-    return stripped
+    return normalize_managed_agent_id(agent_id)
 
 
 def _read_live_agent_record(path: Path) -> LiveAgentRegistryRecordV2:

@@ -17,6 +17,26 @@ class LaunchPlanError(BrainLaunchRuntimeError):
     """Raised when launch-plan composition fails."""
 
 
+class LaunchPolicyResolutionError(LaunchPlanError):
+    """Raised when startup-prompt policy resolution blocks provider launch."""
+
+    def __init__(
+        self,
+        *,
+        requested_operator_prompt_mode: str,
+        tool: str,
+        policy_backend: str,
+        detected_version: str,
+        detail: str,
+    ) -> None:
+        self.requested_operator_prompt_mode = requested_operator_prompt_mode
+        self.tool = tool
+        self.policy_backend = policy_backend
+        self.detected_version = detected_version
+        self.detail = detail
+        super().__init__(detail)
+
+
 class SessionManifestError(BrainLaunchRuntimeError):
     """Raised when a persisted session manifest is invalid or unusable."""
 

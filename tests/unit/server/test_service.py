@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,27 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayAttachContractV1,
+)
+from houmao.agents.realm_controller.gateway_storage import (
+    build_offline_gateway_status,
+    gateway_paths_from_session_root,
+    write_attach_contract,
+    write_gateway_status,
+)
+from houmao.agents.realm_controller.registry_models import (
+    LiveAgentRegistryRecordV2,
+    RegistryIdentityV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV1,
+)
+from houmao.agents.realm_controller.registry_storage import (
+    DEFAULT_REGISTRY_LEASE_TTL,
+    publish_live_agent_record,
+    resolve_live_agent_record,
+)
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
@@ -26,7 +48,8 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
-    HoumaoInstallAgentProfileRequest,
+    HoumaoManagedAgentGatewayRequestCreate,
+    HoumaoManagedAgentMailCheckRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -142,22 +165,62 @@ class _FakeChildManager:
         )
 
 
+class _FakeControlCore:
+    def __init__(
+        self,
+        *,
+        install_detail: str = "Pair-owned install completed through the Houmao-managed compatibility profile store.",
+        install_error: Exception | None = None,
+    ) -> None:
+        self.startup_calls = 0
+        self.shutdown_calls = 0
+        self.install_calls: list[tuple[str, str, Path | None]] = []
+        self.m_install_detail = install_detail
+        self.m_install_error = install_error
+
+    def startup(self) -> None:
+        self.startup_calls += 1
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+    def install_profile(
+        self,
+        *,
+        agent_source: str,
+        provider: str,
+        working_directory: Path | None = None,
+    ) -> str:
+        self.install_calls.append((agent_source, provider, working_directory))
+        if self.m_install_error is not None:
+            raise self.m_install_error
+        return self.m_install_detail
+
+
 class _FakeTmuxTransportResolver:
     def __init__(self, *, output_text: str | list[str]) -> None:
         self.m_output_text = output_text
-        self.m_resolve_calls: list[tuple[str, str | None]] = []
+        self.m_resolve_calls: list[tuple[str, str | None, str | None]] = []
         self.m_capture_calls = 0
 
-    def resolve_target(self, *, session_name: str, window_name: str | None) -> ResolvedTmuxTarget:
-        self.m_resolve_calls.append((session_name, window_name))
+    def resolve_target(
+        self,
+        *,
+        session_name: str,
+        window_name: str | None,
+        window_index: str | None = None,
+    ) -> ResolvedTmuxTarget:
+        self.m_resolve_calls.append((session_name, window_name, window_index))
         return ResolvedTmuxTarget(
             pane=TmuxPaneRecord(
                 pane_id="%9",
                 session_name=session_name,
                 window_id="@2",
+                window_index=window_index or "1",
                 window_name=window_name or "developer-1",
                 pane_index="0",
                 pane_active=True,
+                pane_dead=False,
                 pane_pid=4321,
             )
         )
@@ -258,11 +321,14 @@ class _FakeHeadlessController:
             (),
             {
                 "backend": "claude_headless",
+                "tool": "claude",
                 "metadata": {"headless_output_format": "stream-json"},
             },
         )()
         self.agent_identity = agent_identity
         self.agent_id = agent_id
+        self.registry_generation_id = "test-generation"
+        self.registry_launch_authority = "external"
         self.m_stop_calls: list[bool] = []
         self.m_persist_calls = 0
 
@@ -272,6 +338,59 @@ class _FakeHeadlessController:
 
     def persist_manifest(self) -> None:
         self.m_persist_calls += 1
+
+    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+        if self.agent_identity is None or self.agent_id is None:
+            return None
+        published_at = datetime.now(UTC)
+        return LiveAgentRegistryRecordV2(
+            agent_name=self.agent_identity,
+            agent_id=self.agent_id,
+            generation_id=self.registry_generation_id,
+            published_at=published_at.isoformat(timespec="seconds"),
+            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(
+                timespec="seconds"
+            ),
+            identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
+            runtime=RegistryRuntimeV1(
+                manifest_path=str(self.manifest_path),
+                session_root=str(self.manifest_path.parent),
+                agent_def_dir=None,
+            ),
+            terminal=RegistryTerminalV1(kind="tmux", session_name=self.tmux_session_name),
+            gateway=None,
+            mailbox=None,
+        )
+
+
+def _sample_registry_record(
+    *,
+    agent_name: str,
+    agent_id: str,
+    manifest_path: Path,
+    session_root: Path,
+    session_name: str,
+    backend: str = "houmao_server_rest",
+    tool: str = "codex",
+    generation_id: str = "test-generation",
+) -> LiveAgentRegistryRecordV2:
+    published_at = datetime.now(UTC)
+    return LiveAgentRegistryRecordV2(
+        agent_name=agent_name,
+        agent_id=agent_id,
+        generation_id=generation_id,
+        published_at=published_at.isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        identity=RegistryIdentityV1(backend=backend, tool=tool),
+        runtime=RegistryRuntimeV1(
+            manifest_path=str(manifest_path.resolve()),
+            session_root=str(session_root.resolve()),
+            agent_def_dir=None,
+        ),
+        terminal=RegistryTerminalV1(kind="tmux", session_name=session_name),
+        gateway=None,
+        mailbox=None,
+    )
 
 
 _CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
@@ -332,6 +451,37 @@ def _write_process_metadata(
     if child_pid is not None:
         payload["child_pid"] = child_pid
     process_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+def _write_offline_gateway_attach_contract(session_root: Path) -> None:
+    """Write one valid offline gateway attach contract for tests."""
+
+    paths = gateway_paths_from_session_root(session_root=session_root.resolve())
+    paths.gateway_root.mkdir(parents=True, exist_ok=True)
+    attach_contract = GatewayAttachContractV1(
+        attach_identity=f"{session_root.name}-attach",
+        backend="houmao_server_rest",
+        tmux_session_name=session_root.name,
+        working_directory=str(session_root.resolve()),
+        backend_metadata=GatewayAttachBackendMetadataHoumaoServerV1(
+            api_base_url="http://127.0.0.1:9889",
+            session_name=session_root.name,
+            terminal_id="abcd1234",
+            parsing_mode="shadow_only",
+            tmux_window_name="developer-1",
+        ),
+        manifest_path=str((session_root / "manifest.json").resolve()),
+        agent_def_dir=str((session_root / "agent_def").resolve()),
+        runtime_session_id=session_root.name,
+    )
+    write_attach_contract(paths.attach_path, attach_contract)
+    write_gateway_status(
+        paths.state_path,
+        build_offline_gateway_status(
+            attach_contract=attach_contract,
+            managed_agent_instance_epoch=1,
+        ),
+    )
 
 
 def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_path: Path) -> None:
@@ -398,6 +548,142 @@ def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_p
     assert payload["terminal_id"] == "abcd1234"
 
 
+def test_stop_managed_agent_deletes_pair_managed_tui_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    transport = _FakeTransport(
+        {
+            ("DELETE", "/sessions/cao-gpu", ()): _json_response(
+                {"success": True, "detail": "session deleted"}
+            )
+        }
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    session_root.mkdir(parents=True, exist_ok=True)
+    publish_live_agent_record(
+        _sample_registry_record(
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            session_name="cao-gpu",
+        )
+    )
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    response = service.stop_managed_agent("cao-gpu")
+
+    assert response.success is True
+    assert response.tracked_agent_id == "cao-gpu"
+    assert response.detail == "session deleted"
+    assert transport.m_calls == [("DELETE", "/sessions/cao-gpu", ())]
+    assert resolve_live_agent_record("agent-1234") is None
+    with pytest.raises(HTTPException, match="Unknown terminal"):
+        service.terminal_state("abcd1234")
+
+
+def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    _write_offline_gateway_attach_contract(session_root)
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(HTTPException, match="No live gateway is attached") as exc_info:
+        service.submit_managed_agent_gateway_request(
+            "cao-gpu",
+            HoumaoManagedAgentGatewayRequestCreate(
+                kind="submit_prompt",
+                payload={"prompt": "hello"},
+            ),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=None,
+            session_root=None,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="does not expose pair-owned mailbox capability",
+    ) as exc_info:
+        service.check_managed_agent_mail(
+            "cao-gpu",
+            HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
 def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -461,7 +747,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert state.probe_snapshot.pane_id == "%9"
     assert state.probe_snapshot.matched_process_names == ["codex"]
     assert transport.m_calls == []
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None)]
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None, None)]
     assert process_inspector.m_calls == [("codex", 4321)]
     assert parser_adapter.m_capture_baseline_calls == [("codex", _CODEX_READY_RAW_SNAPSHOT)]
     assert parser_adapter.m_parse_calls == [("codex", 17)]
@@ -689,14 +975,11 @@ def test_terminal_history_returns_recent_in_memory_transitions(
     assert "turn_phase" in history.entries[0].changed_fields
 
 
-def test_startup_persists_current_instance_and_child_metadata(
+def test_startup_persists_current_instance_without_child_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    ownership_file = tmp_path / "child-cao" / "ownership.json"
-    ownership_file.parent.mkdir(parents=True, exist_ok=True)
-    ownership_file.write_text("{}\n", encoding="utf-8")
-    child_manager = _FakeChildManager(ownership_file=ownership_file)
+    control_core = _FakeControlCore()
     monkeypatch.setattr(
         "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
     )
@@ -707,7 +990,7 @@ def test_startup_persists_current_instance_and_child_metadata(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.startup()
@@ -718,25 +1001,22 @@ def test_startup_persists_current_instance_and_child_metadata(
     current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
     health = service.health_response()
 
-    assert child_manager.start_calls == 1
+    assert control_core.startup_calls == 1
     assert current_instance["status"] == "ok"
     assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
-    assert current_instance["child_cao"]["api_base_url"] == "http://127.0.0.1:9890"
-    assert current_instance["child_cao"]["derived_port"] == 9890
-    assert current_instance["child_cao"]["ownership_file"] == str(ownership_file)
+    assert "child_cao" not in current_instance
     assert health.status == "ok"
     assert health.houmao_service == "houmao-server"
-    assert health.child_cao is not None
-    assert health.child_cao.healthy is True
+    assert health.child_cao is None
 
 
-def test_startup_omits_child_metadata_when_child_startup_disabled(
+def test_startup_ignores_legacy_child_startup_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """No-child mode should persist Houmao-owned state without child metadata."""
+    """Legacy child-startup flags do not change the server-owned health surface."""
 
-    child_manager = _FakeChildManager(healthy=False, error="connection refused")
+    control_core = _FakeControlCore()
     monkeypatch.setattr(
         "houmao.server.tui.supervisor.TuiTrackingSupervisor.start", lambda self: None
     )
@@ -751,7 +1031,7 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
             startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.startup()
@@ -762,8 +1042,7 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
     current_instance = json.loads(current_instance_path.read_text(encoding="utf-8"))
     health = service.health_response()
 
-    assert child_manager.start_calls == 0
-    assert child_manager.inspect_calls == 0
+    assert control_core.startup_calls == 1
     assert current_instance["status"] == "ok"
     assert current_instance["api_base_url"] == "http://127.0.0.1:9889"
     assert "child_cao" not in current_instance
@@ -772,66 +1051,17 @@ def test_startup_omits_child_metadata_when_child_startup_disabled(
     assert health.child_cao is None
 
 
-def test_shutdown_stops_child_manager_when_started(tmp_path: Path) -> None:
-    child_manager = _FakeChildManager()
+def test_shutdown_persists_core_state_without_prior_startup(tmp_path: Path) -> None:
+    control_core = _FakeControlCore()
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=child_manager,
+        control_core=control_core,
     )
 
     service.shutdown()
 
-    assert child_manager.stop_calls == 1
-
-
-def test_install_agent_profile_routes_through_child_manager(tmp_path: Path) -> None:
-    child_manager = _FakeChildManager()
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({}),
-        child_manager=child_manager,
-    )
-
-    response = service.install_agent_profile(
-        HoumaoInstallAgentProfileRequest(
-            agent_source="projection-demo",
-            provider="codex",
-            working_directory=str(tmp_path),
-        )
-    )
-
-    assert response.success is True
-    assert child_manager.install_calls == [("projection-demo", "codex", tmp_path.resolve())]
-    assert "Pair-owned install completed" in response.detail
-
-
-def test_install_agent_profile_returns_explicit_failure_without_child_path_leak(
-    tmp_path: Path,
-) -> None:
-    child_manager = _FakeChildManager(
-        install_returncode=7,
-        install_stdout="internal success path /tmp/hidden/home",
-        install_stderr="internal failure path /tmp/hidden/home",
-    )
-    service = HoumaoServerService(
-        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
-        transport=_FakeTransport({}),
-        child_manager=child_manager,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        service.install_agent_profile(
-            HoumaoInstallAgentProfileRequest(
-                agent_source="projection-demo",
-                provider="codex",
-                working_directory=str(tmp_path),
-            )
-        )
-
-    assert exc_info.value.status_code == 502
-    assert "Pair-owned install failed through managed child CAO state" in str(exc_info.value.detail)
-    assert "/tmp/hidden/home" not in str(exc_info.value.detail)
+    assert control_core.shutdown_calls == 1
 
 
 def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Path) -> None:
@@ -1020,7 +1250,71 @@ def test_refresh_terminal_state_uses_registration_window_name(
 
     service.refresh_terminal_state("abcd1234")
 
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1")]
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", None)]
+
+
+def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    tmux_transport = _FakeTmuxTransportResolver(output_text="visible tmux text")
+    process_inspector = _FakeProcessInspector(
+        PaneProcessInspection(
+            process_state="tui_up",
+            matched_process_names=["codex"],
+            matched_processes=(),
+        )
+    )
+    parser_adapter = _FakeParserAdapter(
+        [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    monkeypatch.setattr(
+        "houmao.server.service.load_session_manifest",
+        lambda path: type("Handle", (), {"path": path, "payload": {}})(),
+    )
+    monkeypatch.setattr(
+        "houmao.server.service.parse_session_manifest_payload",
+        lambda payload, *, source: type("Payload", (), {"backend": "houmao_server_rest"})(),
+    )
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=tmux_transport,
+        process_inspector=process_inspector,
+        parser_adapter=parser_adapter,
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="AGENTSYS-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=str(manifest_path),
+        )
+    )
+
+    service.refresh_terminal_state("abcd1234")
+
+    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", "0")]
 
 
 def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
@@ -1078,6 +1372,7 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     workdir = tmp_path / "workspace"
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
@@ -1153,10 +1448,82 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert shared_agents[0].tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert [agent.tracked_agent_id for agent in shared_agents] == [response.tracked_agent_id]
+    assert resolve_live_agent_record("agent-1234") is not None
     assert "blueprint_gateway_defaults" not in recorded_start_kwargs
     assert "gateway_auto_attach" not in recorded_start_kwargs
     assert "gateway_host" not in recorded_start_kwargs
     assert "gateway_port" not in recorded_start_kwargs
+    assert recorded_start_kwargs["registry_launch_authority"] == "external"
+
+
+def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    workdir = tmp_path / "workspace"
+    agent_def_dir = tmp_path / "agent-defs"
+    brain_manifest_path = tmp_path / "brain.yaml"
+    manifest_path = (
+        tmp_path
+        / "runtime"
+        / "sessions"
+        / "claude_headless"
+        / "claude-headless-1"
+        / "manifest.json"
+    )
+    workdir.mkdir()
+    agent_def_dir.mkdir()
+    brain_manifest_path.write_text("inputs:\n  tool: claude\n", encoding="utf-8")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    fake_controller = _FakeHeadlessController(
+        manifest_path=manifest_path,
+        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="AGENTSYS-gpu",
+        agent_id="agent-1234",
+    )
+
+    monkeypatch.setattr(
+        "houmao.server.service.load_brain_manifest",
+        lambda _path: {"inputs": {"tool": "claude"}},
+    )
+    load_role_calls: list[object] = []
+    monkeypatch.setattr(
+        "houmao.server.service.load_role_package",
+        lambda *_args, **_kwargs: load_role_calls.append(True),
+    )
+    recorded_start_kwargs: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.server.service.start_runtime_session",
+        lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
+
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+
+    response = service.launch_headless_agent(
+        HoumaoHeadlessLaunchRequest(
+            tool="claude",
+            working_directory=str(workdir),
+            agent_def_dir=str(agent_def_dir),
+            brain_manifest_path=str(brain_manifest_path),
+            role_name=None,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    assert response.identity.transport == "headless"
+    assert load_role_calls == []
+    assert recorded_start_kwargs["role_name"] is None
 
 
 def test_headless_launch_request_rejects_gateway_fields() -> None:

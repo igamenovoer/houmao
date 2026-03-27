@@ -1,30 +1,50 @@
 # Runtime Reference
 
-## Developer Deep Dive
+## CLI Surfaces
 
-For the source-aligned explanation of CAO `shadow_only` parser/runtime behavior and `houmao-server` live-state tracking, start here.
+- [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
+- [houmao-server](cli/houmao-server.md): HTTP server for session management and TUI tracking.
+- [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
+- [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
 
-- [TUI Parsing Developer Guide](../developer/tui-parsing/index.md)
-- [Terminal Recorder Developer Guide](../developer/terminal-record/index.md)
-- [Houmao Server Developer Guide](../developer/houmao-server/index.md)
+## Build Phase
 
-## Reference Pages
+- [Brain Builder](build-phase/brain-builder.md): Build a brain home from recipe or direct inputs.
+- [Recipes and Adapters](build-phase/recipes-and-adapters.md): Declarative presets and per-tool contracts.
+- [Launch Overrides](build-phase/launch-overrides.md): Override system for launch parameters.
 
-- [System Files Reference](system-files/index.md)
-- [Realm Controller](realm_controller.md)
-- [Runtime-Managed Agents Reference](agents/index.md)
-- [Shared Registry Reference](registry/index.md)
-- [Agent Gateway Reference](gateway/index.md)
-- [Mailbox Reference](mailbox/index.md)
-- [Mailbox Roundtrip Tutorial Pack](../../scripts/demo/mailbox-roundtrip-tutorial-pack/README.md)
-- [Realm Controller Send-Keys](realm_controller_send_keys.md)
-- [Terminal Recorder](terminal_record.md)
-- [Interactive CAO Demo](cao_interactive_demo.md)
-- [Interactive CAO Full-Pipeline Tutorial Pack](../../scripts/demo/cao-interactive-full-pipeline-demo/README.md)
-- [Agents And Brains](agents_brains.md)
-- [Houmao Server Pair](houmao_server_pair.md)
-- [Managed-Agent API](managed_agent_api.md)
-- [CAO Server Launcher](cao_server_launcher.md)
-- [CAO Claude Shadow Parsing](cao_claude_shadow_parsing.md)
-- [CAO Shadow Parser Troubleshooting](cao_shadow_parser_troubleshooting.md)
-- [CLI](cli.md)
+## Run Phase
+
+- [Launch Plan](run-phase/launch-plan.md): Composing manifest + role into a backend-specific plan.
+- [Session Lifecycle](run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
+- [Backends](run-phase/backends.md): Backend model and per-backend notes.
+- [Role Injection](run-phase/role-injection.md): Per-backend role injection strategies.
+
+## Subsystems
+
+- [Gateway](gateway/index.md): Per-agent FastAPI sidecar for session control and mail.
+- [Mailbox](mailbox/index.md): Unified mailbox protocol — filesystem and Stalwart JMAP.
+- [TUI Tracking State Model](tui-tracking/state-model.md): Tracked state, signals, and transitions.
+- [TUI Tracking Detectors](tui-tracking/detectors.md): Detector profiles and registry.
+- [TUI Tracking Replay](tui-tracking/replay.md): State reducer and replay engine.
+- [Completion Detection](lifecycle/completion-detection.md): Turn-anchored readiness and completion pipelines.
+- [Agent Registry](registry/index.md): Session discovery and managed agent records.
+- [Terminal Record](terminal-record/index.md): tmux session recording and replay.
+- [System Files](system-files/index.md): Filesystem layout and owned paths.
+
+## Other Reference
+
+- [Realm Controller](realm_controller.md): Runtime session orchestration.
+- [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
+- [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
+- [Managed-Agent API](managed_agent_api.md): Direct agent control API surface.
+- [Agents And Brains](agents_brains.md): Component library layout.
+- [Realm Controller Send-Keys](realm_controller_send_keys.md): Raw tmux send-keys control.
+- [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md): Server agent API validation.
+
+## Developer Guides
+
+- [TUI Parsing](../developer/tui-parsing/index.md): Shadow parser architecture and maintenance.
+- [Terminal Recorder](../developer/terminal-record/index.md): Recording internals.
+- [Houmao Server Internals](../developer/houmao-server/index.md): Server-owned TUI tracking.
+

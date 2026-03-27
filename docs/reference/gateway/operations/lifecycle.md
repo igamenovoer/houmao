@@ -18,12 +18,17 @@ Runtime-owned tmux-backed sessions publish gateway capability by default.
 
 That means session start or resume can create:
 
+- `gateway/gateway_manifest.json`,
 - `gateway/attach.json`,
 - `gateway/state.json`,
-- stable tmux env pointers,
+- manifest-first tmux discovery env,
 - a `not_attached` status snapshot.
 
 It does not mean a live gateway is already running.
+
+`attach.json` is internal bootstrap state and `gateway_manifest.json` is derived outward-facing bookkeeping. Supported attach and relaunch behavior still resolve authority from `manifest.json` plus tmux or shared-registry discovery.
+
+Server-backed `houmao_server_rest` sessions reuse the same runtime-owned gateway publication seam as direct runtime launches. That shared publication writes `gateway_manifest.json`, `attach.json`, seeded offline status, queue/bootstrap assets, and manifest-first tmux discovery env before the server-side managed-agent registration step finishes.
 
 ## Post-Launch Attach Is The Official Managed-Agent Path
 
@@ -32,11 +37,72 @@ For the official managed-agent flow, launch and gateway lifecycle stay separate.
 That means:
 
 - the managed agent launches first,
-- gateway capability is published through `attach.json`, seeded state, and tmux env pointers,
+- gateway capability is published through `manifest.json`, derived gateway artifacts, seeded state, and tmux discovery env,
 - live gateway attach happens later through an explicit attach action,
 - async mailbox demos and server-managed flows should treat this post-launch attach as the supported path.
 
 The same design works whether the attach action comes from runtime CLI control or from the server-managed `/houmao/agents/{agent_ref}/gateway/attach` route family.
+
+For pair-managed `houmao_server_rest`, current-session attach becomes valid only after two conditions hold at the same time:
+
+- the tmux session already publishes manifest-first discovery for that runtime-owned session
+- the same logical session is already registered under `/houmao/agents/*` on the persisted `api_base_url`
+
+Before registration completes, the seeded offline gateway artifacts may already exist, but current-session pair attach still fails because the managed-agent lookup is not ready yet.
+
+## Pair-Owned Managed-Agent Attach
+
+For pair-managed terminal sessions, the supported public CLI family is `houmao-mgr agents gateway ...`.
+
+Explicit target mode:
+
+```bash
+houmao-mgr agents gateway attach --agent-name cao-gpu --port 9889
+houmao-mgr agents gateway send-keys --agent-name cao-gpu --port 9889 --sequence "<[Escape]>"
+houmao-mgr agents gateway mail-notifier enable --agent-name cao-gpu --port 9889 --interval-seconds 60
+```
+
+Current-session mode:
+
+```bash
+houmao-mgr agents gateway attach
+houmao-mgr agents gateway status
+houmao-mgr agents gateway send-keys --sequence "<[Escape]>"
+houmao-mgr agents gateway mail-notifier status
+```
+
+Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
+
+- `AGENTSYS_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `AGENTSYS_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
+- the resolved manifest belongs to the current tmux session
+- the resolved manifest uses `backend == "houmao_server_rest"`
+- manifest-declared attach authority becomes the authoritative managed-agent attach target
+- any existing `gateway_manifest.json` is treated as derived publication rather than current-session attach authority
+
+Important boundary:
+
+- `--port` is only valid with explicit `--agent-name` or `--agent-id` attach
+- current-session attach does not guess or re-resolve a different server target
+- stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
+
+## Runtime-Owned Foreground Managed Attach
+
+For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach --foreground` reuses the same-session auxiliary-window execution path instead of the detached-process path.
+
+Example:
+
+```bash
+houmao-mgr agents gateway attach --foreground --agent-name local
+houmao-mgr agents gateway status --agent-name local
+```
+
+Foreground attach rules:
+
+- tmux window `0` remains the contractual agent surface
+- when launch omitted `--session-name`, the runtime-owned tmux handle uses `AGENTSYS-<agent_name>-<epoch-ms>`
+- the gateway runs in an auxiliary tmux window whose recorded index is `>=1`
+- `gateway status` reports `execution_mode` plus the authoritative `gateway_tmux_window_index` and `gateway_tmux_window_id` for the live gateway surface
+- later attach or restart flows reuse the persisted desired execution mode instead of silently falling back to detached execution
 
 ## Runtime Auto-Attach Convenience
 
@@ -78,7 +144,7 @@ Listener resolution rules in the current implementation:
 1. CLI host or port override for the attach action,
 2. caller environment variable for host or port,
 3. stored desired config when present,
-4. attach-contract defaults,
+4. internal bootstrap defaults when present,
 5. fallback host `127.0.0.1` and system-assigned port request when no port is specified.
 
 Important rule:
@@ -135,10 +201,28 @@ Effects:
 
 - the gateway process is terminated,
 - live gateway env vars are removed,
+- `gateway_manifest.json` is regenerated as offline derived bookkeeping,
 - `state.json` returns to the offline `not_attached` shape,
-- stable attach metadata stays in place for later re-attach.
+- persisted manifest-backed attach authority stays in place for later re-attach.
 
 `stop-session` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
+
+## Same-Session Gateway Windows
+
+For `houmao_server_rest`, live gateway attach runs the gateway inside the same tmux session in an auxiliary window instead of relying only on an unrelated detached process.
+
+Current behavior:
+
+- tmux window `0` stays reserved as the only contractual agent surface
+- the live gateway records its execution mode plus tmux window and pane handle in `gateway/run/current-instance.json`
+- detach, stale-runtime cleanup, and same-session reattach stop the recorded auxiliary window rather than rediscovering some other non-zero window heuristically
+- if the recorded execution handle ever claims window `0`, detach and cleanup refuse to kill it
+
+Non-zero windows remain intentionally non-contractual for operators and callers:
+
+- do not infer semantics from their names
+- do not assume stable ordering or counts
+- treat only the exact handle recorded for the current live gateway as authoritative
 
 ## Direct Runtime Control Versus Gateway Queueing
 
@@ -168,7 +252,7 @@ That file is the operator-facing view for:
 - mail notifier enable or disable changes,
 - notifier poll decisions such as empty polls, dedup skips, and busy deferrals.
 
-For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone. The runnable operator walkthrough for that inspection flow lives in [`scripts/demo/gateway-mail-wakeup-demo-pack/README.md`](../../../../scripts/demo/gateway-mail-wakeup-demo-pack/README.md), which now uses the repository's copied dummy-project plus lightweight `mailbox-demo` defaults for this narrow gateway walkthrough.
+For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone.
 
 Typical watch command:
 
@@ -179,10 +263,11 @@ tail -f <session-root>/gateway/logs/gateway.log
 ## Current Implementation Notes
 
 - A session can be gateway-capable even when `gateway-status` reports `gateway_health=not_attached`.
-- Runtime-owned live attach currently supports REST-backed sessions (`cao_rest`, `houmao_server_rest`) and runtime-owned native headless backends whose execution adapters are implemented.
+- Runtime-owned live attach currently supports `local_interactive`, REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless backends whose execution adapters are implemented.
+- Attached runtime-owned `local_interactive` sessions expose the gateway-owned `/v1/control/tui/state` and `/v1/control/tui/note-prompt` routes as the supported local/serverless tracking surface; that surface uses the runtime session id as the public `terminal_id` fallback because there is no backend-provided terminal alias. `/v1/control/tui/history` remains a compatibility-only route for shared consumers rather than a repo-owned local workflow dependency.
 - Server-managed native headless agents use the same post-launch attach model, but the live gateway routes prompt and interrupt work back through `/houmao/agents/{agent_ref}/requests` instead of resuming the headless session privately.
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
-- Desired host and port are rewritten after successful live attach so later starts can reuse the actual bound listener.
+- Desired host, port, and execution mode are rewritten after successful live attach so later starts can reuse the actual bound listener and gateway surface topology.
 
 ## Source References
 

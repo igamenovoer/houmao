@@ -1,29 +1,43 @@
-"""Top-level click command tree for `houmao-srv-ctrl`."""
+"""Top-level click command tree for `houmao-mgr`."""
 
 from __future__ import annotations
 
 import click
 
-from .cao import cao_group
-from .install import install_command
-from .launch import launch_command
+from .admin import admin_group
+from .agents import agents_group
+from .brains import brains_group
+from .mailbox import mailbox_group
+from .server import server_group
 
 
-@click.group(name="houmao-srv-ctrl")
-def cli() -> None:
-    """Houmao service-management CLI with explicit CAO compatibility namespace."""
+@click.group(name="houmao-mgr", invoke_without_command=True)
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """Houmao pair CLI with native server and managed-agent command families."""
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-cli.add_command(cao_group)
-cli.add_command(install_command)
-cli.add_command(launch_command)
+cli.add_command(admin_group)
+cli.add_command(agents_group)
+cli.add_command(brains_group)
+cli.add_command(mailbox_group)
+cli.add_command(server_group)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the click CLI and return an exit code."""
 
     try:
-        cli.main(args=argv, prog_name="houmao-srv-ctrl", standalone_mode=False)
+        cli.main(args=argv, prog_name="houmao-mgr", standalone_mode=False)
+    except click.ClickException as exc:
+        exc.show()
+        return exc.exit_code
+    except click.Abort:
+        click.echo("Aborted!", err=True)
+        return 1
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else 1
