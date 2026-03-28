@@ -1,20 +1,20 @@
 ---
 tutorial_name: minimal-agent-launch
 created_at: 2026-03-28T10:45:10Z
-base_commit: 6235cc4cb62c79b395723393b1c213de4cc516d6
+base_commit: ceea9c3272c19ac91464ab4d2cca77cb81697a8a
 topic: Houmao - Minimal Agent Launch Demo
 runtime:
   os: Linux
   python: 3.13.12
   device: cpu
-  notes: Headless local demo verified against fixture auth bundles under tests/fixtures/agents/tools.
+  notes: Claude and Codex were verified across both default TUI and `--headless` lanes against the local fixture auth bundles under tests/fixtures/agents/tools.
 ---
 
-# How to launch one minimal Houmao agent with Claude or Codex
+# How to launch one minimal Houmao agent across Claude/Codex and TUI/headless
 
 ## Question
 
-How do I define the smallest canonical `agents/` tree that can launch one managed agent through Houmao, while keeping auth local-only and still supporting both Claude and Codex?
+How do I define the smallest canonical `agents/` tree that can launch one managed agent through Houmao, keep auth local-only, and still support both Claude and Codex with TUI as the default and `--headless` as the headless switch?
 
 ## Prerequisites
 
@@ -34,7 +34,10 @@ The tracked demo keeps only the secret-free part of the canonical layout:
 - one secret-free setup bundle per tool
 - an empty `skills/` root so the builder sees a valid skills repository even though the presets use `skills: []`
 
-At run time, the script copies those tracked inputs into a generated workdir, creates a demo-local `default` auth symlink for the selected provider, points Houmao at that generated `agents/` tree, and runs a headless `launch -> prompt -> state -> stop` cycle.
+At run time, the script copies those tracked inputs into a generated workdir, creates a demo-local `default` auth symlink for the selected provider, points Houmao at that generated `agents/` tree, and then chooses one of two flows:
+
+- default TUI: `launch -> state`, then leaves the agent alive and reports the tmux attach handoff for follow-up control
+- `--headless`: `launch -> prompt -> state -> stop`
 
 ## Critical Example Code
 
@@ -42,8 +45,17 @@ At run time, the script copies those tracked inputs into a generated workdir, cr
 
 ```bash
 provider="codex"  # or claude_code
+headless="false"  # set to true for the headless lane
 tool="codex"
-run_root="scripts/demo/minimal-agent-launch/outputs/${provider}"
+
+if [[ "${headless}" == "true" ]]; then
+  run_root="scripts/demo/minimal-agent-launch/outputs/${provider}-headless"
+  agent_name="minimal-launch-demo-${tool}-headless"
+else
+  run_root="scripts/demo/minimal-agent-launch/outputs/${provider}"
+  agent_name="minimal-launch-demo-${tool}"
+fi
+
 generated_agent_def_dir="${run_root}/workdir/.agentsys/agents"
 
 rm -rf "${run_root}/workdir" "${run_root}/runtime"
@@ -59,21 +71,29 @@ ln -s \
   "$PWD/tests/fixtures/agents/tools/codex/auth/yunwu-openai" \
   "${generated_agent_def_dir}/tools/${tool}/auth/default"
 
+launch_args=(
+  pixi run houmao-mgr agents launch
+  --agents minimal-launch
+  --provider "${provider}"
+  --agent-name "${agent_name}"
+  --yolo
+)
+if [[ "${headless}" == "true" ]]; then
+  launch_args+=(--headless)
+fi
+
 AGENTSYS_AGENT_DEF_DIR="$PWD/${generated_agent_def_dir}" \
 AGENTSYS_GLOBAL_RUNTIME_DIR="$PWD/${run_root}/runtime" \
-pixi run houmao-mgr agents launch \
-  --agents minimal-launch \
-  --provider "${provider}" \
-  --agent-name "minimal-launch-demo-${tool}" \
-  --headless \
-  --yolo
+"${launch_args[@]}"
 ```
 
 For the full runnable flow, use the tracked script instead of retyping the steps:
 
 ```bash
 scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code
+scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code --headless
 scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex
+scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex --headless
 ```
 
 ## Input and Output
@@ -87,7 +107,7 @@ The tracked demo inputs are:
 - `inputs/agents/roles/minimal-launch/presets/codex/default.yaml`: minimal Codex preset
 - `inputs/agents/tools/claude/...`: secret-free Claude adapter and setup
 - `inputs/agents/tools/codex/...`: secret-free Codex adapter and setup
-- `inputs/prompt.txt`: the prompt submitted after launch
+- `inputs/prompt.txt`: the prompt submitted after a headless launch
 
 The tracked minimal agent-definition tree is:
 
@@ -111,45 +131,34 @@ scripts/demo/minimal-agent-launch/inputs/agents/
 
 ### Output
 
-Each run writes provider-specific artifacts under `scripts/demo/minimal-agent-launch/outputs/<provider>/`.
+Each run writes generated artifacts under a lane-specific root:
 
-Important outputs:
+- default Claude TUI: `outputs/claude_code/`
+- Claude headless: `outputs/claude_code-headless/`
+- default Codex TUI: `outputs/codex/`
+- Codex headless: `outputs/codex-headless/`
 
-- `workdir/.agentsys/agents/`: generated launch tree with local auth aliasing
+Important generated outputs for every lane:
+
+- `workdir/.agentsys/agents/`: generated launch tree with the demo-local auth alias
 - `runtime/`: built homes, manifests, and session artifacts
+- `logs/preflight-stop.log`: best-effort cleanup of a stale agent with the same demo name
 - `logs/launch.log`
-- `logs/prompt.log`
 - `logs/state.log`
-- `logs/stop.log`
 - `summary.json`
 
-Representative observed state after a successful Claude run:
+Headless-only generated outputs:
+
+- `logs/prompt.log`
+- `logs/stop.log`
+
+Representative observed headless state:
 
 ```json
 {
   "availability": "available",
   "identity": {
-    "agent_name": "minimal-launch-demo-claude",
-    "tool": "claude",
-    "transport": "headless"
-  },
-  "last_turn": {
-    "result": "success",
-    "turn_index": 1
-  },
-  "turn": {
-    "phase": "ready"
-  }
-}
-```
-
-Representative observed state after a successful Codex run:
-
-```json
-{
-  "availability": "available",
-  "identity": {
-    "agent_name": "minimal-launch-demo-codex",
+    "agent_name": "minimal-launch-demo-codex-headless",
     "tool": "codex",
     "transport": "headless"
   },
@@ -163,15 +172,58 @@ Representative observed state after a successful Codex run:
 }
 ```
 
+Representative observed default TUI state:
+
+```json
+{
+  "availability": "available",
+  "identity": {
+    "agent_name": "minimal-launch-demo-claude",
+    "tool": "claude",
+    "transport": "tui"
+  },
+  "last_turn": {
+    "result": "none",
+    "turn_index": null
+  },
+  "turn": {
+    "phase": "ready"
+  }
+}
+```
+
+Representative observed non-interactive TUI handoff:
+
+```text
+terminal_handoff=skipped_non_interactive
+attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-claude-1774696208764
+```
+
 ## Verification
 
-- Run: `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code`
-- Run: `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex`
-- Confirm:
-  - `scripts/demo/minimal-agent-launch/outputs/claude_code/logs/state.log` contains `"availability": "available"` and `"tool": "claude"`
-  - `scripts/demo/minimal-agent-launch/outputs/codex/logs/state.log` contains `"availability": "available"` and `"tool": "codex"`
-  - both `logs/stop.log` files report `"success": true`
-  - the generated workdirs contain `tools/<tool>/auth/default` as a symlink to the expected fixture auth bundle
+Run each supported lane:
+
+- `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code`
+- `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code --headless`
+- `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex`
+- `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex --headless`
+
+Observed verification results on 2026-03-28:
+
+| Lane | Output root | Observed launch/state evidence |
+|---|---|---|
+| Claude TUI | `outputs/claude_code/` | `agent_name=minimal-launch-demo-claude`, `tool=claude`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-claude-1774696208764` |
+| Claude headless | `outputs/claude_code-headless/` | `agent_name=minimal-launch-demo-claude-headless`, `tool=claude`, `transport=headless`, `last_turn.result=success`, `logs/stop.log` reported `"success": true` |
+| Codex TUI | `outputs/codex/` | `agent_name=minimal-launch-demo-codex`, `tool=codex`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-codex-1774696235259` |
+| Codex headless | `outputs/codex-headless/` | `agent_name=minimal-launch-demo-codex-headless`, `tool=codex`, `transport=headless`, `last_turn.result=success`, `logs/stop.log` reported `"success": true` |
+
+What to confirm after a run:
+
+- `summary.json` records the selected `provider`, derived `transport`, and fixture auth source
+- `logs/state.log` contains `"availability": "available"` with the expected `tool` and `transport`
+- headless lanes write both `logs/prompt.log` and `logs/stop.log`
+- default TUI lanes leave the agent alive and publish `tmux_session_name`, `terminal_handoff`, and `attach_command`
+- the generated workdir contains `tools/<tool>/auth/default` as a symlink to the expected fixture auth bundle
 
 ## Appendix
 
@@ -180,7 +232,10 @@ Representative observed state after a successful Codex run:
 - `fixture auth bundle missing`: restore the local bundle under `tests/fixtures/agents/tools/<tool>/auth/...` before running the demo
 - `required command not found: claude|codex|tmux`: install the missing provider CLI or `tmux`
 - Codex websocket or endpoint errors: make sure the generated Codex setup points at the Yunwu-compatible provider config and that the `yunwu-openai` fixture auth bundle is the source for the demo-local `default` alias
-- `No local managed agent matched friendly name ...`: this usually means you inspected state after the script had already reached the stop step; rerun the script or inspect `logs/state.log`
+- `No local managed agent matched friendly name ...` in `preflight-stop.log`: this is expected on a first run or after a clean stop, because the runner always attempts best-effort cleanup before launch
+- Default TUI lanes from non-interactive shells intentionally do not attach automatically; expect `terminal_handoff=skipped_non_interactive` and use the returned `attach_command`
+- TUI lanes remain running after the script exits; stop them explicitly when you are done, for example `pixi run houmao-mgr agents stop --agent-name minimal-launch-demo-claude` or `pixi run houmao-mgr agents stop --agent-name minimal-launch-demo-codex`
+- Headless lanes stop themselves before the script exits, so a follow-up `agents state` lookup by friendly name may fail unless you rerun the lane and inspect `logs/state.log`
 
 ### Key parameters
 
@@ -188,9 +243,10 @@ Representative observed state after a successful Codex run:
 |---|---|---|
 | `role` | Shared role selector | `minimal-launch` |
 | `providers` | Supported launch providers | `claude_code`, `codex` |
+| `default transport` | Launch mode when `--headless` is absent | `tui` |
+| `headless switch` | Explicit headless selector | `--headless` |
 | `preset auth` | Demo-local preset auth alias | `default` |
-| `prompt_mode` | Headless prompt posture | `unattended` |
-| `output root` | Generated run artifacts | `scripts/demo/minimal-agent-launch/outputs/<provider>/` |
+| `output root` | Generated run artifacts | `scripts/demo/minimal-agent-launch/outputs/<provider>[-headless]/` |
 
 ## References
 

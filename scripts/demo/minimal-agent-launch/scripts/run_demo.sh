@@ -4,13 +4,16 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: run_demo.sh --provider claude_code|codex [--output-dir PATH] [--agent-name NAME]
+Usage: run_demo.sh --provider claude_code|codex [--headless] [--output-dir PATH] [--agent-name NAME]
 
 Run the minimal managed-agent launch demo for one supported provider.
+Default behavior launches a TUI agent. Use --headless for the headless lane.
 
 Examples:
   scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code
+  scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code --headless
   scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex
+  scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex --headless
 EOF
 }
 
@@ -19,6 +22,7 @@ DEMO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${DEMO_ROOT}/../../.." && pwd)"
 
 provider=""
+headless="false"
 output_dir=""
 agent_name=""
 
@@ -27,6 +31,10 @@ while (($# > 0)); do
         --provider)
             provider="${2:-}"
             shift 2
+            ;;
+        --headless)
+            headless="true"
+            shift
             ;;
         --output-dir)
             output_dir="${2:-}"
@@ -57,6 +65,8 @@ fi
 tool=""
 provider_executable=""
 fixture_auth_source=""
+launch_mode=""
+transport=""
 
 case "${provider}" in
     claude_code)
@@ -75,12 +85,28 @@ case "${provider}" in
         ;;
 esac
 
+if [[ "${headless}" == "true" ]]; then
+    launch_mode="headless"
+    transport="headless"
+else
+    launch_mode="tui"
+    transport="tui"
+fi
+
 if [[ -z "${output_dir}" ]]; then
-    output_dir="${DEMO_ROOT}/outputs/${provider}"
+    if [[ "${transport}" == "headless" ]]; then
+        output_dir="${DEMO_ROOT}/outputs/${provider}-headless"
+    else
+        output_dir="${DEMO_ROOT}/outputs/${provider}"
+    fi
 fi
 
 if [[ -z "${agent_name}" ]]; then
-    agent_name="minimal-launch-demo-${tool}"
+    if [[ "${transport}" == "headless" ]]; then
+        agent_name="minimal-launch-demo-${tool}-headless"
+    else
+        agent_name="minimal-launch-demo-${tool}"
+    fi
 fi
 
 mkdir -p "$(dirname "${output_dir}")"
@@ -110,6 +136,17 @@ require_path() {
     fi
 }
 
+extract_log_field() {
+    local key="$1"
+    local logfile="$2"
+
+    if [[ ! -f "${logfile}" ]]; then
+        return 0
+    fi
+
+    awk -F= -v key="${key}" '$1 == key { print substr($0, length(key) + 2); exit }' "${logfile}"
+}
+
 run_logged() {
     local label="$1"
     shift
@@ -125,7 +162,23 @@ run_logged() {
     } 2>&1 | tee "${logfile}"
 }
 
-cleanup_agent() {
+run_best_effort_logged() {
+    local label="$1"
+    shift
+    local logfile="${logs_dir}/${label}.log"
+
+    {
+        printf '## %s\n' "${label}"
+        printf '$'
+        for arg in "$@"; do
+            printf ' %q' "${arg}"
+        done
+        printf '\n'
+        "$@"
+    } >"${logfile}" 2>&1 || true
+}
+
+cleanup_agent_on_error() {
     set +e
     (
         cd "${REPO_ROOT}" || exit 1
@@ -135,7 +188,7 @@ cleanup_agent() {
     ) >"${logs_dir}/stop-on-error.log" 2>&1
 }
 
-trap cleanup_agent ERR
+trap cleanup_agent_on_error ERR
 
 require_command pixi
 require_command tmux
@@ -156,47 +209,83 @@ mkdir -p \
     "${generated_agent_def_dir}/tools/codex/auth"
 ln -s "${fixture_auth_source}" "${generated_agent_def_dir}/tools/${tool}/auth/default"
 
-cat >"${run_root}/summary.json" <<EOF
-{
-  "provider": "${provider}",
-  "tool": "${tool}",
-  "agent_name": "${agent_name}",
-  "fixture_auth_source": "${fixture_auth_source}",
-  "generated_agent_def_dir": "${generated_agent_def_dir}",
-  "runtime_root": "${runtime_root}",
-  "prompt_file": "${prompt_file}"
-}
-EOF
-
 export AGENTSYS_AGENT_DEF_DIR="${generated_agent_def_dir}"
 export AGENTSYS_GLOBAL_RUNTIME_DIR="${runtime_root}"
 
 (
     cd "${REPO_ROOT}"
-    run_logged launch \
-        pixi run houmao-mgr agents launch \
-        --agents minimal-launch \
-        --provider "${provider}" \
-        --agent-name "${agent_name}" \
-        --headless \
+    run_best_effort_logged preflight-stop \
+        pixi run houmao-mgr agents stop \
+        --agent-name "${agent_name}"
+
+    launch_args=(
+        pixi run houmao-mgr agents launch
+        --agents minimal-launch
+        --provider "${provider}"
+        --agent-name "${agent_name}"
         --yolo
-    run_logged prompt \
-        pixi run houmao-mgr agents prompt \
-        --agent-name "${agent_name}" \
-        --prompt "$(cat "${prompt_file}")"
+    )
+    if [[ "${headless}" == "true" ]]; then
+        launch_args+=(--headless)
+    fi
+
+    run_logged launch \
+        "${launch_args[@]}"
+
     sleep 2
+
+    if [[ "${headless}" == "true" ]]; then
+        run_logged prompt \
+            pixi run houmao-mgr agents prompt \
+            --agent-name "${agent_name}" \
+            --prompt "$(cat "${prompt_file}")"
+        sleep 2
+    fi
+
     run_logged state \
         pixi run houmao-mgr agents state \
         --agent-name "${agent_name}"
-    run_logged stop \
-        pixi run houmao-mgr agents stop \
-        --agent-name "${agent_name}"
+
+    if [[ "${headless}" == "true" ]]; then
+        run_logged stop \
+            pixi run houmao-mgr agents stop \
+            --agent-name "${agent_name}"
+    fi
 )
 
 trap - ERR
 
+tmux_session_name="$(extract_log_field tmux_session_name "${logs_dir}/launch.log")"
+terminal_handoff="$(extract_log_field terminal_handoff "${logs_dir}/launch.log")"
+attach_command="$(extract_log_field attach_command "${logs_dir}/launch.log")"
+
+cat >"${run_root}/summary.json" <<EOF
+{
+  "provider": "${provider}",
+  "tool": "${tool}",
+  "transport": "${transport}",
+  "launch_mode": "${launch_mode}",
+  "agent_name": "${agent_name}",
+  "fixture_auth_source": "${fixture_auth_source}",
+  "generated_agent_def_dir": "${generated_agent_def_dir}",
+  "runtime_root": "${runtime_root}",
+  "prompt_file": "${prompt_file}",
+  "tmux_session_name": "${tmux_session_name}",
+  "terminal_handoff": "${terminal_handoff}",
+  "attach_command": "${attach_command}"
+}
+EOF
+
 printf '\nDemo complete.\n'
 printf 'provider=%s\n' "${provider}"
+printf 'transport=%s\n' "${transport}"
+printf 'headless=%s\n' "${headless}"
 printf 'agent_name=%s\n' "${agent_name}"
 printf 'output_root=%s\n' "${run_root}"
 printf 'logs=%s\n' "${logs_dir}"
+if [[ "${transport}" == "tui" ]]; then
+    printf 'tmux_session_name=%s\n' "${tmux_session_name}"
+    printf 'terminal_handoff=%s\n' "${terminal_handoff}"
+    printf 'attach_command=%s\n' "${attach_command}"
+    printf 'next_stop_command=%s\n' "pixi run houmao-mgr agents stop --agent-name ${agent_name}"
+fi
