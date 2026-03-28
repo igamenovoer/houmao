@@ -130,7 +130,7 @@ houmao-mgr brains build [OPTIONS]
 | `--tool TEXT` | Tool identifier for the brain (e.g. `codex`, `claude`, `gemini`). |
 | `--skill TEXT` | Skill name to include. May be specified multiple times. |
 | `--config-profile TEXT` | Secret-free configuration profile name. |
-| `--cred-profile TEXT` | Local credential profile name. |
+| `--cred-profile TEXT` | Local auth bundle name. |
 | `--recipe TEXT` | Brain recipe name (resolves tool, skills, and profiles from a declarative preset). |
 | `--runtime-root PATH` | Root directory for runtime homes. |
 | `--home-id TEXT` | Explicit home identifier for the runtime home directory. |

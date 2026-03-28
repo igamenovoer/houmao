@@ -1,8 +1,0 @@
-{
-  "case_id": "claude_interrupted_after_active",
-  "description": "Interrupt an active Claude turn and keep the final interrupted posture visible.",
-  "observed_version": "2.1.81 (Claude Code)",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "claude"
-}

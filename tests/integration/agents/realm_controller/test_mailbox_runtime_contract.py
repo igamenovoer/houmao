@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.mail_commands import prepare_mail_prompt, run_mail_prompt
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -59,7 +60,7 @@ def _write(path: Path, content: str) -> None:
 
 def _seed_agent_def_dir(agent_def_dir: Path) -> None:
     _write(
-        agent_def_dir / "brains/tool-adapters/codex.yaml",
+        agent_def_dir / "tools/codex/adapter.yaml",
         """
 schema_version: 1
 tool: codex
@@ -86,10 +87,10 @@ credential_projection:
 """.strip()
         + "\n",
     )
-    _write(agent_def_dir / "brains/skills/skill-a/SKILL.md", "# skill-a\n")
-    _write(agent_def_dir / "brains/cli-configs/codex/default/config.toml", "model='x'\n")
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "tools/codex/setups/default/config.toml", "model='x'\n")
     _write(
-        agent_def_dir / "brains/api-creds/codex/personal-a/env/vars.env",
+        agent_def_dir / "tools/codex/auth/personal-a/env/vars.env",
         "OPENAI_API_KEY=sk-test-123\n",
     )
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
@@ -149,8 +150,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             runtime_root=runtime_root,
             tool="codex",
             skills=["skill-a"],
-            config_profile="default",
-            credential_profile="personal-a",
+            setup="default",
+            auth="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
                 principal_id="AGENTSYS-research",
@@ -350,10 +351,20 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
 
 def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
     monkeypatch,
-    capsys,
     tmp_path: Path,
 ) -> None:
     launch_plan = _mailbox_cao_launch_plan(tmp_path)
+    prompt_request = prepare_mail_prompt(
+        launch_plan=launch_plan,
+        operation="send",
+        args={
+            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "cc": [],
+            "subject": "Investigate parser drift",
+            "body_content": "Hello from integration coverage",
+            "attachments": [],
+        },
+    )
 
     class _FakeClient:
         def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
@@ -467,48 +478,17 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
         poll_interval_seconds=0.0,
         session_manifest_path=tmp_path / "session-codex-shadow-mail.json",
     )
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
 
-    class _FakeController:
-        def __init__(self) -> None:
-            self.launch_plan = launch_plan
-
-        def send_prompt(self, prompt: str) -> list[SessionEvent]:
-            return session.send_prompt(prompt)
-
-        def send_mail_prompt(self, prompt_request) -> list[SessionEvent]:  # type: ignore[no-untyped-def]
-            return session.send_mail_prompt(prompt_request)
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.resolve_agent_identity",
-        lambda **kwargs: SimpleNamespace(
-            session_manifest_path=tmp_path / "session.json",
-            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
-            warnings=(),
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.resume_runtime_session",
-        lambda **kwargs: _FakeController(),
+    result = run_mail_prompt(
+        send_prompt=None,
+        send_mail_prompt=session.send_mail_prompt,
+        prompt_request=prompt_request,
+        mailbox=mailbox,
     )
 
-    exit_code = cli.main(
-        [
-            "mail",
-            "send",
-            "--agent-identity",
-            "AGENTSYS-research",
-            "--to",
-            "AGENTSYS-orchestrator@agents.localhost",
-            "--subject",
-            "Investigate parser drift",
-            "--body-content",
-            "Hello from integration coverage",
-        ]
-    )
-
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert '"message_ref": "filesystem:msg-20260318T130000Z-integration"' in output
+    assert result["message_ref"] == "filesystem:msg-20260318T130000Z-integration"
     assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 

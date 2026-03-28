@@ -28,6 +28,26 @@ User-facing reusable launch metadata SHALL live in role-scoped presets plus tool
 - **AND THEN** launchable preset files SHALL live under `agents/roles/<role>/presets/`
 - **AND THEN** tool-specific setup and auth material SHALL live under `agents/tools/<tool>/`
 
+### Requirement: Supported tracked agent-definition trees omit legacy layout mirrors
+
+Repository-owned tracked agent-definition trees that remain part of the supported live system contract SHALL publish launchable source definitions through the canonical `skills/`, `roles/`, `tools/`, and optional `compatibility-profiles/` layout only.
+
+Supported tracked trees SHALL NOT require or ship legacy `brains/`, `brain-recipes/`, `cli-configs/`, `api-creds/`, or `blueprints/` directories as parallel source-of-truth mirrors for the same launchable assets.
+
+Archived historical material under `scripts/demo/legacy/` is not part of that supported live contract and does not define the maintained source-layout requirement.
+
+#### Scenario: Maintainer inspects a supported repo-owned agent-definition tree
+
+- **WHEN** a maintainer inspects a supported repo-owned agent-definition tree used by live fixtures, tests, or non-archived workflows
+- **THEN** launchable role, preset, setup, auth, and skill assets live under the canonical `skills/`, `roles/`, `tools/`, and optional `compatibility-profiles/` directories
+- **AND THEN** the tree does not ship tracked legacy mirror directories for the same launchable assets
+
+#### Scenario: Canonical consumers do not need legacy directories
+
+- **WHEN** selector resolution, brain construction, or supported live helper logic consumes a tracked repo-owned agent-definition tree
+- **THEN** it resolves canonical preset, setup, auth, role, and skill inputs from that tree
+- **AND THEN** successful resolution does not require legacy `brains/` or `blueprints/` directories to exist alongside the canonical source layout
+
 ### Requirement: Source parsing yields a canonical agent catalog
 
 The system SHALL parse the user-facing `agents/` source tree into a canonical parsed model before selector resolution or brain construction.
@@ -237,9 +257,9 @@ Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL
 - **THEN** preset loading SHALL fail explicitly
 - **AND THEN** the error SHALL direct authors toward the supported core fields and `extra`
 
-### Requirement: Tracked interactive-demo presets
+### Requirement: Tracked canonical presets for live role variants
 
-The repository SHALL provide tracked, declarative, secret-free presets under `agents/roles/<role>/presets/` for the interactive demo launch variants that the repo documents and verifies.
+The repository SHALL provide tracked, declarative, secret-free presets under `agents/roles/<role>/presets/` for the live role variants that the repo documents and verifies.
 
 At minimum, the tracked preset set SHALL include:
 

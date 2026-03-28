@@ -1,4 +1,0 @@
-schema_version: 1
-name: skill-invocation-demo-codex
-brain_recipe: ../brains/brain-recipes/codex/skill-invocation-demo-default.yaml
-role: skill-invocation-demo

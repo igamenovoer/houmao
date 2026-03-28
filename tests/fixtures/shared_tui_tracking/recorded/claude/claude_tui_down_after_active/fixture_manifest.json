@@ -1,8 +1,0 @@
-{
-  "case_id": "claude_tui_down_after_active",
-  "description": "Force a diagnostics-loss boundary by killing the tracked tmux session mid-turn.",
-  "observed_version": "2.1.81 (Claude Code)",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "claude"
-}

@@ -1,6 +1,6 @@
 # Agents Directory
 
-This fixture tree now publishes the simplified `agents/` source layout as the canonical shape:
+This fixture tree publishes the simplified `agents/` source layout as the canonical supported shape:
 
 ```text
 tests/fixtures/agents/
@@ -13,7 +13,7 @@ tests/fixtures/agents/
   compatibility-profiles/
 ```
 
-The legacy `brains/` and `blueprints/` subtrees remain only as migration-era compatibility fixtures. New examples, docs, and tests should prefer `skills/`, `tools/`, and role-scoped `presets/`.
+Archived demos no longer use this tree as a parallel source-of-truth. New examples, docs, and tests should rely on `skills/`, `tools/`, role-scoped `presets/`, and optional `compatibility-profiles/` only.
 
 ## How To Use Each Part
 

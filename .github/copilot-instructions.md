@@ -68,7 +68,7 @@ Role injection is backend-specific in `launch_plan.py`:
 - Gemini headless uses a bootstrap message.
 - CAO-backed and Houmao-server-backed sessions use a profile-based role injection path.
 
-For concrete end-to-end workflows, the most useful examples live under `scripts/demo/`. The current README-recommended proof of concept is `scripts/demo/mail-ping-pong-gateway-demo-pack/`.
+For concrete supported workflows, prefer the canonical fixtures under `tests/fixtures/agents/`, the current getting-started docs, and the live explore helpers under `scripts/explore/`. Archived demos under `scripts/demo/legacy/` are historical reference only.
 
 ## Key conventions
 

@@ -29,7 +29,7 @@ This is not the pair-managed `houmao-server + houmao-mgr` workflow.
 - `tmux` is installed and available on `PATH`.
 - `codex` is installed and available on `PATH`.
 - The local fixture agent definitions exist under `tests/fixtures/agents`.
-- The local Codex credential profile exists under `tests/fixtures/agents/brains/api-creds/codex/personal-a-default/`.
+- The local Codex auth bundle exists under `tests/fixtures/agents/tools/codex/auth/personal-a-default/`.
 
 Useful checks:
 

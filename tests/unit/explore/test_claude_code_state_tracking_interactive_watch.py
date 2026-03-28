@@ -32,18 +32,16 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _write_recipe(path: Path) -> None:
+def _write_preset(path: Path) -> None:
     _write(
         path,
         "\n".join(
             [
-                "schema_version: 1",
-                "name: interactive-watch-default",
-                "tool: claude",
                 "skills:",
                 "  - openspec-explore",
-                "config_profile: default",
-                "credential_profile: personal-a-default",
+                "auth: personal-a-default",
+                "launch:",
+                "  prompt_mode: unattended",
             ]
         )
         + "\n",
@@ -63,7 +61,7 @@ def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
         repo_root="/repo",
         run_root=str(paths.run_root),
         runtime_root=str(paths.runtime_root),
-        recipe_path="/repo/tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml",
+        preset_path="/repo/tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml",
         brain_home_path=str(paths.runtime_root / "homes" / "claude-home"),
         brain_manifest_path=str(paths.runtime_root / "manifests" / "claude-home.yaml"),
         launch_helper_path=str(paths.runtime_root / "homes" / "claude-home" / "launch.sh"),
@@ -143,8 +141,8 @@ def _save_terminal_record_manifest(paths: InteractiveWatchPaths) -> None:
 def test_start_interactive_watch_builds_run_local_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write_recipe(recipe_path)
+    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    _write_preset(preset_path)
     requested: dict[str, object] = {}
 
     def _fake_build(request):
@@ -192,7 +190,7 @@ def test_start_interactive_watch_builds_run_local_runtime(
     result = start_interactive_watch(
         repo_root=tmp_path,
         output_root=run_root,
-        recipe_path=recipe_path,
+        preset_path=preset_path,
         sample_interval_seconds=0.25,
         settle_seconds=1.5,
         trace_enabled=True,
@@ -218,8 +216,8 @@ def test_start_interactive_watch_builds_run_local_runtime(
 def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write_recipe(recipe_path)
+    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
     cleaned_sessions: list[str] = []
@@ -280,7 +278,7 @@ def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
         start_interactive_watch(
             repo_root=tmp_path,
             output_root=run_root,
-            recipe_path=recipe_path,
+            preset_path=preset_path,
             sample_interval_seconds=0.25,
             settle_seconds=1.5,
             trace_enabled=True,
@@ -300,8 +298,8 @@ def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
 def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write_recipe(recipe_path)
+    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
     cleaned_sessions: list[str] = []
@@ -362,7 +360,7 @@ def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
         start_interactive_watch(
             repo_root=tmp_path,
             output_root=run_root,
-            recipe_path=recipe_path,
+            preset_path=preset_path,
             sample_interval_seconds=0.25,
             settle_seconds=1.5,
             trace_enabled=True,
@@ -382,8 +380,8 @@ def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
 def test_start_interactive_watch_falls_back_to_direct_recorder_session_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write_recipe(recipe_path)
+    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
     cleaned_sessions: list[str] = []
@@ -443,7 +441,7 @@ def test_start_interactive_watch_falls_back_to_direct_recorder_session_cleanup(
         start_interactive_watch(
             repo_root=tmp_path,
             output_root=run_root,
-            recipe_path=recipe_path,
+            preset_path=preset_path,
             sample_interval_seconds=0.25,
             settle_seconds=1.5,
             trace_enabled=True,

@@ -119,48 +119,6 @@ Parsing a CAO response that contains a provider identifier SHALL NOT widen the s
 - **AND WHEN** the runtime is later asked to launch a CAO-backed session for tool `kimi`
 - **THEN** the runtime still rejects that launch request with an explicit unsupported tool/provider mapping error
 
-### Requirement: Live demo scripts prove end-to-end prompt processing with real providers
-In addition to unit tests, the repo SHALL include opt-in demo tutorial packs under `scripts/demo/<purpose-slug>/...` that demonstrate launching sessions and processing prompts end-to-end against real cloud providers using local credential profiles under `agents/brains/api-creds/`.
-
-Each demo SHALL follow the tutorial-pack guidance in `magic-context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README, one-click `run_demo.sh`, temporary workspace, tracked minimal inputs, and a verification story via `expected_report/` + sanitizer or an explicit verifier).
-
-#### Scenario: Codex CAO demo launches and returns a real response
-- **WHEN** a developer runs the Codex CAO demo script with valid Codex/OpenAI credentials present under `agents/brains/api-creds/`
-- **AND WHEN** `cao-server` is running locally
-- **THEN** the demo launches a CAO-backed Codex session, sends a prompt, and receives a non-empty model response
-
-#### Scenario: Claude Code CAO demo launches and returns a real response
-- **WHEN** a developer runs the Claude Code CAO demo script with valid Claude/Anthropic credentials present under `agents/brains/api-creds/`
-- **AND WHEN** `cao-server` is running locally
-- **THEN** the demo launches a CAO-backed Claude Code session, sends a prompt, and receives a non-empty model response
-
-#### Scenario: Gemini demo launches and returns a real response
-- **WHEN** a developer runs the Gemini demo script with valid Gemini credentials present under `agents/brains/api-creds/`
-- **THEN** the demo launches a Gemini session (using the runtime’s supported non-CAO backend) and receives a non-empty model response
-
-#### Scenario: Demo tutorial pack has the required structure
-- **WHEN** a developer inspects a demo under `scripts/demo/<purpose-slug>/`
-- **THEN** it includes a `README.md` and a `run_demo.sh`
-- **AND THEN** it uses a temporary workspace under `tmp/` (or another gitignored path)
-
-#### Scenario: Missing credentials causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the required credential profile files under `agents/brains/api-creds/` are missing
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without attempting provider calls
-
-#### Scenario: Invalid credentials causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the provider rejects the request due to invalid/unauthorized credentials
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without marking the overall demo suite as failed
-
-#### Scenario: Connectivity loss causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the demo cannot reach a required service (for example CAO server connection failure, network error, or provider timeout)
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without marking the overall demo suite as failed
-
 ### Requirement: CAO REST client exposes overrideable operational timeout budgets
 The system SHALL expose supported operational timeout configuration for the repo-owned CAO-compatible REST client rather than relying on one unoverrideable flat timeout budget for every request.
 
@@ -191,4 +149,3 @@ Direct Python callers SHALL be able to override both budgets through supported c
 - **WHEN** a caller constructs the CAO-compatible client with `timeout_seconds = 5` and `create_timeout_seconds = 90`
 - **THEN** lightweight requests use a 5-second timeout budget
 - **AND THEN** `create_session()` and `create_terminal()` use a 90-second timeout budget
-

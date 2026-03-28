@@ -56,8 +56,8 @@ INTERACTIVE_WATCH_SCHEMA_VERSION = 1
 DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path(
     "tmp/explore/claude-code-state-tracking/interactive-watch"
 )
-DEFAULT_INTERACTIVE_RECIPE = Path(
-    "tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml"
+DEFAULT_INTERACTIVE_PRESET = Path(
+    "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"
 )
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.25
 DEFAULT_SETTLE_SECONDS = 1.0
@@ -87,7 +87,7 @@ def start_interactive_watch(
     *,
     repo_root: Path,
     output_root: Path | None,
-    recipe_path: Path | None,
+    preset_path: Path | None,
     sample_interval_seconds: float,
     settle_seconds: float,
     trace_enabled: bool,
@@ -101,26 +101,26 @@ def start_interactive_watch(
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
     _ensure_run_directories(paths=paths)
 
-    selected_recipe_path = _resolve_recipe_path(repo_root=repo_root, recipe_path=recipe_path)
-    recipe = load_brain_recipe(selected_recipe_path)
-    if recipe.tool != "claude":
+    selected_preset_path = _resolve_preset_path(repo_root=repo_root, preset_path=preset_path)
+    preset = load_brain_recipe(selected_preset_path)
+    if preset.tool != "claude":
         raise RuntimeError(
-            f"Interactive Claude watch requires a Claude recipe, got {recipe.tool!r} from "
-            f"{selected_recipe_path}"
+            f"Interactive Claude watch requires a Claude preset, got {preset.tool!r} from "
+            f"{selected_preset_path}"
         )
 
     build_result = build_brain_home(
         BuildRequest(
             agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
-            tool=recipe.tool,
-            skills=list(recipe.skills),
-            config_profile=recipe.config_profile,
-            credential_profile=recipe.credential_profile,
-            recipe_path=selected_recipe_path,
-            recipe_launch_overrides=recipe.launch_overrides,
+            tool=preset.tool,
+            skills=list(preset.skills),
+            setup=preset.setup,
+            auth=preset.auth,
+            preset_path=selected_preset_path,
+            preset_launch_overrides=preset.launch_overrides,
             runtime_root=paths.runtime_root,
-            mailbox=recipe.mailbox,
-            agent_name=recipe.default_agent_name,
+            mailbox=preset.mailbox,
+            agent_name=preset.default_agent_name,
             launch_overrides=LaunchOverrides(
                 args=LaunchArgsSection(
                     mode="replace",
@@ -167,7 +167,7 @@ def start_interactive_watch(
             repo_root=str(repo_root),
             run_root=str(paths.run_root),
             runtime_root=str(paths.runtime_root),
-            recipe_path=str(selected_recipe_path),
+            preset_path=str(selected_preset_path),
             brain_home_path=str(build_result.home_path),
             brain_manifest_path=str(build_result.manifest_path),
             launch_helper_path=str(build_result.launch_helper_path),
@@ -307,7 +307,7 @@ def stop_interactive_watch(
             repo_root=manifest.repo_root,
             run_root=manifest.run_root,
             runtime_root=manifest.runtime_root,
-            recipe_path=manifest.recipe_path,
+            preset_path=manifest.preset_path,
             brain_home_path=manifest.brain_home_path,
             brain_manifest_path=manifest.brain_manifest_path,
             launch_helper_path=manifest.launch_helper_path,
@@ -531,10 +531,10 @@ def _resolve_existing_run_root(*, repo_root: Path, run_root: Path | None) -> Pat
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def _resolve_recipe_path(*, repo_root: Path, recipe_path: Path | None) -> Path:
-    """Resolve the interactive watch recipe path."""
+def _resolve_preset_path(*, repo_root: Path, preset_path: Path | None) -> Path:
+    """Resolve the interactive watch preset path."""
 
-    selected = recipe_path or (repo_root / DEFAULT_INTERACTIVE_RECIPE)
+    selected = preset_path or (repo_root / DEFAULT_INTERACTIVE_PRESET)
     return selected.expanduser().resolve()
 
 
@@ -821,7 +821,7 @@ def _render_dashboard(
 
     lines: list[Text] = [
         Text(f"run: {manifest.run_id}"),
-        Text(f"recipe: {Path(manifest.recipe_path).name}"),
+        Text(f"preset: {Path(manifest.preset_path).name}"),
         Text(f"detector: claude_code / {manifest.observed_version or 'unknown'}"),
     ]
     if latest_state_payload is None:
@@ -929,7 +929,7 @@ def _render_interactive_report(
         "",
         f"- Verdict: `{verdict}`",
         f"- Run root: `{paths.run_root}`",
-        f"- Recipe: `{manifest.recipe_path}`",
+        f"- Preset: `{manifest.preset_path}`",
         f"- Brain home: `{manifest.brain_home_path}`",
         f"- Brain manifest: `{manifest.brain_manifest_path}`",
         f"- Recorder root: `{manifest.terminal_record_run_root}`",

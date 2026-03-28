@@ -3,24 +3,24 @@ Define unattended Claude Code startup requirements for orchestrated launches, in
 
 ## Requirements
 
-### Requirement: Claude config profile disables dangerous-mode prompt
+### Requirement: Claude setup bundle disables dangerous-mode prompt
 The system SHALL provide tool configuration for Claude Code such that an orchestrated launch using `--dangerously-skip-permissions` does not block on a confirmation prompt.
 
 #### Scenario: Dangerous-mode prompt is disabled via settings.json
-- **WHEN** a Claude brain is constructed and `CLAUDE_CONFIG_DIR` is set to the constructed runtime home
+- **WHEN** a Claude runtime is constructed from the selected setup bundle and `CLAUDE_CONFIG_DIR` is set to the constructed runtime home
 - **THEN** the runtime home SHALL contain a `settings.json` file
 - **AND THEN** `settings.json` SHALL set `skipDangerousModePermissionPrompt` to `true`
 
-### Requirement: Claude credential profile MAY provide `claude_state.template.json`
-The Claude credential profile SHALL support an optional Claude state template JSON file that can act as seed state for runtime Claude global state in isolated brain homes.
+### Requirement: Claude auth bundle MAY provide `claude_state.template.json`
+The Claude auth bundle SHALL support an optional Claude state template JSON file that can act as seed state for runtime Claude global state in isolated runtime homes.
 
-#### Scenario: Template is available from selected credential profile
-- **WHEN** a Claude brain is constructed with credential profile `<cred-profile>`
-- **THEN** template material from `agents/brains/api-creds/claude/<cred-profile>/files/claude_state.template.json` SHALL be available to launch-time preparation
+#### Scenario: Template is available from selected auth bundle
+- **WHEN** a Claude runtime is constructed with auth bundle `<auth>`
+- **THEN** template material from `agents/tools/claude/auth/<auth>/files/claude_state.template.json` SHALL be available to launch-time preparation
 - **AND THEN** the template input file MUST NOT be named `.claude.json` (it is an input, not the runtime state file)
 
 #### Scenario: Missing template does not block unattended startup
-- **WHEN** a Claude brain is launched and the selected credential profile does not provide `claude_state.template.json` template material
+- **WHEN** a Claude runtime is launched and the selected auth bundle does not provide `claude_state.template.json` template material
 - **AND WHEN** the selected unattended strategy can synthesize required runtime state from minimal credentials
 - **THEN** launch preparation SHALL continue without treating the missing template as a configuration error
 
@@ -152,11 +152,11 @@ Backend-reserved args are: `--resume`, `--output-format`, and `--append-system-p
 - **THEN** launch plan construction SHALL fail with a clear configuration error naming the conflicting arg
 
 ### Requirement: Tmux environment policy is specified canonically at the platform layer
-For tmux-isolated launches (for example CAO-backed sessions), the system SHALL follow the canonical environment inheritance policy defined by the `component-agent-construction` capability (inherit caller env, overlay credential-profile env, and avoid allowlist-gated injection).
+For tmux-isolated launches (for example CAO-backed sessions), the system SHALL follow the canonical environment inheritance policy defined by the `component-agent-construction` capability (inherit caller env, overlay auth-bundle env, and avoid allowlist-gated injection).
 
 #### Scenario: Tmux-isolated Claude launch follows the canonical environment inheritance policy
 - **WHEN** a Claude session starts on a tmux-isolated launch surface
-- **THEN** the launch environment inherits the caller environment and overlays credential-profile env
+- **THEN** the launch environment inherits the caller environment and overlays auth-bundle env
 - **AND THEN** provider startup does not depend on allowlist-gated env injection for standard runtime variables
 
 ### Requirement: Orchestrated Claude Code launches support env-based model selection
@@ -179,8 +179,8 @@ The system SHALL additionally support:
 - `CLAUDE_CODE_SUBAGENT_MODEL`
 - `ANTHROPIC_SMALL_FAST_MODEL` (when unset, the system SHALL NOT synthesize it and Claude Code defaults apply)
 
-#### Scenario: Model env vars from credential profile are available to headless Claude
-- **WHEN** a Claude brain is constructed and the credential profile env file defines `ANTHROPIC_MODEL` and/or `ANTHROPIC_SMALL_FAST_MODEL` and/or `CLAUDE_CODE_SUBAGENT_MODEL`
+#### Scenario: Model env vars from auth bundle are available to headless Claude
+- **WHEN** a Claude runtime is constructed and the auth bundle env file defines `ANTHROPIC_MODEL` and/or `ANTHROPIC_SMALL_FAST_MODEL` and/or `CLAUDE_CODE_SUBAGENT_MODEL`
 - **THEN** the constructed launch plan SHALL include the corresponding model env var(s) in the selected env var set for headless launches
 
 #### Scenario: Model env vars are preserved for tmux-isolated launches

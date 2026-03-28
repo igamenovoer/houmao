@@ -45,7 +45,7 @@ def _load_template_json(home_path: Path) -> dict[str, Any]:
     if not template_path.is_file():
         raise BackendExecutionError(
             "Missing Claude bootstrap template "
-            f"`{template_path}`. Ensure the selected credential profile "
+            f"`{template_path}`. Ensure the selected auth bundle "
             f"provides `files/{_STATE_TEMPLATE_FILENAME}` and the Claude tool "
             "adapter projects it into the runtime home."
         )
@@ -72,7 +72,7 @@ def _validate_settings_json(home_path: Path) -> None:
     if not settings_path.is_file():
         raise BackendExecutionError(
             f"Missing required Claude settings file `{settings_path}`. "
-            "Configure a Claude config profile that projects `settings.json` "
+            "Configure a Claude setup bundle that projects `settings.json` "
             "with `skipDangerousModePermissionPrompt: true`."
         )
 

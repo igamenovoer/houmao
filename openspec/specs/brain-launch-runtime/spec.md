@@ -476,7 +476,7 @@ When using CAO, the system SHALL generate CAO agent profiles at runtime from rep
 - **AND THEN** the CAO terminal launch references that generated profile by name
 
 ### Requirement: Credential env var allowlist enforcement at launch
-The system SHALL apply only allowlisted credential environment variables at launch time, as defined by the selected tool adapter and credential profile.
+The system SHALL apply only allowlisted credential environment variables at launch time, as defined by the selected tool adapter and auth bundle.
 
 #### Scenario: Disallowed env vars are ignored
 - **WHEN** the credential env file contains both allowlisted and non-allowlisted keys
@@ -508,15 +508,15 @@ The system SHALL additionally support:
 - **AND THEN** if the caller environment defines `CLAUDE_CODE_SUBAGENT_MODEL`, the created tmux session environment SHALL include `CLAUDE_CODE_SUBAGENT_MODEL` with the same value
 - **AND THEN** if the caller environment defines `ANTHROPIC_SMALL_FAST_MODEL`, the created tmux session environment SHALL include `ANTHROPIC_SMALL_FAST_MODEL` with the same value
 
-#### Scenario: Headless session includes allowlisted model env vars from credential profile
-- **WHEN** a developer starts a Claude headless session and the selected credential profile env file defines `ANTHROPIC_MODEL` (and/or `ANTHROPIC_SMALL_FAST_MODEL` and/or `CLAUDE_CODE_SUBAGENT_MODEL` and/or one of the `ANTHROPIC_DEFAULT_*_MODEL` pinning vars)
+#### Scenario: Headless session includes allowlisted model env vars from auth bundle
+- **WHEN** a developer starts a Claude headless session and the selected auth bundle env file defines `ANTHROPIC_MODEL` (and/or `ANTHROPIC_SMALL_FAST_MODEL` and/or `CLAUDE_CODE_SUBAGENT_MODEL` and/or one of the `ANTHROPIC_DEFAULT_*_MODEL` pinning vars)
 - **THEN** the headless Claude subprocess environment SHALL include the corresponding model-selection env var(s)
 
-### Requirement: Credential profile sharing is permitted
-The system SHALL allow launching multiple sessions that reference the same credential profile.
+### Requirement: Auth bundle sharing is permitted
+The system SHALL allow launching multiple sessions that reference the same auth bundle.
 
-#### Scenario: Launch does not require exclusive credential ownership
-- **WHEN** a developer launches two sessions selecting the same credential profile name
+#### Scenario: Launch does not require exclusive auth ownership
+- **WHEN** a developer launches two sessions selecting the same auth bundle name
 - **THEN** both launches can proceed without requiring an exclusive lock
 
 ### Requirement: Interactive sessions provide streaming output and support interruption
@@ -802,7 +802,7 @@ For Codex launches, the runtime SHALL apply a runtime-owned bootstrap step to th
 Bootstrap behavior SHALL include:
 - ensuring launch-context trust is recorded for the active workspace target in Codex project config, and
 - seeding required notice state needed to avoid interactive onboarding/warning prompts for the selected policy profile, and
-- applying configured non-interactive launch flags needed to reduce interactive startup prompts (including `approval_policy` / `sandbox_mode` only when explicitly present in the selected Codex config profile; the runtime SHALL NOT hardcode new approval/sandbox defaults).
+- applying configured non-interactive launch flags needed to reduce interactive startup prompts (including `approval_policy` / `sandbox_mode` only when explicitly present in the selected Codex setup bundle; the runtime SHALL NOT hardcode new approval/sandbox defaults).
 
 #### Scenario: CAO Codex launch seeds trust for launch workspace
 - **WHEN** a Codex CAO-backed session is started with a resolved working directory

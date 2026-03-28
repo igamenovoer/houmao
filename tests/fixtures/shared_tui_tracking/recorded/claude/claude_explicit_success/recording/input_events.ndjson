@@ -1,5 +1,0 @@
-{"elapsed_seconds": 0.0, "escape_special_keys": false, "event_id": "i000001", "sequence": "\u001b[?1;2;4c\u001b[>84;0;0c\u001bP>|tmux 3.4\u001b\\", "source": "asciinema_input", "tmux_target": null, "ts_utc": "2026-03-22T09:06:54+00:00"}
-{"elapsed_seconds": 2.187, "escape_special_keys": false, "event_id": "i000002", "sequence": "\u0003", "source": "asciinema_input", "tmux_target": null, "ts_utc": "2026-03-22T09:06:56+00:00"}
-{"elapsed_seconds": 2.240829, "escape_special_keys": false, "event_id": "i000003", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%415", "ts_utc": "2026-03-22T09:06:56+00:00"}
-{"elapsed_seconds": 2.669867, "escape_special_keys": false, "event_id": "i000004", "sequence": "Reply with the single word READY and stop.", "source": "managed_send_keys", "tmux_target": "%415", "ts_utc": "2026-03-22T09:06:56+00:00"}
-{"elapsed_seconds": 2.878918, "escape_special_keys": false, "event_id": "i000005", "sequence": "<[Enter]>", "source": "managed_send_keys", "tmux_target": "%415", "ts_utc": "2026-03-22T09:06:56+00:00"}

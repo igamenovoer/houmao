@@ -12,7 +12,7 @@ The getting-started section SHALL include an architecture overview document that
 #### Scenario: Reader understands build-then-run flow
 
 - **WHEN** a reader opens the architecture overview
-- **THEN** they find a clear explanation of: (1) build phase producing a BrainManifest from a recipe or blueprint, (2) run phase composing manifest plus role into a LaunchPlan dispatched to a backend, and (3) `houmao-mgr` as the primary operator CLI for the supported workflow
+- **THEN** they find a clear explanation of: (1) build phase producing a BrainManifest from a preset-backed build specification, (2) run phase composing manifest plus role into a LaunchPlan dispatched to a backend, and (3) `houmao-mgr` as the primary operator CLI for the supported workflow
 
 #### Scenario: Backend model presented with current operator posture
 
@@ -22,12 +22,12 @@ The getting-started section SHALL include an architecture overview document that
 
 ### Requirement: Agent definition directory layout documented
 
-The getting-started section SHALL include a page documenting the agent definition directory structure (`brains/tool-adapters/`, `brains/skills/`, `brains/cli-configs/`, `brains/api-creds/`, `brains/brain-recipes/`, `roles/`, `blueprints/`) with the purpose of each subdirectory.
+The getting-started section SHALL include a page documenting the agent definition directory structure (`skills/<skill>/`, `roles/<role>/system-prompt.md`, `roles/<role>/presets/<tool>/<setup>.yaml`, `tools/<tool>/adapter.yaml`, `tools/<tool>/setups/<setup>/`, `tools/<tool>/auth/<auth>/`, and optional `compatibility-profiles/`) with the purpose of each subdirectory.
 
 #### Scenario: Reader can set up a new agent definition directory
 
 - **WHEN** a reader follows the agent definition directory page
-- **THEN** they understand what goes in each subdirectory and which files are committed vs local-only (api-creds)
+- **THEN** they understand what goes in each canonical subdirectory and which files are committed vs local-only (`tools/<tool>/auth/`)
 
 ### Requirement: Quickstart guide covers build and launch
 

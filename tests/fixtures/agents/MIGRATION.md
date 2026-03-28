@@ -16,6 +16,7 @@ The tracked fixture tree now uses the simplified source model:
 - `brains/brain-recipes/<tool>/<name>.yaml` became `roles/<role>/presets/<tool>/<setup>.yaml`
 - preset identity is now path-derived, so tracked preset YAML no longer needs `name`, `tool`, or `default_agent_name`
 - `blueprints/` are no longer the canonical reusable launch layer
+- the tracked `brains/` and `blueprints/` mirrors have been removed from the supported fixture tree
 
 ## Current Workflow
 

@@ -1,3 +1,2 @@
 # Local-only credential/state trees for fixture variants
-brains/api-creds/**
 tools/**/auth/**
