@@ -96,7 +96,7 @@ def _make_native_launch_target(
 
 
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
-    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "server"}
+    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "project", "server"}
 
 
 def test_bare_invocation_prints_help() -> None:
@@ -229,6 +229,17 @@ def test_top_level_mailbox_help_mentions_local_admin_surface() -> None:
     assert "register" in result.output
     assert "unregister" in result.output
     assert "repair" in result.output
+
+
+def test_top_level_project_help_mentions_local_overlay_surface() -> None:
+    result = CliRunner().invoke(cli, ["project", "--help"])
+
+    assert result.exit_code == 0
+    assert "local repo-local houmao project-overlay administration" in result.output.lower()
+    assert "init" in result.output
+    assert "status" in result.output
+    assert "agent-tools" in result.output
+    assert "credential" not in result.output
 
 
 def test_agents_mailbox_help_mentions_late_registration_surface() -> None:

@@ -181,25 +181,25 @@ Once `agents join` completes, the adopted session has the same management capabi
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
 
-### 2. Create / Choose An Agent Definition Directory
+### 2. Initialize A Local Houmao Project Overlay
 
-An **agent definition directory** is any folder (name is not hard-coded) that contains `tools/`, `roles/`, `skills/`, and optionally per-role presets.
+The supported local workflow is `houmao-mgr project init`. It creates one repo-local `.houmao/` overlay, writes `.houmao/houmao-config.toml`, writes `.houmao/.gitignore` with `*`, and seeds `.houmao/agents/tools/` with the packaged adapter and setup bundles for supported tools.
 
-Commands that need agent definitions resolve the directory with this precedence:
+Commands that need agent definitions now resolve the directory with this precedence:
 
 1. CLI `--agent-def-dir`
 2. env `AGENTSYS_AGENT_DEF_DIR`
-3. default `<pwd>/.agentsys/agents`
+3. nearest ancestor `.houmao/houmao-config.toml`
+4. default `<pwd>/.agentsys/agents`
 
-This repo includes a complete template you can copy and customize:
+The project-local workflow looks like this:
 
 ```bash
-mkdir -p .agentsys
-cp -a tests/fixtures/agents .agentsys/agents
-export AGENTSYS_AGENT_DEF_DIR="$PWD/.agentsys/agents"
+pixi run houmao-mgr project init
+pixi run houmao-mgr project agent-tools claude auth add --name default --api-key your-api-key-here
 ```
 
-Then replace the auth bundles under `tools/<tool>/auth/` with your own credentials (keep them uncommitted).
+`project init` does not touch the repository root `.gitignore`. The whole `.houmao/` overlay stays local-only by default because `.houmao/.gitignore` ignores the subtree.
 
 ### 3. Prepare The Agent Definition Directory Contents
 
@@ -209,11 +209,13 @@ Top-level purpose summary:
 - `roles/`: role prompt packages that define agent behavior/policy for a session, plus optional presets.
 - `skills/`: reusable capability modules; each agent selects a subset.
 
+`houmao-mgr project init` populates `tools/` for you. You author `roles/` and `skills/` locally inside `.houmao/agents/`.
+
 Within `tools/<tool>/`:
 
 - `adapter.yaml`: per-tool build/launch contract (executable, env injection, projection rules).
 - `setups/<setup>/`: secret-free config files projected into the runtime home.
-- `auth/<auth>/`: local-only credential bundles (gitignored).
+- `auth/<auth>/`: local-only auth bundles (gitignored).
 
 Within `roles/<role>/`:
 
@@ -221,20 +223,24 @@ Within `roles/<role>/`:
 - `presets/<tool>/<setup>.yaml`: path-derived presets that bind a role to a tool + setup + skills.
 
 ```text
-<agent-def-dir>/
-  tools/
-    <tool>/
-      adapter.yaml                       # REQUIRED: per-tool build & launch contract
-      setups/<setup>/...                  # REQUIRED (per preset): secret-free tool config
-      auth/<auth>/                        # REQUIRED (per preset): local-only credentials (gitignored)
-        env/vars.env
-        files/...
-  roles/
-    <role>/
-      system-prompt.md                   # REQUIRED: role prompt package
-      presets/<tool>/<setup>.yaml         # OPTIONAL: path-derived presets (recommended)
-  skills/
-    <skill>/SKILL.md                     # REQUIRED (per preset): reusable skill packages
+<repo>/
+  .houmao/
+    houmao-config.toml                  # project-local source of truth
+    .gitignore                          # contains `*`
+    agents/
+      tools/
+        <tool>/
+          adapter.yaml                  # REQUIRED: per-tool build & launch contract
+          setups/<setup>/...            # REQUIRED (per preset): secret-free tool config
+          auth/<auth>/                  # REQUIRED (per preset): local-only auth bundle
+            env/vars.env
+            files/...
+      roles/
+        <role>/
+          system-prompt.md              # REQUIRED: role prompt package
+          presets/<tool>/<setup>.yaml   # OPTIONAL: path-derived presets (recommended)
+      skills/
+        <skill>/SKILL.md                # REQUIRED (per preset): reusable skill packages
 ```
 
 #### `tools/<tool>/adapter.yaml` (required)
@@ -243,8 +249,8 @@ Tool adapters are the per-tool contract between your source tree and the generat
 
 - Purpose: define how `build-brain` materializes a runnable home for each tool (`codex`, `claude`, `gemini`).
 - Launch definition: executable, default args, and home selector env var (for example `CLAUDE_CONFIG_DIR`).
-- Projection rules: where selected `setups/`, `skills/`, and credential files land inside the runtime home.
-- Credential env policy: which keys from `env/vars.env` are allowlisted and how they are injected at launch.
+- Projection rules: where selected `setups/`, `skills/`, and auth files land inside the runtime home.
+- Auth env policy: which keys from `env/vars.env` are allowlisted and how they are injected at launch.
 
 For the full agent definition model, see [Agent Definitions](docs/getting-started/agent-definitions.md).
 
@@ -306,7 +312,7 @@ tools/codex/auth/personal-a-default/
 # OPENAI_ORG_ID=<unset>
 ```
 
-Keep real credential files (like `files/auth.json`) local-only and gitignored.
+Keep real auth files (like `files/auth.json`) local-only and gitignored.
 
 #### `roles/<role>/presets/<tool>/<setup>.yaml` (recommended, secret-free)
 

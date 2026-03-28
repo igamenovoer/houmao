@@ -2,7 +2,7 @@
 
 Houmao pair CLI with native server and managed-agent command families.
 
-`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, server management, and administrative tasks.
+`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, repo-local project overlays, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, project bootstrap, server management, and administrative tasks.
 
 ## Synopsis
 
@@ -139,6 +139,39 @@ houmao-mgr brains build [OPTIONS]
 | `--agent-name TEXT` | Human-readable agent name. |
 | `--agent-id TEXT` | Explicit agent identifier. |
 
+`brains build` resolves the effective agent-definition root with this precedence:
+
+1. `--agent-def-dir`
+2. `AGENTSYS_AGENT_DEF_DIR`
+3. nearest ancestor `.houmao/houmao-config.toml`
+4. legacy `<pwd>/.agentsys/agents`
+
+### `project` — Repo-local Houmao project overlays
+
+```
+houmao-mgr project [OPTIONS] COMMAND [ARGS]...
+```
+
+Local operator workflow for bootstrapping and inspecting one repo-local `.houmao/` overlay.
+
+#### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `init` | Create or validate `.houmao/`, write `.houmao/houmao-config.toml`, write `.houmao/.gitignore`, and seed `.houmao/agents/tools/` starter content. |
+| `status` | Report whether a project overlay was discovered from the current directory and which agent-definition root is effective. |
+| `agent-tools <tool> auth list` | Enumerate existing project-local auth bundle names for one tool. |
+| `agent-tools <tool> auth add --name <name>` | Create one new tool-local auth bundle under `.houmao/agents/tools/<tool>/auth/<name>/`. |
+| `agent-tools <tool> auth get --name <name>` | Inspect one existing tool-local auth bundle with secret values redacted by default. |
+| `agent-tools <tool> auth set --name <name>` | Update one existing tool-local auth bundle in place. |
+| `agent-tools <tool> auth remove --name <name>` | Remove one named project-local auth bundle. |
+
+Project overlay notes:
+
+- `project init` targets the current working directory in v1.
+- `.houmao/.gitignore` contains `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
+- `project status` uses nearest-ancestor discovery for `.houmao/houmao-config.toml`.
+
 ### `server` — Server lifecycle management
 
 ```
@@ -173,14 +206,6 @@ Show server health and a compact active-session summary.
 ```
 houmao-mgr server status [OPTIONS]
 ```
-
-### `passthrough` — Passthrough utilities
-
-```
-houmao-mgr passthrough [OPTIONS] COMMAND [ARGS]...
-```
-
-Passthrough utilities for forwarding operations to underlying tools.
 
 ---
 

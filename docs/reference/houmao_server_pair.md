@@ -14,7 +14,7 @@ For the deeper explanation of live terminal tracking and managed-agent state, se
 Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes, managed-agent routes, terminal-tracking routes, and a legacy `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes `server`, `agents`, `brains`, `mailbox`, and `admin` command groups
+- `houmao-mgr`: exposes `server`, `agents`, `brains`, `project`, `mailbox`, and `admin` command groups
 - `houmao-cli`: legacy runtime-local CLI, not part of the supported pair
 
 Representative usage:
@@ -22,11 +22,12 @@ Representative usage:
 ```bash
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
-AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex
+houmao-mgr project init
+houmao-mgr project agent-tools codex auth add --name default --api-key your-api-key-here
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
-houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex --headless
-houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
+houmao-mgr agents launch --agents your-role --agent-name gpu --provider codex --headless
+houmao-mgr agents launch --agents your-role --agent-name gpu --provider claude_code
 houmao-mgr agents join --agent-name gpu
 houmao-mgr agents join --headless --agent-name reviewer --provider codex --launch-args exec --launch-args=--json --resume-id last
 houmao-mgr mailbox init --mailbox-root tmp/shared-mail
@@ -89,6 +90,7 @@ Retired standalone surfaces (legacy):
 - `server`
 - `agents`
 - `brains`
+- `project`
 - `mailbox`
 - `admin`
 
@@ -97,6 +99,7 @@ Authority is split intentionally:
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
 - `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
+- `project ...` bootstraps the repo-local `.houmao/` overlay, reports discovery state, and manages local auth bundles under `.houmao/agents/tools/<tool>/auth/`
 - `mailbox ...` manages the shared filesystem mailbox root, address lifecycle, and inactive-registration cleanup without `houmao-server`
 - `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
 - `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets

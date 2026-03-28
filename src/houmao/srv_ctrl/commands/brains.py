@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import click
@@ -13,11 +12,9 @@ from houmao.agents.brain_builder import (
     load_brain_recipe,
     load_launch_overrides_input,
 )
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.project.overlay import resolve_project_aware_agent_def_dir
 
 from .common import emit_json
-
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
 
 
 @click.group(name="brains")
@@ -170,14 +167,7 @@ def _optional_path(value: str | None, *, base: Path) -> Path | None:
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     """Resolve the agent-definition root used for local brain construction."""
 
-    if cli_value is not None:
-        return _resolve_path(cli_value, base=cwd)
-
-    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _resolve_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    return resolve_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value).agent_def_dir
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:

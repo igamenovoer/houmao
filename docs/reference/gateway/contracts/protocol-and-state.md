@@ -71,7 +71,7 @@ Representative `houmao_server_rest` internal bootstrap payload:
     "parsing_mode": "shadow_only"
   },
   "manifest_path": "/abs/path/.houmao/runtime/sessions/houmao_server_rest/cao-gpu/manifest.json",
-  "agent_def_dir": "/abs/path/.agentsys/agents",
+  "agent_def_dir": "/abs/path/repo/.houmao/agents",
   "runtime_session_id": "cao-gpu",
   "desired_host": "127.0.0.1",
   "desired_port": 43123

@@ -71,7 +71,7 @@ Representative record with optional gateway and mailbox metadata present:
   "runtime": {
     "manifest_path": "/abs/path/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
     "session_root": "/abs/path/runtime/sessions/cao_rest/cao-rest-1",
-    "agent_def_dir": "/abs/path/repo/.agentsys/agents"
+    "agent_def_dir": "/abs/path/repo/.houmao/agents"
   },
   "terminal": {
     "kind": "tmux",

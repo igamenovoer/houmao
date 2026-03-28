@@ -149,6 +149,8 @@ Runtime-managed sessions also derive a per-session workspace-local job directory
 
 The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `AGENTSYS_JOB_DIR`.
 
+If the selected working directory is also a repo root initialized with `houmao-mgr project init`, this scratch path family lands under the same hidden `.houmao/` overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`. The overlap is only about path anchoring; `jobs/` remains scratch/runtime state rather than project source.
+
 ## Contract Boundaries
 
 - `manifest.json` is the durable runtime record for resume and control.

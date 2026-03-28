@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from houmao.agents.definition_parser import AgentPreset, load_agent_catalog, resolve_agent_preset
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.project.overlay import resolve_project_aware_agent_def_dir
 
 _TOOL_BY_PROVIDER: dict[str, str] = {
     "claude_code": "claude",
@@ -56,10 +55,7 @@ def tool_for_provider(provider: str) -> str:
 def resolve_effective_agent_def_dir(*, working_directory: Path) -> Path:
     """Resolve the effective agent-definition root for pair launch."""
 
-    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value is not None and env_value.strip():
-        return Path(env_value).expanduser().resolve()
-    return (working_directory.resolve() / ".agentsys" / "agents").resolve()
+    return resolve_project_aware_agent_def_dir(cwd=working_directory.resolve()).agent_def_dir
 
 
 def resolve_native_launch_target(

@@ -7,9 +7,10 @@ This page turns the filesystem reference into preparation guidance: what you can
 The safest preparation pattern is:
 
 1. choose where durable runtime and registry state should live,
-2. choose whether workspace-local jobs should stay in the repo worktree or move to a scratch filesystem,
-3. choose whether the legacy launcher-managed CAO state should use an explicit `home_dir` (only relevant for `cao_rest` backend),
-4. pre-create any redirected parent directories with the right ownership and write permissions.
+2. choose whether you want a repo-local `.houmao/` overlay via `houmao-mgr project init`,
+3. choose whether workspace-local jobs should stay in the repo worktree or move to a scratch filesystem,
+4. choose whether the legacy launcher-managed CAO state should use an explicit `home_dir` (only relevant for `cao_rest` backend),
+5. pre-create any redirected parent directories with the right ownership and write permissions.
 
 ## Writable-Path Summary
 
@@ -57,7 +58,9 @@ Important rule: env-var root overrides must be absolute paths. Explicit CLI or c
 
 ## Ignore Rules
 
-The best default ignore rule target is the workspace-local jobs root:
+If you use `houmao-mgr project init`, `.houmao/.gitignore` already ignores the whole repo-local `.houmao/` overlay, including any later `jobs/` scratch directories that land there when the repo root is the working directory.
+
+Without a repo-local project overlay, the best default ignore rule target is the workspace-local jobs root:
 
 ```text
 .houmao/jobs/

@@ -12,12 +12,19 @@ Houmao uses one consistent precedence rule for its shared roots:
 
 Current implementation detail that matters operationally: explicit overrides may be relative and are resolved from the caller-specific base directory, while environment overrides must be absolute paths.
 
+There are now three different `.houmao` anchors to keep straight:
+
+- `~/.houmao/` is the per-user shared Houmao home anchor for durable runtime, registry, and mailbox roots.
+- `<repo>/.houmao/` is an optional repo-local project overlay created by `houmao-mgr project init`.
+- `<working-directory>/.houmao/jobs/` is the workspace-local scratch root for per-session job output. If the working directory is also a project root, that scratch subtree lives under the same hidden `.houmao/` overlay but keeps a separate contract.
+
 ## Ownership Categories
 
 | Category | Meaning | Examples |
 | --- | --- | --- |
 | Houmao-owned | Houmao creates the path family and owns the persisted contract for its contents. | Runtime session manifests, shared-registry `record.json`, launcher `ownership.json` |
 | Houmao-selected | Houmao chooses the root path, but another tool owns the detailed contents under that root. | CAO `HOME` when launcher config omits `home_dir` |
+| Repo-local project overlay | Houmao creates or discovers local operator state under one repo-local `.houmao/` root. | `.houmao/houmao-config.toml`, `.houmao/agents/tools/<tool>/auth/<name>/` |
 | Workspace-local scratch | Houmao creates the path under the selected working directory for destructive or session-local work. | `<working-directory>/.houmao/jobs/<session-id>/` |
 
 ## Root Families
@@ -25,6 +32,7 @@ Current implementation detail that matters operationally: explicit overrides may
 | Surface | Default path | Current override surfaces | Ownership | Contract level |
 | --- | --- | --- | --- | --- |
 | Houmao home anchor | `~/.houmao` | none as a first-class operator surface | Houmao-owned | Stable anchor derived from a platformdirs-aware home lookup |
+| Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; explicit `--agent-def-dir` and `AGENTSYS_AGENT_DEF_DIR` still outrank discovery for agent-definition resolution | Repo-local project overlay | Stable local operator workflow |
 | Runtime root | `~/.houmao/runtime` | explicit CLI/API/config override where supported, then `AGENTSYS_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
 | Registry root | `~/.houmao/registry` | current operator-facing override `AGENTSYS_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
 | Local jobs root | `<working-directory>/.houmao/jobs` | `AGENTSYS_LOCAL_JOBS_DIR` before default derivation | Workspace-local scratch | Stable root family |
@@ -59,6 +67,8 @@ The local jobs root is derived from the selected working directory, not from the
 ```
 
 `AGENTSYS_LOCAL_JOBS_DIR` relocates that scratch area to an absolute path. When the runtime starts or resumes a managed session, it also publishes the concrete per-session directory to the launched environment as `AGENTSYS_JOB_DIR`.
+
+If the selected working directory is also a project root initialized with `houmao-mgr project init`, the default jobs root becomes `<project-root>/.houmao/jobs/`. That path family is still scratch/runtime state, even though it lives under the same hidden repo-local overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`.
 
 ### Launcher-selected CAO home
 

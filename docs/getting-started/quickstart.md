@@ -1,11 +1,9 @@
 # Quickstart
 
-This guide walks through the preset-backed workflow:
+This guide shows the two supported local entry points:
 
-1. copy an `agents/` source tree
-2. add local auth bundles
-3. optionally build a runtime home
-4. launch a managed agent
+1. adopt an already-running provider session with `houmao-mgr agents join`
+2. build and launch from a repo-local `.houmao/` overlay created by `houmao-mgr project init`
 
 ## Prerequisites
 
@@ -18,61 +16,94 @@ This guide walks through the preset-backed workflow:
 pixi install && pixi shell
 ```
 
-## Step 1: Set Up `.agentsys/agents`
+## Workflow 1: Join An Existing Session
+
+Start your provider TUI in tmux window `0`, pane `0`:
 
 ```bash
-mkdir -p .agentsys
-cp -r tests/fixtures/agents/ .agentsys/agents/
+tmux new-session -s hm-demo
+claude
 ```
 
-The canonical layout is now:
-
-- `skills/<skill>/`
-- `roles/<role>/system-prompt.md`
-- `roles/<role>/presets/<tool>/<setup>.yaml`
-- `tools/<tool>/adapter.yaml`
-- `tools/<tool>/setups/<setup>/`
-- `tools/<tool>/auth/<auth>/`
-
-## Step 2: Add Your Local Auth Bundle
+From the same tmux session:
 
 ```bash
-# Claude
-mkdir -p .agentsys/agents/tools/claude/auth/default/env
-printf 'ANTHROPIC_API_KEY=your-api-key-here\n' > .agentsys/agents/tools/claude/auth/default/env/vars.env
-
-# Codex
-mkdir -p .agentsys/agents/tools/codex/auth/default/env
-printf 'OPENAI_API_KEY=your-api-key-here\n' > .agentsys/agents/tools/codex/auth/default/env/vars.env
+pixi run houmao-mgr agents join --agent-name research
+pixi run houmao-mgr agents state --agent-name research
+pixi run houmao-mgr agents prompt --agent-name research --prompt "Summarize the current state."
+pixi run houmao-mgr agents stop --agent-name research
 ```
 
-## Step 3: Build A Brain Home
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Tmux as tmux session
+    participant CLI as houmao-mgr agents join
+    participant RT as Houmao runtime
+    participant Reg as Shared registry
+    Op->>Tmux: start provider TUI
+    Op->>CLI: join --agent-name research
+    CLI->>RT: inspect window 0 pane 0
+    RT->>RT: write manifest and gateway artifacts
+    RT->>Reg: publish managed-agent record
+    RT-->>Op: managed-agent control is ready
+```
+
+Use `agents join` when the provider session already exists and you want Houmao to wrap it without rebuilding a home.
+
+## Workflow 2: Build From A Local `.houmao/` Overlay
+
+### Step 1: Initialize The Project Overlay
+
+```bash
+pixi run houmao-mgr project init
+```
+
+`project init` creates:
+
+- `.houmao/houmao-config.toml`
+- `.houmao/.gitignore`
+- `.houmao/agents/tools/<tool>/adapter.yaml`
+- `.houmao/agents/tools/<tool>/setups/<setup>/`
+- empty local authoring roots under `.houmao/agents/skills/` and `.houmao/agents/roles/`
+
+### Step 2: Add A Local Auth Bundle
+
+```bash
+pixi run houmao-mgr project agent-tools claude auth add \
+  --name default \
+  --api-key your-api-key-here
+```
+
+For Codex or Gemini, use the matching tool-specific subcommand under `houmao-mgr project agent-tools <tool> auth add ...`.
+
+### Step 3: Add One Minimal Skill, Role, And Preset
+
+`project init` seeds the tool contracts, but your repo-local overlay still needs local `skills/` and `roles/` content before build or launch can succeed.
+
+```bash
+mkdir -p .houmao/agents/skills/notes
+printf '# Notes\n\nKeep responses concise and practical.\n' > .houmao/agents/skills/notes/SKILL.md
+
+mkdir -p .houmao/agents/roles/researcher/presets/claude
+printf 'You are a local repo assistant.\n' > .houmao/agents/roles/researcher/system-prompt.md
+printf 'skills:\n  - notes\nauth: default\n' > .houmao/agents/roles/researcher/presets/claude/default.yaml
+```
+
+### Step 4: Build A Brain Home
 
 Using a preset:
 
 ```bash
 pixi run houmao-mgr brains build \
-  --agent-def-dir .agentsys/agents \
-  --preset .agentsys/agents/roles/gpu-kernel-coder/presets/claude/default.yaml
-```
-
-Using explicit inputs:
-
-```bash
-pixi run houmao-mgr brains build \
-  --agent-def-dir .agentsys/agents \
-  --tool claude \
-  --setup default \
-  --auth default \
-  --skill openspec-apply-change \
-  --skill openspec-verify-change
+  --preset roles/researcher/presets/claude/default.yaml
 ```
 
 Key options:
 
 | Option | Description |
 |---|---|
-| `--preset` | Path to a preset YAML file |
+| `--preset` | Path to a preset YAML file, resolved from the effective agent-definition root |
 | `--tool` | CLI tool name |
 | `--setup` | Checked-in setup bundle |
 | `--auth` | Local auth bundle |
@@ -81,41 +112,27 @@ Key options:
 | `--home-id` | Optional fixed runtime-home id |
 | `--reuse-home` | Allow reuse of an existing home id |
 
-## Step 4: Launch A Managed Agent
+Because the local project overlay was initialized first, `brains build` resolves `.houmao/agents/` automatically from `.houmao/houmao-config.toml`.
+
+### Step 5: Launch A Managed Agent
 
 Launch from a bare role selector:
 
 ```bash
 pixi run houmao-mgr agents launch \
-  --agents gpu-kernel-coder \
+  --agents researcher \
   --provider claude_code \
   --agent-name research
 ```
 
 The bare selector plus provider resolves:
 
-- `gpu-kernel-coder` + `claude_code`
-- to `roles/gpu-kernel-coder/presets/claude/default.yaml`
+- `researcher` + `claude_code`
+- to `.houmao/agents/roles/researcher/presets/claude/default.yaml`
 
-Launch a non-default setup by passing the preset path directly:
+You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`.
 
-```bash
-pixi run houmao-mgr agents launch \
-  --agents .agentsys/agents/roles/gpu-kernel-coder/presets/codex/yunwu-openai.yaml \
-  --provider codex \
-  --agent-name research-codex
-```
-
-Override auth at launch time when needed:
-
-```bash
-pixi run houmao-mgr agents launch \
-  --agents gpu-kernel-coder \
-  --provider claude_code \
-  --auth kimi-coding
-```
-
-## Step 5: Prompt And Stop
+### Step 6: Prompt And Stop
 
 ```bash
 pixi run houmao-mgr agents prompt \
@@ -129,4 +146,3 @@ pixi run houmao-mgr agents stop --agent-name research
 
 - [Architecture Overview](overview.md)
 - [Agent Definition Directory](agent-definitions.md)
-- [Minimal Runnable Demo](../../scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md)

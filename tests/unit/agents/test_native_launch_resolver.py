@@ -31,6 +31,26 @@ def test_resolve_effective_agent_def_dir_uses_workdir_default_when_env_missing(
     assert resolved == (workdir / ".agentsys" / "agents").resolve()
 
 
+def test_resolve_effective_agent_def_dir_uses_discovered_project_overlay_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    project_root = (tmp_path / "repo").resolve()
+    nested_dir = project_root / "nested"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    (project_root / ".houmao").mkdir(parents=True, exist_ok=True)
+    (project_root / ".houmao" / "houmao-config.toml").write_text(
+        'schema_version = 1\n\n[paths]\nagent_def_dir = "agents"\n',
+        encoding="utf-8",
+    )
+    (project_root / ".houmao" / "agents").mkdir(parents=True, exist_ok=True)
+
+    resolved = resolve_effective_agent_def_dir(working_directory=nested_dir)
+
+    assert resolved == (project_root / ".houmao" / "agents").resolve()
+
+
 def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

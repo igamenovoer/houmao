@@ -55,6 +55,7 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `server` is the server lifecycle and server-session family
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
+- `project` is the repo-local Houmao overlay bootstrap and agent-tool auth family
 - `admin` is the local maintenance family
 
 The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` are deprecated and removed from the supported command tree.
@@ -109,7 +110,7 @@ For pair-managed `houmao_server_rest` sessions, `--foreground` is redundant but 
 
 For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
-For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox cleanup`.
+For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agent-tools <tool> auth ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox cleanup`.
 
 All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record when needed.
 
@@ -144,8 +145,10 @@ For the dedicated mailbox quickstart, contracts, and operational guidance, see [
 
 Runtime commands use two agent-definition-directory resolution models:
 
-1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then `<pwd>/.agentsys/agents`.
+1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.agentsys/agents`.
 2. Name-based tmux-backed `send-prompt`, `send-keys`, `mail`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `AGENTSYS_AGENT_DEF_DIR`.
+
+When project discovery wins, relative paths in `.houmao/houmao-config.toml` resolve from the `.houmao/` directory itself, so the default `agent_def_dir = "agents"` becomes `<project-root>/.houmao/agents`.
 
 ## Pixi Tasks
 

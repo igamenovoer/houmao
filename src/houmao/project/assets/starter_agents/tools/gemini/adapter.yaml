@@ -1,0 +1,31 @@
+schema_version: 1
+tool: gemini
+home_selector:
+  # gemini-cli uses GEMINI_CLI_HOME to override the home directory used for
+  # global storage (which lives under `${GEMINI_CLI_HOME}/.gemini`).
+  env_var: GEMINI_CLI_HOME
+launch:
+  executable: gemini
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .gemini
+skills_projection:
+  destination: .gemini/skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings:
+    - source: oauth_creds.json
+      destination: .gemini/oauth_creds.json
+      mode: symlink
+  env:
+    source: env/vars.env
+    allowlist:
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+      - GOOGLE_GENAI_USE_VERTEXAI
