@@ -1,0 +1,86 @@
+{
+  "id": "claude_double_interrupt_then_close",
+  "tool": "claude",
+  "description": "Interrupt two active Claude turns in one session, then close the tool intentionally.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-workspace-trust-prompt",
+      "pattern": "Enter to confirm",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_key",
+      "name": "confirm-workspace-trust",
+      "key": "Enter"
+    },
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-stable-input-surface",
+      "pattern": "bypass permissions on",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt-1",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_seconds",
+      "name": "wait-for-active-surface-1",
+      "seconds": 1.5
+    },
+    {
+      "action": "interrupt_turn",
+      "name": "interrupt-turn-1"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready-1"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-interrupted-surface-1",
+      "seconds": 1.0
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt-2",
+      "text": "Now search this repository for files related to terminal recording and prepare a grouped summary. Think carefully before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_seconds",
+      "name": "wait-for-active-surface-2",
+      "seconds": 1.5
+    },
+    {
+      "action": "interrupt_turn",
+      "name": "interrupt-turn-2"
+    },
+    {
+      "action": "wait_for_interrupted_ready",
+      "name": "wait-for-interrupted-ready-2"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-interrupted-surface-2",
+      "seconds": 1.0
+    },
+    {
+      "action": "close_tool",
+      "name": "close-tool"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-post-close-surface",
+      "seconds": 1.0
+    }
+  ]
+}

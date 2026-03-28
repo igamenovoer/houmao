@@ -28,6 +28,15 @@ Start here:
 - [Tutorial: minimal-agent-launch/tut-agent-launch-minimal.md](minimal-agent-launch/tut-agent-launch-minimal.md)
 - Runner: [minimal-agent-launch/scripts/run_demo.sh](minimal-agent-launch/scripts/run_demo.sh)
 
+### `shared-tui-tracking-demo-pack/`
+
+Standalone shared tracked-TUI demo pack for live tmux observation, optional recorder-backed watch runs, scenario-driven recorded capture, strict replay validation, and cadence sweeps. The supported pack owns a tracked secret-free `inputs/agents/` tree and materializes a run-local `workdir/.agentsys/agents` tree with a demo-local `auth: default` alias for the selected tool.
+
+Start here:
+
+- [Guide: shared-tui-tracking-demo-pack/README.md](shared-tui-tracking-demo-pack/README.md)
+- Runner: [shared-tui-tracking-demo-pack/run_demo.sh](shared-tui-tracking-demo-pack/run_demo.sh)
+
 ## Archived Reference
 
 ### `legacy/`

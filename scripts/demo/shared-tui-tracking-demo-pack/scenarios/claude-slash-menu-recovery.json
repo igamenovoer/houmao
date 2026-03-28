@@ -1,0 +1,55 @@
+{
+  "id": "claude_slash_menu_recovery",
+  "tool": "claude",
+  "description": "Open Claude slash help, leave the ambiguous overlay, and return to ready.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-workspace-trust-prompt",
+      "pattern": "Enter to confirm",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_key",
+      "name": "confirm-workspace-trust",
+      "key": "Enter"
+    },
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-stable-input-surface",
+      "pattern": "bypass permissions on",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "send_text",
+      "name": "type-slash",
+      "text": "/",
+      "submit": false
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-slash-overlay",
+      "seconds": 1.0
+    },
+    {
+      "action": "send_key",
+      "name": "close-overlay",
+      "key": "Escape"
+    },
+    {
+      "action": "send_key",
+      "name": "clear-slash-input",
+      "key": "BSpace"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "allow-ready-return",
+      "seconds": 1.0
+    }
+  ]
+}

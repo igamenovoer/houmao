@@ -1,0 +1,33 @@
+{
+  "id": "codex_tui_down_after_active",
+  "tool": "codex",
+  "description": "Force a diagnostics-loss boundary by killing the tracked tmux session mid-turn.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-active-surface",
+      "pattern": "esc to interrupt",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "kill_supported_process",
+      "name": "kill-tracked-supported-process"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "allow-runtime-loss-sample",
+      "seconds": 1.0
+    }
+  ]
+}
